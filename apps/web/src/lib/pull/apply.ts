@@ -19,10 +19,13 @@ import { localized, toLocalized } from '@/lib/localized'
 import i18n from '@/lib/i18n'
 import { readWikiSnapshot } from '@/lib/wiki/wiki-pull'
 import {
-  clonedDictionaryFiles, DICTIONARIES_DIR, DICTIONARIES_INDEX, landDictionaries, readDictionaryLinks,
+  clonedDictionaryFiles, DICTIONARIES_DIR, DICTIONARIES_INDEX, landDictionaries, readDictionaryLinks, type DictionaryLink,
 } from '@/lib/data-dictionary/dictionary-links'
-import { readWikiTree, wikiPageFolder, wikiPageId, WIKI_TREE_FILE } from '@/lib/wiki/wiki-tree'
-import type { ConceptSet, LocalizedString, ServiceMapping, SourceConceptIdRange, Workspace, WikiPage } from '@/types'
+import { fetchDictionaryLazily } from '@/lib/data-dictionary/fetch-lazily'
+import {
+  readWikiAttachmentMeta, readWikiTree, wikiAttachmentId, wikiPageFolder, wikiPageId, WIKI_ATTACHMENTS_META_FILE, WIKI_TREE_FILE,
+} from '@/lib/wiki/wiki-tree'
+import type { ConceptSet, LocalizedString, ServiceMapping, SourceConceptIdRange, Workspace, WikiAttachment, WikiPage } from '@/types'
 import type { Override, PreparedFile, ThreeWayPreview } from './three-way'
 
 /** The entity kind `applyClonedEntity` rebuilds, per git scope. */
@@ -143,21 +146,42 @@ async function textFiles(zip: JSZip, prefix: string): Promise<Record<string, str
   return out
 }
 
-/** The pages (by entityId) the local export had when the pull was prepared, or
- *  none when the preview does not carry the tree — the remote left it as is. */
-function previewWikiNames(preview: ThreeWayPreview | undefined): Set<string> {
-  const text = preview?.files.find((f) => f.path === WIKI_TREE_FILE)?.local
+/** The JSON the local export had at `path` when the pull was prepared, or null
+ *  when the preview does not carry it — the remote left it as is. */
+function previewJson(preview: ThreeWayPreview | undefined, path: string): unknown {
+  const text = preview?.files.find((f) => f.path === path)?.local
   try {
-    return new Set(readWikiTree(text ? JSON.parse(text) : []).map((p) => p.id))
+    return text ? JSON.parse(text) : null
   } catch {
-    return new Set()
+    return null
   }
+}
+
+/** The pages (by entityId) the local export had when the pull was prepared. */
+function previewWikiNames(preview: ThreeWayPreview | undefined): Set<string> {
+  return new Set(readWikiTree(previewJson(preview, WIKI_TREE_FILE) ?? []).map((p) => p.id))
+}
+
+/** The attachments (`<page entityId>/<file name>`) the local export had when the
+ *  pull was prepared. */
+function previewWikiAttachments(preview: ThreeWayPreview | undefined): Set<string> {
+  const meta = previewJson(preview, WIKI_ATTACHMENTS_META_FILE)
+  if (!Array.isArray(meta)) return new Set()
+  return new Set(meta.flatMap((e) => (e && typeof e.pageEntityId === 'string' && typeof e.fileName === 'string' ? [`${e.pageEntityId}/${e.fileName}`] : [])))
+}
+
+const sameBytes = (a: ArrayBuffer | undefined, b: ArrayBuffer) => {
+  if (!a || a.byteLength !== b.byteLength) return false
+  const x = new Uint8Array(a)
+  const y = new Uint8Array(b)
+  return x.every((v, i) => v === y[i])
 }
 
 /** The wiki as the merged tree has it, written page by page. A page is matched
  *  on its entityId and keeps its local id; a new one takes the derived id. A page
  *  is removed only when the preview had it: one created since is not the
- *  remote's to delete. */
+ *  remote's to delete. Attachments follow the same rules, keyed by page and
+ *  file name. */
 async function applyWiki(zip: JSZip, workspaceId: string, storage: Storage, preview?: ThreeWayPreview) {
   const pages = readWikiSnapshot(await textFiles(zip, 'wiki/'))
   const known = previewWikiNames(preview)
@@ -179,6 +203,42 @@ async function applyWiki(zip: JSZip, workspaceId: string, storage: Storage, prev
     if (pages.has(name) || !known.has(name)) continue
     await storage.wikiAttachments.deleteByPage(p.id).catch(() => {})
     await storage.wikiPages.delete(p.id)
+  }
+  await applyWikiAttachments(zip, workspaceId, storage, idOf, preview)
+}
+
+async function applyWikiAttachments(
+  zip: JSZip, workspaceId: string, storage: Storage, idOf: (name: string) => string, preview?: ThreeWayPreview,
+) {
+  const parse = async (path: string) => {
+    const entry = zip.files[path]
+    try { return entry ? JSON.parse(await entry.async('string')) as unknown : null } catch { return null }
+  }
+  const rawTree = await parse(WIKI_TREE_FILE)
+  const merged = readWikiAttachmentMeta(await parse(WIKI_ATTACHMENTS_META_FILE), readWikiTree(rawTree ?? []), rawTree)
+  const knownAttachments = previewWikiAttachments(preview)
+  const pageName = new Map((await storage.wikiPages.getByWorkspace(workspaceId)).map((p) => [p.id, wikiPageFolder(p)]))
+  const local = (await storage.wikiAttachments.getByWorkspace(workspaceId)).filter((a) => pageName.has(a.pageId))
+  const keyOf = (a: { pageId: string; fileName: string }) => `${pageName.get(a.pageId)}/${a.fileName}`
+  const wanted = new Set<string>()
+  for (const att of merged) {
+    const entry = zip.files[att.path]
+    if (!entry) continue
+    const pageId = idOf(att.pageId)
+    const key = `${att.pageId}/${att.fileName}`
+    wanted.add(key)
+    const data = await entry.async('arraybuffer')
+    const current = local.filter((a) => keyOf(a) === key)
+    if (current.length === 1 && sameBytes(current[0].data, data)) continue
+    for (const a of current) await storage.wikiAttachments.delete(a.id)
+    const { path: _path, ...meta } = att
+    await storage.wikiAttachments.create({
+      ...meta, id: wikiAttachmentId(pageId, att.fileName), pageId, workspaceId, fileSize: data.byteLength, data,
+    } as WikiAttachment)
+  }
+  for (const a of local) {
+    const key = keyOf(a)
+    if (!wanted.has(key) && knownAttachments.has(key)) await storage.wikiAttachments.delete(a.id)
   }
 }
 
@@ -229,17 +289,27 @@ async function applyFlatSection<T extends { id: string; name?: string }>(
   }
 }
 
+/** The merged tree's dictionary index, read before anything is written: a
+ *  malformed one fails the pull whole rather than half-applied. */
+async function readDictionaryIndex(zip: JSZip): Promise<DictionaryLink[]> {
+  const entry = zip.files[DICTIONARIES_INDEX]
+  if (!entry) return []
+  try {
+    return readDictionaryLinks(JSON.parse(await entry.async('string')))
+  } catch (e) {
+    throw new PullApplyError(`${DICTIONARIES_INDEX}: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
 /** The linked dictionaries the merged tree lists: a new one is created and
  *  synced from its repository. One the tree no longer lists is left in place —
  *  removing a dictionary removes its sets, which the mapping projects may use. */
-async function applyDictionaries(zip: JSZip, workspaceId: string, storage: Storage) {
-  const entry = zip.files[DICTIONARIES_INDEX]
-  const links = readDictionaryLinks(entry ? JSON.parse(await entry.async('string')) : [])
+async function applyDictionaries(zip: JSZip, links: DictionaryLink[], workspaceId: string, storage: Storage) {
   const texts = await textFiles(zip, `${DICTIONARIES_DIR}/`)
   const clones = new Map(links.map((l) => [l.entityId, clonedDictionaryFiles(texts, l.entityId)]))
   const known = await storage.dataDictionaries.getByWorkspace(workspaceId)
   const added = links.filter((l) => !known.some((d) => d.sourceRepo?.trim() === l.git.url && (d.branch || 'main') === l.git.branch))
-  await landDictionaries(added, clones, workspaceId, i18n.language, storage)
+  await landDictionaries(added, clones, workspaceId, i18n.language, storage, fetchDictionaryLazily)
 }
 
 /** The workspace's badge ranges (`source-concept-ids/ranges.json`), as one list. */
@@ -376,12 +446,13 @@ export async function applyWorkspacePull(
   preview?: ThreeWayPreview,
 ): Promise<void> {
   const paths = Object.keys(overrides)
+  const dictionaries = paths.includes(DICTIONARIES_INDEX) ? await readDictionaryIndex(zip) : null
   if (paths.some((p) => p.startsWith('wiki/'))) await applyWiki(zip, workspaceId, storage, preview)
   if (paths.some((p) => !p.includes('/'))) await applyWorkspaceInfo(zip, workspaceId, storage)
 
   // The linked dictionaries first: their sets are not in concept-sets/ (their
   // repository holds them), so a set file removed there must not delete one.
-  if (paths.includes(DICTIONARIES_INDEX)) await applyDictionaries(zip, workspaceId, storage)
+  if (dictionaries) await applyDictionaries(zip, dictionaries, workspaceId, storage)
   const conceptSets = paths.filter((p) => /^concept-sets\/[^/]+\.json$/.test(p))
   if (conceptSets.length) {
     const linked = new Set((await storage.dataDictionaries.getByWorkspace(workspaceId)).filter((d) => d.sourceRepo?.trim()).map((d) => d.id))

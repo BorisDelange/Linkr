@@ -14,11 +14,10 @@
  */
 import type { ConceptSet, DataDictionary } from '@/types'
 import type { Storage } from '@/lib/storage'
-import { slugify } from '@linkr/format'
-import { isDictionaryFile, readDictionaryTree, repoName, type DictionaryContent } from './content'
+import { DICTIONARIES_DIR, DICTIONARIES_INDEX, isDictionaryFile, slugify } from '@linkr/format'
+import { readDictionaryTree, repoName, setKey, type DictionaryContent } from './content'
 
-export const DICTIONARIES_DIR = 'data-dictionaries'
-export const DICTIONARIES_INDEX = `${DICTIONARIES_DIR}/_dictionaries.json`
+export { DICTIONARIES_DIR, DICTIONARIES_INDEX }
 
 export interface DictionaryLink {
   entityId: string
@@ -34,7 +33,7 @@ const byKey = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
  * The entityId is the name's slug, suffixed `-2`, `-3`… when two share it — in
  * repo-then-branch order, so the same dictionaries always get the same names.
  */
-export function buildDictionaryLinks(dictionaries: readonly DataDictionary[]): (DictionaryLink & { id: string })[] {
+export function buildDictionaryLinks(dictionaries: readonly DataDictionary[]): (Omit<DictionaryLink, 'name'> & { id: string; name?: string })[] {
   const linked = dictionaries
     .filter((d) => d.sourceRepo?.trim())
     .map((d) => ({ d, url: d.sourceRepo!.trim(), branch: d.branch || 'main' }))
@@ -47,7 +46,7 @@ export function buildDictionaryLinks(dictionaries: readonly DataDictionary[]): (
     return {
       id: d.id,
       entityId: n === 1 ? slug : `${slug}-${n}`,
-      name: d.name,
+      ...(d.name ? { name: d.name } : {}),
       ...(d.createdAt ? { createdAt: d.createdAt } : {}),
       git: { url, branch },
     }
@@ -97,6 +96,35 @@ export interface LandedDictionaries {
   unsynced: { name: string; reason: string }[]
 }
 
+/** Reads a dictionary repository when the tree holds no clone of it (`fetchDictionary`
+ *  in ./repo, passed in: it reaches into the stores and the API client). */
+export type DictionaryFetcher = (url: string, branch: string, language: string) => Promise<DictionaryContent>
+
+const sameRepo = (a: string | undefined, b: string | undefined) => {
+  const norm = (u: string | undefined) => (u ?? '').trim().replace(/\/+$/, '').replace(/\.git$/, '').toLowerCase()
+  return !!norm(a) && norm(a) === norm(b)
+}
+
+/**
+ * The workspace's sets imported before dictionaries travelled as pointers: no
+ * dictionary, but from this one's repository (and, when its content is known,
+ * among its sets). Joining it before the sync lets the sync update them in place
+ * — their ids, which the mapping projects hold, stay.
+ */
+async function adoptLooseSets(
+  dictionary: DataDictionary, url: string, content: DictionaryContent | null, workspaceId: string, storage: Storage,
+) {
+  const incoming = content ? new Map(content.conceptSets.map((s) => [setKey(s), s])) : null
+  for (const set of await storage.conceptSets.getByWorkspace(workspaceId)) {
+    if (set.dictionaryId) continue
+    const match = incoming?.get(setKey(set))
+    const adopt = incoming
+      ? !!match && (sameRepo(set.sourceRepo, url) || sameRepo(set.sourceRepo, match.sourceRepo))
+      : sameRepo(set.sourceRepo, url)
+    if (adopt) await storage.conceptSets.update(set.id, { dictionaryId: dictionary.id })
+  }
+}
+
 /**
  * Create (or find, by repo and branch) each linked dictionary in the workspace
  * and sync it: from its clone in the tree when there is one, else from its
@@ -109,6 +137,7 @@ export async function landDictionaries(
   workspaceId: string,
   language: string,
   storage: Storage,
+  fetchDictionary: DictionaryFetcher,
 ): Promise<LandedDictionaries> {
   const result: LandedDictionaries = { conceptSetIds: [], unsynced: [] }
   if (links.length === 0) return result
@@ -135,13 +164,13 @@ export async function landDictionaries(
       const clone = clones.get(link.entityId)
       content = clone && Object.keys(clone).length > 0
         ? readDictionaryTree(clone, null, language)
-        // Loaded on demand: the fetcher reaches into the stores, which the
-        // import modules are loaded by.
-        : await (await import('./repo')).fetchDictionary(link.git.url, link.git.branch, language)
+        : await fetchDictionary(link.git.url, link.git.branch, language)
     } catch (err) {
+      await adoptLooseSets(dictionary, link.git.url, null, workspaceId, storage)
       result.unsynced.push({ name: dictionary.name, reason: err instanceof Error ? err.message : String(err) })
       continue
     }
+    await adoptLooseSets(dictionary, link.git.url, content, workspaceId, storage)
     await storage.dataDictionaries.sync(dictionary.id, content)
   }
   for (const set of await storage.conceptSets.getByWorkspace(workspaceId)) {

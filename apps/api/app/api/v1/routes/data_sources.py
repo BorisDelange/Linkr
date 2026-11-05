@@ -605,9 +605,12 @@ async def _launch_derive(
     db: AsyncSession, request: Request, user: User, source: DataSource, target: DataSource,
     body: DeriveRequest, cohort: Cohort | None, label: str, may_remove: bool,
 ) -> JobResponse:
+    first_build = body.target.kind == "new-database" and not (target.linkr_created or {}).get("file")
+    if first_build:
+        cohort_derive_service.mark_first_build(target, may_remove)
+        await db.commit()
     job = await jobs.create(db, None, user.id, kind="derive", label=label, workspace_id=source.workspace_id)
     ids = (source.id, target.id, cohort.id if cohort else None)
-    first_build = body.target.kind == "new-database" and not (target.linkr_created or {}).get("file")
     client = notification_service.client_source(request)
     what = cohort.name if cohort is not None else ((body.derived_from or {}).get("cohort") or {}).get("name") or source.name
     workspace_id, user_id = source.workspace_id, user.id

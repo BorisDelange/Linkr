@@ -114,6 +114,10 @@ async def lifespan(app: FastAPI):
     from app.services.execution.jobs import reconcile_on_startup
 
     await reconcile_on_startup()
+    from app.services.cohort_derive_service import reconcile_interrupted_builds
+
+    async with async_session() as db:
+        await reconcile_interrupted_builds(db)
     from app.services.data import query_jobs
 
     query_jobs.sweep_results()

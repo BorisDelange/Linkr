@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import type { Job } from '@/lib/api/environments'
 import type { Cohort, DataSource } from '@/types'
-import { derivationOptions, formatDerivePlan, formatJob, planDerivation, waitForJob } from './derive'
+import {
+  deriveChoices, derivationOptions, formatDerivePlan, formatJob, planDerivation, previousDerivation, rebuildChoices, waitForJob,
+} from './derive'
 import type { DerivePlanTable } from '@/lib/api/data-sources'
 
 const mapping = mappingV1ToV2({
@@ -120,6 +122,28 @@ describe('planDerivation', () => {
     const onSource = { ...options, pseudonymization: { ...options.pseudonymization, correspondence: { dataSourceId: 'src', schemaName: 'p' } } }
     expect(plan({ options: onSource })).toEqual({ error: expect.stringMatching(/DuckDB file/) })
   })
+
+  it('refuses a rebuild writing the correspondence into the database it rebuilds', () => {
+    const derived = db({ id: 'd1', derivedFrom: { target: 'new-database' } as DataSource['derivedFrom'] })
+    const options = {
+      scope: 'visit' as const,
+      pseudonymization: { method: 'hmac' as const, keepKey: true, correspondence: { dataSourceId: 'd1', schemaName: 'pseudonyms' } },
+    }
+    expect(plan({ databases: [db(), derived], options, target: { kind: 'new-database', rebuildId: 'd1' } }))
+      .toEqual({ error: expect.stringMatching(/database being rebuilt/) })
+  })
+
+  it('writes into SQL Server and Doris only where writes are allowed, declaring the schema by default', () => {
+    for (const engine of ['sqlserver', 'doris']) {
+      const open = db({ id: engine, connectionConfig: { engine, allowWrites: true } as DataSource['connectionConfig'] })
+      const p = plan({ databases: [db(), open], target: { kind: 'schema', databaseId: engine, schemaName: 'icu' } })
+      if ('error' in p) throw new Error(p.error)
+      expect(p.request.target).toEqual({ kind: 'schema', dataSourceId: engine, schemaName: 'icu', registerName: 'icu', registerAlias: 'icu' })
+      const closed = db({ id: engine, connectionConfig: { engine } as DataSource['connectionConfig'] })
+      expect(plan({ databases: [db(), closed], target: { kind: 'schema', databaseId: engine } }))
+        .toEqual({ error: expect.stringMatching(/may not create a schema/) })
+    }
+  })
 })
 
 describe('derivationOptions', () => {
@@ -175,6 +199,107 @@ describe('derivationOptions', () => {
     expect(derivationOptions(cohort(), planTables, { variables: 'criteria' })).toEqual({ error: expect.stringMatching(/no concept/) })
     expect(derivationOptions(cohort(), planTables, { method: 'random', reuseKeyOf: 'd1' })).toHaveProperty('error')
     expect(derivationOptions(cohort(), planTables, { correspondence: { databaseId: 'pg', schemaName: 'Bad' } })).toHaveProperty('error')
+  })
+})
+
+describe('deriveChoices', () => {
+  it('leaves absent what the call does not state', () => {
+    expect(deriveChoices({})).toEqual({})
+    expect(deriveChoices({ birth_precision: 'year' })).toEqual({ birthPrecision: 'year' })
+  })
+
+  it('reads concept_ids as the concepts kept, and refuses them beside another variables choice', () => {
+    expect(deriveChoices({ concept_ids: [3, 4] })).toEqual({ variables: [3, 4] })
+    expect(deriveChoices({ variables: 'concepts', concept_ids: [3] })).toEqual({ variables: [3] })
+    expect(deriveChoices({ variables: 'criteria', concept_ids: [3] })).toEqual({ error: expect.stringMatching(/variables concepts/) })
+    expect(deriveChoices({ variables: 'concepts' })).toEqual({ variables: [] })
+  })
+
+  it('refuses a correspondence schema or table with no database to hold it', () => {
+    expect(deriveChoices({ correspondence_schema: 'p' })).toEqual({ error: expect.stringMatching(/correspondence_database_id/) })
+    expect(deriveChoices({ correspondence_table: 't' })).toEqual({ error: expect.stringMatching(/correspondence_database_id/) })
+    expect(deriveChoices({ correspondence_database_id: 'pg', correspondence_table: 't' }))
+      .toEqual({ correspondence: { databaseId: 'pg', schemaName: undefined, tableName: 't' } })
+  })
+})
+
+describe('previousDerivation', () => {
+  const options = { scope: 'visit' as const, birthPrecision: 'year' as const }
+
+  it('reads a rebuilt database\'s own record', () => {
+    const derived = db({ id: 'd1', derivedFrom: { target: 'new-database', options, copyPersonless: false } as DataSource['derivedFrom'] })
+    expect(previousDerivation(cohort(), db(), [db(), derived], { kind: 'new-database', rebuildId: 'd1' }))
+      .toEqual({ options, copyPersonless: false })
+    expect(previousDerivation(cohort(), db(), [db(), derived], { kind: 'new-database' })).toBeUndefined()
+  })
+
+  it('reads the cohort\'s record of the schema a replace rebuilds', () => {
+    const c = cohort({
+      derivations: [
+        { kind: 'schema', targetId: 'src', schemaName: 'cohort_icu_adults', builtAt: '', patientCount: 1, options },
+        { kind: 'schema', targetId: 'src', schemaName: 'other', builtAt: '', patientCount: 1 },
+      ],
+    })
+    expect(previousDerivation(c, db(), [db()], { kind: 'schema', replace: true })).toEqual({ options })
+    expect(previousDerivation(c, db(), [db()], { kind: 'schema' })).toBeUndefined()
+    expect(previousDerivation(c, db(), [db()], { kind: 'schema', replace: true, schemaName: 'fresh' })).toBeUndefined()
+  })
+})
+
+describe('rebuildChoices', () => {
+  const planTables: DerivePlanTable[] = [
+    { schema: null, table: 'person', filter: 'patient', column: 'person_id' },
+    { schema: null, table: 'measurement', filter: 'visit', column: 'visit_occurrence_id' },
+    { schema: null, table: 'drug_exposure', filter: 'visit', column: 'visit_occurrence_id' },
+    { schema: 'vocab', table: 'concept', filter: null, column: null },
+  ]
+  const stored = {
+    scope: 'patient' as const,
+    tables: [{ schema: null, table: 'person' }, { schema: null, table: 'measurement' }, { schema: 'vocab', table: 'concept' }],
+    variables: { conceptIds: [3], conceptNames: { 3: 'HR' } },
+    birthPrecision: 'year' as const,
+    pseudonymization: {
+      method: 'random' as const, keepKey: false,
+      correspondence: { dataSourceId: 'pg', schemaName: 'p', tableName: 't' },
+    },
+  }
+  const rebuilt = (previous: Parameters<typeof rebuildChoices>[0], stated: Parameters<typeof deriveChoices>[0] = {}) => {
+    const choices = deriveChoices(stated)
+    if ('error' in choices) throw new Error(choices.error)
+    const r = derivationOptions(cohort(), planTables, rebuildChoices(previous, choices))
+    if ('error' in r) throw new Error(r.error)
+    return r
+  }
+
+  it('redraws what the derivation kept, not the defaults of a new one', () => {
+    expect(rebuilt({ options: stored }).options).toEqual(stored)
+  })
+
+  it('changes only what the call states', () => {
+    expect(rebuilt({ options: stored }, { birth_precision: 'month' }).options).toEqual({ ...stored, birthPrecision: 'month' })
+    expect(rebuilt({ options: stored }, { copy_personless: false }).options.tables)
+      .toEqual([{ schema: null, table: 'person' }, { schema: null, table: 'measurement' }])
+    expect(rebuilt({ options: stored }, { variables: 'all' }).options.variables).toBeUndefined()
+  })
+
+  it('adds or removes the tables with no patient id from a list of tables', () => {
+    const r = derivationOptions(cohort(), planTables, { tables: ['person'], copyPersonless: true })
+    if ('error' in r) throw new Error(r.error)
+    expect(r.options.tables).toEqual([{ schema: null, table: 'person' }, { schema: 'vocab', table: 'concept' }])
+  })
+
+  it('drops a recorded key reuse when the call switches to random pseudonyms', () => {
+    const keyed = { ...stored, pseudonymization: { method: 'hmac' as const, keepKey: true, reuseKeyOf: 'k' } }
+    expect(rebuilt({ options: keyed }, { method: 'random' }).options.pseudonymization).toEqual({ method: 'random', keepKey: false })
+  })
+
+  it('rebuilds one recorded before the options as it was: everything, unpseudonymised', () => {
+    const r = rebuilt({ copyPersonless: false })
+    expect(r.options).toEqual({
+      scope: 'visit',
+      tables: [{ schema: null, table: 'person' }, { schema: null, table: 'measurement' }, { schema: null, table: 'drug_exposure' }],
+    })
+    expect(r.copyPersonless).toBe(false)
   })
 })
 

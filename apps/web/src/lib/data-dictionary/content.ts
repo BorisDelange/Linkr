@@ -8,11 +8,10 @@
  * apps/api/app/services/data_dictionary_service.py.
  */
 import type { ConceptSet, RecommendedUnit, UnitConversion } from '@/types'
+import { CONCEPT_SETS_DIR, isDictionaryFile, RECOMMENDED_UNITS_FILE, UNIT_CONVERSIONS_FILE } from '@linkr/format'
 import { parseConceptSetJson } from './parse'
 
-export const CONCEPT_SETS_DIR = 'concept_sets'
-export const UNIT_CONVERSIONS_FILE = 'units/unit_conversions.json'
-export const RECOMMENDED_UNITS_FILE = 'units/recommended_units.json'
+export { CONCEPT_SETS_DIR, isDictionaryFile, RECOMMENDED_UNITS_FILE, UNIT_CONVERSIONS_FILE }
 
 /** A concept set as the repository holds it — no local id. */
 export interface IncomingConceptSet {
@@ -42,14 +41,6 @@ export interface DictionaryContent {
 /** A readable name for a repository URL: its last path segment. */
 export function repoName(url: string): string {
   return url.trim().replace(/\.git$/, '').replace(/\/+$/, '').split(/[/:]/).pop() || url
-}
-
-/** Is `path` part of what a dictionary sync reads? (Everything else in the repo
- *  — the app, resolved snapshots, CI — is left out.) */
-export function isDictionaryFile(path: string): boolean {
-  const parts = path.split('/')
-  return (parts.length === 2 && parts[0] === CONCEPT_SETS_DIR && parts[1].endsWith('.json'))
-    || path === UNIT_CONVERSIONS_FILE || path === RECOMMENDED_UNITS_FILE || path === 'config.json'
 }
 
 function parseJson(text: string | undefined): unknown {

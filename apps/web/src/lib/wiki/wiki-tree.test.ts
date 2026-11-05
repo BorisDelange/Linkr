@@ -73,6 +73,17 @@ describe('wiki attachments', () => {
     ])
   })
 
+  it('keeps one attachment per page and file name, the newest', () => {
+    const pages = [page({ id: 'u1', entityId: 'home' })]
+    const meta = buildWikiAttachmentMeta([
+      att({ id: 'old', fileName: 'a.png', fileSize: 1, createdAt: '2026-01-01T00:00:00.000Z' }),
+      att({ id: 'new', fileName: 'a.png', fileSize: 2, createdAt: '2026-01-02T00:00:00.000Z' }),
+      att({ id: 'tie-b', fileName: 'b.png', fileSize: 3 }),
+      att({ id: 'tie-a', fileName: 'b.png', fileSize: 4 }),
+    ], pages)
+    expect(meta.map((m) => [m.fileName, m.fileSize])).toEqual([['a.png', 2], ['b.png', 3]])
+  })
+
   it('reads both layouts back', () => {
     const tree = readWikiTree([{ entityId: 'home', title: { en: 'Home' } }])
     expect(readWikiAttachmentMeta([{ pageEntityId: 'home', fileName: 'a.png', mimeType: 'image/png', fileSize: 4 }], tree, [])[0])

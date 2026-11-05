@@ -69,7 +69,8 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
     # What a derivation created on THIS instance, and so what Linkr may later
     # replace or drop: `file` (this managed file is a derived build), `schemas`
     # (the SQL schemas derived into this database), `schema` + `server` (the
-    # schema a database declared on a derivation points at, and where). Written
+    # schema a database declared on a derivation points at, and where), `building`
+    # (a first build in flight: settled at startup if a restart cut it). Written
     # by cohort_derive_service only — never accepted from a client nor exported:
     # `derived_from` is provenance for display, and travels with imports.
     linkr_created: Mapped[dict | None] = mapped_column(PortableJSON)

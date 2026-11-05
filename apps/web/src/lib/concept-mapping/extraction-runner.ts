@@ -505,6 +505,8 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
           started = jobs.start(chunks[i]).then((id) => {
             for (const { key } of chunks[i]) { answered.set(key, id); chunkOf.delete(key) }
             if (!jobIds.includes(id)) jobIds.push(id)
+            // Started after the pause's cancel went through the jobs known then.
+            if (signal.aborted) void jobs.cancel(id)
             return id
           })
           starting.set(i, started)

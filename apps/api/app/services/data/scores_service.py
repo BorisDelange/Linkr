@@ -40,7 +40,7 @@ def _category_for_method(method: str) -> str | None:
 
 def _connect() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
-    con.execute(f"SET extension_directory = '{_ext_dir()}'")
+    con.execute(f"SET extension_directory = {_sql_literal(_ext_dir())}")
     return con
 
 

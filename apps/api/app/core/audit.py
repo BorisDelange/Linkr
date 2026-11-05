@@ -301,9 +301,13 @@ def reset() -> None:
 
 # --- Compaction and retention ------------------------------------------------------
 
+def _sql_str(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
 def _json_reader(paths: list[Path]) -> str:
     cols = "{" + ", ".join(f"'{k}': '{v}'" for k, v in COLUMNS.items()) + "}"
-    files = ", ".join(f"'{p.as_posix()}'" for p in paths)
+    files = ", ".join(_sql_str(p.as_posix()) for p in paths)
     return f"read_json([{files}], format = 'newline_delimited', columns = {cols})"
 
 
@@ -328,12 +332,12 @@ def compact(today: date | None = None) -> None:
         tmp = root / f".{month}.parquet.tmp"
         parts = [f"SELECT * FROM {_json_reader(sorted(days))}"]
         if target.exists():
-            parts.insert(0, f"SELECT * FROM read_parquet('{target.as_posix()}')")
+            parts.insert(0, f"SELECT * FROM read_parquet({_sql_str(target.as_posix())})")
         con = duckdb.connect()
         try:
             con.execute(
                 f"COPY ({' UNION ALL BY NAME '.join(parts)} ORDER BY seq) "
-                f"TO '{tmp.as_posix()}' (FORMAT parquet, COMPRESSION zstd)"
+                f"TO {_sql_str(tmp.as_posix())} (FORMAT parquet, COMPRESSION zstd)"
             )
         finally:
             con.close()
@@ -382,7 +386,7 @@ def _source_sql(root: Path) -> str | None:
     parts = []
     months = sorted(root.glob("*.parquet"))
     if months:
-        files = ", ".join(f"'{p.as_posix()}'" for p in months)
+        files = ", ".join(_sql_str(p.as_posix()) for p in months)
         parts.append(f"SELECT * FROM read_parquet([{files}], union_by_name = true)")
     days = sorted(root.glob("*.jsonl"))
     if days:
@@ -505,7 +509,7 @@ def export_csv(path: Path, sort: str | None = None, desc: bool = True, filters: 
         view = _view(source)
         con.execute(
             f"COPY (SELECT {cols} FROM {view} {cond} {_order(sort, desc)}) "
-            f"TO '{path.as_posix()}' (HEADER, DELIMITER ',')",
+            f"TO {_sql_str(path.as_posix())} (HEADER, DELIMITER ',')",
             params,
         )
         return int(con.execute(f"SELECT count(*) FROM {view} {cond}", params).fetchone()[0])

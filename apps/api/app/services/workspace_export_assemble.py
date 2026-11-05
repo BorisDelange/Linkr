@@ -843,16 +843,24 @@ async def build_workspace_tree_from_db(
         # dictionaryId is a local key: it rides as `_dictionaryId`, for the
         # section to leave out the sets of a git-linked dictionary (twin of
         # entity-io.ts), and is never written.
+        all_dictionaries = await data_dictionary_service.list_for_workspace(db, workspace.id)
+        # A linked dictionary left out of the export takes its sets with it.
+        excluded_linked = {
+            d.id for d in all_dictionaries
+            if options.exclude_entities.get(d.id) and (d.source_repo or "").strip()
+        }
         concept_sets = []
         for cs in await concept_set_service.list_for_workspace(db, workspace.id):
             if options.exclude_entities.get(cs.id):
                 continue
             data = _strip_instance_fields(_dump(ConceptSetResponse, cs))
             dictionary_id = data.pop("dictionaryId", None)
+            if dictionary_id in excluded_linked:
+                continue
             concept_sets.append({**data, "_dictionaryId": dictionary_id})
         data_dictionaries = [
             _dump(DataDictionaryResponse, d)
-            for d in await data_dictionary_service.list_for_workspace(db, workspace.id)
+            for d in all_dictionaries
             if not options.exclude_entities.get(d.id)
         ]
 

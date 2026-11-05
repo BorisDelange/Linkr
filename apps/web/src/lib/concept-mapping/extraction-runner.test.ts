@@ -448,6 +448,33 @@ describe('profile queries run as a server job', () => {
     expect(writes.at(-1)!.state.extracted).toBe(0)
   })
 
+  it('cancels a job whose start was still in flight when the run paused', async () => {
+    const { answer } = fakeSource(warehouse)
+    const { jobs, cancelled } = fakeJobs()
+    const pausing: ProfileJobs = {
+      ...jobs,
+      start: async (queries) => { pauseRun(`p${runCount}`); return jobs.start(queries) },
+    }
+    await runToEnd({ ...input(answer), resumeFrom: null, jobs: pausing })
+    expect(cancelled).toEqual(['job1'])
+  })
+
+  it('cancels a later job whose start was still in flight when the run paused', async () => {
+    const { answer } = fakeSource({ ...warehouse, records: { 1: 5_000_000, 2: 4_000_000, 3: 3_000_000 } })
+    const { jobs, started, cancelled } = fakeJobs()
+    const pausing: ProfileJobs = {
+      ...jobs,
+      maxQueries: 1,
+      start: async (queries) => {
+        if (started.length === 1) pauseRun(`p${runCount}`)
+        return jobs.start(queries)
+      },
+    }
+    await runToEnd({ ...input(answer), resumeFrom: null, jobs: pausing })
+    expect(started).toHaveLength(2)
+    expect([...cancelled].sort()).toEqual(['job1', 'job2'])
+  })
+
   it('profiles from the database when the concepts are not ranked', async () => {
     const { answer, seen } = fakeSource(warehouse)
     const { jobs, started } = fakeJobs()

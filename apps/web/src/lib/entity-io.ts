@@ -52,7 +52,7 @@ import {
   type DictionaryLink,
 } from '@/lib/data-dictionary/dictionary-links'
 import {
-  buildWikiAttachmentMeta, buildWikiTree, readWikiAttachmentMeta, readWikiTree, wikiAttachmentPath, wikiPageFolder,
+  buildWikiAttachmentMeta, buildWikiTree, latestWikiAttachments, readWikiAttachmentMeta, readWikiTree, wikiAttachmentPath, wikiPageFolder,
   WIKI_ATTACHMENTS_META_FILE, WIKI_TREE_FILE,
 } from '@/lib/wiki/wiki-tree'
 import { readWikiPageMeta } from '@/lib/wiki-page-meta'
@@ -4592,7 +4592,7 @@ export async function buildWorkspaceZip(
         }
       }
 
-      const wikiAttachments = await storage.wikiAttachments.getByWorkspace(workspaceId)
+      const wikiAttachments = latestWikiAttachments(await storage.wikiAttachments.getByWorkspace(workspaceId))
       const attachmentMeta = buildWikiAttachmentMeta(wikiAttachments, wikiPages)
       if (attachmentMeta.length > 0) {
         zip.file(WIKI_ATTACHMENTS_META_FILE, json(attachmentMeta))
@@ -4754,15 +4754,15 @@ export async function buildWorkspaceZip(
   // units coming back from the repo (lib/data-dictionary/dictionary-links.ts).
   // Every other concept set is written as its own file.
   if (on('conceptMapping')) {
-    const dictionaries = (await storage.dataDictionaries.getByWorkspace(workspaceId)).filter((d) => !excluded[d.id])
-    const links = buildDictionaryLinks(dictionaries)
+    const allDictionaries = await storage.dataDictionaries.getByWorkspace(workspaceId)
+    const links = buildDictionaryLinks(allDictionaries.filter((d) => !excluded[d.id]))
     if (links.length > 0) {
       zip.file(DICTIONARIES_INDEX, json(links.map(({ id: _id, ...link }) => link)))
       for (const link of links) {
         gitLinks.push({ type: 'data-dictionary', folder: link.entityId, url: link.git.url, branch: link.git.branch })
       }
     }
-    const conceptSets = unlinkedConceptSets(await storage.conceptSets.getByWorkspace(workspaceId), dictionaries)
+    const conceptSets = unlinkedConceptSets(await storage.conceptSets.getByWorkspace(workspaceId), allDictionaries)
     for (const cs of conceptSets) {
       if (excluded[cs.id]) continue
       // dictionaryId is a local key.

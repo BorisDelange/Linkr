@@ -304,13 +304,13 @@ def materialize(rows: list[dict], mode: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".tmp")
     con = duckdb.connect()
-    con.execute(f"SET extension_directory = '{db_connect._ext_dir()}'")
+    con.execute(f"SET extension_directory = '{_esc(db_connect._ext_dir())}'")
     try:
         col_defs = ", ".join(_col_ddl(c, mode) for c in columns)
         con.execute(f"CREATE TABLE t ({col_defs})")
         if rows:
             _insert_rows(con, columns, rows)
-        con.execute(f"COPY t TO '{tmp.as_posix()}' (FORMAT PARQUET)")
+        con.execute(f"COPY t TO '{_esc(tmp.as_posix())}' (FORMAT PARQUET)")
         tmp.replace(dest)
     finally:
         con.close()
@@ -549,7 +549,7 @@ def query_page(
     rank_expr = _fuzzy_search(q)[1] if q else None
     order = _order_by(sort, available, rank_expr)
     con = duckdb.connect()
-    con.execute(f"SET extension_directory = '{db_connect._ext_dir()}'")
+    con.execute(f"SET extension_directory = '{_esc(db_connect._ext_dir())}'")
     try:
         con.execute(
             f"CREATE VIEW g AS SELECT * FROM read_parquet('{_esc(path.as_posix())}')"
@@ -579,7 +579,7 @@ def distinct_filter_values(path: Path, mode: str) -> dict[str, list[str]]:
     vocabulary) without a second pass over the app DB."""
     cols = _FILTER_VALUE_COLUMNS.get(mode, _FILTER_VALUE_COLUMNS["flat"])
     con = duckdb.connect()
-    con.execute(f"SET extension_directory = '{db_connect._ext_dir()}'")
+    con.execute(f"SET extension_directory = '{_esc(db_connect._ext_dir())}'")
     out: dict[str, list[str]] = {}
     try:
         con.execute(

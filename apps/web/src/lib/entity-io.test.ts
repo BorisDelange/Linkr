@@ -335,6 +335,18 @@ describe('buildWorkspaceZip — front/back parity', () => {
     expect('workspaceId' in written).toBe(false)
     expect('updatedAt' in written).toBe(false)
   })
+
+  it('leaves out a linked dictionary left out of the export, its sets with it', async () => {
+    const buildWith = (excludeEntities: Record<string, boolean>) => buildWorkspaceZip('w1', storeWith({
+      workspaces: { getById: async () => ({ id: 'w1', name: { en: 'W' }, description: {} }) },
+      dataDictionaries: { getByWorkspace: async () => [{ id: 'd1', workspaceId: 'w1', name: 'Core', sourceRepo: 'https://x/core', createdAt: '', updatedAt: '' }] },
+      conceptSets: { getByWorkspace: async () => [
+        { id: 'cs1', workspaceId: 'w1', name: 'Heart rate', dictionaryId: 'd1', expression: { items: [] } },
+      ] },
+    }), { sections: { conceptMapping: true } as never, excludeEntities })
+    const zip = await JSZip.loadAsync(await (await buildWith({ d1: true }))!.blob.arrayBuffer())
+    expect(Object.keys(zip.files).filter((p) => p.startsWith('concept-sets/') || p.startsWith('data-dictionaries/'))).toEqual([])
+  })
 })
 
 // parseCsvLine guards data integrity on import. Quote handling bugs silently

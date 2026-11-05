@@ -14,6 +14,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
 import duckdb
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import crypto
@@ -365,6 +366,34 @@ def release(target_id: str, job_id: str | None = None) -> None:
         del _running[target_id]
 
 
+def mark_first_build(target: DataSource, may_remove: bool) -> None:
+    """Flag a database whose first build is starting, so a restart that kills the
+    job (none survives one) can tell its card from one merely being set up."""
+    target.linkr_created = {**_created(target), "building": {"removable": may_remove}}
+
+
+async def reconcile_interrupted_builds(db: AsyncSession) -> None:
+    """At startup, no derivation is running: a first build still flagged was
+    interrupted. Its card goes as a failed first build's does — removed when the
+    launcher could remove it, else left in error."""
+    rows = (await db.execute(select(DataSource).where(DataSource.linkr_created.is_not(None)))).scalars().all()
+    for row in [r for r in rows if "building" in _created(r)]:
+        building, row_id = _created(row)["building"], row.id
+        if isinstance(building, dict) and building.get("removable") and not _created(row).get("file"):
+            try:
+                await data_source_service.delete(db, row)
+                continue
+            except Exception:
+                await db.rollback()
+                row = await db.get(DataSource, row_id)
+                if row is None:
+                    continue
+        row.linkr_created = {k: v for k, v in _created(row).items() if k != "building"} or None
+        row.status = "error"
+        row.error_message = "The derivation was interrupted: the server restarted before it finished."
+        await db.commit()
+
+
 def _name(value) -> str:
     if isinstance(value, dict):
         return value.get("en") or next((v for v in value.values() if v), "")
@@ -524,7 +553,7 @@ async def _derive(
         target.connection_config = config
         target.schema_mapping = copy.deepcopy(mapping)
         target.derived_from = derived_from
-        target.linkr_created = {**_created(target), "file": True}
+        target.linkr_created = {**{k: v for k, v in _created(target).items() if k != "building"}, "file": True}
         target.status = "connected"
         target.error_message = None
         target.stats = {"patientCount": patient_count, "tableCount": len([x for x in tables if not x["skipped"]])}

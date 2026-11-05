@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react'
 import * as engine from '@/lib/duckdb/engine'
 import { computeCohortReportData, withReportFlow, type CohortReportData } from '@/lib/cohort-report/model'
 import type { Cohort, DataSource } from '@/types'
-import { cohortRelationNarrowing } from '../relation-narrowing'
 import { reportDataKey, reportRunOf, startReportRun, stopReportRun, useReportRun, type ReportRunState } from './report-runs'
 import { cohortOrigin } from '@/lib/duckdb/query-log'
 import { localized } from '@/lib/localized'
@@ -34,9 +33,8 @@ export function startCohortFigures(cohort: Cohort, source: DataSource, opts: Fig
   startReportRun(cohort.id, key, async (signal) => {
     const named = cohortOrigin(localized(cohort.name, 'en'), opts.withFlow ? 'Cohort report' : 'Cohort statistics')
     const run = (sql: string, what = 'figures') => engine.queryDataSource(source.id, sql, { heavy: true, signal, origin: named(what) })
-    const narrowing = await cohortRelationNarrowing(source.id, mapping, cohort).catch(() => undefined)
-    const data = base ?? await computeCohortReportData({ cohort, mapping, run, narrowing, combine: true })
-    return opts.withFlow ? withReportFlow(data, { cohort, mapping, run, narrowing }) : data
+    const data = base ?? await computeCohortReportData({ cohort, mapping, run, combine: true })
+    return opts.withFlow ? withReportFlow(data, { cohort, mapping, run }) : data
   }, base)
 }
 

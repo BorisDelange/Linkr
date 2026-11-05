@@ -26,6 +26,11 @@ describe('buildDictionaryLinks', () => {
     expect(names([a, b])).toEqual([['core', 'https://x/a'], ['core-2', 'https://x/b']])
     expect(names([b, a])).toEqual(names([a, b]))
   })
+
+  it('leaves the name out of a nameless dictionary', () => {
+    const [link] = buildDictionaryLinks([dict({ id: 'a', name: '', sourceRepo: 'https://x/core' })])
+    expect(link).toEqual({ id: 'a', entityId: 'core', createdAt: '2026-01-01T00:00:00.000Z', git: { url: 'https://x/core', branch: 'main' } })
+  })
 })
 
 describe('unlinkedConceptSets', () => {

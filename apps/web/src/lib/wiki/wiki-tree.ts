@@ -74,6 +74,21 @@ export function buildWikiTree<T extends Record<string, unknown>>(
     .sort((a, b) => byKey(a.entityId as string, b.entityId as string))
 }
 
+/** One attachment per page and file name — the path both are stored at — the
+ *  newest by createdAt (then id) winning. */
+export function latestWikiAttachments<T extends Pick<WikiAttachment, 'id' | 'pageId' | 'fileName'> & { createdAt?: string }>(
+  attachments: readonly T[],
+): T[] {
+  const kept = new Map<string, T>()
+  for (const a of attachments) {
+    const key = `${a.pageId}\u0000${a.fileName}`
+    const other = kept.get(key)
+    if (!other || byKey(other.createdAt ?? '', a.createdAt ?? '') < 0
+      || ((other.createdAt ?? '') === (a.createdAt ?? '') && byKey(other.id, a.id) < 0)) kept.set(key, a)
+  }
+  return [...kept.values()]
+}
+
 /** `_attachments/_meta.json` entries, sorted by page then file name. An
  *  attachment whose page is gone is left out — nothing could show it. */
 export function buildWikiAttachmentMeta(
@@ -81,7 +96,7 @@ export function buildWikiAttachmentMeta(
   pages: Pick<WikiPage, 'id' | 'entityId' | 'title'>[],
 ): { pageEntityId: string; fileName: string; mimeType: string; fileSize: number; createdAt?: string }[] {
   const folderOf = new Map(pages.map((p) => [p.id, wikiPageFolder(p)]))
-  return attachments
+  return latestWikiAttachments(attachments)
     .filter((a) => folderOf.has(a.pageId))
     .map((a) => ({
       pageEntityId: folderOf.get(a.pageId)!,
@@ -149,12 +164,15 @@ export function readWikiAttachmentMeta(raw: unknown, pages: WikiTreePage[], rawT
     }
   }
   const known = new Set(pages.map((p) => p.entityId))
+  const seen = new Set<string>()
   const out: WikiTreeAttachment[] = []
   for (const e of raw as Record<string, unknown>[]) {
     if (!e || typeof e.fileName !== 'string') continue
     const legacy = typeof e.pageEntityId !== 'string'
     const page = legacy ? nameOfId.get(String(e.pageId)) : (e.pageEntityId as string)
-    if (!page || !known.has(page)) continue
+    // A tree written before uploads replaced a same-named file may list it twice.
+    if (!page || !known.has(page) || seen.has(`${page}/${e.fileName}`)) continue
+    seen.add(`${page}/${e.fileName}`)
     out.push({
       pageId: page,
       fileName: e.fileName,

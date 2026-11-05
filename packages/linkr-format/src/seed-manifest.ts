@@ -18,6 +18,7 @@
  * and hands the finished thing here to be indexed.
  */
 
+import { DICTIONARIES_INDEX, isWorkspaceDictionaryFile } from './data-dictionary.js'
 import { CONTENT_FILE, ENTITY_MANIFEST, MANIFEST } from './layout.js'
 import { filesIn, readJson, type EntityTree } from './tree.js'
 
@@ -293,11 +294,8 @@ export function buildSeedManifest(
   }
 
   // --- data-dictionaries/: only with its index, which is what the loader reads first ---
-  if (tree.read('data-dictionaries/_dictionaries.json') != null) {
-    internals.dataDictionaries = tree
-      .paths()
-      .filter((p) => p.startsWith('data-dictionaries/') && p.endsWith('.json'))
-      .sort()
+  if (tree.read(DICTIONARIES_INDEX) != null) {
+    internals.dataDictionaries = tree.paths().filter(isWorkspaceDictionaryFile).sort()
   }
 
   // --- wiki/: only with its tree index, which is what the loader reads first ---

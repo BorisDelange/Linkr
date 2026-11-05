@@ -298,6 +298,20 @@ async def _merged_tree(repo_getter, entity_id, zip_bytes, branch, remote_url, to
 # --- Merge requests (every scope) --------------------------------------------
 
 
+# TODO(git-proposals): set aside on 2026-11-05 with "Propose changes" (twin of
+# apps/web/src/lib/git-proposals.ts). The review mode is no longer enforced: its
+# switch is hidden, so a workspace left in it could not push nor be switched back.
+GIT_PROPOSALS_ENABLED = False
+
+
+def _require_git_proposals() -> None:
+    if not GIT_PROPOSALS_ENABLED:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not Found")
+
+
+_PROPOSALS = [Depends(_require_git_proposals)]
+
+
 async def _propose(
     db, user, scope, entity_id, repo_getter, zip_bytes, target_branch, remote_url, token,
     title, description, paths,
@@ -346,12 +360,6 @@ async def _proposals(db, scope, entity_id, remote_url, token) -> list[dict]:
 
     rows = await git_proposal_service.list_refreshed(db, scope, entity_id, remote_url, token)
     return [GitProposalResponse.model_validate(r).model_dump(by_alias=True, mode="json") for r in rows]
-
-
-# TODO(git-proposals): set aside on 2026-11-05 with "Propose changes" (twin of
-# apps/web/src/lib/git-proposals.ts). The review mode is no longer enforced: its
-# switch is hidden, so a workspace left in it could not push nor be switched back.
-GIT_PROPOSALS_ENABLED = False
 
 
 async def _refuse_direct_push(db, workspace_id: str | None) -> None:
@@ -467,7 +475,7 @@ async def project_branches(
     )
 
 
-@router.post("/projects/{project_uid}/propose", response_model=GitProposalResponse)
+@router.post("/projects/{project_uid}/propose", response_model=GitProposalResponse, dependencies=_PROPOSALS)
 async def project_propose(
     title: str = Form(...),
     description: str = Form(""),
@@ -485,7 +493,7 @@ async def project_propose(
     )
 
 
-@router.get("/projects/{project_uid}/proposals", response_model=list[GitProposalResponse])
+@router.get("/projects/{project_uid}/proposals", response_model=list[GitProposalResponse], dependencies=_PROPOSALS)
 async def project_proposals(
     project=Depends(require_project_permission("project-settings:read")),
     db: AsyncSession = Depends(get_db),
@@ -743,7 +751,7 @@ async def workspace_set_sync_state(
     await _apply_sync_state(db, "workspaces", ws.id, body)
 
 
-@router.post("/workspaces/{workspace_id}/propose", response_model=GitProposalResponse)
+@router.post("/workspaces/{workspace_id}/propose", response_model=GitProposalResponse, dependencies=_PROPOSALS)
 async def workspace_propose(
     workspace_id: str,
     title: str = Form(...),
@@ -762,7 +770,7 @@ async def workspace_propose(
     )
 
 
-@router.get("/workspaces/{workspace_id}/proposals", response_model=list[GitProposalResponse])
+@router.get("/workspaces/{workspace_id}/proposals", response_model=list[GitProposalResponse], dependencies=_PROPOSALS)
 async def workspace_proposals(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
@@ -980,7 +988,7 @@ async def mapping_project_pull_preview(
     )
 
 
-@router.post("/mapping-projects/{mapping_project_id}/propose", response_model=GitProposalResponse)
+@router.post("/mapping-projects/{mapping_project_id}/propose", response_model=GitProposalResponse, dependencies=_PROPOSALS)
 async def mapping_project_propose(
     mapping_project_id: str,
     title: str = Form(...),
@@ -999,7 +1007,7 @@ async def mapping_project_propose(
     )
 
 
-@router.get("/mapping-projects/{mapping_project_id}/proposals", response_model=list[GitProposalResponse])
+@router.get("/mapping-projects/{mapping_project_id}/proposals", response_model=list[GitProposalResponse], dependencies=_PROPOSALS)
 async def mapping_project_proposals(
     mapping_project_id: str,
     db: AsyncSession = Depends(get_db),
@@ -1326,7 +1334,7 @@ async def sql_collection_commit_push(
     )
 
 
-@router.post("/sql-script-collections/{collection_id}/propose", response_model=GitProposalResponse)
+@router.post("/sql-script-collections/{collection_id}/propose", response_model=GitProposalResponse, dependencies=_PROPOSALS)
 async def sql_collection_propose(
     collection_id: str,
     title: str = Form(...),
@@ -1345,7 +1353,7 @@ async def sql_collection_propose(
     )
 
 
-@router.get("/sql-script-collections/{collection_id}/proposals", response_model=list[GitProposalResponse])
+@router.get("/sql-script-collections/{collection_id}/proposals", response_model=list[GitProposalResponse], dependencies=_PROPOSALS)
 async def sql_collection_proposals(
     collection_id: str,
     db: AsyncSession = Depends(get_db),
@@ -1581,7 +1589,7 @@ def _register_entity_git_routes(
             (prefix, _entity_id(e), resolved_branch),
         )
 
-    @router.post(f"/{prefix}/{{entity_id}}/propose", response_model=GitProposalResponse, name=f"{prefix}_propose")
+    @router.post(f"/{prefix}/{{entity_id}}/propose", response_model=GitProposalResponse, name=f"{prefix}_propose", dependencies=_PROPOSALS)
     async def _propose_route(
         entity_id: str,
         title: str = Form(...),
@@ -1598,7 +1606,7 @@ def _register_entity_git_routes(
             _default_branch(e, branch), _remote_url(e), await _token(db, user, e), title, description, paths,
         )
 
-    @router.get(f"/{prefix}/{{entity_id}}/proposals", response_model=list[GitProposalResponse], name=f"{prefix}_proposals")
+    @router.get(f"/{prefix}/{{entity_id}}/proposals", response_model=list[GitProposalResponse], name=f"{prefix}_proposals", dependencies=_PROPOSALS)
     async def _proposals_route(
         entity_id: str,
         db: AsyncSession = Depends(get_db),
@@ -2106,7 +2114,7 @@ async def settings_commit_push(
     )
 
 
-@router.post("/settings/account/propose", response_model=GitProposalResponse)
+@router.post("/settings/account/propose", response_model=GitProposalResponse, dependencies=_PROPOSALS)
 async def settings_propose(
     title: str = Form(...),
     description: str = Form(""),
@@ -2123,7 +2131,7 @@ async def settings_propose(
     )
 
 
-@router.get("/settings/account/proposals", response_model=list[GitProposalResponse])
+@router.get("/settings/account/proposals", response_model=list[GitProposalResponse], dependencies=_PROPOSALS)
 async def settings_proposals(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_admin),

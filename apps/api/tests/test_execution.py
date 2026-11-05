@@ -927,17 +927,18 @@ async def test_interrupt_stops_run_and_kernel_survives(tmp_path):
             if "started" in data:
                 started.set()
 
+        # Endless, so only the interrupt can end it: a finite loop raced its own end
+        # against the wait below, which a loaded `pytest -n 4` run could lose.
         run = asyncio.create_task(
             kernel.execute_stream(
                 "import time\nprint('started', flush=True)\n"
-                "for _ in range(1000):\n    time.sleep(0.05)",
+                "while True:\n    time.sleep(0.05)",
                 on_chunk,
             )
         )
         await asyncio.wait_for(started.wait(), timeout=deadline)
         assert kernel.interrupt() is True
-        # Well under the loop's 50 s: a run that ends in time was interrupted.
-        await asyncio.wait_for(run, timeout=30)
+        await asyncio.wait_for(run, timeout=deadline)
         # In stream mode the interrupt notice arrives as a stderr chunk, not in
         # the done payload (whose stdout/stderr are empty while streaming).
         assert any("KeyboardInterrupt" in c for c in chunks)

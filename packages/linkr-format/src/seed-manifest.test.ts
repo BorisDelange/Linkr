@@ -383,6 +383,8 @@ describe('buildSeedManifest — internals', () => {
       'data-dictionaries/core/concept_sets/1.json': '{}',
       'data-dictionaries/core/units/unit_conversions.json': '[]',
       'data-dictionaries/core/README.md': '# core',
+      'data-dictionaries/core/app/package.json': '{}',
+      'data-dictionaries/core/concept_sets/resolved/1.json': '{}',
     }))
     expect(m.internals?.dataDictionaries).toEqual([
       'data-dictionaries/_dictionaries.json',

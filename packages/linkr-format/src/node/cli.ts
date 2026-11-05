@@ -5,7 +5,7 @@
  * point at a directory of mixed entities — which is what CI over a content repo
  * needs. Exits non-zero when any tree has an error; warnings alone do not fail.
  */
-import { detectTreeKind, formatIssues, hasErrors, validateEntity, validateProject } from '../index.js'
+import { detectTreeKind, formatIssues, hasErrors, isWorkspaceTree, validateEntity, validateProject, validateWorkspace } from '../index.js'
 import { FsTree } from './fs-tree.js'
 import { manifestList } from '../layout.js'
 
@@ -20,7 +20,7 @@ let failed = false
 
 for (const target of targets) {
   const tree = new FsTree(target)
-  const kind = detectTreeKind(tree)
+  const kind = isWorkspaceTree(tree) ? 'workspace' : detectTreeKind(tree)
 
   if (kind == null) {
     console.log(`\n=== ${target}`)
@@ -29,7 +29,9 @@ for (const target of targets) {
     continue
   }
 
-  const issues = kind === 'project' ? validateProject(tree) : validateEntity(tree, kind)
+  const issues = kind === 'workspace' ? validateWorkspace(tree)
+    : kind === 'project' ? validateProject(tree)
+    : validateEntity(tree, kind)
   const errors = issues.filter((i) => i.severity === 'error').length
   const warnings = issues.length - errors
 

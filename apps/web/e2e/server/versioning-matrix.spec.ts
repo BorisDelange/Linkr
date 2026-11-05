@@ -248,6 +248,8 @@ test('every kind of entity: push, a colleague’s change pulled, the same on ano
 })
 
 test('every kind of entity: a change proposed as a merge request, merged on the forge, then pulled', async ({ page, request }) => {
+  // TODO(versioning): drop once GIT_PROPOSALS_ENABLED (routes/git.py) is back on.
+  test.skip(true, 'proposals are set aside: the propose routes answer 404')
   test.skip(!process.env.E2E_DEMO || !process.env.E2E_FORGE, 'needs the demo workspace and docker/forge-sim')
   test.setTimeout(1_800_000)
   await signIn(page)

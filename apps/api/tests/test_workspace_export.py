@@ -44,6 +44,8 @@ from app.services.project_export import (
 )
 from app.services.entity_docs import entity_doc_files, license_meta, strip_entity_docs
 from app.services.workspace_export import (
+    _build_wiki_section,
+    _dictionary_links,
     _sanitize_connection_config,
     _slugify,
     _strip_instance_fields,
@@ -575,3 +577,32 @@ def test_sanitizer_keeps_structural_flags_and_drops_none():
 def test_sanitizer_emits_keys_in_allowlist_order():
     out = _sanitize_connection_config({"managed": True, "inMemory": True, "engine": "duckdb"})
     assert list(out.keys()) == ["engine", "inMemory", "managed"]
+
+
+def test_wiki_attachments_keep_one_per_page_and_file_name_the_newest():
+    # Twin of the wiki-tree.test.ts case: two uploads of one file name share the
+    # stored path, so the tree lists the newest once (same bytes on both sides).
+    def att(id_, name, size, created="2026-01-01T00:00:00.000Z"):
+        return {"id": id_, "pageId": "u1", "fileName": name, "mimeType": "image/png",
+                "fileSize": size, "createdAt": created}
+    tree: dict[str, bytes] = {}
+    _build_wiki_section(
+        tree,
+        [{"id": "u1", "entityId": "home", "title": {"en": "Home"}, "content": {}}],
+        [
+            att("old", "a.png", 1),
+            att("new", "a.png", 2, "2026-01-02T00:00:00.000Z"),
+            att("tie-b", "b.png", 3),
+            att("tie-a", "b.png", 4),
+        ],
+        {"old": b"old", "new": b"new", "tie-b": b"b", "tie-a": b"a"},
+    )
+    meta = json.loads(tree["wiki/_attachments/_meta.json"])
+    assert [(m["fileName"], m["fileSize"]) for m in meta] == [("a.png", 2), ("b.png", 3)]
+    assert tree["wiki/_attachments/home/a.png"] == b"new"
+    assert tree["wiki/_attachments/home/b.png"] == b"b"
+
+
+def test_a_nameless_dictionary_link_omits_its_name():
+    [link] = _dictionary_links([{"id": "a", "name": "", "sourceRepo": "https://x/core"}])
+    assert link == {"entityId": "core", "git": {"url": "https://x/core", "branch": "main"}}

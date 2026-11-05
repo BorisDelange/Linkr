@@ -68,6 +68,15 @@ def test_strip_secrets_removes_password_and_token():
     assert strip_secrets(None) == {}
 
 
+async def test_a_database_is_created_in_a_workspace_only(client):
+    headers = await _admin_headers(client)
+    body = {"alias": "orphan", "name": "Orphan", "sourceType": "database", "connectionConfig": {"engine": "duckdb"}}
+    r = await client.post(f"{API}/data-sources", headers=headers, json=body)
+    assert r.status_code == 422 and "workspaceId" in r.text
+    r = await client.post(f"{API}/data-sources", headers=headers, json={**body, "workspaceId": None})
+    assert r.status_code == 422
+
+
 async def test_create_strips_password(client):
     headers = await _admin_headers(client)
     ws = await _workspace(client, headers)
@@ -504,7 +513,7 @@ async def test_a_database_without_workspace_is_not_open_to_everyone(client, db, 
         "alias": "m1", "name": {"en": "m1"}, "sourceType": "database",
         "connectionConfig": {"engine": "duckdb", "serverPath": served}, "status": "connected",
     })
-    assert created.status_code == 403
+    assert created.status_code == 422
     assert (await client.get(f"{API}/data-sources", headers=mallory)).json() == []
     assert (await client.get(f"{API}/data-sources/free", headers=mallory)).status_code == 403
     assert (await client.patch(f"{API}/data-sources/free", headers=mallory, json={"alias": "x"})).status_code == 403

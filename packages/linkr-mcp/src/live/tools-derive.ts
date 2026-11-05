@@ -4,8 +4,8 @@ import { randomUUID } from 'node:crypto'
 import { derivableReason } from '@/lib/cohort-derive'
 import type { Cohort, DataSource as WebDataSource } from '@/types'
 import {
-  MAX_JOB_WAIT_SECONDS, NOT_DERIVABLE, derivationOptions, formatDerivePlan, formatJob, planDerivation, waitForJob,
-  type DeriveOptionsInput, type DeriveTargetInput,
+  MAX_JOB_WAIT_SECONDS, NOT_DERIVABLE, deriveChoices, derivationOptions, formatDerivePlan, formatJob, planDerivation,
+  previousDerivation, rebuildChoices, waitForJob, type DeriveTargetInput,
 } from './derive.js'
 import {
   DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, projectDatabases, text, type Server,
@@ -101,7 +101,7 @@ export function registerDeriveTools(server: Server): void {
         target: { type: 'string', enum: ['new-database', 'schema'], description: 'Default new-database.' },
         name: {
           type: 'string',
-          description: 'new-database: the new database\'s name (default: the cohort\'s). schema on Postgres: the name it is declared under.',
+          description: 'new-database: the new database\'s name (default: the cohort\'s). schema outside DuckDB (Postgres, SQL Server, Doris, Oracle): the name it is declared under.',
         },
         path: {
           type: 'string',
@@ -109,7 +109,8 @@ export function registerDeriveTools(server: Server): void {
         },
         rebuild_database_id: {
           type: 'string',
-          description: 'new-database: rebuild this database, derived from the cohort before, instead of creating one (its content is replaced).',
+          description: 'new-database: rebuild this database, derived from the cohort before, instead of creating one (its content is replaced). '
+            + 'A rebuild keeps what that derivation kept and how it pseudonymised; only the options passed change.',
         },
         target_database_id: {
           type: 'string',
@@ -117,10 +118,14 @@ export function registerDeriveTools(server: Server): void {
             + 'Oracle database allowing writes (Oracle: an existing empty schema, created by an administrator). Default: the cohort\'s database.',
         },
         schema_name: { type: 'string', description: 'schema: lowercase identifier. Default cohort_<cohort name>.' },
-        replace: { type: 'boolean', description: 'schema: drop and recreate the schema if it exists (a rebuild). Default false.' },
+        replace: {
+          type: 'boolean',
+          description: 'schema: drop and recreate the schema if it exists (a rebuild). Default false. Rebuilding a schema derived '
+            + 'from this cohort keeps what it kept and how it pseudonymised; only the options passed change.',
+        },
         register: { type: 'boolean', description: 'schema outside DuckDB: also declare the schema as a Linkr database. Default true.' },
         copy_personless: {
-          type: 'boolean', description: 'Copy the tables with no patient id (vocabularies…) whole. Default true. Ignored with tables.',
+          type: 'boolean', description: 'Copy the tables with no patient id (vocabularies…) whole. Default true. With tables: true adds them to the list, false removes them.',
         },
         scope: { type: 'string', enum: ['patient', 'visit', 'visit_detail'], description: SCOPE_DESCRIPTION },
         tables: {
@@ -131,7 +136,7 @@ export function registerDeriveTools(server: Server): void {
           type: 'string', enum: ['all', 'criteria', 'concepts'],
           description: 'The events kept: all (default), criteria (the concepts the cohort\'s criteria name), or concepts (concept_ids).',
         },
-        concept_ids: { type: 'array', items: { type: 'integer' }, description: 'variables concepts: the concept ids kept.' },
+        concept_ids: { type: 'array', items: { type: 'integer' }, description: 'The concept ids kept (implies variables concepts).' },
         birth_precision: { type: 'string', enum: ['year', 'month', 'day'], description: 'Precision the birth dates keep. Default month.' },
         pseudonymize: { type: 'boolean', description: 'Replace the patient, visit and unit-stay ids by pseudonyms. Default true.' },
         method: {
@@ -151,8 +156,8 @@ export function registerDeriveTools(server: Server): void {
           description: 'Write the table of original id → pseudonym into this writable database (never the one derived into). '
             + 'Default: none — without it, a random or unkept key cannot be traced back.',
         },
-        correspondence_schema: { type: 'string', description: 'Default pseudonyms.' },
-        correspondence_table: { type: 'string', description: 'Default linkr_pseudonyms.' },
+        correspondence_schema: { type: 'string', description: 'With correspondence_database_id. Default pseudonyms.' },
+        correspondence_table: { type: 'string', description: 'With correspondence_database_id. Default linkr_pseudonyms.' },
       },
       required: ['cohort_id'],
     }),
@@ -168,17 +173,10 @@ export function registerDeriveTools(server: Server): void {
       : { kind: 'new-database', name: args.name, path: args.path, rebuildId: args.rebuild_database_id }
     const reason = derivableReason(cohort, source)
     if (reason) return failure(`This cohort cannot be derived: ${NOT_DERIVABLE[reason]}.`)
-    const choices: DeriveOptionsInput = {
-      scope: args.scope, tables: args.tables, copyPersonless: args.copy_personless,
-      variables: args.variables === 'concepts' ? args.concept_ids ?? [] : args.variables,
-      birthPrecision: args.birth_precision, pseudonymize: args.pseudonymize, method: args.method, keepKey: args.keep_key,
-      reuseKeyOf: args.reuse_key_of,
-      ...(args.correspondence_database_id ? {
-        correspondence: {
-          databaseId: args.correspondence_database_id, schemaName: args.correspondence_schema, tableName: args.correspondence_table,
-        },
-      } : {}),
-    }
+    const stated = deriveChoices(args)
+    if ('error' in stated) return failure(stated.error)
+    const previous = previousDerivation(cohort, source, databases as unknown as WebDataSource[], target)
+    const choices = previous ? rebuildChoices(previous, stated) : stated
     const kept = derivationOptions(cohort, await api.derivePlan(source.id, cohort.level, choices.scope), choices)
     if ('error' in kept) return failure(kept.error)
     const plan = planDerivation({

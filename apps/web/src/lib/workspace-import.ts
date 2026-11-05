@@ -35,6 +35,7 @@ import type { DataSource, DataSourceRef, MappingProject, Project, WikiAttachment
 import { importedChecks } from '@/lib/dq-check-portable'
 import { wikiAttachmentId, wikiPageId } from '@/lib/wiki/wiki-tree'
 import { landDictionaries } from '@/lib/data-dictionary/dictionary-links'
+import { fetchDictionaryLazily } from '@/lib/data-dictionary/fetch-lazily'
 
 /** Append " (copy)" to every language of a multilingual name when duplicating. */
 function copyLocalizedName(name: LocalizedString): LocalizedString {
@@ -580,9 +581,12 @@ export async function importWorkspaceTree(
         updatedAt: now,
       })
     }
+    // An attachment whose page this import did not land has nowhere to go (the
+    // server refuses it, aborting the import).
+    const importedPages = new Set(parsed.wikiPages.map((p) => p.id))
     for (const meta of parsed.wikiAttachmentsMeta) {
       const blobData = parsed.wikiAttachmentBlobs.get(meta.id)
-      if (blobData) {
+      if (blobData && importedPages.has(meta.pageId)) {
         const landedPage = pageId(meta.pageId)
         await storage.wikiAttachments.create({
           ...meta,
@@ -716,6 +720,7 @@ export async function importWorkspaceTree(
   // concept-set refs resolve against the sets they bring ---
   const dictionaries = await landDictionaries(
     parsed.dataDictionaries ?? [], parsed.dictionaryClones ?? new Map(), targetWsId, options.language, storage,
+    fetchDictionaryLazily,
   )
   for (const id of dictionaries.conceptSetIds) landed.conceptSets.add(id)
 

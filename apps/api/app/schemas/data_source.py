@@ -13,7 +13,7 @@ _ROLE_NAME = re.compile(r"[a-z_][a-z0-9_]*", re.IGNORECASE)
 class DataSourceCreate(CamelModel):
     id: SafeId | None = None  # client-supplied uuid
     entity_id: str | None = None
-    workspace_id: str | None = None
+    workspace_id: str
     alias: str
     # LocalizedString. `str` is still accepted so older clients and seed
     # manifests that post a bare name keep working (LocalizedText reads it back).

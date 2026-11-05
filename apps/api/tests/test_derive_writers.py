@@ -56,7 +56,8 @@ def test_a_redirect_to_a_backend_is_followed_and_the_file_sent_once(stream_load)
 
     loaded, requests = stream_load(answer)
     assert loaded == 7
-    assert [(r.url.host, len(r.content)) for r in requests] == [("doris-fe.internal", 0), ("10.0.0.7", 0), ("10.0.0.7", 3008)]
+    # No empty PUT reaches the backend: it would run as a load of its own.
+    assert [(r.url.host, len(r.content)) for r in requests] == [("doris-fe.internal", 0), ("10.0.0.7", 3008)]
     assert all(r.headers["authorization"].startswith("Basic ") for r in requests)
     assert requests[-1].headers["content-length"] == "3008"
 

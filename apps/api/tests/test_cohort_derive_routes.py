@@ -546,3 +546,41 @@ async def test_a_failed_first_build_removes_the_editor_s_own_empty_card(client, 
     })
     assert job["status"] == "error"
     assert (await client.get(f"{API}/data-sources/{dst}", headers=admin)).status_code == 404
+
+
+async def test_a_first_build_cut_by_a_restart_is_settled_at_startup(client, db, monkeypatch):
+    from app.models.data_source import DataSource
+    from app.services import cohort_derive_service
+
+    admin = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "WS"}})).json()["id"]
+    src = await _managed(client, admin, ws, "src", seed=True)
+    built = await _managed(client, admin, ws, "built", seed=False)
+    job = await _derive(client, admin, ws, src, {
+        "membershipSql": MEMBERSHIP, "level": "patient", "target": {"kind": "new-database", "dataSourceId": built},
+    })
+    assert job["status"] == "done"
+
+    removable = await _managed(client, admin, ws, "removable", seed=False)
+    kept = (await client.post(f"{API}/data-sources", headers=admin, json={
+        "workspaceId": ws, "alias": "kept", "name": "kept", "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb", "managed": True},
+    })).json()["id"]
+    editor = await _editor(client, db, admin, ws)
+    # The process dies before the jobs run: nothing cleans up after them.
+    monkeypatch.setattr(jobs, "launch", lambda job_id, run: None)
+    for headers, target in ((admin, removable), (editor, kept)):
+        r = await client.post(f"{API}/data-sources/{src}/derive", headers=headers, json={
+            "membershipSql": MEMBERSHIP, "level": "patient", "target": {"kind": "new-database", "dataSourceId": target},
+        })
+        assert r.status_code == 202, r.text
+        cohort_derive_service.release(target, r.json()["id"])
+
+    await cohort_derive_service.reconcile_interrupted_builds(db)
+    db.expire_all()
+    assert await db.get(DataSource, removable) is None
+    left = await db.get(DataSource, kept)
+    assert left.status == "error" and "interrupted" in left.error_message
+    assert "building" not in (left.linkr_created or {})
+    done = await db.get(DataSource, built)
+    assert done.status == "connected" and done.linkr_created == {"file": True}

@@ -196,7 +196,7 @@ def test_a_torn_last_line_of_a_paused_method_file_is_dropped(tmp_path):
 
 
 def test_ids_that_would_leave_the_embeddings_root_are_refused():
-    for bad in ("..", ".", "a/b", "a/../b", "", "x.y"):
+    for bad in ("..", ".", "a/b", "a/../b", "", ".hidden", "-x"):
         with pytest.raises(ValueError):
             registry.check_id(bad)
     with pytest.raises(ValueError):
@@ -206,6 +206,13 @@ def test_ids_that_would_leave_the_embeddings_root_are_refused():
     with pytest.raises(ValueError):
         registry.model_dir("ws", "../x")
     assert registry.check_id("3f2a-b_C9") == "3f2a-b_C9"
+
+
+def test_a_dotted_workspace_id_has_its_embeddings_folder():
+    registry.save("demo.workspace", {"models": [{"id": "m.1"}], "configs": []})
+    assert registry.root("demo.workspace").name == "demo.workspace"
+    assert registry.load("demo.workspace")["models"] == [{"id": "m.1"}]
+    assert registry.model_dir("demo.workspace", "m.1").parent == registry.root("demo.workspace") / "models"
 
 
 def test_a_job_key_is_held_while_its_job_is_created():

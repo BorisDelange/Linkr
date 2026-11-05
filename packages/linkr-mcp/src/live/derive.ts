@@ -39,8 +39,8 @@ export interface DeriveOptionsInput {
   /** Table names as the plan lists them; absent: every copyable one. */
   tables?: string[]
   copyPersonless?: boolean
-  /** `criteria`: the concepts the cohort's criteria name. */
-  variables?: 'all' | 'criteria' | number[]
+  /** `criteria`: the concepts the cohort's criteria name; a selection: kept as recorded. */
+  variables?: 'all' | 'criteria' | number[] | NonNullable<DerivationOptions['variables']>
   birthPrecision?: 'year' | 'month' | 'day'
   pseudonymize?: boolean
   method?: 'hmac' | 'random'
@@ -72,10 +72,9 @@ export function derivationOptions(
     const unknown = input.tables.filter((n) => !known.has(n.toLowerCase()))
     if (unknown.length) return { error: `Not a table this derivation can copy: ${unknown.join(', ')} (see plan_cohort_derivation).` }
     const wanted = new Set(input.tables.map((n) => n.toLowerCase()))
-    kept = copyable.filter((p) => wanted.has(planTableName(p).toLowerCase()))
-  } else if (input.copyPersonless === false) {
-    kept = copyable.filter((p) => !personless.has(planTableName(p)))
+    kept = copyable.filter((p) => wanted.has(planTableName(p).toLowerCase()) || (input.copyPersonless && personless.has(planTableName(p))))
   }
+  if (input.copyPersonless === false) kept = kept.filter((p) => !personless.has(planTableName(p)))
   if (kept.length === 0) return { error: 'No table left to copy.' }
 
   let variables: DerivationOptions['variables']
@@ -85,6 +84,8 @@ export function derivationOptions(
   } else if (Array.isArray(input.variables)) {
     if (!input.variables.length) return { error: 'List at least one concept id, or keep every variable.' }
     variables = { conceptIds: [...new Set(input.variables)], conceptNames: {} }
+  } else if (typeof input.variables === 'object') {
+    variables = input.variables
   }
 
   const birthPrecision = input.birthPrecision ?? 'month'
@@ -114,6 +115,87 @@ export function derivationOptions(
       } : {}),
     },
   }
+}
+
+/** The derive tool's arguments for what is kept and how it is pseudonymised. */
+export interface DeriveChoiceArgs {
+  scope?: DeriveScope; tables?: string[]; copy_personless?: boolean
+  variables?: 'all' | 'criteria' | 'concepts'; concept_ids?: number[]
+  birth_precision?: 'year' | 'month' | 'day'; pseudonymize?: boolean; method?: 'hmac' | 'random'; keep_key?: boolean
+  reuse_key_of?: string; correspondence_database_id?: string; correspondence_schema?: string; correspondence_table?: string
+}
+
+/** The choices the call states, each absent one left absent. */
+export function deriveChoices(args: DeriveChoiceArgs): DeriveOptionsInput | { error: string } {
+  if (args.concept_ids && args.variables && args.variables !== 'concepts') {
+    return { error: `concept_ids lists the concepts kept: pass variables concepts, not ${args.variables}.` }
+  }
+  if ((args.correspondence_schema || args.correspondence_table) && !args.correspondence_database_id) {
+    return { error: 'correspondence_schema and correspondence_table need correspondence_database_id, the database receiving the table.' }
+  }
+  const variables = args.concept_ids ?? (args.variables === 'concepts' ? [] : args.variables)
+  const choices: DeriveOptionsInput = {
+    scope: args.scope, tables: args.tables, copyPersonless: args.copy_personless, variables,
+    birthPrecision: args.birth_precision, pseudonymize: args.pseudonymize, method: args.method, keepKey: args.keep_key,
+    reuseKeyOf: args.reuse_key_of,
+    ...(args.correspondence_database_id ? {
+      correspondence: {
+        databaseId: args.correspondence_database_id, schemaName: args.correspondence_schema, tableName: args.correspondence_table,
+      },
+    } : {}),
+  }
+  return Object.fromEntries(Object.entries(choices).filter(([, v]) => v !== undefined)) as DeriveOptionsInput
+}
+
+/** What a derivation recorded: a rebuild draws it again. */
+export interface PreviousDerivation {
+  /** Absent on one recorded before the options were: everything, as it was. */
+  options?: DerivationOptions
+  copyPersonless?: boolean
+}
+
+/** The derivation `target` rebuilds, when it rebuilds a recorded one: a new
+ *  database's own `derivedFrom`, or the cohort's record of a schema it replaces. */
+export function previousDerivation(
+  cohort: Pick<Cohort, 'name' | 'derivations'>, source: Pick<DataSource, 'id'>, databases: DataSource[], target: DeriveTargetInput,
+): PreviousDerivation | undefined {
+  if (target.kind === 'new-database') {
+    const from = target.rebuildId ? databases.find((d) => d.id === target.rebuildId)?.derivedFrom : undefined
+    return from?.target === 'new-database' ? { options: from.options, copyPersonless: from.copyPersonless } : undefined
+  }
+  if (!target.replace) return undefined
+  const databaseId = target.databaseId ?? source.id
+  const schemaName = target.schemaName ?? defaultDeriveSchemaName(cohort)
+  const recorded = cohort.derivations?.find((d) => d.kind === 'schema' && d.targetId === databaseId && d.schemaName === schemaName)
+  return recorded && { options: recorded.options }
+}
+
+/**
+ * A rebuild's choices, as the app's Rebuild makes them: what the derivation kept
+ * before — the same database, never a wider one — with only what the call states
+ * changed. The app's defaults apply to a new derivation only.
+ */
+export function rebuildChoices(previous: PreviousDerivation, stated: DeriveOptionsInput): DeriveOptionsInput {
+  const o = previous.options
+  const p = o?.pseudonymization
+  const recorded: DeriveOptionsInput = o
+    ? {
+        scope: o.scope as DeriveScope,
+        ...(o.tables ? { tables: o.tables.map(planTableName) } : { copyPersonless: previous.copyPersonless ?? true }),
+        variables: o.variables ?? 'all',
+        birthPrecision: o.birthPrecision ?? 'day',
+        pseudonymize: !!p,
+        ...(p ? {
+          method: p.method, keepKey: p.keepKey, reuseKeyOf: p.reuseKeyOf,
+          correspondence: p.correspondence && {
+            databaseId: p.correspondence.dataSourceId, schemaName: p.correspondence.schemaName, tableName: p.correspondence.tableName,
+          },
+        } : {}),
+      }
+    : { copyPersonless: previous.copyPersonless ?? true, birthPrecision: 'day', pseudonymize: false }
+  const merged = { ...recorded, ...stated }
+  if (merged.method === 'random' && !stated.reuseKeyOf) delete merged.reuseKeyOf
+  return merged
 }
 
 /**
@@ -172,6 +254,7 @@ export function planDerivation(input: {
       if (existing.derivedFrom?.target !== 'new-database') {
         return { error: `Database ${target.rebuildId} was not derived from a cohort into a new database; it cannot be rebuilt.` }
       }
+      if (correspondence === existing.id) return { error: 'The correspondence table cannot go into the database being rebuilt.' }
       return { sourceId: source.id, request: { ...base, target: { kind: 'new-database', dataSourceId: existing.id } } }
     }
     const name = target.name?.trim() || cohort.name

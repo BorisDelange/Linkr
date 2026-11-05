@@ -195,3 +195,26 @@ async def test_export_refuses_an_unmaskable_source_file_with_400(client, monkeyp
     r = await client.post(f"{API}/workspaces/{ws}/export-zip", headers=headers, json={})
     assert r.status_code == 400
     assert "cannot be masked" in r.json()["detail"]
+
+
+async def test_export_leaves_out_the_sets_of_an_excluded_linked_dictionary(client, db):
+    from app.models.concept_set import ConceptSet
+    from app.models.data_dictionary import DataDictionary
+    from app.models.workspace import Workspace
+    from app.services.workspace_export_assemble import WorkspaceExportOptions, build_workspace_tree_from_db
+
+    headers = await _bootstrap_admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "W"}})).json()["id"]
+    db.add(DataDictionary(id="dict-linked", workspace_id=ws, name="D", source_repo="https://example.org/d.git"))
+    await db.flush()
+    db.add(ConceptSet(id="cs-linked", workspace_id=ws, name="Linked set", dictionary_id="dict-linked"))
+    db.add(ConceptSet(id="cs-own", workspace_id=ws, name="Own set"))
+    await db.commit()
+
+    workspace = await db.get(Workspace, ws)
+    tree = await build_workspace_tree_from_db(
+        db, workspace, WorkspaceExportOptions(exclude_entities={"dict-linked": True})
+    )
+    sets = sorted(p for p in tree if p.startswith("concept-sets/"))
+    assert sets == ["concept-sets/own-set.json"]
+    assert "data-dictionaries/_dictionaries.json" not in tree

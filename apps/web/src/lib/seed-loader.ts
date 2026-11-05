@@ -54,6 +54,7 @@ import { readWikiTree, wikiPageId, WIKI_TREE_FILE } from '@/lib/wiki/wiki-tree'
 import {
   clonedDictionaryFiles, DICTIONARIES_INDEX, landDictionaries, readDictionaryLinks,
 } from '@/lib/data-dictionary/dictionary-links'
+import { fetchDictionaryLazily } from '@/lib/data-dictionary/fetch-lazily'
 import { importedChecks } from '@/lib/dq-check-portable'
 import type { ConceptSetRef } from '@/lib/concept-mapping/concept-set-refs'
 
@@ -1073,7 +1074,7 @@ async function loadWorkspaceInternals(
     }
     const links = readDictionaryLinks(parseJsonOrNull(texts[DICTIONARIES_INDEX]))
     const clones = new Map(links.map((l) => [l.entityId, clonedDictionaryFiles(texts, l.entityId)]))
-    const { unsynced } = await landDictionaries(links, clones, wsId, i18n.language, storage)
+    const { unsynced } = await landDictionaries(links, clones, wsId, i18n.language, storage, fetchDictionaryLazily)
     for (const { name, reason } of unsynced) console.warn(`[seed-loader] Data dictionary "${name}" not synced: ${reason}`)
   }
 

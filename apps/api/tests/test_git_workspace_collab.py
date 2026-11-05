@@ -11,6 +11,7 @@ import zipfile
 
 import pytest
 
+from app.api.v1.routes import git as git_routes
 from app.services import git_service as g
 
 API = "/api/v1"
@@ -287,6 +288,7 @@ async def test_propose_pushes_a_branch_from_the_target_and_records_the_request(c
     async def fake_read(url, token, number):
         return forge_service.Proposal(number, "http://forge/sandbox/ws/-/merge_requests/12", "merged")
 
+    monkeypatch.setattr(git_routes, "GIT_PROPOSALS_ENABLED", True)
     monkeypatch.setattr(forge_service, "detect", fake_detect)
     monkeypatch.setattr(forge_service, "open_proposal", fake_open)
     monkeypatch.setattr(forge_service, "read_proposal", fake_read)
@@ -319,6 +321,24 @@ async def test_propose_pushes_a_branch_from_the_target_and_records_the_request(c
     repo = g.workspace_repo_getter(ws)
     assert _git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip() == "main"
     assert _git(repo, "rev-parse", "main") == _git(tmp_path / "remote.git", "rev-parse", "main")
+
+
+async def test_proposal_routes_are_off_while_proposals_are_set_aside(client, tmp_path):
+    headers = await _admin(client)
+    ws, _ = await _linked_workspace(client, headers, tmp_path)
+    r = await client.post(
+        f"{API}/git/workspaces/{ws}/propose", headers=headers,
+        data={"title": "t", "branch": "main", "paths": ["wiki/home.md"]},
+        files={"file": ("ws.zip", _zip({"wiki/home.md": "x\n"}), "application/zip")},
+    )
+    assert r.status_code == 404, r.text
+    for path in (f"workspaces/{ws}/proposals", "projects/p/proposals", "sql-script-collections/c/proposals",
+                 "mapping-projects/m/proposals", "settings/account/proposals"):
+        assert (await client.get(f"{API}/git/{path}", headers=headers)).status_code == 404, path
+    proposal_routes = [r for r in git_routes.router.routes if r.path.endswith(("/propose", "/proposals"))]
+    assert proposal_routes and all(
+        any(d.dependency is git_routes._require_git_proposals for d in r.dependencies) for r in proposal_routes
+    )
 
 
 async def test_a_failed_proposal_push_leaves_the_repository_on_its_base_branch(client, tmp_path, monkeypatch):

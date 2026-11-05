@@ -33,6 +33,11 @@ export type { LayoutKind } from './layout.js'
 export { buildTabKeyMap, buildWidgetKeyMap, dashboardKey, tabKey, widgetKey } from './keys.js'
 export type { TabKeyInput, WidgetKeyInput } from './keys.js'
 
+export {
+  CONCEPT_SETS_DIR, DICTIONARIES_DIR, DICTIONARIES_INDEX, isDictionaryFile, isWorkspaceDictionaryFile,
+  RECOMMENDED_UNITS_FILE, UNIT_CONVERSIONS_FILE,
+} from './data-dictionary.js'
+
 export { buildSeedManifest, buildSeedProjectIndex, buildSeedRoot } from './seed-manifest.js'
 export type {
   BuildSeedManifestOptions, SeedEntityKind, SeedInternals, SeedManifest, SeedManifestEntity,
@@ -81,6 +86,7 @@ export { validateProject } from './validate/project.js'
 export { detectEntityKind, detectTreeKind, validateEntity } from './validate/entities.js'
 export type { EntityKind } from './validate/entities.js'
 export { validateDatasets } from './validate/datasets.js'
+export { isWorkspaceTree, validateWorkspace } from './validate/workspace.js'
 export type { DatasetColumn, DatasetIndex, DatasetInfo } from './validate/datasets.js'
 
 export { compareVersions, isAppTooOld, MIN_APP_VERSION, minAppVersionFor } from './app-version.js'

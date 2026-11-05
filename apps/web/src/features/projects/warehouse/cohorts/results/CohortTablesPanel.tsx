@@ -5,6 +5,8 @@ import { Loader2, Play, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { discoverFullSchema, queryDataSource } from '@/lib/duckdb/engine'
+import type { RelationNarrowing } from '@/lib/duckdb/cohort-query'
+import { formatDateTimeLocale } from '@/lib/format-helpers'
 import { queryErrorMessage } from '@/lib/duckdb/query-error'
 import {
   buildTableRowsSql,
@@ -17,6 +19,7 @@ import {
 } from '@/lib/cohort-tables'
 import type { Cohort, SchemaMapping } from '@/types'
 import { cohortRelationNarrowing } from '../relation-narrowing'
+import { relationsCountedAt } from '@/features/projects/warehouse/patient-data/timeline-relations'
 
 interface CohortTablesPanelProps {
   dataSourceId: string
@@ -27,6 +30,7 @@ interface CohortTablesPanelProps {
 type IdKind = 'patient' | 'visit' | 'visit_detail'
 type Stats = { rows: [number, number] } & Partial<Record<IdKind, [number, number]>>
 type StatsState = Stats | 'loading' | { error: string }
+type NarrowedBy = { countedAt: string | null }
 
 interface TableRow {
   name: string
@@ -46,12 +50,13 @@ const ID_KINDS: IdKind[] = ['patient', 'visit', 'visit_detail']
  * of millions of events is a full scan.
  */
 export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: CohortTablesPanelProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [tables, setTables] = useState<TableRow[] | null>(null)
   const [schemaError, setSchemaError] = useState<string | null>(null)
   const [stats, setStats] = useState<Map<string, StatsState>>(new Map())
   const [selected, setSelected] = useState<string | null>(null)
   const [countingAll, setCountingAll] = useState(false)
+  const [narrowedBy, setNarrowedBy] = useState<NarrowedBy | null>(null)
   const stopRef = useRef(false)
   const countAllAbort = useRef<AbortController | null>(null)
 
@@ -61,6 +66,7 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
   if (countedFor !== definitionKey) {
     setCountedFor(definitionKey)
     setStats(new Map())
+    setNarrowedBy(null)
   }
   // A count still running when the definition changes must not land in the new map.
   const currentKeyRef = useRef(definitionKey)
@@ -92,11 +98,20 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
     return () => { cancelled = true }
   }, [dataSourceId, schemaMapping, cohort.level, t])
 
-  // Each concept searched only in the tables the concept count found it in.
-  const narrowing = useCallback(
-    () => cohortRelationNarrowing(dataSourceId, schemaMapping, cohort).catch(() => undefined),
-    [dataSourceId, schemaMapping, cohort],
-  )
+  // Each concept searched only in the tables the concept count found it in,
+  // which the panel says, as a run does.
+  const noteNarrowed = useCallback((key: string) => {
+    void relationsCountedAt(dataSourceId).catch(() => null).then((countedAt) => {
+      if (currentKeyRef.current === key) setNarrowedBy({ countedAt })
+    })
+  }, [dataSourceId])
+  const narrowedSql = useCallback(async (build: (narrowing?: RelationNarrowing) => string | null) => {
+    const key = definitionKey
+    const narrowing = await cohortRelationNarrowing(dataSourceId, schemaMapping, cohort).catch(() => undefined)
+    const sql = build(narrowing)
+    if (narrowing && sql !== build()) noteNarrowed(key)
+    return sql
+  }, [dataSourceId, schemaMapping, cohort, definitionKey, noteNarrowed])
 
   const statsOf = (table: TableRow, row: Record<string, unknown> | undefined): Stats => {
     const pair = (a: string, b: string): [number, number] => [Number(row?.[a] ?? 0), Number(row?.[b] ?? 0)]
@@ -108,7 +123,7 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
   const count = useCallback(async (table: TableRow, signal?: AbortSignal) => {
     const key = definitionKey
     setStats((m) => new Map(m).set(table.name, 'loading'))
-    const sql = buildTableStatsSql(cohort, schemaMapping, table.name, table.columns, await narrowing())
+    const sql = await narrowedSql((narrowing) => buildTableStatsSql(cohort, schemaMapping, table.name, table.columns, narrowing))
     if (!sql) return
     try {
       const [row] = await queryDataSource(dataSourceId, sql, { heavy: true, signal, origin: `Cohort tables · rows, patients and fill of ${table.name}` })
@@ -123,7 +138,7 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
         return next
       })
     }
-  }, [cohort, schemaMapping, dataSourceId, definitionKey, narrowing, t])
+  }, [cohort, schemaMapping, dataSourceId, definitionKey, narrowedSql, t])
 
   /** Every table not counted yet, in one query computing the members once; if
    *  it fails, table by table, so one table's error leaves the others counted. */
@@ -135,7 +150,7 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
     const key = definitionKey
     const todo = tables.filter((table) => table.filter && !stats.has(table.name))
     setCountingAll(true)
-    const sql = todo.length > 1 ? buildTablesStatsSql(cohort, schemaMapping, todo, await narrowing()) : null
+    const sql = todo.length > 1 ? await narrowedSql((narrowing) => buildTablesStatsSql(cohort, schemaMapping, todo, narrowing)) : null
     let together = false
     if (sql) {
       setStats((m) => new Map([...m, ...todo.map((table) => [table.name, 'loading'] as const)]))
@@ -248,6 +263,13 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
           <div className="flex h-full flex-col">
             <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1.5">
               <p className="flex-1 text-[10px] text-muted-foreground">{t('cohorts.tables_hint')}</p>
+              {narrowedBy && (
+                <span className="text-[10px] text-muted-foreground" title={t('cohorts.results_narrowed_hint')}>
+                  {narrowedBy.countedAt
+                    ? t('cohorts.results_narrowed', { date: formatDateTimeLocale(narrowedBy.countedAt, i18n.language) })
+                    : t('cohorts.results_narrowed_unknown')}
+                </span>
+              )}
               {countingAll ? (
                 <Button variant="destructive" size="sm" className="h-6 gap-1 text-xs" onClick={stopCounting}>
                   <Square size={12} />
@@ -282,6 +304,7 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
               cohort={cohort}
               schemaMapping={schemaMapping}
               table={selectedTable}
+              narrowedSql={narrowedSql}
             />
           )}
         </Allotment.Pane>
@@ -290,22 +313,27 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
   )
 }
 
-function TableRowsPreview({ dataSourceId, cohort, schemaMapping, table }: CohortTablesPanelProps & { table: TableRow }) {
+interface TableRowsPreviewProps {
+  dataSourceId: string
+  cohort: Cohort
+  schemaMapping: SchemaMapping
+  table: TableRow
+  narrowedSql: (build: (narrowing?: RelationNarrowing) => string | null) => Promise<string | null>
+}
+
+function TableRowsPreview({ dataSourceId, cohort, schemaMapping, table, narrowedSql }: TableRowsPreviewProps) {
   const { t } = useTranslation()
   const [rows, setRows] = useState<Record<string, unknown>[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    cohortRelationNarrowing(dataSourceId, schemaMapping, cohort).catch(() => undefined)
-      .then((narrowing) => {
-        const sql = buildTableRowsSql(cohort, schemaMapping, table.name, table.columns, PREVIEW_ROWS, narrowing)
-        return sql ? queryDataSource(dataSourceId, sql, { origin: `Cohort tables · preview rows of ${table.name}` }) : null
-      })
+    narrowedSql((narrowing) => buildTableRowsSql(cohort, schemaMapping, table.name, table.columns, PREVIEW_ROWS, narrowing))
+      .then((sql) => sql ? queryDataSource(dataSourceId, sql, { origin: `Cohort tables · preview rows of ${table.name}` }) : null)
       .then((r) => { if (!cancelled && r) setRows(r) })
       .catch((err) => { if (!cancelled) setError(queryErrorMessage(err, t, '')) })
     return () => { cancelled = true }
-  }, [dataSourceId, cohort, schemaMapping, table, t])
+  }, [dataSourceId, cohort, schemaMapping, table, narrowedSql, t])
 
   const columns = useMemo<DataTableColumn<{ i: number; row: Record<string, unknown> }>[]>(
     () => table.columns.map((name) => ({

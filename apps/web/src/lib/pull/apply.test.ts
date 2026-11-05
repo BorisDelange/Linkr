@@ -128,6 +128,29 @@ describe('workspace pull', () => {
     expect(await storage.serviceMappings.getByWorkspace(WS)).toEqual([])
   })
 
+  it('keeps the ids of sets imported before dictionaries were pointers, when the remote turns them into one', async () => {
+    const ws = 'ws-dict-transition'
+    const repo = 'https://github.com/example/dictionary'
+    const set = (id: string, uniqueId: string, name: string) => ({
+      id, workspaceId: ws, name, description: '', expression: { items: [] }, sourceUrl: `concept_sets/${uniqueId}.json`,
+      uniqueId, sourceRepo: repo, createdAt: NOW, updatedAt: NOW,
+    }) as never
+    await storage.conceptSets.create(set('cs-hr', 'hr', 'Heart rate'))
+    await storage.conceptSets.create(set('cs-gone', 'gone', 'Dropped upstream'))
+    const zip = new JSZip()
+    zip.file('data-dictionaries/_dictionaries.json', JSON.stringify([{ entityId: 'dictionary', name: 'Dictionary', git: { url: repo, branch: 'main' } }]))
+    zip.file('data-dictionaries/dictionary/concept_sets/1.json', JSON.stringify({
+      name: 'Heart rate', expression: { items: [] }, metadata: { uniqueId: 'hr', sourceRepo: repo },
+    }))
+    await applyWorkspacePull(ws, zip, {
+      ...taken(['data-dictionaries/_dictionaries.json', 'data-dictionaries/dictionary/concept_sets/1.json']),
+      ...removed(['concept-sets/heart-rate.json', 'concept-sets/dropped-upstream.json']),
+    }, storage)
+    const [dictionary] = await storage.dataDictionaries.getByWorkspace(ws)
+    const sets = await storage.conceptSets.getByWorkspace(ws)
+    expect(sets.map((s) => [s.id, s.dictionaryId])).toEqual([['cs-hr', dictionary.id]])
+  })
+
   it('removes a wiki page the remote deleted, never one created after the pull was prepared', async () => {
     const ws = 'ws-wiki'
     const page = (id: string) => ({
@@ -140,6 +163,47 @@ describe('workspace pull', () => {
     zip.file('wiki/_tree.json', '[]')
     await applyWorkspacePull(ws, zip, taken(['wiki/_tree.json']), storage, preview)
     expect((await storage.wikiPages.getByWorkspace(ws)).map((p) => p.id)).toEqual(['new'])
+  })
+
+  it('lands the wiki attachments a colleague added, changed or removed, never one added after the pull was prepared', async () => {
+    const ws = 'ws-wiki-att'
+    await storage.wikiPages.create({
+      id: 'p-home', workspaceId: ws, parentId: null, entityId: 'home', title: { en: 'Home' }, slug: 'home', content: { en: '' }, sortOrder: 0, createdAt: NOW, updatedAt: NOW,
+    } as never)
+    const bytes = (text: string) => new TextEncoder().encode(text).buffer as ArrayBuffer
+    const att = (id: string, fileName: string, data: string) => ({
+      id, pageId: 'p-home', workspaceId: ws, fileName, mimeType: 'image/png', fileSize: data.length, data: bytes(data), createdAt: NOW,
+    })
+    await storage.wikiAttachments.create(att('a-old', 'old.png', 'old'))
+    await storage.wikiAttachments.create(att('a-chart', 'chart.png', 'v1'))
+    await storage.wikiAttachments.create(att('a-mine', 'mine.png', 'mine'))
+    const meta = (names: string[]) => JSON.stringify(names.map((fileName) => ({ pageEntityId: 'home', fileName, mimeType: 'image/png', fileSize: 2 })))
+    const preview = { branch: 'main', remoteHead: 'r', files: [{ path: 'wiki/_attachments/_meta.json', local: meta(['chart.png', 'old.png']) }] }
+    const zip = new JSZip()
+    zip.file('wiki/_tree.json', JSON.stringify([{ entityId: 'home', title: { en: 'Home' } }]))
+    zip.file('wiki/home.md', '')
+    zip.file('wiki/_attachments/_meta.json', meta(['chart.png', 'logo.png', 'mine.png']))
+    zip.file('wiki/_attachments/home/chart.png', 'v2')
+    zip.file('wiki/_attachments/home/logo.png', 'logo')
+    zip.file('wiki/_attachments/home/mine.png', 'mine')
+    await applyWorkspacePull(ws, zip, taken(['wiki/_attachments/_meta.json', 'wiki/_attachments/home/chart.png', 'wiki/_attachments/home/logo.png']), storage, preview)
+    const after = await storage.wikiAttachments.getByWorkspace(ws)
+    const text = (a: { data: ArrayBuffer }) => new TextDecoder().decode(a.data)
+    expect(after.map((a) => [a.pageId, a.fileName, text(a)]).sort()).toEqual([
+      ['p-home', 'chart.png', 'v2'], ['p-home', 'logo.png', 'logo'], ['p-home', 'mine.png', 'mine'],
+    ])
+    expect(after.find((a) => a.fileName === 'mine.png')?.id).toBe('a-mine')
+  })
+
+  it('fails before writing anything when the dictionary index is malformed', async () => {
+    const ws = 'ws-bad-index'
+    const zip = new JSZip()
+    zip.file('wiki/_tree.json', JSON.stringify([{ entityId: 'home', title: { en: 'Home' } }]))
+    zip.file('wiki/home.md', '# Home')
+    zip.file('data-dictionaries/_dictionaries.json', '[{')
+    await expect(applyWorkspacePull(ws, zip, taken(['wiki/_tree.json', 'wiki/home.md', 'data-dictionaries/_dictionaries.json']), storage))
+      .rejects.toThrow('data-dictionaries/_dictionaries.json')
+    expect(await storage.wikiPages.getByWorkspace(ws)).toEqual([])
   })
 
   it('writes the badge ranges as a diff: updated, added and removed, the rest kept', async () => {

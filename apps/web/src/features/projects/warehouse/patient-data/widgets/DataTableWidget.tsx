@@ -147,9 +147,12 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
   useEffect(() => {
     if (!visible || !scopeReady || !dataSourceId || !schemaMapping || !patientId || conceptIds.length === 0) return
     const sql = buildDataTableBoundsQuery(schemaMapping, conceptIds, patientId, scope, { held })
-    if (!sql) return
-    const controller = new AbortController()
     setBoundsError(null)
+    if (!sql) {
+      setBoundsOf({ patientId, window: null })
+      return
+    }
+    const controller = new AbortController()
     patientQuery(dataSourceId, sql, { signal: controller.signal, origin: 'Data table · first and last event of the concepts' })
       .then(([row]) => {
         const lo = toMs(row?.first_event)

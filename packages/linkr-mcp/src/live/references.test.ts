@@ -282,4 +282,9 @@ describe('catalog', () => {
       .toMatch(/For a project, workspace, mapping project or database, its name also works\.$/)
     expect(schemaOf('get_readme').properties.entity_id.description).toMatch(/For a workspace, database or mapping project, its name also works\.$/)
   })
+
+  it('offers no tool for git proposals, which the server keeps behind GIT_PROPOSALS_ENABLED', () => {
+    expect(CATALOG.map((t) => t.name)).toContain('list_git_branches')
+    expect(CATALOG.map((t) => t.name)).not.toContain('list_git_proposals')
+  })
 })

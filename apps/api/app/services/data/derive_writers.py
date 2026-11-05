@@ -227,22 +227,24 @@ class DorisWriter(Writer):
                f"{_require_ident(table, 'table name')}/_stream_load")
         auth = base64.b64encode(f"{self.config.get('username') or ''}:{self.password}".encode()).decode()
         headers = {"Authorization": f"Basic {auth}", "format": "parquet", "Expect": "100-continue"}
+        body_headers = {**headers, "Content-Length": str(parquet.stat().st_size)}
         with httpx.Client(timeout=None) as client:
             # The frontend answers with the backend that takes the load, before
             # reading a body: asked first without one, so the file is sent once.
-            # httpx drops the credentials on a redirect to another host: sent
-            # again, as Doris documents for every client (curl's --location-trusted),
-            # to a host the deployment allows only.
+            # Only that hop is probed — an empty PUT reaching a backend runs as a
+            # load of its own. httpx drops the credentials on a redirect to another
+            # host: sent again, as Doris documents for every client (curl's
+            # --location-trusted), to a host the deployment allows only.
             r = client.put(url, content=b"", headers=headers)
+            if r.status_code in _REDIRECTS:
+                url = _stream_load_redirect(url, r.headers.get("location"))
             for _ in range(3):
+                r = client.put(url, content=_chunks(parquet), headers=body_headers)
                 if r.status_code not in _REDIRECTS:
                     break
                 url = _stream_load_redirect(url, r.headers.get("location"))
-                r = client.put(url, content=b"", headers=headers)
-            if r.status_code in _REDIRECTS:
+            else:
                 raise ValueError("Doris Stream Load redirected too many times")
-            size = parquet.stat().st_size
-            r = client.put(url, content=_chunks(parquet), headers={**headers, "Content-Length": str(size)})
         try:
             result = r.json()
         except ValueError:

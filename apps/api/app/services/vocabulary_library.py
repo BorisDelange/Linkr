@@ -330,7 +330,7 @@ def _connect(work_dir: str | None = None) -> duckdb.DuckDBPyConnection:
     # A file-backed database under a temp dir, so a full ATHENA (40 M relationship
     # rows) spills to disk rather than to memory.
     con = duckdb.connect(str(Path(work_dir) / "import.duckdb")) if work_dir else duckdb.connect()
-    con.execute(f"SET extension_directory = '{_ext_dir()}'")
+    con.execute(f"SET extension_directory = {_lit(_ext_dir())}")
     if work_dir:
         con.execute(f"SET temp_directory = {_lit(str(Path(work_dir) / 'spill'))}")
     return con

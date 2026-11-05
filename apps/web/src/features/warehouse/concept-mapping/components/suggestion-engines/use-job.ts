@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import i18n from '@/lib/i18n'
+import { ApiError } from '@/lib/api-client'
 import type { Job } from '@/lib/api/environments'
 import { watchJob } from '@/lib/api/suggestion-engines'
 
@@ -12,10 +14,17 @@ export type WatchedJob = Job & { unreachable?: boolean }
 
 const RETRY_MS = 5000
 
+/** What a failed poll means: the server is down, failing or asking to wait
+ *  (`retry`), or it answered that the job is gone or not the user's to see (`gone`). */
+export function pollFailure(err: unknown): 'retry' | 'gone' {
+  return err instanceof ApiError && err.status < 500 && err.status !== 408 && err.status !== 429 ? 'gone' : 'retry'
+}
+
 /**
  * Follow a job until it ends. `onEnd` fires once, with the final state, so the
  * caller can reload what the job changed. A failed poll marks the job
- * `unreachable` and is retried until the server answers again.
+ * `unreachable` and is retried until the server answers again; a job the
+ * server no longer knows, or does not show this user, ends on an error.
  */
 export function useJob(jobId: string | null, onEnd: (job: Job) => void): WatchedJob | null {
   const [job, setJob] = useState<Job | null>(() => (jobId ? lastSeen.get(jobId) ?? null : null))
@@ -42,6 +51,17 @@ export function useJob(jobId: string | null, onEnd: (job: Job) => void): Watched
         .catch((err: unknown) => {
           if (controller.signal.aborted) return
           console.error('Following job failed', err)
+          if (pollFailure(err) === 'gone') {
+            const gone: Job = {
+              ...(lastSeen.get(jobId) ?? unknownJob(jobId)),
+              status: 'error',
+              logTail: i18n.t('concept_mapping.engines_job_gone'),
+            }
+            lastSeen.delete(jobId)
+            setUnreachableId(null)
+            onEndRef.current(gone)
+            return
+          }
           setUnreachableId(jobId)
           retry = setTimeout(follow, RETRY_MS)
         })

@@ -283,6 +283,19 @@ def _wiki_tree(wiki_pages: list[dict]) -> list[dict]:
     return sorted(entries, key=lambda e: e["entityId"])
 
 
+def _latest_wiki_attachments(attachments: list[dict]) -> list[dict]:
+    """Twin of ``latestWikiAttachments``: one attachment per page and file name
+    (the path both are stored at), the newest by createdAt (then id) winning."""
+    kept: dict[tuple, dict] = {}
+    for att in attachments:
+        key = (att.get("pageId"), att["fileName"])
+        other = kept.get(key)
+        rank = (att.get("createdAt") or "", att["id"])
+        if other is None or (other.get("createdAt") or "", other["id"]) < rank:
+            kept[key] = att
+    return list(kept.values())
+
+
 def _build_wiki_section(
     tree: dict[str, bytes],
     wiki_pages: list[dict],
@@ -309,7 +322,7 @@ def _build_wiki_section(
     # page content links to), never by the local ids.
     folder_of = {p["id"]: _wiki_page_folder(p) for p in wiki_pages}
     meta = []
-    for att in wiki_attachments:
+    for att in _latest_wiki_attachments(wiki_attachments):
         folder = folder_of.get(att.get("pageId"))
         if folder is None:
             continue
@@ -526,10 +539,9 @@ def _dictionary_links(dictionaries: list[dict]) -> list[dict]:
     out = []
     for slug, url, branch, d in linked:
         taken[slug] = taken.get(slug, 0) + 1
-        entry: dict = {
-            "entityId": slug if taken[slug] == 1 else f"{slug}-{taken[slug]}",
-            "name": d.get("name") or "",
-        }
+        entry: dict = {"entityId": slug if taken[slug] == 1 else f"{slug}-{taken[slug]}"}
+        if d.get("name"):
+            entry["name"] = d["name"]
         if d.get("createdAt"):
             entry["createdAt"] = d["createdAt"]
         entry["git"] = {"url": url, "branch": branch}

@@ -5,7 +5,7 @@ import type { QuickAction } from '@/lib/git-quick-actions'
 import { cn } from '@/lib/utils'
 import { SYNC_ALL_ACCENT } from '@/lib/versioning-accent'
 import type { DataPushAction } from './ConfirmDataVersioningDialog'
-import { changeTypeMeta } from './git-change-meta'
+import { ChangeBadge } from './ChangeBadge'
 
 /**
  * A grid "widget" for one quick action: a colored header (the shared accent
@@ -44,50 +44,42 @@ export function QuickActionCard({
         <span className={cn('text-xs font-semibold', accent && SYNC_ALL_ACCENT.icon)}>{t(action.labelKey, { subject: action.subjectKey ? t(action.subjectKey) : '' })}</span>
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
-        <p className="shrink-0 text-[11px] leading-relaxed text-muted-foreground">{t(action.descriptionKey)}</p>
+        <p className="shrink-0 text-xs leading-relaxed text-muted-foreground">{t(action.descriptionKey)}</p>
         <div className="flex min-h-0 flex-1 flex-col">
           {nothing ? (
-            <p className="text-[11px] italic text-muted-foreground/70">{t('versioning.quick_nothing')}</p>
+            <p className="text-xs italic text-muted-foreground/70">{t('versioning.quick_nothing')}</p>
           ) : (
             <>
               <SectionLabel as="p" className="tracking-wide text-muted-foreground/70">{t('versioning.quick_will_push')}</SectionLabel>
               {/* Long change lists scroll inside the card, which the grid
                   gives a fixed height. */}
               <ul className="mt-1 min-h-0 flex-1 space-y-0.5 overflow-y-auto">
-                {action.files.map((f) => {
-                  const meta = changeTypeMeta(f.changeType)
-                  return (
-                    <li key={f.path} className="flex items-center gap-1.5 text-[11px]">
-                      <span
-                        className={cn('flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm text-[9px] font-bold', meta.badgeClass)}
-                        title={t(meta.labelKey)}
-                      >
-                        {meta.letter}
-                      </span>
-                      {/* Click opens the same full-size diff viewer as a Details row. */}
+                {action.files.map((f) => (
+                  <li key={f.path} className="flex items-center gap-1.5 text-xs">
+                    <ChangeBadge changeType={f.changeType} />
+                    {/* Click opens the same full-size diff viewer as a Details row. */}
+                    <button
+                      type="button"
+                      onClick={() => onOpenDiff(f.path)}
+                      className="block min-w-0 flex-1 truncate text-left font-mono text-muted-foreground hover:text-foreground hover:underline"
+                      title={f.path}
+                    >
+                      {f.path}
+                    </button>
+                    {/* A text diff of ~1500 generated JSON objects hides the one
+                        thing being asked here — which mappings move. Mirrors the
+                        pull side's Choose button. */}
+                    {onViewMappings && f.path === 'mappings.json' && (
                       <button
                         type="button"
-                        onClick={() => onOpenDiff(f.path)}
-                        className="block min-w-0 flex-1 truncate text-left font-mono text-muted-foreground hover:text-foreground hover:underline"
-                        title={f.path}
+                        onClick={onViewMappings}
+                        className="shrink-0 rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
                       >
-                        {f.path}
+                        {t('versioning.push_view_mappings')}
                       </button>
-                      {/* A text diff of ~1500 generated JSON objects hides the one
-                          thing being asked here — which mappings move. Mirrors the
-                          pull side's Choose button. */}
-                      {onViewMappings && f.path === 'mappings.json' && (
-                        <button
-                          type="button"
-                          onClick={onViewMappings}
-                          className="shrink-0 rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
-                        >
-                          {t('versioning.push_view_mappings')}
-                        </button>
-                      )}
-                    </li>
-                  )
-                })}
+                    )}
+                  </li>
+                ))}
               </ul>
             </>
           )}

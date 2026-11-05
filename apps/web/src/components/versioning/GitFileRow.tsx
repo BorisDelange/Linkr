@@ -4,7 +4,9 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { GitFileChange, GitScope } from '@/lib/api/git'
+import { getBadgeClasses } from '@/lib/badge-colors'
 import { gitFileMeta } from '@/lib/git-file-meta'
+import { cn } from '@/lib/utils'
 import { ChangeBadge } from './ChangeBadge'
 
 interface GitFileRowProps {
@@ -55,7 +57,7 @@ export function GitFileRow({ scope, file, checked, isLfs, onToggleSelect, onTogg
               type="button"
               onClick={onToggleLfs}
               title={t('versioning.lfs_remove')}
-              className="shrink-0 rounded-sm bg-violet-500/15 px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-violet-600 hover:bg-violet-500/25 dark:text-violet-400"
+              className={cn('shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-bold tracking-wide hover:opacity-80', getBadgeClasses('violet'))}
             >
               LFS
             </button>

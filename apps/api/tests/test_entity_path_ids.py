@@ -54,7 +54,7 @@ def test_ids_that_name_folders_are_checked_where_they_are_accepted(value):
     with pytest.raises(ValidationError):
         SchemaPresetSave(preset_id="ok", id=value)
     with pytest.raises(ValidationError):
-        DataSourceCreate(id=value, name="d", source_type="database")
+        DataSourceCreate(id=value, workspace_id="w", alias="d", name="d", source_type="database")
     for model in (
         MappingProjectCreate,
         SqlScriptCollectionCreate,
