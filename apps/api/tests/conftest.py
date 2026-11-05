@@ -221,35 +221,10 @@ async def engine(tmp_path):
     await eng.dispose()
 
 
-@pytest_asyncio.fixture
-async def db(engine) -> AsyncSession:
-    maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with maker() as session:
-        yield session
-
-
-@pytest_asyncio.fixture
-async def seed_roles(engine):
-    """Seed the default system roles (the lifespan does this in production)."""
-    maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with maker() as session:
-        await seed_default_roles(session)
-
-
-@pytest_asyncio.fixture
-async def client(engine, seed_roles, monkeypatch):
-    # seed_roles: production seeds the default system roles at startup, and
-    # permission checks (has_project_permission / require_global_permission)
-    # resolve a role name to its Role row — so the rows must exist here too.
-    maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-    async def _override_get_db():
-        async with maker() as session:
-            yield session
-
-    app.dependency_overrides[get_db] = _override_get_db
+def _route_sessions_to(maker, monkeypatch) -> None:
+    """Point every `async_session` imported outside a request at the test database."""
     # WebSocket handlers (ws_auth, execution terminal) open a session manually via
-    # `async_session` instead of the get_db dependency, so the override above
+    # `async_session` instead of the get_db dependency, so overriding get_db
     # doesn't reach them. Point their imported reference at the test maker too, or
     # they'd hit the real ~/.linkr database and see a different (or empty) dataset.
     import app.core.ws_auth as ws_auth
@@ -276,6 +251,38 @@ async def client(engine, seed_roles, monkeypatch):
 
     monkeypatch.setattr(suggestion_tasks, "async_session", maker)
     monkeypatch.setattr("app.core.database.async_session", maker)
+
+
+@pytest_asyncio.fixture
+async def db(engine, monkeypatch) -> AsyncSession:
+    maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    # A service the test calls may run a job, which opens its own session.
+    _route_sessions_to(maker, monkeypatch)
+    async with maker() as session:
+        yield session
+
+
+@pytest_asyncio.fixture
+async def seed_roles(engine):
+    """Seed the default system roles (the lifespan does this in production)."""
+    maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with maker() as session:
+        await seed_default_roles(session)
+
+
+@pytest_asyncio.fixture
+async def client(engine, seed_roles, monkeypatch):
+    # seed_roles: production seeds the default system roles at startup, and
+    # permission checks (has_project_permission / require_global_permission)
+    # resolve a role name to its Role row — so the rows must exist here too.
+    maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def _override_get_db():
+        async with maker() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override_get_db
+    _route_sessions_to(maker, monkeypatch)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
