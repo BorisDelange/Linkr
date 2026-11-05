@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { isServerMode } from '@/lib/api-client'
@@ -32,6 +32,7 @@ import {
   X,
   Loader2,
   AlertTriangle,
+  ChevronRight,
   Info,
 } from 'lucide-react'
 import {
@@ -45,6 +46,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   DEFAULT_DATABASE_LOCATION,
   DatabaseLocationField,
@@ -657,7 +659,19 @@ export function AddDatabaseDialog({
   const aliasIsDuplicate = !isEditMode && !uploading && !!alias.trim() && isAliasTaken(alias.trim(), takenAliases)
 
   const isNameValid = !!name.trim() && !nameIsDuplicate && !aliasIsDuplicate
+  // What a server engine cannot connect without. The port falls back to the
+  // engine's default; MySQL's and Doris' database is only a default schema. The
+  // login is asked on creation only: once saved it is each user's own, kept
+  // outside the connection, so an edit starts with the field empty.
+  const remoteEngine = selectedType === 'database' && !isFileEngine(dbEngine)
+  const connectionFieldsMissing = remoteEngine && (
+    !dbHost.trim()
+    || (!databaseIsSchema(dbEngine) && !dbDatabase.trim())
+    || (dbEngine === 'oracle' && !dbSchema.trim())
+    || (!isEditMode && !dbUsername.trim())
+  )
   const isConnectionValid =
+    !connectionFieldsMissing &&
     (!needsFileUpload || uploadedFiles.length > 0 || hasExistingFiles || usesServerPath) &&
     (selectedType !== 'fhir' || !!fhirBaseUrl.trim()) &&
     !(selectedType === 'database' && !isFileEngine(dbEngine) && (dbPortInvalid || dbFlightPortInvalid || dbHttpPortInvalid)) &&
@@ -739,14 +753,16 @@ export function AddDatabaseDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
+      {/* Header and footer stay put; the fields scroll between them, since a
+          server engine's connection fields and options outgrow a laptop screen. */}
       <DialogContent
-        className="sm:max-w-lg"
+        className="flex max-h-[90vh] flex-col sm:max-w-lg"
         showCloseButton={!uploading}
         onEscapeKeyDown={(e) => { if (uploading) e.preventDefault() }}
         onPointerDownOutside={(e) => { if (uploading) e.preventDefault() }}
         onInteractOutside={(e) => { if (uploading) e.preventDefault() }}
       >
-        <DialogHeader>
+        <DialogHeader className="shrink-0">
           <DialogTitle>
             {isEditMode ? t('databases.edit_dialog_title') : t('databases.add_dialog_title')}
           </DialogTitle>
@@ -760,7 +776,7 @@ export function AddDatabaseDialog({
         </DialogHeader>
 
         {step === 1 && (
-          <div className="mt-2 space-y-2">
+          <div className="-mx-6 mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto px-6">
             {sourceTypes.map((st) => {
               const Icon = st.icon
               return (
@@ -798,11 +814,11 @@ export function AddDatabaseDialog({
           // min-w-0: a direct grid item of DialogContent, which defaults to
           // min-width:auto — without it a long server path refuses to shrink and
           // widens the whole dialog instead of truncating inside it.
-          <div className="mt-2 min-w-0">
+          <div className="-mx-6 mt-2 min-h-0 min-w-0 flex-1 overflow-y-auto px-6">
             <EntityDialogTabs
               value={dbTab}
               onValueChange={(v) => setDbTab(v as DbTab)}
-              generalIncomplete={generalMissing.length > 0}
+              generalIncomplete={allMissing.length > 0}
               general={(
                 <>
                   {/* Common fields */}
@@ -1052,7 +1068,7 @@ export function AddDatabaseDialog({
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
-                      <Label>{t('databases.field_host')}</Label>
+                      <Label>{t('databases.field_host')}<RequiredMark /></Label>
                       <Input value={dbHost} onChange={(e) => setDbHost(e.target.value)} placeholder="localhost" />
                     </div>
                     <div className="space-y-2">
@@ -1090,12 +1106,13 @@ export function AddDatabaseDialog({
                     ) : (
                       <>
                         <div className="space-y-2">
-                          <Label>{t(dbEngine === 'oracle' ? 'databases.field_service_name' : 'databases.field_database')}</Label>
+                          <Label>{t(dbEngine === 'oracle' ? 'databases.field_service_name' : 'databases.field_database')}<RequiredMark /></Label>
                           <Input value={dbDatabase} onChange={(e) => setDbDatabase(e.target.value)} placeholder={dbEngine === 'oracle' ? 'FREEPDB1' : undefined} />
                         </div>
                         <div className="space-y-2">
                           <Label className="flex items-center gap-1.5">
                             {t(dbEngine === 'oracle' ? 'databases.field_schema' : 'databases.field_default_schema')}
+                            {dbEngine === 'oracle' && <RequiredMark />}
                             <FieldInfo text={t(dbEngine === 'oracle' ? 'databases.field_schema_hint_oracle' : 'databases.field_default_schema_hint_postgresql')} />
                           </Label>
                           <Input
@@ -1107,51 +1124,48 @@ export function AddDatabaseDialog({
                       </>
                     )}
                     <div className="space-y-2">
-                      <Label>{t('databases.field_username')}</Label>
+                      <Label>{t('databases.field_username')}{!isEditMode && <RequiredMark />}</Label>
                       <Input value={dbUsername} onChange={(e) => setDbUsername(e.target.value)} />
                     </div>
                     <div className="space-y-2">
                       <Label>{t('databases.field_password')}</Label>
                       <PasswordInput value={dbPassword} onChange={(e) => setDbPassword(e.target.value)} />
                     </div>
-                    {dbEngine === 'doris' && (
-                      <p className="col-span-full text-xs text-muted-foreground">
-                        {t('databases.doris_read_only_hint')} {t('databases.doris_flight_hint')}
-                      </p>
-                    )}
-                    {(dbEngine === 'sqlserver' || dbEngine === 'oracle') && (
-                      <p className="col-span-full text-xs text-muted-foreground">
-                        {t(dbEngine === 'oracle' ? 'databases.oracle_read_only_hint' : 'databases.sqlserver_read_only_hint')}{' '}
-                        {t('databases.community_extension_hint')}
-                      </p>
+                    {(dbEngine === 'doris' || dbEngine === 'sqlserver' || dbEngine === 'oracle') && (
+                      <ConnectorNotes>
+                        {dbEngine === 'doris'
+                          ? <>{t('databases.doris_read_only_hint')} {t('databases.doris_flight_hint')}</>
+                          : <>
+                              {t(dbEngine === 'oracle' ? 'databases.oracle_read_only_hint' : 'databases.sqlserver_read_only_hint')}{' '}
+                              {t('databases.community_extension_hint')}
+                            </>}
+                      </ConnectorNotes>
                     )}
                     {isServerMode() && (
-                      <p className="col-span-full text-xs text-muted-foreground">
+                      <p className="col-span-full whitespace-pre-line text-xs text-muted-foreground">
                         {t('database_logins.form_hint')}
                         {isEditMode && <> {t('database_logins.retarget_warning')}</>}
                       </p>
                     )}
                     {isServerMode() && (
-                      <div className="col-span-full flex items-start gap-2">
+                      <div className="col-span-full flex items-center gap-2">
                         <Checkbox id="db-require-session-only" checked={requireSessionOnly} onCheckedChange={(v) => setRequireSessionOnly(v === true)} />
-                        <div className="space-y-0.5">
-                          <Label htmlFor="db-require-session-only">{t('database_logins.require_session_only')}</Label>
-                          <p className="text-xs text-muted-foreground">{t('database_logins.require_session_only_hint')}</p>
-                        </div>
+                        <Label htmlFor="db-require-session-only" className="flex items-center gap-1.5">
+                          {t('database_logins.require_session_only')}
+                          <FieldInfo text={t('database_logins.require_session_only_hint')} />
+                        </Label>
                       </div>
                     )}
                     {/* Every connection is read-only unless its owner says
                         otherwise: this is what lets a cohort be derived into a
                         new SQL schema of this database. */}
                     {WRITABLE_ENGINES.includes(dbEngine) && isServerMode() && (
-                      <div className="col-span-full flex items-start gap-2">
+                      <div className="col-span-full flex items-center gap-2">
                         <Checkbox id="db-allow-writes" checked={dbAllowWrites} onCheckedChange={(v) => setDbAllowWrites(v === true)} />
-                        <div className="space-y-0.5">
-                          <Label htmlFor="db-allow-writes">{t('databases.allow_writes')}</Label>
-                          <p className="text-xs text-muted-foreground">
-                            {t(dbEngine === 'postgresql' ? 'databases.allow_writes_hint' : `databases.allow_writes_hint_${dbEngine}`)}
-                          </p>
-                        </div>
+                        <Label htmlFor="db-allow-writes" className="flex items-center gap-1.5">
+                          {t('databases.allow_writes')}
+                          <FieldInfo text={t(dbEngine === 'postgresql' ? 'databases.allow_writes_hint' : `databases.allow_writes_hint_${dbEngine}`)} />
+                        </Label>
                       </div>
                     )}
                     {dbEngine === 'doris' && dbAllowWrites && isServerMode() && (
@@ -1171,12 +1185,12 @@ export function AddDatabaseDialog({
                       </div>
                     )}
                     {dbEngine === 'doris' && dbAllowWrites && isServerMode() && (
-                      <div className="col-span-full flex items-start gap-2">
+                      <div className="col-span-full flex items-center gap-2">
                         <Checkbox id="db-http-tls" checked={dbHttpTls} onCheckedChange={(v) => setDbHttpTls(v === true)} />
-                        <div className="space-y-0.5">
-                          <Label htmlFor="db-http-tls">{t('databases.field_http_tls')}</Label>
-                          <p className="text-xs text-muted-foreground">{t('databases.field_http_tls_hint')}</p>
-                        </div>
+                        <Label htmlFor="db-http-tls" className="flex items-center gap-1.5">
+                          {t('databases.field_http_tls')}
+                          <FieldInfo text={t('databases.field_http_tls_hint')} />
+                        </Label>
                       </div>
                     )}
                   </div>
@@ -1225,13 +1239,13 @@ export function AddDatabaseDialog({
         )}
 
         {step === 2 && submitError && (
-          <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+          <div className="mt-4 shrink-0 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
             <p className="text-xs font-medium text-destructive">{t('databases.save_failed')}</p>
             <p className="mt-1 break-all font-mono text-xs text-destructive/80">{submitError}</p>
           </div>
         )}
         {step === 2 && (
-          <DialogFooter className="mt-4">
+          <DialogFooter className="mt-4 shrink-0">
             {!isEditMode ? (
               <Button variant="outline" onClick={() => setStep(1)} disabled={uploading} className="gap-1.5">
                 <ArrowLeft size={12} />
@@ -1279,6 +1293,22 @@ export function AddDatabaseDialog({
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** What to know about a connector before relying on it (read-only login,
+ *  extension, speed): folded, so it does not push the fields off screen. */
+function ConnectorNotes({ children }: { children: ReactNode }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="col-span-full">
+      <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        <ChevronRight size={12} className={cn('shrink-0 transition-transform', open && 'rotate-90')} />
+        {t('databases.connector_notes')}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="pt-1.5 pl-4 text-xs text-muted-foreground">{children}</CollapsibleContent>
+    </Collapsible>
   )
 }
 
