@@ -155,6 +155,13 @@ export const OMOP_METADATA_VOCABULARIES = [
 ] as const
 
 /**
+ * `(table_name, concept_id)` for every `*_concept_id` column of the target, which
+ * the server's ETL run builds from the target's catalog when a script names it
+ * (db_connect._create_target_concept_ids_view).
+ */
+export const TARGET_CONCEPT_IDS_VIEW = 'linkr_target_concept_ids'
+
+/**
  * OMOP vocabulary tables. Excluded when scanning for used concepts: they
  * reference concepts to describe them, so counting those references would pull
  * in concepts no CDM row uses.
@@ -180,14 +187,11 @@ const OMOP_VOCAB_TABLES = [
  * result, but loaded ~10M concepts and ~140M relationship/ancestor rows into
  * the target first: past the memory limit on an indexed DuckDB target.
  *
- * The used-concept scan reads duckdb_columns() rather than a fixed column list:
- * every `*_concept_id` of every clinical table counts, including the
- * `*_source_concept_id` ones, and the set differs per CDM version. On MIMIC-IV
- * that is 99 columns over 28 tables — a hand-written list had missed half.
- *
- * `(database_name = 'target' OR schema_name = 'target')` covers both modes: the
- * target is an ATTACHed database on the server and a schema in the browser
- * engine.
+ * The used-concept scan reads TARGET_CONCEPT_IDS_VIEW rather than a fixed
+ * column list: every `*_concept_id` of every clinical table counts, including
+ * the `*_source_concept_id` ones, and the set differs per CDM version. On
+ * MIMIC-IV that is 99 columns over 28 tables — a hand-written list had missed
+ * half.
  *
  * Copied: the used concepts, their ancestors (so hierarchical queries still
  * resolve), everything they relate to, the ingredients and units of the drugs
@@ -229,43 +233,23 @@ export function buildFillVocabularyScript(
   parts.push('-- 1. Concepts referenced by the CDM tables')
   parts.push('-- =================================================================')
   parts.push('')
-  // The column list is only known at run time, so the scan is built as SQL text
-  // and executed with query(). It goes through a session variable because
-  // query() rejects a subquery argument ("Table function cannot contain
-  // subqueries"). UNNEST turns one row per table into one row per concept id.
-  // TRY_CAST because the list must share one type: a VARCHAR *_concept_id (a
-  // staging copy left in the target) made the binder refuse the whole scan.
-  parts.push(`SET VARIABLE linkr_used_concepts_sql = (`)
-  parts.push('    SELECT COALESCE(')
-  parts.push('        string_agg(')
-  parts.push(`            'SELECT UNNEST([' || cols || ']) AS concept_id FROM ${T}."' || replace(table_name, '"', '""') || '"',`)
-  parts.push("            ' UNION ALL '")
-  parts.push('        ),')
-  parts.push("        'SELECT NULL::BIGINT AS concept_id WHERE FALSE'")
-  parts.push('    )')
-  parts.push('    FROM (')
-  parts.push(`        SELECT table_name, string_agg('TRY_CAST("' || replace(column_name, '"', '""') || '" AS BIGINT)', ', ') AS cols`)
-  parts.push('        FROM duckdb_columns()')
-  parts.push(`        WHERE (database_name = '${T}' OR schema_name = '${T}')`)
+  // The run provides the scan: the `*_concept_id` columns are only known at run
+  // time, and a pipeline script may not build SQL from text. Vocabulary and tmp_
+  // tables are left out here, so what counts as "used" stays in the script.
+  parts.push(`CREATE OR REPLACE TABLE ${T}.tmp_used_concepts AS`)
+  parts.push(`SELECT DISTINCT concept_id`)
+  parts.push(`FROM ${TARGET_CONCEPT_IDS_VIEW}`)
+  parts.push(`WHERE table_name NOT IN (${vocabList})`)
   // SIMILAR TO rather than LIKE ... ESCAPE '\': the pipeline splits a script on
   // top-level semicolons, and its tokenizer reads the backslash in ESCAPE '\'
   // as escaping the closing quote — the string never ends and the whole script
   // runs as one statement.
-  parts.push("          AND column_name SIMILAR TO '.*_concept_id'")
-  parts.push(`          AND table_name NOT IN (${vocabList})`)
-  parts.push("          AND table_name NOT SIMILAR TO 'tmp_.*'")
-  parts.push('        GROUP BY table_name')
-  parts.push('    )')
-  parts.push(');')
-  parts.push('')
-  parts.push(`CREATE OR REPLACE TABLE ${T}.tmp_used_concepts AS`)
-  parts.push(`SELECT DISTINCT concept_id`)
-  parts.push(`FROM query(getvariable('linkr_used_concepts_sql'))`)
+  parts.push("  AND table_name NOT SIMILAR TO 'tmp_.*'")
   // 0 is excluded from the *used* set, not from the copied one: it stands for
   // "no matching concept", so expanding its ancestors and relations in step 2
   // would pull in a closure that means nothing. Step 2 adds it back as a fixed
   // concept.
-  parts.push('WHERE concept_id IS NOT NULL AND concept_id <> 0;')
+  parts.push('  AND concept_id IS NOT NULL AND concept_id <> 0;')
   parts.push('')
   // An empty scan means the script ran before the CDM tables were populated
   // (wrong order, or a run that stopped early). It would then copy almost

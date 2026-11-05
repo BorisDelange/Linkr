@@ -18,11 +18,13 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from app.config import settings
 from app.services import project_fs
+from app.services.execution import env_options
 from app.services.execution.child_env import child_env
-from app.services.execution.package_spec import validate_package_spec
+from app.services.execution.package_spec import package_name, validate_package_spec
 
 # A hung `Rscript` (network black-hole resolving a package) must not pin a worker
 # / build slot forever. Package-edit commands are quick metadata writes.
@@ -153,6 +155,71 @@ def ensure_manifest(project_uid: str) -> Path:
     return lock
 
 
+# renv.lock record sources that resolve through the configured repositories, so
+# RENV_CONFIG_REPOS_OVERRIDE puts them on the mirror. Every other source (GitHub,
+# GitLab, Bitbucket, URL, git, Local, Bioconductor — whose repositories renv takes
+# from its own Bioconductor settings, not the override) is fetched from where the
+# record says.
+_REPOSITORY_SOURCES = {"repository", "cran", "standard"}
+_SOURCE_LABELS = {
+    "github": "GitHub", "gitlab": "GitLab", "bitbucket": "Bitbucket", "bioconductor": "Bioconductor",
+    "url": "a URL", "git": "a git repository", "local": "a local path",
+}
+_ARCHIVE_SUFFIXES = (".tar.gz", ".tgz", ".zip")
+_MIRROR_ADVICE = "not from the deployment's package mirror"
+
+
+def _record_origin_outside(record: dict, allowed: set[str]) -> str | None:
+    source = str(record.get("Source") or record.get("RemoteType") or "").strip().lower()
+    if source not in _REPOSITORY_SOURCES:
+        return _SOURCE_LABELS.get(source, source or "an unknown source")
+    for key in ("Repository", "RemoteRepos"):
+        value = record.get(key)
+        if isinstance(value, str) and "://" in value:
+            parts = urlsplit(value)
+            host = (parts.hostname or "").lower()
+            if parts.scheme not in ("http", "https") or host not in allowed:
+                return host or value
+    return None
+
+
+def _refuse_off_mirror(origins: dict[str, str]) -> None:
+    if not origins:
+        return
+    which = "it" if len(origins) == 1 else "them"
+    raise ProvisionError(
+        "; ".join(f"package {name} comes from {origin}, {_MIRROR_ADVICE}" for name, origin in sorted(origins.items()))
+        + f". Install {which} from the mirror or ask your administrator."
+    )
+
+
+def _require_mirror_sources(project_uid: str, options: dict | None, packages: list[str] = ()) -> None:
+    """Under a deployment mirror, every package renv installs comes from the mirror:
+    refuse a renv.lock record, or a requested package, that renv would fetch from
+    anywhere else. Without a mirror, nothing is checked."""
+    allowed = env_options.confined_hosts("r", options or {})
+    if not allowed:
+        return
+    origins: dict[str, str] = {}
+    lock = _lock_path(project_uid)
+    if lock.exists():
+        try:
+            records = json.loads(lock.read_text()).get("Packages") or {}
+        except (json.JSONDecodeError, OSError, AttributeError) as e:
+            raise ProvisionError(f"renv.lock could not be read: {e}") from e
+        for name, record in records.items():
+            origin = _record_origin_outside(record if isinstance(record, dict) else {}, allowed)
+            if origin:
+                origins[str(name)] = origin
+    # renv::install reads a name that is an archive or an existing path as a local
+    # package rather than a repository one.
+    for spec in packages:
+        name = package_name(spec)
+        if name.lower().endswith(_ARCHIVE_SUFFIXES) or (_spec_dir(project_uid) / name).exists():
+            origins[name] = "a local file"
+    _refuse_off_mirror(origins)
+
+
 def list_packages(project_uid: str) -> list[dict]:
     """Recorded packages read from ``renv.lock`` (name + pinned version)."""
     lock = _lock_path(project_uid)
@@ -216,10 +283,12 @@ def add_packages(project_uid: str, packages: list[str], on_log=None, options: di
     never the server's global contributed packages. Only missing dependencies are
     installed; an already-present one is left at its version (renv default)."""
     ensure_manifest(project_uid)
-    ensure_r_sandbox(on_log=on_log)
     # Validated (allowlist) before interpolation — the values reach `Rscript -e`
     # source, so an unescaped metachar would be R-code injection (RCE).
-    specs = ", ".join(f'"{_to_renv_ref(validate_package_spec(p))}"' for p in packages)
+    safe = [validate_package_spec(p) for p in packages]
+    _require_mirror_sources(project_uid, options, safe)
+    ensure_r_sandbox(on_log=on_log)
+    specs = ", ".join(f'"{_to_renv_ref(p)}"' for p in safe)
     projlib = str(_library_dir(project_uid)).replace("\\", "/")
     _run_r(
         project_uid,
@@ -254,11 +323,13 @@ def upgrade(project_uid: str, package: str | None = None, on_log=None, options: 
     project library, then snapshot. Like add_packages, runs isolated and re-locks the
     full tree so the lockfile stays the reproducible source of truth."""
     ensure_manifest(project_uid)
-    ensure_r_sandbox(on_log=on_log)
-    projlib = str(_library_dir(project_uid)).replace("\\", "/")
     if package:
         # Strip any version pin — upgrade means "go to latest".
         name = validate_package_spec(package).split("==")[0].split(">")[0].split("<")[0].strip()
+    _require_mirror_sources(project_uid, options, [name] if package else [])
+    ensure_r_sandbox(on_log=on_log)
+    projlib = str(_library_dir(project_uid)).replace("\\", "/")
+    if package:
         targets = f'"{name}"'
     else:
         names = [p["name"] for p in list_packages(project_uid)]
@@ -601,6 +672,12 @@ async def build(project_uid: str, on_log=None, options: dict | None = None) -> B
     isolation so restore resolves against the project lib + base R, not the global
     contributed packages."""
     ensure_manifest(project_uid)
+    try:
+        _require_mirror_sources(project_uid, options)
+    except ProvisionError as e:
+        if on_log is not None:
+            on_log(str(e))
+        return BuildResult(ok=False, log=str(e))
     ensure_r_sandbox(on_log=on_log)
     # Pass the target library explicitly: outside an activated renv project,
     # RENV_PATHS_LIBRARY isn't enough — renv restores into a default location.

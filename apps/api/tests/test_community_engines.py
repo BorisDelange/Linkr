@@ -127,6 +127,30 @@ def test_a_sqlserver_login_granted_writes_on_one_schema_is_refused():
     assert "CROSS APPLY fn_my_permissions(s.name, ''SCHEMA'')" in query
 
 
+def test_a_refused_sqlserver_login_is_told_how_to_become_read_only():
+    con = _FakeCon({
+        "IS_SRVROLEMEMBER": [(0,) * 9],
+        "fn_my_permissions": [("CONNECT",), ("SELECT",), ("EXECUTE",)],
+    })
+    with pytest.raises(ValueError) as refused:
+        community_engines.attach(con, "ext", {**SQLSERVER, "username": "read]er"}, "pw")
+    message = str(refused.value)
+    assert "holds EXECUTE." in message
+    assert "DENY EXECUTE TO [read]]er]" in message
+    assert "REVOKE EXECUTE FROM public" in message
+
+
+def test_a_refused_sqlserver_login_is_told_to_leave_its_writing_roles():
+    con = _FakeCon({"IS_SRVROLEMEMBER": [(1, 0, 1, 0, 1, 0, 0, 0, 0)]})
+    with pytest.raises(ValueError) as refused:
+        community_engines.attach(con, "ext", SQLSERVER, "pw")
+    message = str(refused.value)
+    assert "ALTER SERVER ROLE sysadmin DROP MEMBER [reader]" in message
+    assert "ALTER ROLE db_datawriter DROP MEMBER [reader]" in message
+    assert "DENY INSERT TO [reader]" in message
+    assert "REVOKE EXECUTE FROM public" not in message
+
+
 def test_a_sqlserver_login_that_only_reads_on_its_schemas_is_accepted():
     con = _FakeCon({
         "IS_SRVROLEMEMBER": [(0,) * 9],

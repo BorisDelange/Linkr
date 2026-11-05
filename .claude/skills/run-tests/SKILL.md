@@ -1,7 +1,7 @@
 ---
 name: run-tests
 description: Run Linkr's tests at the right depth for a change — unit suites (web, API, packages), the end-to-end browser journeys (Playwright), the database matrix (every app query on DuckDB, SQLite, PostgreSQL, MySQL…, optionally upsampled and on capped machines) and the SPE scenarios (proxy, offline, machine variants). Picks the tiers from what the diff touches, runs them, and reports results with timings and findings. Use when asked to run or check the tests, before a merge or release, after touching SQL builders / connectors / boot / deployment, or when another skill (code-review) asks for a test run.
-argument-hint: "[quick | e2e | matrix | spe | full | <git range>]"
+argument-hint: "[quick | e2e | matrix | spe | versioning | etl | full | <git range>]"
 ---
 
 # Run Linkr's tests
@@ -16,6 +16,7 @@ covers and how it is built; this skill is the procedure.
 | **matrix** | `npm run test:matrix` (file engines) · `-- --spe` (+ PostgreSQL, MySQL) | 1 min · 5–10 min | Docker for `--spe` |
 | **spe** | `npm run test:spe -- default` · all scenarios · `--e2e` | 3 min per scenario | Docker |
 | **versioning** | `npm run test:versioning` · `-- --forge` | 4 min · +3 min (first forge boot: ~5 min) | network once (demo install), Docker for `--forge` |
+| **etl** | `npm run test:etl` | 15 s | API venv, the seed (`npm run data:fetch`) |
 
 Never start the user's dev server (`npm run dev`/`dev:all`): the e2e tier serves
 its own build on port 4317 (4317 + the offset of a worktree's `WEB_PORT` over
@@ -23,7 +24,7 @@ its own build on port 4317 (4317 + the offset of a worktree's `WEB_PORT` over
 
 ## 1. Pick the tiers
 
-With an explicit argument, run that tier (`full` = all five, matrix and spe at
+With an explicit argument, run that tier (`full` = all six, matrix and spe at
 default settings). Otherwise read the diff — the range given, else the branch
 against `main` plus uncommitted changes (`git diff main...HEAD --name-only; git status --short`)
 — and take every row that matches:
@@ -36,6 +37,7 @@ against `main` plus uncommitted changes (`git diff main...HEAD --name-only; git 
 | performance-sensitive SQL (counts, catalog, patient pages, pagination) | **matrix** with `--spe --machine tiny --scale 50` to see it on a small machine and a bigger base |
 | `docker/**`, `nginx.conf`, the gateway, base path / prefix handling, WebSockets, environments/mirror (`LINKR_PIP_INDEX_URL`, `LINKR_R_REPOS`) | **spe** (all scenarios); `--e2e` when the UI path changed too |
 | git versioning: `lib/pull/**`, `lib/wiki/markdown-merge.ts`, `components/versioning/**`, `git_service.py`, `forge_service.py`, `routes/git.py`, an entity's export/import (`entity-io.ts`, `*_export.py`) | **versioning** — with `--forge` when proposals or the forge client changed |
+| the ETL runner or its routes (`run_etl_sql` and its guards in `db_connect.py`, `data_source_service.run_etl`, `etl-run`/`etl-jobs` in `routes/data_sources.py`, `routes/etl_pipelines.py`, `services/data/etl_jobs.py`), the ETL builders and features (`build-vocabulary-script.ts`, `features/warehouse/etl/**`, `lib/duckdb/role-prefix.ts`, `lib/duckdb/mapping-source.ts`) | **etl** |
 | a release | **full**, the SPE scenarios with `--e2e` |
 
 Say which tiers you picked and why in one line each before running them.
@@ -77,6 +79,12 @@ is a first install. Writes `.cache/spe/report-<machine>.md`.
 Its own API + Vite dev server on free ports, never the user's; each journey
 starts from a copy of the demo snapshot in `.cache/versioning-e2e/`. Prints one
 line per journey; a failure keeps its trace under `apps/web/test-results/`.
+
+**etl** — `npm run test:etl`. Prints the run's figures (rows per CDM table,
+`90_tests.sql` checks and mapping rates, concepts kept) from
+`.cache/etl-demo/report.json`. A failing script names itself and the server's
+error; the figures are the demo content's, so a change in `linkr-public-content`
+can move them (`docs/testing.md` § Demo ETL pipeline).
 
 **Races** — when the diff touches mounting (`lib/duckdb/engine.ts`,
 `data-source-store`), the seed, background jobs, cancellation or WebSockets, run

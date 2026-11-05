@@ -111,7 +111,10 @@ reaches over http, and `trustedHost` only as one of them set it — never to dow
 mirror they reach over https (`services/execution/env_options.py`, `_confine_override`). Once the
 deployment names its own mirror (`LINKR_PIP_INDEX_URL` / `LINKR_R_REPOS` changed from the
 public default), a project's index stays on the hosts the server and workspace layers use,
-over https too. Why: the project file travels with git, so it must not be able to point
+over https too, and every package installed comes from that mirror: an R install, update or
+build refuses, naming each package, a `renv.lock` record or requested package that renv
+would fetch from anywhere else (`renv_provisioner._require_mirror_sources`; a Bioconductor
+record included, since the R mirror setting is a single CRAN-type repository). Why: the project file travels with git, so it must not be able to point
 installs at a host of its author's choosing. Resolving, installing or building packages
 runs their code on the server, so those routes take `ide:execute` on top of `ide:write`;
 `ide:write` alone edits the spec and the options.

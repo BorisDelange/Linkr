@@ -259,3 +259,12 @@ def test_a_table_read_without_a_patient_id_column_is_never_copied_whole(source, 
     written = {w["table"]: w for w in cohort_derive.derive(source, TargetSpec("file", path=str(out), fresh_file=True), members, only_expr, "patient", True)}
     assert written["measurement"] == {"schema": "main", "table": "measurement", "filter": None, "rows": None, "skipped": True, "unresolved": "events.Measurement"}
     assert written["concept"]["rows"] == 5
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM query('SELECT person_id AS id, person_id AS patient_id FROM person')",
+    "SELECT person_id AS id, person_id AS patient_id FROM query_table('person')",
+])
+def test_the_membership_query_never_runs_sql_built_from_text(source, sql):
+    with pytest.raises(ValueError, match="built from text"):
+        cohort_derive.compute_members(source, sql)

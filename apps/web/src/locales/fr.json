@@ -1001,7 +1001,7 @@
     "field_service_name": "Nom de service",
     "field_schema": "Schéma",
     "field_schema_hint_oracle": "Le schéma Oracle (propriétaire) qui contient les tables, par ex. CDM. Vide : le schéma du login. Linkr lit un schéma par base.",
-    "sqlserver_read_only_hint": "Linkr exige un login en lecture seule (db_datareader ou droits SELECT) : un login qui peut écrire ou modifier le schéma est refusé. La connexion est chiffrée, mais le certificat du serveur n'est pas vérifié.",
+    "sqlserver_read_only_hint": "Linkr exige un login en lecture seule (db_datareader ou droits SELECT) : un login qui peut écrire, modifier le schéma ou exécuter des procédures est refusé (EXECUTE est souvent accordé à public : DENY EXECUTE TO le login). La connexion est chiffrée, mais le certificat du serveur n'est pas vérifié.",
     "oracle_read_only_hint": "Linkr exige un login en lecture seule qui ne possède aucune table (CREATE SESSION et droits SELECT sur le schéma ci-dessus) : un login qui peut écrire est refusé. Les requêtes de l'app et la console SQL sont calculées par Oracle, et la console peut envoyer du SQL Oracle tel qu'écrit ; le SQL écrit dans les éditeurs, notebooks ou pipelines lit ses tables en entier.",
     "community_extension_hint": "Ce connecteur repose sur une extension communautaire de DuckDB, que DuckDB Labs ne vérifie pas : l'administrateur du serveur Linkr l'installe (l'image Docker l'inclut).",
     "field_flight_port": "Port Arrow Flight SQL",

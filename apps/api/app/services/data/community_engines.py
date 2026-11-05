@@ -81,7 +81,7 @@ def attach(con: duckdb.DuckDBPyConnection, alias: str, config: dict, password: s
                   "USE_ENCRYPT true"]
         con.execute(f'CREATE OR REPLACE TEMPORARY SECRET "{secret}" (TYPE mssql, {", ".join(fields)})')
         con.execute(f'ATTACH \'\' AS "{alias}" (TYPE mssql, SECRET "{secret}", READ_ONLY)')
-        _require_read_only_sqlserver_login(con, alias)
+        _require_read_only_sqlserver_login(con, alias, config.get("username") or "")
         return
     fields = [f"HOST {_lit(config.get('host') or '')}", f"PORT {port}",
               f"SERVICE_NAME {_lit(config.get('database') or '')}",
@@ -117,7 +117,7 @@ def _scalar_row(con: duckdb.DuckDBPyConnection, sql: str) -> tuple:
     return con.execute(sql).fetchone() or ()
 
 
-def _require_read_only_sqlserver_login(con: duckdb.DuckDBPyConnection, alias: str) -> None:
+def _require_read_only_sqlserver_login(con: duckdb.DuckDBPyConnection, alias: str, login: str = "") -> None:
     checks = ("sysadmin", "db_owner", "db_datawriter", "db_ddladmin")
     inner = (
         "SELECT IS_SRVROLEMEMBER(''sysadmin'') AS sysadmin, IS_ROLEMEMBER(''db_owner'') AS db_owner, "
@@ -137,8 +137,29 @@ def _require_read_only_sqlserver_login(con: duckdb.DuckDBPyConnection, alias: st
     if held:
         raise ValueError(
             "Linkr only connects to SQL Server with a read-only login (db_datareader or SELECT "
-            f"grants); this one also holds {', '.join(held)}"
+            f"grants); this one also holds {', '.join(held)}. {_sqlserver_remedy(held, login)}"
         )
+
+
+_SQLSERVER_SERVER_ROLES = {"sysadmin"}
+_SQLSERVER_DATABASE_ROLES = {"db_owner", "db_datawriter", "db_ddladmin"}
+
+
+def _sqlserver_remedy(held: list[str], login: str) -> str:
+    """What a DBA runs so the login only reads: leave the roles, deny the rest.
+    A DENY overrides a grant inherited through a role, `public` included."""
+    who = "[" + (login or "<login>").replace("]", "]]") + "]"
+    steps = [f"ALTER SERVER ROLE {r} DROP MEMBER {who}" for r in held if r in _SQLSERVER_SERVER_ROLES]
+    steps += [f"ALTER ROLE {r} DROP MEMBER {who}" for r in held if r in _SQLSERVER_DATABASE_ROLES]
+    perms = [p for p in held if p not in _SQLSERVER_SERVER_ROLES | _SQLSERVER_DATABASE_ROLES]
+    if perms:
+        steps.append(f"DENY {', '.join(perms)} TO {who}")
+    remedy = "A database administrator can remove them: " + "; ".join(steps) + "."
+    if any(p.split(" ", 1)[0] == "EXECUTE" for p in perms):
+        remedy += (" The login must not be able to execute procedures either: EXECUTE is often"
+                   " inherited from a GRANT EXECUTE TO public, which REVOKE EXECUTE FROM public"
+                   " removes for every user instead.")
+    return remedy
 
 
 # Permissions a read-only login must not hold on the database or on a schema, as

@@ -3,6 +3,7 @@ import { splitSqlStatements } from '@/lib/duckdb/sql-tokenizer'
 import {
   ETL_FIXED_CONCEPT_IDS,
   OMOP_METADATA_VOCABULARIES,
+  TARGET_CONCEPT_IDS_VIEW,
   athenaSelectList,
   buildCustomVocabularyScript,
   buildFillVocabularyScript,
@@ -133,17 +134,10 @@ describe('buildVocabularyScript', () => {
 describe('buildFillVocabularyScript', () => {
   const sql = FULL_FILL
 
-  it('finds the used concepts from the schema, not a fixed column list', () => {
+  it('finds the used concepts through the scan the run provides, not a fixed column list', () => {
     // A hand-written list of *_concept_id columns missed half of them (43 vs the
     // 99 a CDM 5.4 target actually holds), and would drift with the CDM version.
-    expect(sql).toContain('FROM duckdb_columns()')
-    expect(sql).toContain("column_name SIMILAR TO '.*_concept_id'")
-  })
-
-  it('resolves the target in both engines', () => {
-    // The target is an ATTACHed database on the server and a schema in the
-    // browser engine; filtering on either alone works in one mode only.
-    expect(sql).toContain("(database_name = 'target' OR schema_name = 'target')")
+    expect(sql).toContain(`FROM ${TARGET_CONCEPT_IDS_VIEW}\n`)
   })
 
   it('skips the vocabulary tables when scanning for used concepts', () => {
@@ -153,12 +147,9 @@ describe('buildFillVocabularyScript', () => {
     expect(sql).toMatch(/table_name NOT IN \([^)]*'concept_ancestor'[^)]*\)/)
   })
 
-  it('passes the generated scan through a variable', () => {
-    // query() rejects a subquery argument: "Table function cannot contain
-    // subqueries". Verified against DuckDB on the real database.
-    expect(sql).toContain('SET VARIABLE linkr_used_concepts_sql')
-    expect(sql).toContain("query(getvariable('linkr_used_concepts_sql'))")
-    expect(sql).not.toMatch(/FROM query\(\s*\(SELECT/)
+  it('builds no SQL from text, which a pipeline run refuses', () => {
+    expect(sql).not.toMatch(/\bquery(_table)?\s*\(/i)
+    expect(sql).not.toMatch(/\bgetvariable\s*\(/i)
   })
 
   it('aborts when no concept is referenced, before copying anything', () => {
@@ -236,13 +227,6 @@ describe('buildFillVocabularyScript', () => {
   it('keeps the custom vocabulary entries the vocabulary script wrote', () => {
     expect(sql).not.toContain('TRUNCATE target.vocabulary;')
     expect(sql).toContain('WHERE v.vocabulary_id NOT IN (SELECT vocabulary_id FROM target.vocabulary);')
-  })
-
-  it('casts each scanned column, so a VARCHAR one cannot break the scan', () => {
-    // UNNEST([a, b]) needs one type: a staging copy left in the target with a
-    // VARCHAR *_concept_id made the binder refuse the whole list.
-    expect(sql).toContain(`'TRY_CAST("' || replace(column_name, '"', '""') || '" AS BIGINT)'`)
-    expect(sql).toContain(`FROM target."' || replace(table_name, '"', '""') || '"'`)
   })
 
   it('warns that staging tables left in the target are scanned', () => {
