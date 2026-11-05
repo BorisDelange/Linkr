@@ -49,6 +49,12 @@ import type {
   LocalizedString, TodoItem,
 } from '@/types'
 import { localized, toLocalized } from '@/lib/localized'
+import { readWikiPageMeta } from '@/lib/wiki-page-meta'
+import { readWikiTree, wikiPageId, WIKI_TREE_FILE } from '@/lib/wiki/wiki-tree'
+import {
+  clonedDictionaryFiles, DICTIONARIES_INDEX, landDictionaries, readDictionaryLinks,
+} from '@/lib/data-dictionary/dictionary-links'
+import { importedChecks } from '@/lib/dq-check-portable'
 import type { ConceptSetRef } from '@/lib/concept-mapping/concept-set-refs'
 
 /** A seed write that failed: the seed goes on without it, but says which. */
@@ -223,6 +229,11 @@ const SEED_BASE = `${import.meta.env.BASE_URL}data/seed`.replace(/\/\//g, '/')
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function parseJsonOrNull(text: string | undefined): unknown {
+  if (!text) return null
+  try { return JSON.parse(text) } catch { return null }
+}
 
 async function fetchJson<T>(path: string): Promise<T | null> {
   try {
@@ -855,8 +866,8 @@ async function loadStructuralEntity(
       // written against this one.
       ruleSet.id = entityKey(ruleSet, folder ?? entity.id)
       await storage.dqRuleSets.create({ ...ruleSet, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(seedWriteFailed('DQ rule set', ruleSet.id))
-      for (const check of checks) {
-        await storage.dqCustomChecks.create({ ...check, ruleSetId: ruleSet.id } as import('@/types').DqCustomCheck).catch(seedWriteFailed('DQ check', check.id))
+      for (const check of importedChecks(checks, ruleSet.id)) {
+        await storage.dqCustomChecks.create(check).catch(seedWriteFailed('DQ check', check.id))
       }
       break
     }
@@ -983,26 +994,25 @@ async function loadWorkspaceInternals(
   }
 
   // --- wiki/ ---
-  const wikiTree = await fetchJson<Omit<WikiPage, 'content' | 'history'>[]>(`${base}/wiki/_tree.json`)
-  if (wikiTree) {
-    for (const meta of wikiTree) {
-      // Content lives in <folder>.md (en/first) + <folder>.<lang>.md per language.
-      const folder = meta.entityId
-      const content: LocalizedString = {}
-      for (const p of index.wikiPages ?? []) {
-        if (!p.startsWith('wiki/') || !p.endsWith('.md')) continue
-        const rel = p.slice('wiki/'.length, -'.md'.length)
-        const langMatch = /\.([a-z]{2})$/.exec(rel)
-        const lang = langMatch ? langMatch[1] : 'en'
-        const pageBase = langMatch ? rel.slice(0, -3) : rel
-        const matches = folder ? pageBase === folder : pageBase.endsWith(`--${meta.id}`)
-        if (!matches) continue
-        const text = await fetchMarkdown(`${base}/${p}`)
-        if (text != null) content[lang] = text
-      }
-      const title = toLocalized((meta as { title?: string | LocalizedString }).title)
-      await storage.wikiPages.create({ ...meta, title, content, history: [], workspaceId: wsId, updatedAt: now } as WikiPage).catch(seedWriteFailed('wiki page', meta.id))
+  // Keyed by entityId in the tree; local ids derive from it (lib/wiki/wiki-tree.ts).
+  const wikiTree = readWikiTree(await fetchJson<unknown>(`${base}/${WIKI_TREE_FILE}`))
+  for (const meta of wikiTree) {
+    // Content lives in <entityId>.md (en/first) + <entityId>.<lang>.md per language.
+    const content: LocalizedString = {}
+    for (const p of index.wikiPages ?? []) {
+      if (!p.startsWith('wiki/') || !p.endsWith('.md')) continue
+      const rel = p.slice('wiki/'.length, -'.md'.length)
+      const langMatch = /\.([a-z]{2})$/.exec(rel)
+      const lang = langMatch ? langMatch[1] : 'en'
+      const pageBase = langMatch ? rel.slice(0, -3) : rel
+      if (pageBase !== meta.entityId) continue
+      const text = await fetchMarkdown(`${base}/${p}`)
+      if (text != null) content[lang] = text
     }
+    const title = toLocalized((meta as { title?: string | LocalizedString }).title)
+    const id = wikiPageId(wsId, meta.id)
+    const parentId = meta.parentId ? wikiPageId(wsId, meta.parentId) : null
+    await storage.wikiPages.create({ ...readWikiPageMeta(meta), id, parentId, title, content, history: [], workspaceId: wsId, updatedAt: now } as WikiPage).catch(seedWriteFailed('wiki page', meta.entityId ?? id))
   }
 
   // --- sql-scripts/ ---
@@ -1051,6 +1061,20 @@ async function loadWorkspaceInternals(
       }
       await storage.etlFiles.create(storablePathNode(f)).catch(seedWriteFailed('ETL file', f.path))
     }
+  }
+
+  // --- data-dictionaries/: the linked dictionaries, from the clones the build
+  // baked in (or their repository, when it baked none) ---
+  if (index.dataDictionaries?.length) {
+    const texts: Record<string, string> = {}
+    for (const path of index.dataDictionaries) {
+      const text = await fetchText(`${base}/${path}`)
+      if (text !== null) texts[path] = text
+    }
+    const links = readDictionaryLinks(parseJsonOrNull(texts[DICTIONARIES_INDEX]))
+    const clones = new Map(links.map((l) => [l.entityId, clonedDictionaryFiles(texts, l.entityId)]))
+    const { unsynced } = await landDictionaries(links, clones, wsId, i18n.language, storage)
+    for (const { name, reason } of unsynced) console.warn(`[seed-loader] Data dictionary "${name}" not synced: ${reason}`)
   }
 
   // --- concept-sets/ ---
@@ -1136,6 +1160,7 @@ export interface WorkspaceInternals {
   etlPipelines?: string[]          // folder names under etl/ (pipeline rows + files)
   etlFiles?: Record<string, string>  // 'pipeline/<tree path>' → relative path
   conceptSets?: string[]           // paths like 'concept-sets/slug.json'
+  dataDictionaries?: string[]      // JSON paths under data-dictionaries/ (index + clones)
   serviceMappings?: string[]       // paths like 'service-mappings/slug.json'
   pluginFolders?: string[]         // folder names under plugins/
   pluginFiles?: Record<string, string[]>  // folder → list of file names

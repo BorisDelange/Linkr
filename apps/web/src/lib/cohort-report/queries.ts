@@ -8,7 +8,8 @@
 import type { CohortLevel, ConceptCriteriaConfig, SchemaMapping } from '@/types'
 import { classRelation, eventRelations, has } from '@/lib/schema-classes/relations'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
-import { conceptCriterionRelations } from '@/lib/duckdb/cohort-query'
+import { conceptCriterionRelations, conceptLabel } from '@/lib/duckdb/cohort-query'
+import { hang, idListSql, indent } from '@/lib/duckdb/sql-layout'
 
 /** `SELECT … FROM (membership) m`, the shape every query below starts from. */
 function members(membershipSql: string): string {
@@ -103,7 +104,8 @@ export function buildAgeSql(indexSql: string, mapping: SchemaMapping): string | 
     ? `COALESCE(EXTRACT(YEAR FROM age(CAST(i.index_date AS TIMESTAMP), CAST(p.birth_date AS TIMESTAMP))), ${fromYear})`
     : fromYear
   return [
-    'SELECT CAST(FLOOR(a.age / 10) * 10 AS INTEGER) AS bin, COUNT(*) AS n',
+    // FLOOR straight under its cast to an integer: the form an external database is sent.
+    'SELECT CAST(FLOOR(a.age / 10) AS INTEGER) * 10 AS bin, COUNT(*) AS n',
     'FROM (',
     `  SELECT ${age} AS age`,
     `  FROM (\n${indexSql}\n) i`,
@@ -129,14 +131,27 @@ export function buildSexSql(membershipSql: string, mapping: SchemaMapping): stri
   ].join('\n')
 }
 
-/** Members per month of their index date (`YYYY-MM`). */
+/** Members per month of their index date, `month` = year × 100 + month (202403):
+ *  a number every database computes alike, where a date format is spelled its own way. */
 export function buildMonthSql(indexSql: string): string {
   return [
-    "SELECT strftime(CAST(i.index_date AS TIMESTAMP), '%Y-%m') AS month, COUNT(*) AS n",
+    'SELECT EXTRACT(YEAR FROM CAST(i.index_date AS TIMESTAMP)) * 100 + EXTRACT(MONTH FROM CAST(i.index_date AS TIMESTAMP)) AS month, COUNT(*) AS n',
     `FROM (\n${indexSql}\n) i`,
     'WHERE i.index_date IS NOT NULL',
     'GROUP BY 1',
     'ORDER BY 1',
+  ].join('\n')
+}
+
+/** The cohort's patients known to have died, at any date. */
+export function buildDeathSql(membershipSql: string, mapping: SchemaMapping): string | null {
+  const patient = classRelation(mapping, 'patient')
+  if (!patient || !has(patient, 'death_datetime')) return null
+  return [
+    'SELECT COUNT(*) AS deaths',
+    `FROM ${patient.name} p`,
+    'WHERE p.death_datetime IS NOT NULL',
+    `  AND p.patient_id IN (SELECT m.patient_id FROM ${members(membershipSql)})`,
   ].join('\n')
 }
 
@@ -175,15 +190,15 @@ export function buildConceptSql(
   if (ids.length === 0 || !validateIntegerIds(ids)) return null
   const events = conceptCriterionRelations(config, mapping)
   if (events.length === 0) return null
-  const list = ids.join(', ')
+  const list = idListSql(ids, conceptLabel(config))
   const parts = events.map((event) => {
     const withSource = has(event, 'source_concept_id')
     const concept = withSource
-      ? `CASE WHEN e.concept_id IN (${list}) THEN e.concept_id ELSE e.source_concept_id END`
+      ? `CASE WHEN e.concept_id IN ${hang(list)} THEN e.concept_id ELSE e.source_concept_id END`
       : 'e.concept_id'
     const match = withSource
-      ? `(e.concept_id IN (${list}) OR e.source_concept_id IN (${list}))`
-      : `e.concept_id IN (${list})`
+      ? `(\n${indent(`e.concept_id IN ${list}\nOR e.source_concept_id IN ${list}`)}\n)`
+      : `e.concept_id IN ${list}`
     return [
       `SELECT ${concept} AS concept_id, e.patient_id`,
       `FROM ${event.name} e`,

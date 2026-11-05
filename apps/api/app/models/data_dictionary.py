@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin
+from app.models.base import PortableJSON, Base, TimestampMixin
 
 
 class DataDictionary(Base, TimestampMixin):
@@ -24,5 +24,5 @@ class DataDictionary(Base, TimestampMixin):
     commit: Mapped[str | None] = mapped_column(String(64))
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # `units/unit_conversions.json` / `units/recommended_units.json`, verbatim.
-    unit_conversions: Mapped[list | None] = mapped_column(JSONB_or_JSON)
-    recommended_units: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    unit_conversions: Mapped[list | None] = mapped_column(PortableJSON)
+    recommended_units: Mapped[list | None] = mapped_column(PortableJSON)

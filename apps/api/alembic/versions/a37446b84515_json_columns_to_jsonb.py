@@ -1,6 +1,6 @@
 """JSON columns added lately become JSONB on PostgreSQL; merge the two heads
 
-The models declare these columns `JSONB_or_JSON`, but the migrations that added
+The models declare these columns `PortableJSON`, but the migrations that added
 them created plain `json` on PostgreSQL. Their migrations now create `jsonb`, so
 a fresh install already has it and the conversion skips a column that is jsonb.
 SQLite has a single JSON type: nothing to do there.

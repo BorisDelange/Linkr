@@ -3,17 +3,19 @@ import { useTranslation } from 'react-i18next'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CodeViewer } from '@/components/editor/CodeViewer'
+import { SqlFormSelect, type SqlForm } from '@/components/editor/SqlFormSelect'
+import type { StatsSqlQuery } from './use-concept-stats-sql'
 
 /** Fixed viewer height, so switching tabs never resizes the dialog. Statements
- *  differ a lot in length (the histogram is several times the count), and sizing
- *  to the tallest would stretch the dialog for every one of them. */
-const VIEWER_HEIGHT = 320
+ *  differ a lot in length (the histogram is several times the count, the native
+ *  form several times the Linkr one), so it takes most of the screen. */
+const VIEWER_HEIGHT = '60vh'
 
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** The statements behind the stats panel, in execution order. */
-  queries: { titleKey: string; sql: string }[]
+  queries: StatsSqlQuery[]
 }
 
 /**
@@ -27,15 +29,21 @@ interface Props {
  * from a run — in server mode a shared cache can answer without querying the
  * database at all. Hence "the queries behind these statistics", never "the
  * queries that ran".
+ *
+ * Each in two forms: on the Linkr relations, and on the database's own tables.
  */
 export function ConceptStatsSqlDialog({ open, onOpenChange, queries }: Props) {
   const { t } = useTranslation()
   const [tab, setTab] = useState(queries[0]?.titleKey ?? '')
+  const [form, setForm] = useState<SqlForm>('linkr')
 
   // The set changes with the concept (a concept with no value column has only
   // the count), so a remembered tab can name a query that is no longer there.
-  const active = queries.some((q) => q.titleKey === tab) ? tab : queries[0]?.titleKey
-  const activeSql = queries.find((q) => q.titleKey === active)?.sql ?? ''
+  const active = queries.find((q) => q.titleKey === tab) ?? queries[0]
+
+  const shownSql = !active ? ''
+    : form === 'native' ? active.native ?? `-- ${t('common.sql_form_no_native')}`
+      : active.sql
 
   return (
     <DialogShell
@@ -46,7 +54,7 @@ export function ConceptStatsSqlDialog({ open, onOpenChange, queries }: Props) {
       description={t('concepts.stats_sql_description')}
       className="sm:max-w-3xl"
     >
-      <Tabs value={active} onValueChange={setTab}>
+      <Tabs value={active?.titleKey ?? ''} onValueChange={setTab}>
         <TabsList className="w-full">
           {queries.map((q) => (
             <TabsTrigger key={q.titleKey} value={q.titleKey} className="flex-1">
@@ -54,8 +62,11 @@ export function ConceptStatsSqlDialog({ open, onOpenChange, queries }: Props) {
             </TabsTrigger>
           ))}
         </TabsList>
-        <div className="mt-3 overflow-hidden rounded-md border">
-          <CodeViewer value={activeSql} language="sql" height={VIEWER_HEIGHT} />
+        <div className="mt-3">
+          <SqlFormSelect value={form} onChange={setForm} />
+        </div>
+        <div className="mt-2 overflow-hidden rounded-md border">
+          <CodeViewer value={shownSql} language="sql" height={VIEWER_HEIGHT} />
         </div>
       </Tabs>
     </DialogShell>

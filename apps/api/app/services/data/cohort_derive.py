@@ -14,16 +14,31 @@ Two phases on two connections, and the order is the security boundary:
 So the client's SQL can never write anywhere — which matters most when the
 target is a production Postgres.
 
-Which rows a table keeps follows the cohort's level and the finest id the table
-carries (see `classify`). A table carrying none (vocabulary, care_site…) is copied
-whole, or skipped when the caller asks — unless a patient relation reads it
-without a patient id column (`unresolved_tables`): that one is never copied.
+Which rows a table keeps follows the scope — the cohort's level, or a wider one
+(every stay of the cohort's patients) — and the id the table carries that fits
+it best (see `classify`). A table carrying none (vocabulary, care_site…) is
+copied whole, or skipped when the caller asks — unless a patient relation reads
+it without a patient id column (`unresolved_tables`), or it carries an id no
+kept set lists: those are never copied.
+
+On top of that, what the caller minimises (`Minimization`): the tables copied,
+the variables an event table keeps, the precision of the birth dates. And the
+ids, when pseudonymised (`Pseudonyms`): every patient, stay and unit-stay id is
+replaced, in every table, by a pseudonym drawn for this derivation (the links
+between stays too, see `pseudonym_level`; the source system's own patient and
+stay numbers are emptied, free text is copied as it is) — keyed
+HMAC-SHA-256 or random, as the CNIL health-data-warehouse referential asks
+(SEC-PSE-1, SEC-ESP-2) — and the correspondence, if kept, goes to another
+database than the derived one.
 """
 
 from __future__ import annotations
 
+import contextlib
+import hmac
 import os
 import re
+import secrets
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -31,11 +46,10 @@ from pathlib import Path
 
 import duckdb
 
+from app.services.data import derive_writers
 from app.services.data.db_connect import (
     _alias_role,
     _attach_role,
-    _dsn,
-    _engine_spec,
     _ext_dir,
     _external_search_path,
     _forbid_file_access,
@@ -48,7 +62,6 @@ from app.services.data.db_connect import (
     _split_statements,
     _sql_path,
     _strip_leading_noise,
-    attach_dsn,
     is_system_schema,
 )
 
@@ -68,6 +81,11 @@ class IdColumns:
     visit_detail_table: tuple[str | None, str] | None = None
     visit_detail_id: str | None = None
     visit_detail_visit_id: str | None = None
+    visit_detail_patient_id: str | None = None
+    # Where to find each patient's stays, for a scope wider than the cohort.
+    visit_table: tuple[str | None, str] | None = None
+    visit_id: str | None = None
+    visit_patient_id: str | None = None
 
 
 def _v2_relations(mapping: dict) -> list[tuple[str, dict]]:
@@ -150,6 +168,11 @@ def id_columns(mapping: dict) -> IdColumns:
         cols.visit_detail_table = (vd.get("schema"), vd["table"])
         cols.visit_detail_id = vd["idColumn"]
         cols.visit_detail_visit_id = vd["visitIdColumn"]
+        cols.visit_detail_patient_id = vd.get("patientIdColumn") or None
+    if vt.get("table") and vt.get("idColumn") and vt.get("patientIdColumn"):
+        cols.visit_table = (vt.get("schema"), vt["table"])
+        cols.visit_id = vt["idColumn"]
+        cols.visit_patient_id = vt["patientIdColumn"]
     return cols
 
 
@@ -173,6 +196,14 @@ def _id_columns_v2(mapping: dict) -> IdColumns:
         cols.visit_detail_table = (grain.get("schema"), grain["table"])
         cols.visit_detail_id = vd_id
         cols.visit_detail_visit_id = vd_visit
+        cols.visit_detail_patient_id = _field_column(vd, "patient_id")
+    visit = mapping.get("visit") or {}
+    v_id, v_patient = _field_column(visit, "visit_id"), _field_column(visit, "patient_id")
+    grain = visit.get("from") or {}
+    if v_id and v_patient and grain.get("table"):
+        cols.visit_table = (grain.get("schema"), grain["table"])
+        cols.visit_id = v_id
+        cols.visit_patient_id = v_patient
     return cols
 
 
@@ -232,36 +263,105 @@ def mapping_schemas(mapping: dict) -> set[str]:
     return {r["schema"] for r in refs if isinstance(r, dict) and r.get("schema")}
 
 
-def classify(columns: list[str], level: str, ids: IdColumns) -> tuple[str, str] | None:
-    """`(filter kind, column)` for a table, or None when it carries no id.
+def check_scope(level: str, scope: str | None) -> str:
+    """The scope a derivation keeps, the cohort's level by default: that level or
+    a wider one (the cohort's patients with all their stays), never a finer one,
+    which the cohort gives no way to choose."""
+    if level not in LEVELS:
+        raise ValueError(f"cannot derive at level {level!r}")
+    scope = scope or level
+    if scope not in LEVELS:
+        raise ValueError(f"unknown scope {scope!r}")
+    if LEVELS.index(scope) > LEVELS.index(level):
+        raise ValueError("the scope can only be the cohort's level or a wider one")
+    return scope
 
-    The finest id at or above the cohort's level wins: at visit_detail level a
-    table with a unit-stay id keeps the cohort's unit stays; one with only a stay
-    id keeps the parent stays; one with only a patient id keeps the patients."""
+
+def keyed_levels(ids: IdColumns, level: str, scope: str) -> set[str]:
+    """The levels whose kept ids can be listed (`_keep_<level>`), so that a table
+    carrying an id of that level can be filtered on it."""
+    out = {"patient"}
+    if scope == "patient":
+        visit = ids.visit_table is not None
+    elif level == "visit":
+        visit = True
+    else:
+        visit = ids.visit_detail_table is not None
+    if visit:
+        out.add("visit")
+    unit_stays = ids.visit_detail_table is not None and (visit or (scope == "patient" and ids.visit_detail_patient_id))
+    if scope == "visit_detail" or unit_stays:
+        out.add("visit_detail")
+    return out
+
+
+# Which id a table is filtered on, best first: the scope's own, then a finer one
+# (the unit stays of the kept stays), then a coarser one (the kept patients).
+_ORDER = {
+    "patient": ("patient", "visit", "visit_detail"),
+    "visit": ("visit", "visit_detail", "patient"),
+    "visit_detail": ("visit_detail", "visit", "patient"),
+}
+
+
+def _id_sets(ids: IdColumns) -> dict[str, set[str]]:
+    return {"patient": ids.patient, "visit": ids.visit, "visit_detail": ids.visit_detail}
+
+
+def id_level(column: str, ids: IdColumns) -> str | None:
+    """The level a column identifies (patient, stay, unit stay), if any."""
+    name = column.lower()
+    return next((lvl for lvl in ("visit_detail", "visit", "patient") if name in _id_sets(ids)[lvl]), None)
+
+
+# Ids of a level a table carries under another name than the one the mapping
+# gives it (OMOP's links between stays and between unit stays), and the
+# suffixes OMOP builds every such name with.
+_LINKED_IDS = {
+    "preceding_visit_occurrence_id": "visit",
+    "preceding_visit_detail_id": "visit_detail",
+    "visit_detail_parent_id": "visit_detail",
+    "parent_visit_detail_id": "visit_detail",
+}
+_ID_SUFFIXES = (("visit_detail_id", "visit_detail"), ("visit_occurrence_id", "visit"), ("person_id", "patient"))
+
+# The source system's own patient, stay and unit-stay numbers, which a
+# pseudonymised build empties. The other `*_source_value` columns hold the
+# source's codes (a lab code, a drug code), not who the row is about.
+IDENTIFYING_SOURCE_VALUES = frozenset({"person_source_value", "visit_source_value", "visit_detail_source_value"})
+
+
+def pseudonym_level(column: str, ids: IdColumns) -> str | None:
+    """The level whose pseudonym replaces `column` in a pseudonymised build: the
+    mapping's id columns, and every other column naming an id of a level."""
+    if (lvl := id_level(column, ids)):
+        return lvl
+    name = column.lower()
+    if name in _LINKED_IDS:
+        return _LINKED_IDS[name]
+    return next((lvl for suffix, lvl in _ID_SUFFIXES if name.endswith(suffix)), None)
+
+
+def classify(columns: list[str], scope: str, ids: IdColumns, keyed: set[str]) -> tuple[str, str] | None:
+    """`(filter kind, column)` for a table, or None when it carries no id `keyed`
+    lists. The kind is the column's level — `parent_visit` for a stay id at the
+    unit-stay scope, which keeps the stays of the cohort's unit stays."""
     by_lower = {c.lower(): c for c in columns}
-
-    def first(names: set[str]) -> str | None:
-        return next((by_lower[n] for n in sorted(names) if n in by_lower), None)
-
-    if level == "visit_detail":
-        if (c := first(ids.visit_detail)):
-            return ("visit_detail", c)
-        if (c := first(ids.visit)):
-            return ("parent_visit", c)
-    if level == "visit" and (c := first(ids.visit)):
-        return ("visit", c)
-    if (c := first(ids.patient)):
-        return ("patient", c)
+    for lvl in _ORDER[scope]:
+        if lvl not in keyed:
+            continue
+        column = next((by_lower[n] for n in sorted(_id_sets(ids)[lvl]) if n in by_lower), None)
+        if column:
+            return ("parent_visit" if lvl == "visit" and scope == "visit_detail" else lvl, column)
     return None
 
 
-# Where each filter reads its keys from, in the phase-2 connection.
-_KEY_SOURCE = {
-    "patient": 'SELECT patient_id FROM _members',
-    "visit": 'SELECT id FROM _members',
-    "visit_detail": 'SELECT id FROM _members',
-    "parent_visit": 'SELECT id FROM _parent_visits',
-}
+def _carried_id(columns: list[str], ids: IdColumns) -> str | None:
+    """An id column the table carries, whatever its level."""
+    return next((c for c in columns if id_level(c, ids)), None)
+
+
+_FILTER_LEVEL = {"patient": "patient", "visit": "visit", "parent_visit": "visit", "visit_detail": "visit_detail"}
 
 
 @dataclass
@@ -350,11 +450,14 @@ def compute_members(source: SourceSpec, membership_sql: str):
     return table.select(["id", "patient_id"])
 
 
-def plan(source: SourceSpec, mapping: dict, level: str) -> list[dict]:
-    """What a derivation would do with each table — for the dialog, before anything runs."""
-    if level not in LEVELS:
-        raise ValueError(f"cannot derive at level {level!r}")
+def plan(source: SourceSpec, mapping: dict, level: str, scope: str | None = None) -> list[dict]:
+    """What a derivation would do with each table — for the dialog, before anything runs.
+
+    `columns` lets the client pick a table's variable and date columns;
+    `pseudonymized`, the id columns a pseudonymised build replaces."""
+    scope = check_scope(level, scope)
     ids = id_columns(mapping)
+    keyed = keyed_levels(ids, level, scope)
     con = _connect()
     try:
         _attach_role(con, "source", source.spec)
@@ -364,13 +467,16 @@ def plan(source: SourceSpec, mapping: dict, level: str) -> list[dict]:
     unresolved = unresolved_tables(mapping, tables)
     out = []
     for schema, table, columns in tables:
-        how = classify(columns, level, ids)
+        how = classify(columns, scope, ids, keyed)
         out.append({
             "schema": None if source.is_default(schema) else schema,
             "table": table,
             "filter": how[0] if how else None,
             "column": how[1] if how else None,
             "unresolved": None if how else unresolved.get((schema, table)),
+            "unfilterable": None if how or (schema, table) in unresolved else _carried_id(columns, ids),
+            "columns": columns,
+            "pseudonymized": [c for c in columns if pseudonym_level(c, ids)],
         })
     return out
 
@@ -391,30 +497,27 @@ class TargetSpec:
     replace_schema: bool = False
 
 
+def _destination(target: TargetSpec) -> derive_writers.Destination:
+    return derive_writers.Destination(target.kind, target.path, target.config, target.password)
+
+
+def _open_writer(con: duckdb.DuckDBPyConnection, target: TargetSpec, alias: str) -> derive_writers.Writer:
+    return derive_writers.writer_for(con, _destination(target), alias)
+
+
 def drop_schema(target: TargetSpec) -> None:
-    """Drop the SQL schema a derivation created (`target.schema`), with its tables."""
+    """Drop the SQL schema a derivation created (`target.schema`), with its
+    tables — an Oracle one is emptied: a schema there is a user, not Linkr's."""
     _require_ident(target.schema, "schema name")
     con = _connect()
+    writer = None
     try:
-        _attach_target(con, target)
-        con.execute(f'DROP SCHEMA IF EXISTS target."{target.schema}" CASCADE')
+        writer = _open_writer(con, target, "target")
+        writer.drop_schema(target.schema)
     finally:
+        if writer is not None:
+            writer.close()
         con.close()
-
-
-def _attach_target(con: duckdb.DuckDBPyConnection, target: TargetSpec) -> None:
-    if target.kind == "file":
-        con.execute(f"ATTACH '{_sql_path(target.path)}' AS target")
-        return
-    if target.kind == "external":
-        spec = _engine_spec(target.config)
-        con.execute(f"INSTALL {spec['extension']}")
-        con.execute(f"LOAD {spec['extension']}")
-        # Writable, deliberately: this is the one place Linkr writes into a
-        # database it did not create, and only statements generated here run.
-        attach_dsn(con, _dsn(target.config, target.password), "target", f"TYPE {spec['type']}")
-        return
-    raise ValueError(f"unknown target kind {target.kind!r}")
 
 
 class DeriveCancelled(Exception):
@@ -467,6 +570,272 @@ def _swap_in(tmp: Path, dest: Path) -> None:
         os.replace(_wal(tmp), _wal(dest))
 
 
+TableKey = tuple[str | None, str]
+
+
+@dataclass
+class Minimization:
+    """What the caller keeps besides the scope. Tables are keyed as the plan names
+    them: `(schema or None for the default one, table)`, lower-cased.
+
+    `tables`: the ones copied (None: every one, `copy_personless` deciding those
+    with no patient). `variables`: an event table's concept columns and the
+    concepts it keeps (none: the table is created empty, so every relation of
+    the mapping still binds). `dates`: column → `year`, `month` (truncated) or
+    `null` (emptied) — a birth date kept to the precision asked; a date kept to
+    the month also empties the table's day of birth (`day_of_birth`,
+    `birth_day`), one kept to the year its month as well, as OMOP stores them
+    beside `birth_datetime`.
+
+    A key naming the source's default schema is the same as one naming none."""
+
+    scope: str | None = None
+    tables: set[TableKey] | None = None
+    variables: dict[TableKey, tuple[list[str], list[int]]] = field(default_factory=dict)
+    dates: dict[TableKey, dict[str, str]] = field(default_factory=dict)
+
+
+DATE_PRECISIONS = ("year", "month", "null")
+
+_BIRTH_PARTS = {"day": ("day_of_birth", "birth_day"), "month": ("month_of_birth", "birth_month")}
+
+
+def _with_birth_parts(dates: dict[str, str], columns: list[str]) -> dict[str, str]:
+    """`dates` with the day (and month) of birth a coarser precision drops."""
+    precisions = set(dates.values())
+    dropped = (["day"] if precisions & {"month", "year"} else []) + (["month"] if "year" in precisions else [])
+    asked = {c.lower() for c in dates}
+    out = dict(dates)
+    for part in dropped:
+        for c in columns:
+            if c.lower() in _BIRTH_PARTS[part] and c.lower() not in asked:
+                out[c] = "null"
+    return out
+
+
+def _normalized(source: SourceSpec, minimization: Minimization) -> Minimization:
+    def key(k: TableKey) -> TableKey:
+        schema, table = k
+        return (None if schema is None or source.is_default(schema) else schema.lower(), table.lower())
+
+    return Minimization(
+        scope=minimization.scope,
+        tables=None if minimization.tables is None else {key(k) for k in minimization.tables},
+        variables={key(k): v for k, v in minimization.variables.items()},
+        dates={key(k): v for k, v in minimization.dates.items()},
+    )
+
+
+@dataclass
+class Pseudonyms:
+    """How the ids are replaced. `hmac`: HMAC-SHA-256 of the id under `key`, so a
+    rebuild with the same key gives the same pseudonyms; `random`: drawn by a
+    CSPRNG, recoverable only through the correspondence table. `correspondence`
+    (a writable target, its `schema` set) receives `(derivation_id, derivation,
+    kind, original_id, pseudonym, built_at)` rows in `correspondence_table`."""
+
+    method: str
+    key: bytes | None = None
+    correspondence: TargetSpec | None = None
+    correspondence_table: str = "linkr_pseudonyms"
+    derivation_id: str = ""
+    derivation: str = ""
+
+
+def pseudonyms_for(method: str, key: bytes | None, level: str, ids: list[str]) -> list[int]:
+    """A pseudonym per id: a positive 63-bit integer, distinct within the level."""
+    if method == "hmac":
+        if not key:
+            raise ValueError("an HMAC pseudonymisation needs a key")
+        out = [int.from_bytes(hmac.digest(key, f"{level}:{i}".encode(), "sha256")[:8], "big") >> 1 for i in ids]
+        if len(set(out)) != len(out):
+            # About one chance in 10^7 for ten million ids: a new key draws again.
+            raise ValueError("two ids drew the same pseudonym; derive again with a new key")
+        return out
+    if method == "random":
+        seen: set[int] = set()
+        out = []
+        for _ in ids:
+            value = secrets.randbits(63)
+            while value in seen:
+                value = secrets.randbits(63)
+            seen.add(value)
+            out.append(value)
+        return out
+    raise ValueError(f"unknown pseudonymisation method {method!r}")
+
+
+# A type as information_schema spells it, safe to CAST to.
+_TYPE = re.compile(r"^[A-Za-z][A-Za-z0-9_ (),]*$")
+
+
+def _safe_type(value: str) -> str:
+    if not _TYPE.fullmatch(value or ""):
+        raise ValueError(f"cannot rewrite a column of type {value!r}")
+    return value
+
+
+def _is_text(sql_type: str) -> bool:
+    return sql_type.upper().startswith(("VARCHAR", "CHAR", "TEXT", "STRING"))
+
+
+def _column_types(con: duckdb.DuckDBPyConnection, schema: str, table: str) -> dict[str, str]:
+    rows = con.execute(
+        "SELECT column_name, data_type FROM information_schema.columns "
+        "WHERE table_catalog = 'source' AND table_schema = ? AND table_name = ?",
+        [schema, table],
+    ).fetchall()
+    return {str(c): str(t) for c, t in rows}
+
+
+def _create_keep_tables(
+    con: duckdb.DuckDBPyConnection, source: SourceSpec, ids: IdColumns, level: str, scope: str, keyed: set[str],
+) -> None:
+    """`_keep_<level>(id)`: the patients, stays and unit stays the scope keeps."""
+
+    def ref(where: tuple[str | None, str]) -> str:
+        schema, table = where
+        return f'"source"."{_require_ident(schema or source.default_schema, "schema name")}"."{_require_ident(table, "table name")}"'
+
+    def col(name: str | None) -> str:
+        return f'"{_require_ident(name, "column name")}"'
+
+    con.execute("CREATE TEMP TABLE _keep_patient AS SELECT DISTINCT patient_id AS id FROM _members")
+    if "visit" in keyed:
+        if scope == "patient":
+            sql = (f"SELECT DISTINCT {col(ids.visit_id)} AS id FROM {ref(ids.visit_table)} "
+                   f"WHERE {col(ids.visit_patient_id)} IN (SELECT id FROM _keep_patient)")
+        elif level == "visit":
+            sql = "SELECT DISTINCT id FROM _members"
+        else:
+            sql = (f"SELECT DISTINCT {col(ids.visit_detail_visit_id)} AS id FROM {ref(ids.visit_detail_table)} "
+                   f"WHERE {col(ids.visit_detail_id)} IN (SELECT id FROM _members)")
+        con.execute(f"CREATE TEMP TABLE _keep_visit AS {sql}")
+    if "visit_detail" in keyed:
+        if scope == "visit_detail":
+            sql = "SELECT DISTINCT id FROM _members"
+        elif "visit" in keyed:
+            sql = (f"SELECT DISTINCT {col(ids.visit_detail_id)} AS id FROM {ref(ids.visit_detail_table)} "
+                   f"WHERE {col(ids.visit_detail_visit_id)} IN (SELECT id FROM _keep_visit)")
+        else:
+            sql = (f"SELECT DISTINCT {col(ids.visit_detail_id)} AS id FROM {ref(ids.visit_detail_table)} "
+                   f"WHERE {col(ids.visit_detail_patient_id)} IN (SELECT id FROM _keep_patient)")
+        con.execute(f"CREATE TEMP TABLE _keep_visit_detail AS {sql}")
+
+
+def _create_pseudonym_maps(con: duckdb.DuckDBPyConnection, pseudo: Pseudonyms, keyed: set[str]) -> dict[str, int]:
+    """`_pseudo_<level>(id, pseudo)` for every kept id, as text: a column's type
+    may differ from one table to the next. Returns how many ids each level has."""
+    import pyarrow as pa
+
+    counts: dict[str, int] = {}
+    for lvl in sorted(keyed):
+        ids = [r[0] for r in con.execute(f"SELECT DISTINCT CAST(id AS VARCHAR) FROM _keep_{lvl} WHERE id IS NOT NULL").fetchall()]
+        values = pseudonyms_for(pseudo.method, pseudo.key, lvl, ids)
+        con.register("_pseudo_arrow", pa.table({"id": pa.array(ids, pa.string()), "pseudo": pa.array(values, pa.int64())}))
+        con.execute(f"CREATE TEMP TABLE _pseudo_{lvl} AS SELECT * FROM _pseudo_arrow")
+        con.unregister("_pseudo_arrow")
+        counts[lvl] = len(ids)
+    return counts
+
+
+_CORRESPONDENCE_COLUMNS = [
+    ("derivation_id", "VARCHAR"), ("derivation", "VARCHAR"), ("kind", "VARCHAR"),
+    ("original_id", "VARCHAR"), ("pseudonym", "BIGINT"), ("built_at", "TIMESTAMP"),
+]
+
+
+def _write_correspondence(writer: derive_writers.Writer, pseudo: Pseudonyms, levels: list[str]) -> None:
+    schema = _require_ident(pseudo.correspondence.schema, "schema name")
+    table = _require_ident(pseudo.correspondence_table, "table name")
+    writer.create_schema(schema, exist_ok=True)
+    writer.ensure_table(schema, table, _CORRESPONDENCE_COLUMNS)
+    # A rebuild replaces its own rows, and only those.
+    writer.delete_where(schema, table, "derivation_id", pseudo.derivation_id)
+    for lvl in levels:
+        writer.insert_select(
+            schema, table,
+            f"SELECT CAST(? AS VARCHAR) AS derivation_id, CAST(? AS VARCHAR) AS derivation, CAST(? AS VARCHAR) AS kind, "
+            f"id AS original_id, pseudo AS pseudonym, CAST(now() AS TIMESTAMP) AS built_at FROM _pseudo_{lvl}",
+            [pseudo.derivation_id, pseudo.derivation, lvl],
+        )
+
+
+def _in_list(values: list[int], text: bool) -> str:
+    return ", ".join(f"'{int(v)}'" if text else str(int(v)) for v in values)
+
+
+def _copy_select(
+    con: duckdb.DuckDBPyConnection,
+    schema: str,
+    table: str,
+    columns: list[str],
+    how: tuple[str, str] | None,
+    key: TableKey,
+    ids: IdColumns,
+    minimization: Minimization,
+    pseudo_levels: set[str] | None,
+) -> str:
+    """The SELECT a table is copied with: its kept rows, its ids pseudonymised,
+    its dates truncated. Every name is checked against the table's columns."""
+    by_lower = {c.lower(): c for c in columns}
+    types = _column_types(con, schema, table) if (pseudo_levels is not None or key in minimization.dates) else {}
+
+    def column(name: str) -> str:
+        real = by_lower.get(str(name).lower())
+        if real is None:
+            raise ValueError(f"{table} has no column {name!r}")
+        return _require_ident(real, "column name")
+
+    replace: dict[str, str] = {}
+    joins: list[str] = []
+    if pseudo_levels is not None:
+        for c in columns:
+            if c.lower() in IDENTIFYING_SOURCE_VALUES:
+                name = _require_ident(c, "column name")
+                replace[name] = f"CAST(NULL AS {_safe_type(types.get(c, 'VARCHAR'))})"
+                continue
+            lvl = pseudonym_level(c, ids)
+            if lvl is None:
+                continue
+            name = _require_ident(c, "column name")
+            sql_type = _safe_type(types.get(c, "BIGINT"))
+            if lvl in pseudo_levels:
+                alias = f"p{len(joins)}"
+                joins.append(f'LEFT JOIN _pseudo_{lvl} {alias} ON {alias}.id = CAST(s."{name}" AS VARCHAR)')
+                replace[name] = f"CAST({alias}.pseudo AS VARCHAR)" if _is_text(sql_type) else f"{alias}.pseudo"
+            else:
+                # An internal number with no pseudonym drawn: never copied as it is.
+                replace[name] = f"CAST(NULL AS {sql_type})"
+    for name, precision in _with_birth_parts(minimization.dates.get(key) or {}, columns).items():
+        if precision not in DATE_PRECISIONS:
+            raise ValueError(f"unknown date precision {precision!r}")
+        real = column(name)
+        sql_type = _safe_type(types.get(real, "DATE"))
+        replace[real] = (
+            f"CAST(NULL AS {sql_type})" if precision == "null"
+            else f'CAST(date_trunc(\'{precision}\', s."{real}") AS {sql_type})'
+        )
+
+    where: list[str] = []
+    if how:
+        where.append(f's."{_require_ident(how[1], "column name")}" IN (SELECT id FROM _keep_{_FILTER_LEVEL[how[0]]})')
+    if key in minimization.variables:
+        concept_columns, concepts = minimization.variables[key]
+        if not concepts or not concept_columns:
+            where.append("FALSE")
+        else:
+            if not types:
+                types = _column_types(con, schema, table)
+            where.append("(" + " OR ".join(
+                f's."{column(c)}" IN ({_in_list(concepts, _is_text(types.get(column(c), "")))})' for c in concept_columns
+            ) + ")")
+    replaced = ", ".join(f'{e} AS "{c}"' for c, e in replace.items())
+    select = f"s.* REPLACE ({replaced})" if replace else "s.*"
+    src = f'"source"."{_require_ident(schema, "schema name")}"."{_require_ident(table, "table name")}"'
+    return f"SELECT {select} FROM {src} s{''.join(' ' + j for j in joins)}" + (f" WHERE {' AND '.join(where)}" if where else "")
+
+
 def derive(
     source: SourceSpec,
     target: TargetSpec,
@@ -475,12 +844,15 @@ def derive(
     level: str,
     copy_personless: bool,
     control: DeriveControl | None = None,
+    minimization: Minimization | None = None,
+    pseudonyms: Pseudonyms | None = None,
 ) -> list[dict]:
     """Phase 2: copy every table, filtered, into the target. Returns what was written."""
     control = control or DeriveControl()
-    if level not in LEVELS:
-        raise ValueError(f"cannot derive at level {level!r}")
+    minimization = _normalized(source, minimization or Minimization())
+    scope = check_scope(level, minimization.scope)
     ids = id_columns(mapping)
+    keyed = keyed_levels(ids, level, scope)
     if target.schema is not None:
         _require_ident(target.schema, "schema name")
     same_file = source.spec.get("kind") == "file" and target.kind == "file" and _same_file(source.spec.get("path"), target.path)
@@ -488,7 +860,8 @@ def derive(
     if fresh and same_file:
         raise ValueError("a database cannot be derived into a new copy of its own file")
     # A new database is written beside the old one and swapped in only once
-    # complete: a failed or cancelled rebuild keeps the previous build.
+    # complete: a failed or cancelled rebuild keeps the previous file. A schema
+    # is not: its rebuild drops the previous build first (see replace_schema).
     writing = replace(target, path=f"{target.path}.tmp") if fresh else target
     if fresh:
         _remove_db_file(Path(writing.path))
@@ -496,8 +869,11 @@ def derive(
     con = _connect()
     control._con = con
     schema_created = False
+    complete = False
+    writer: derive_writers.Writer | None = None
+    corr_writer = None
     try:
-        _attach_target(con, writing)
+        writer = _open_writer(con, writing, "target")
         if same_file:
             # DuckDB will not open one file twice: read the source through the
             # writable attach, via read-only views named `source` (the ETL's own
@@ -505,6 +881,9 @@ def derive(
             _alias_role(con, "source", "target")
         else:
             _attach_role(con, "source", source.spec)
+        if pseudonyms is not None and pseudonyms.correspondence is not None:
+            # Before anything is written: an unreachable one fails the build early.
+            corr_writer = _open_writer(con, pseudonyms.correspondence, "corr")
 
         tables = _source_tables(con, source)
         if target.schema is not None:
@@ -524,22 +903,23 @@ def derive(
         con.register("_members_arrow", members)
         con.execute("CREATE TEMP TABLE _members AS SELECT * FROM _members_arrow")
         con.unregister("_members_arrow")
-        if level == "visit_detail" and ids.visit_detail_table:
-            vd_schema, vd_table = ids.visit_detail_table
-            ref = f'"source"."{_require_ident(vd_schema or source.default_schema, "schema name")}"."{_require_ident(vd_table, "table name")}"'
-            con.execute(
-                f'CREATE TEMP TABLE _parent_visits AS SELECT DISTINCT vd."{_require_ident(ids.visit_detail_visit_id, "column name")}" AS id '
-                f'FROM {ref} vd WHERE vd."{_require_ident(ids.visit_detail_id, "column name")}" IN (SELECT id FROM _members)'
-            )
+        _create_keep_tables(con, source, ids, level, scope, keyed)
+        pseudo_levels = None
+        if pseudonyms is not None:
+            _create_pseudonym_maps(con, pseudonyms, keyed)
+            pseudo_levels = keyed
 
         if target.schema is not None:
             if target.replace_schema:
-                con.execute(f'DROP SCHEMA IF EXISTS target."{target.schema}" CASCADE')
-            con.execute(f'CREATE SCHEMA target."{target.schema}"')
+                # The engines Linkr writes into cannot all rename a schema (SQL
+                # Server, Oracle's), so no build-aside-and-swap: the previous
+                # build goes now, as the rebuild dialog warns.
+                writer.drop_schema(target.schema)
+            writer.create_schema(target.schema)
             schema_created = True
         else:
             for s in sorted(schemas):
-                con.execute(f'CREATE SCHEMA IF NOT EXISTS target."{_require_ident(s, "schema name")}"')
+                writer.create_schema(_require_ident(s, "schema name"), exist_ok=True)
 
         unresolved = unresolved_tables(mapping, tables)
         written: list[dict] = []
@@ -547,26 +927,22 @@ def derive(
             control.check()
             if control.on_table:
                 control.on_table(done, len(tables), table)
-            how = classify(columns, level, ids)
+            key = (None if source.is_default(schema) else schema.lower(), table.lower())
+            how = classify(columns, scope, ids, keyed)
+            skipped = {"schema": schema, "table": table, "filter": None, "rows": None, "skipped": True}
             if how is None and (schema, table) in unresolved:
-                written.append({
-                    "schema": schema, "table": table, "filter": None, "rows": None, "skipped": True,
-                    "unresolved": unresolved[(schema, table)],
-                })
+                written.append({**skipped, "unresolved": unresolved[(schema, table)]})
                 continue
-            if how is None and not copy_personless:
-                written.append({"schema": schema, "table": table, "filter": None, "rows": None, "skipped": True})
+            if how is None and (orphan := _carried_id(columns, ids)):
+                written.append({**skipped, "unfilterable": orphan})
                 continue
-            if how and how[0] == "parent_visit" and not ids.visit_detail_table:
-                how = None
-            src = f'"source"."{_require_ident(schema, "schema name")}"."{_require_ident(table, "table name")}"'
+            chosen = key in minimization.tables if minimization.tables is not None else (how is not None or copy_personless)
+            if not chosen:
+                written.append({**skipped, "filter": how[0] if how else None})
+                continue
             dest_schema = target.schema or ("main" if source.is_default(schema) else schema)
-            dest = f'target."{dest_schema}"."{_require_ident(table, "table name")}"'
-            where = ""
-            if how:
-                where = f' WHERE "{_require_ident(how[1], "column name")}" IN ({_KEY_SOURCE[how[0]]})'
-            con.execute(f"CREATE TABLE {dest} AS SELECT * FROM {src}{where}")
-            rows = con.execute(f"SELECT COUNT(*) FROM {dest}").fetchone()[0]
+            select = _copy_select(con, schema, table, columns, how, key, ids, minimization, pseudo_levels)
+            rows = writer.create_table_as(dest_schema, _require_ident(table, "table name"), select)
             written.append({
                 "schema": None if dest_schema == "main" else dest_schema,
                 "table": table,
@@ -575,27 +951,35 @@ def derive(
                 "skipped": False,
             })
         control.check()
-        if target.kind == "file":
-            con.execute("CHECKPOINT target")
+        if corr_writer is not None:
+            _write_correspondence(corr_writer, pseudonyms, sorted(keyed))
+            corr_writer.checkpoint()
+        writer.checkpoint()
+        complete = True
     except Exception as exc:
         # A half-written copy is worse than none: it would read as a database
         # (or a schema) that exists and holds some of the cohort.
         if schema_created:
-            try:
-                con.execute(f'DROP SCHEMA IF EXISTS target."{target.schema}" CASCADE')
-            except Exception:  # noqa: BLE001 — the original error is the one to report
-                pass
-        control._con = None
-        con.close()
-        if fresh:
-            _remove_db_file(Path(writing.path))
+            with contextlib.suppress(Exception):  # the original error is the one to report
+                writer.drop_schema(target.schema)
         if control.cancelled.is_set() and not isinstance(exc, DeriveCancelled):
             # The interrupt surfaces as a DuckDB error; say what really happened.
             raise DeriveCancelled("the derivation was cancelled") from exc
         raise
     finally:
         control._con = None
+        _close(writer, corr_writer)
         con.close()
+        # Once closed: the half-written file is attached until then.
+        if fresh and not complete:
+            _remove_db_file(Path(writing.path))
     if fresh:
         _swap_in(Path(writing.path), Path(target.path))
     return written
+
+
+def _close(*writers) -> None:
+    for w in writers:
+        if w is not None:
+            with contextlib.suppress(Exception):
+                w.close()

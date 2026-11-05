@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from pydantic import Field
+
 from app.schemas.base import CamelModel
 
 
@@ -22,6 +24,7 @@ class PatientDashboardCreate(CamelModel):
     fit_to_height: bool | None = None
     reload_widgets_on_tab_switch: bool | None = None
     sync_timelines_across_tabs: bool | None = None
+    read_ahead_patients: int | None = Field(default=None, ge=0, le=10)
     collection: dict | None = None
     display_order: int = 0
     origin: str = "user"
@@ -43,6 +46,7 @@ class PatientDashboardUpdate(CamelModel):
     fit_to_height: bool | None = None
     reload_widgets_on_tab_switch: bool | None = None
     sync_timelines_across_tabs: bool | None = None
+    read_ahead_patients: int | None = Field(default=None, ge=0, le=10)
     collection: dict | None = None
     display_order: int | None = None
     created_by: str | None = None
@@ -67,6 +71,7 @@ class PatientDashboardResponse(CamelModel):
     fit_to_height: bool | None = None
     reload_widgets_on_tab_switch: bool | None = None
     sync_timelines_across_tabs: bool | None = None
+    read_ahead_patients: int | None = Field(default=None, ge=0, le=10)
     collection: dict | None = None
     display_order: int
     origin: str

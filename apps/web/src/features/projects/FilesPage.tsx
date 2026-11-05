@@ -87,6 +87,8 @@ import { CreateFileDialog } from './files/CreateFileDialog'
 import { CreateFolderDialog } from './files/CreateFolderDialog'
 import { UploadDialog } from './files/UploadDialog'
 import { RunButton } from './files/RunButton'
+import { WebAppPanel } from './files/WebAppPanel'
+import { useRunAsWebApp, useWebAppEntry } from './files/use-run-as-web-app'
 import { useIdeTabBar, type TabGroup } from './files/ide-tab-bar'
 import { KeepAlivePortal } from './files/keep-alive-portal'
 import { SessionDropdown } from '@/components/execution/SessionDropdown'
@@ -592,7 +594,7 @@ export function FilesPage() {
       const start = Date.now()
 
       try {
-        const rows = await duckdbEngine.queryDataSource(activeConnectionId, sql, { pushdown: false })
+        const rows = await duckdbEngine.queryDataSource(activeConnectionId, sql, { pushdown: false, origin: 'IDE · run SQL' })
         const duration = Date.now() - start
 
         addExecutionResult({
@@ -883,6 +885,20 @@ export function FilesPage() {
       })
     )
   }, [selectedNode, selectedLanguage, activeProjectUid, t, addExecutionResult, updateExecutionResult, setOutputVisible, pendingEditsRef])
+
+  const { runAsWebApp, dialog: webAppDialog } = useRunAsWebApp(activeProjectUid)
+  const handleRunAsWebApp = useCallback(() => {
+    pendingEditsRef.current?.flush()
+    if (selectedNode) void runAsWebApp({ fileId: selectedNode.id, name: selectedNode.name })
+  }, [selectedNode, runAsWebApp, pendingEditsRef])
+
+  const { preset: webAppPreset, running: webAppRunning } = useWebAppEntry(activeProjectUid, {
+    id: selectedFileId,
+    name: selectedName,
+    language: selectedLanguage,
+    content: selectedContent,
+  })
+  const handleRunPrimary = webAppPreset ? handleRunAsWebApp : handleRunFile
 
   const handleRunSelection = useCallback(() => {
     if (!editorRef.current || !selectedNode) return
@@ -1264,7 +1280,7 @@ export function FilesPage() {
         pendingEditsRef={group === 'left' ? leftPendingEditsRef : rightPendingEditsRef}
         onSave={handleSaveFile}
         onRunSelectionOrLine={isVirtual ? undefined : handleRunSelectionOrLine}
-        onRunFile={isVirtual ? undefined : handleRunFile}
+        onRunFile={isVirtual ? undefined : handleRunPrimary}
         onRunFileAsJob={isVirtual ? undefined : handleRunFileAsJob}
       />
     )
@@ -1276,13 +1292,17 @@ export function FilesPage() {
       className="h-full"
       style={{ display: isActive ? 'block' : 'none' }}
     >
-      <TerminalPanel
-        terminalType={tt.kind}
-        projectUid={activeProjectUid ?? undefined}
-        sessionId={activeSessionId}
-        active={isActive}
-        persistKey={tt.id}
-      />
+      {tt.kind === 'app' ? (
+        <WebAppPanel tabId={tt.id} appId={tt.appId ?? ''} active={isActive} />
+      ) : (
+        <TerminalPanel
+          terminalType={tt.kind}
+          projectUid={activeProjectUid ?? undefined}
+          sessionId={activeSessionId}
+          active={isActive}
+          persistKey={tt.id}
+        />
+      )}
     </div>
   )
 
@@ -1290,19 +1310,25 @@ export function FilesPage() {
   // The toolbar serves the focused file: on the right it shows even with the left pane hidden.
   const selectedFilePaneVisible = toolbarOnRight || editorVisible
 
-  // The output pane opens at its minimum size, which suits a table but not a
-  // script: the first file or terminal moved there gets half the room.
+  // The output pane opens at its minimum size, too narrow for a console: it gets
+  // half the room when it appears, until the user drags the divider; the first
+  // file or terminal moved there gets half the room regardless.
   const splitRef = useRef<AllotmentHandle>(null)
   const splitSizesRef = useRef<number[]>([])
+  const splitDraggedRef = useRef(false)
+  const outputPaneVisible = outputVisible && (hasOutput || hasRightEditorTabs)
   useEffect(() => {
-    if (!hasRightEditorTabs) return
+    splitDraggedRef.current = false
+  }, [outputBelow])
+  useEffect(() => {
+    if (!outputPaneVisible || (splitDraggedRef.current && !hasRightEditorTabs)) return
     const frame = requestAnimationFrame(() => {
       const [main = 0, right = 0] = splitSizesRef.current
       const total = main + right
       if (total > 0 && right < total * 0.35) splitRef.current?.resize([total / 2, total / 2])
     })
     return () => cancelAnimationFrame(frame)
-  }, [hasRightEditorTabs])
+  }, [outputPaneVisible, hasRightEditorTabs, outputBelow])
 
   const outputTabGroup = (
     <>
@@ -1486,6 +1512,9 @@ export function FilesPage() {
                       onRunLine={() => void handleRunLine()}
                       onStop={handleStop}
                       onRunFileAsJob={handleRunFileAsJob}
+                      onRunAsWebApp={selectedLanguage === 'python' || selectedLanguage === 'r' ? handleRunAsWebApp : undefined}
+                      webAppFramework={webAppPreset?.label}
+                      webAppRunning={webAppRunning}
                       isSql={isSql}
                       isExecuting={isExecuting}
                       language={selectedLanguage as 'python' | 'r' | undefined}
@@ -1897,6 +1926,7 @@ export function FilesPage() {
                   ref={splitRef}
                   vertical={outputBelow}
                   onChange={(sizes) => { splitSizesRef.current = sizes }}
+                  onDragEnd={() => { splitDraggedRef.current = true }}
                 >
                   <Allotment.Pane minSize={150} visible={mainPaneVisible}>
                     <Allotment>
@@ -2002,7 +2032,7 @@ export function FilesPage() {
                   {/* Output panel */}
                   <Allotment.Pane
                     minSize={outputBelow ? 120 : 200}
-                    visible={outputVisible && (hasOutput || rightEditorTabIds.length > 0)}
+                    visible={outputPaneVisible}
                   >
                     <div
                       className={cn('relative flex h-full flex-col', outputBelow ? 'border-t' : 'border-l')}
@@ -2036,6 +2066,8 @@ export function FilesPage() {
             </div>
           </Allotment.Pane>
         </Allotment>
+
+        {webAppDialog}
 
         <CreateFileDialog
           open={createFileOpen}

@@ -90,7 +90,6 @@ export function PatientBoardCard({
           </div>
           <TruncatedText
             text={localized(board.name, language)}
-            readOnly
             className="min-w-0 flex-1 text-sm font-medium"
           />
           <DropdownMenu>

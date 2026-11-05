@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as LucideIcons from 'lucide-react'
 import {
@@ -6,9 +6,8 @@ import {
   Check,
   X,
   Paperclip,
-  Shield,
-  ShieldCheck,
   ChevronRight,
+  ChevronDown,
   Puzzle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -17,16 +16,28 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from '@/components/ui/tooltip'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { MarkdownToolbar, applyMarkdownFormat } from '@/components/editor/MarkdownToolbar'
 import type { MarkdownFormat } from '@/components/editor/MarkdownToolbar'
-import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
+import { MarkdownRenderer, markdownComponents } from '@/components/editor/MarkdownRenderer'
 import { useWikiStore } from '@/stores/wiki-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { useWikiAttachments } from '@/hooks/use-wiki-attachments'
+import { cn } from '@/lib/utils'
 import { WikiAttachmentsDialog } from './WikiAttachmentsDialog'
-import type { WikiPage } from '@/types'
+import { resolveWikiHref, wikilinkHref } from './wiki-links'
+import { WIKI_STATUSES, WIKI_STATUS_DOT } from './wiki-status'
+import type { WikiPage, WikiPageStatus } from '@/types'
+
+const SharedLink = markdownComponents.a
 
 function resolveIcon(name: string): LucideIcons.LucideIcon {
   const icon = (LucideIcons as Record<string, unknown>)[name]
@@ -41,7 +52,7 @@ interface WikiPageEditorProps {
 
 export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
   const { t } = useTranslation()
-  const { viewMode, setViewMode, savePage, updatePage, getBreadcrumbs, pages } = useWikiStore()
+  const { viewMode, setViewMode, savePage, updatePage, getBreadcrumbs, pages, setActivePage } = useWikiStore()
   const language = useAppStore((s) => s.language)
   const canEdit = useMyWorkspaceRole().atLeast('editor')
   const [localContent, setLocalContent] = useState(() => localized(page.content, language))
@@ -101,19 +112,46 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
     })
   }, [])
 
-  const handleToggleVerified = useCallback(() => {
-    updatePage(page.id, {
-      verified: !page.verified,
-      verifiedAt: !page.verified ? new Date().toISOString() : undefined,
-    })
-  }, [page.id, page.verified, updatePage])
+  const status = page.status ?? 'draft'
+  const handleStatusChange = useCallback((next: string) => {
+    if (next === status) return
+    updatePage(page.id, { status: next as WikiPageStatus, statusChangedAt: new Date().toISOString() })
+  }, [page.id, status, updatePage])
 
-  // Resolve wikilinks to page IDs
   const resolveWikilink = useCallback((name: string): string | null => {
     const target = pages.find((p) => localized(p.title, language).toLowerCase() === name.toLowerCase())
-    if (target) return `#wiki-page-${target.id}`
-    return null
+    return target ? wikilinkHref(target.id) : null
   }, [pages, language])
+
+  // Read through refs so the link component keeps one identity: a new one per
+  // render would remount every link in the page.
+  const pagesRef = useRef(pages)
+  const editingRef = useRef(viewMode === 'edit')
+  useEffect(() => {
+    pagesRef.current = pages
+    editingRef.current = viewMode === 'edit'
+  }, [pages, viewMode])
+
+  const linkComponents = useMemo(() => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    a: (props: any) => {
+      const targetId = resolveWikiHref(props.href, pagesRef.current)
+      if (!targetId) return <SharedLink {...props} />
+      const { node: _node, children, ...rest } = props
+      return (
+        <a
+          {...rest}
+          onClick={(e) => {
+            e.preventDefault()
+            // Following a link from the live preview would drop the unsaved draft.
+            if (!editingRef.current) setActivePage(targetId)
+          }}
+        >
+          {children}
+        </a>
+      )
+    },
+  }), [setActivePage])
 
   const updatedDate = new Date(page.updatedAt)
   const updatedAgo = formatTimeAgo(updatedDate)
@@ -128,7 +166,10 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
             return (
               <span key={crumb.id} className="flex items-center gap-1 min-w-0">
                 {i > 0 && <ChevronRight size={10} className="shrink-0" />}
-                <span className={`flex items-center gap-0.5 truncate ${crumb.id === page.id ? 'font-medium text-foreground' : 'hover:text-foreground cursor-pointer'}`}>
+                <span
+                  className={`flex items-center gap-0.5 truncate ${crumb.id === page.id ? 'font-medium text-foreground' : 'hover:text-foreground cursor-pointer'}`}
+                  onClick={crumb.id === page.id ? undefined : () => setActivePage(crumb.id)}
+                >
                   {CrumbIcon && <CrumbIcon size={11} className="shrink-0" />}
                   {localized(crumb.title, language)}
                 </span>
@@ -137,23 +178,25 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
           })}
         </div>
         <div className="flex items-center gap-1">
-          {/* Verified badge */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`h-5 px-2 text-xs ${page.verified ? 'text-emerald-500' : 'text-muted-foreground'}`}
-                onClick={handleToggleVerified}
-              >
-                {page.verified ? <ShieldCheck size={12} /> : <Shield size={12} />}
-                {page.verified ? t('wiki.verified') : t('wiki.verify')}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" disabled={!canEdit} className="h-5 px-2 text-xs text-muted-foreground">
+                <span className={cn('size-1.5 rounded-full', WIKI_STATUS_DOT[status])} />
+                {t(`wiki.status_${status}`)}
+                <ChevronDown size={10} />
               </Button>
-            </TooltipTrigger>
-            <TooltipContent sideOffset={4}>
-              {page.verified ? t('wiki.verified') : t('wiki.mark_verified')}
-            </TooltipContent>
-          </Tooltip>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" density="compact" className="w-40">
+              <DropdownMenuRadioGroup value={status} onValueChange={handleStatusChange}>
+                {WIKI_STATUSES.map((option) => (
+                  <DropdownMenuRadioItem key={option} value={option}>
+                    <span className={cn('size-1.5 rounded-full', WIKI_STATUS_DOT[option])} />
+                    {t(`wiki.status_${option}`)}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -223,6 +266,7 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
               <MarkdownRenderer
                 content={resolveAttachmentUrls(localContent)}
                 resolveWikilink={resolveWikilink}
+                extraComponents={linkComponents}
               />
             </div>
           </div>
@@ -235,11 +279,10 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
             <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
               <span>{t('wiki.last_updated', { time: updatedAgo })}</span>
               {page.owner && <span>· {page.owner}</span>}
-              {page.verified && (
-                <span className="flex items-center gap-1 text-emerald-500">
-                  <ShieldCheck size={12} /> {t('wiki.verified')}
-                </span>
-              )}
+              <span className="flex items-center gap-1.5">
+                · <span className={cn('size-1.5 rounded-full', WIKI_STATUS_DOT[status])} />
+                {t(`wiki.status_${status}`)}
+              </span>
             </div>
 
             {/* Content */}
@@ -248,6 +291,7 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
                 <MarkdownRenderer
                   content={resolveAttachmentUrls(localized(page.content, language))}
                   resolveWikilink={resolveWikilink}
+                  extraComponents={linkComponents}
                 />
               ) : (
                 <p className="text-sm text-muted-foreground">{t('wiki.empty_page')}</p>

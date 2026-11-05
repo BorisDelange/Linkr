@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
+import { usePortalTarget } from '@/lib/portal-container'
 import { useTranslation } from 'react-i18next'
 import { User, Calendar, Bed, Heart, HeartOff, List, GanttChart, ZoomIn, ZoomOut, Maximize2, ExternalLink, Cake, Hourglass, Building2, VenusAndMars } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -111,6 +112,7 @@ const AXIS_HEIGHT = 28
 const TOP_PAD = 4
 
 function GanttTimeline({ visitRows, detailsByVisit, formatDateTime, lang, t, onNavigate }: GanttTimelineProps) {
+  const portalTarget = usePortalTarget()
   const containerRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(400)
   const [tooltip, setTooltip] = useState<{ x: number; y: number; title: string; details: string[] } | null>(null)
@@ -492,7 +494,7 @@ function GanttTimeline({ visitRows, detailsByVisit, formatDateTime, lang, t, onN
             </div>
           ))}
         </div>,
-        document.body,
+        portalTarget,
       )}
 
       {/* Y-axis label tooltip via portal */}
@@ -509,7 +511,7 @@ function GanttTimeline({ visitRows, detailsByVisit, formatDateTime, lang, t, onN
             {labelTooltip.text}
           </div>
         </div>,
-        document.body,
+        portalTarget,
       )}
 
       {/* Context menu via portal */}
@@ -537,7 +539,7 @@ function GanttTimeline({ visitRows, detailsByVisit, formatDateTime, lang, t, onN
             </button>
           </div>
         </>,
-        document.body,
+        portalTarget,
       )}
     </div>
   )
@@ -765,7 +767,7 @@ export function PatientSummaryWidget() {
     let cancelled = false
 
     const summaryRead = summSql
-      ? patientQuery(dataSourceId, summSql)
+      ? patientQuery(dataSourceId, summSql, { origin: 'Patient summary · demographics and counts' })
         .then((rows) => {
           // SQL result rows are dynamically shaped; trust the query's column layout
           if (!cancelled && rows.length > 0) setSummary(rows[0] as unknown as SummaryRow)
@@ -776,7 +778,7 @@ export function PatientSummaryWidget() {
         })
       : Promise.resolve()
     const visitsRead = visitSql
-      ? patientQuery(dataSourceId, visitSql)
+      ? patientQuery(dataSourceId, visitSql, { origin: 'Patient summary · hospital and unit stays' })
         .then((rows) => {
           // SQL result rows are dynamically shaped; trust the query's column layout
           if (!cancelled) setVisits(rows as unknown as VisitRow[])

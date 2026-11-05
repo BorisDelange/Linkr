@@ -26,7 +26,7 @@ query generated from its config), the same contract as `cohorts.custom_sql`.
 import sqlalchemy as sa
 from alembic import op
 
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 revision = "d8e9f0a1b2c3"
 down_revision = "c7d8e9f0a1b2"
@@ -44,8 +44,8 @@ def upgrade() -> None:
             sa.ForeignKey("projects.uid", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column("name", JSONB_or_JSON, nullable=True),
-        sa.Column("description", JSONB_or_JSON, nullable=True),
+        sa.Column("name", PortableJSON, nullable=True),
+        sa.Column("description", PortableJSON, nullable=True),
         sa.Column("show_widget_titles", sa.Boolean(), nullable=True),
         sa.Column("widget_spacing", sa.Integer(), nullable=True),
         sa.Column("fit_to_height", sa.Boolean(), nullable=True),
@@ -59,7 +59,7 @@ def upgrade() -> None:
             nullable=True,
         ),
         sa.Column("created_by", sa.Text(), nullable=True),
-        sa.Column("created_by_details", JSONB_or_JSON, nullable=True),
+        sa.Column("created_by_details", PortableJSON, nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
@@ -76,8 +76,8 @@ def upgrade() -> None:
             sa.ForeignKey("patient_dashboards.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column("name", JSONB_or_JSON, nullable=True),
-        sa.Column("description", JSONB_or_JSON, nullable=True),
+        sa.Column("name", PortableJSON, nullable=True),
+        sa.Column("description", PortableJSON, nullable=True),
         sa.Column("display_order", sa.Integer(), nullable=False, server_default="0"),
     )
     op.create_index(
@@ -95,12 +95,12 @@ def upgrade() -> None:
             sa.ForeignKey("patient_dashboard_tabs.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column("name", JSONB_or_JSON, nullable=True),
-        sa.Column("description", JSONB_or_JSON, nullable=True),
-        sa.Column("layout", JSONB_or_JSON, nullable=True),
+        sa.Column("name", PortableJSON, nullable=True),
+        sa.Column("description", PortableJSON, nullable=True),
+        sa.Column("layout", PortableJSON, nullable=True),
         sa.Column("plugin_id", sa.String(100), nullable=False),
         sa.Column("language", sa.String(10), nullable=True),
-        sa.Column("config", JSONB_or_JSON, nullable=True),
+        sa.Column("config", PortableJSON, nullable=True),
         sa.Column("custom_sql", sa.Text(), nullable=True),
         sa.Column("plugin_version", sa.String(20), nullable=True),
     )

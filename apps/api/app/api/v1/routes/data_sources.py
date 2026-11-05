@@ -3,7 +3,6 @@ import contextlib
 import logging
 import re
 import uuid
-from datetime import UTC, datetime
 
 import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -21,6 +20,11 @@ from app.models.job import Job
 from app.models.user import User
 from app.schemas.concept_cache import (
     ConceptCacheAssembleRequest,
+    ConceptProfilesRead,
+    ConceptProfilesResult,
+    ConceptProfilesRunSave,
+    ConceptProfilesSummary,
+    ConceptProfilesWrite,
     ConceptCacheStatus,
     ConceptRunStart,
     ConceptUnitsJobRequest,
@@ -28,12 +32,10 @@ from app.schemas.concept_cache import (
     ConceptPageResult,
     ConceptRelationsRequest,
     ConceptRelationsResult,
-    ConceptStatsPlanRequest,
-    ConceptStatsPlanResult,
-    ConceptStatsRange,
-    ConceptStatsDiagnosis,
     ConceptStatsResponse,
     ConceptStatsSave,
+    RelationRecordsRequest,
+    RelationRecordsResult,
 )
 from app.schemas.data_source import (
     CompactStatus,
@@ -69,6 +71,7 @@ from app.services import (
     blob_store,
     change_tracking,
     cohort_derive_service,
+    concept_profile_service,
     concept_stats_cache_service,
     data_source_service,
     database_credential_service,
@@ -188,6 +191,12 @@ async def create_data_source(
     return source
 
 
+def _named(source: DataSource) -> str:
+    """A database's name for a job's label: English first, then any."""
+    name = source.name if isinstance(source.name, dict) else {}
+    return name.get("en") or next((v for v in name.values() if v), None) or source.alias or "Database"
+
+
 @router.post("/test-connection", response_model=TestConnectionResult)
 async def test_connection(
     body: TestConnectionRequest,
@@ -200,10 +209,18 @@ async def test_connection(
 
     The driver's error is for instance admins only (see _connection_error)."""
     await check_workspace_permission(db, body.workspace_id, user, "databases:write")
-    ok, error, tables = await data_source_service.test_connection(body.connection_config)
-    if not ok:
-        error = _connection_error(user, "connection_test", error, workspace_id=body.workspace_id)
+    async with jobs.tracked(user.id, "New database · test the connection", workspace_id=body.workspace_id) as job_id:
+        ok, error, tables = await data_source_service.test_connection(body.connection_config)
+        if not ok:
+            error = _connection_error(user, "connection_test", error, workspace_id=body.workspace_id)
+        await _outcome(job_id, ok, error, tables)
     return TestConnectionResult(ok=ok, error=error, tables=tables)
+
+
+async def _outcome(job_id: str | None, ok: bool, error: str | None, tables: list | None) -> None:
+    """What a connection test answered, on its job."""
+    if job_id is not None:
+        await jobs.note(job_id, f"{len(tables or [])} tables" if ok else f"Failed: {error}")
 
 
 # --- Files (declared before /{source_id} would shadow, but paths don't overlap) ---
@@ -308,7 +325,10 @@ async def delete_data_source(
     announced = not _awaiting_build(source)
     login = None
     if delete_data and data_source_service.created_data(source) == "schema":
-        login = await _login(db, source, user)
+        try:
+            login = await cohort_derive_service.drop_login(db, source, user.id)
+        except cohort_derive_service.DeriveError as e:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
     try:
         await data_source_service.delete(db, source, delete_data=delete_data, login=login)
     except Exception as e:  # noqa: BLE001 — a failed drop keeps the database, and says why
@@ -359,8 +379,14 @@ async def query_data_source(
         recorded = pushdown.execution.set(execution)
         try:
             rows = await deferred.until_stopped(run(), lambda: query_cancel.cancel(query_id, str(user.id)))
+            job_id = deferred.current_job.get()
+            if job_id is not None:
+                await jobs.record_query(
+                    job_id, rows=len(rows), sent=execution.pop("sent", None),
+                    computed_by=execution.get("computedBy"), reason=execution.get("reason"),
+                )
         except (query_cancel.QueryCancelled, duckdb.InterruptException):
-            raise HTTPException(status.HTTP_409_CONFLICT, "query cancelled")
+            raise deferred.Stopped() from None
         except ValueError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, redact_secrets(str(e)))
         except HTTPException:
@@ -372,11 +398,18 @@ async def query_data_source(
             if cap is not None:
                 db_connect.row_cap.reset(cap)
             pushdown.execution.reset(recorded)
+        execution.pop("sent", None)
         return QueryResult(rows=rows, execution=QueryExecution(**execution) if execution else None)
 
     # Heavy: it waits its turn behind the heavy jobs, from the start, job or not.
+    # Every query is a job of the database's workspace, from the start: what the
+    # database was asked, when, for how long, and how many rows it answered —
+    # stoppable from the panel. A plan runs nothing.
     as_job = deferred.AsJob(
-        "SQL query", workspace_id=source.workspace_id, lane="heavy_query" if body.heavy else None, input=body.sql,
+        body.origin or "SQL query", workspace_id=source.workspace_id,
+        lane="heavy_query" if body.heavy else None, input=body.sql,
+        always=not body.plan, kind=jobs.QUERY_KIND,
+        group_key=body.group_key, group_label=body.group_label,
     )
     return await deferred.respond(user.id, work, as_job)
 
@@ -423,7 +456,7 @@ async def start_query_job(
     job = await query_jobs.start(
         db, source.id, source.workspace_id, user.id, body.label,
         [query_jobs.JobQuery(q.key, q.sql, q.pushdown) for q in body.queries],
-        query_jobs.read_rows(login, body.pushdown), keep_going=body.keep_going,
+        query_jobs.read_rows(login, body.pushdown), keep_going=body.keep_going, share_lane=body.share_lane,
     )
     return job
 
@@ -457,7 +490,8 @@ async def derive_plan(
     """What deriving a cohort of this database would do with each of its tables."""
     source = await _load_source(db, source_id, user, "databases:read")
     try:
-        return await cohort_derive_service.plan(db, source, body.level, user.id)
+        async with jobs.tracked(user.id, f"{_named(source)} · plan a cohort derivation", workspace_id=source.workspace_id):
+            return await cohort_derive_service.plan(db, source, body.level, body.scope, user.id)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
 
@@ -521,6 +555,9 @@ async def derive(
     notified when the job starts and when it ends."""
     source = await _load_source(db, source_id, user, "databases:read")
     target = await _load_source(db, body.target.data_source_id, user, "databases:write")
+    pseudo = body.pseudonymization
+    if pseudo is not None and pseudo.correspondence is not None:
+        await _load_source(db, pseudo.correspondence.data_source_id, user, "databases:write")
     if source.workspace_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "only a workspace database can be derived")
     cohort = None
@@ -654,7 +691,8 @@ async def create_from_ddl(
     # (browsing the database leaves one): DuckDB would refuse to open it again.
     connection_pool.invalidate(source.id)
     try:
-        await asyncio.to_thread(managed_db.create_from_ddl, path, body.ddl)
+        async with jobs.tracked(user.id, f"{_named(source)} · create its tables (DDL)", workspace_id=source.workspace_id, input=body.ddl):
+            await asyncio.to_thread(managed_db.create_from_ddl, path, body.ddl)
     except Exception as e:  # noqa: BLE001 — a bad DDL is a client error
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, redact_secrets(str(e)))
     config["managed"] = True
@@ -705,7 +743,10 @@ async def etl_run(
 
     # The MCP's way to run a script: past `deferred.WAIT_SECONDS` it goes on as a
     # job (core/deferred) — the app itself runs scripts as `…/etl-jobs`.
-    as_job = deferred.AsJob("ETL script", workspace_id=target.workspace_id, lane="heavy_query") if target.workspace_id else None
+    as_job = deferred.AsJob(
+        "ETL script", workspace_id=target.workspace_id, lane="heavy_query",
+        input=body.sql, always=True, kind=jobs.QUERY_KIND,
+    ) if target.workspace_id else None
     return await deferred.respond(user.id, work, as_job)
 
 
@@ -763,9 +804,12 @@ async def retest_data_source(
     stale `error` with no way to re-check it.
     """
     source = await _load_source(db, source_id, user, "databases:read")
-    ok, error, tables = await data_source_service.test_connection_stored(source, await _login(db, source, user))
-    if not ok and _reaches_the_network(source):
-        error = _connection_error(user, "retest", error, source)
+    login = await _login(db, source, user)
+    async with jobs.tracked(user.id, f"{_named(source)} · test the connection", workspace_id=source.workspace_id) as job_id:
+        ok, error, tables = await data_source_service.test_connection_stored(source, login)
+        if not ok and _reaches_the_network(source):
+            error = _connection_error(user, "retest", error, source)
+        await _outcome(job_id, ok, error, tables)
     return TestConnectionResult(ok=ok, error=error, tables=tables)
 
 
@@ -808,12 +852,14 @@ async def get_flight_status(
     the database page warns that they go over the slower MySQL protocol."""
     source = await _load_source(db, source_id, user, "databases:read")
     login = await _login(db, source, user)
-    try:
-        return await data_source_service.flight_status(source, login)
-    except database_credential_service.CredentialRequired:
-        raise
-    except Exception as e:  # noqa: BLE001 — the database itself is unreachable: the page says so elsewhere
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, _connection_error(user, "flight_check", e, source)) from e
+    # Tracked outside the conversion: the job keeps the text the caller may read.
+    async with jobs.tracked(user.id, f"{_named(source)} · check Arrow Flight", workspace_id=source.workspace_id):
+        try:
+            return await data_source_service.flight_status(source, login)
+        except database_credential_service.CredentialRequired:
+            raise
+        except Exception as e:  # noqa: BLE001 — the database itself is unreachable: the page says so elsewhere
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, _connection_error(user, "flight_check", e, source)) from e
 
 
 @router.get("/{source_id}/schema", response_model=list[IntrospectedTable])
@@ -826,6 +872,14 @@ async def get_data_source_schema(
     mapping / table-discovery UI. Uses the stored (encrypted) credentials."""
     source = await _load_source(db, source_id, user, "databases:read")
     login = await _login(db, source, user)
+    async with jobs.tracked(user.id, f"{_named(source)} · list its tables and columns", workspace_id=source.workspace_id) as job_id:
+        tables = await _introspect(db, source, login, user)
+        if job_id is not None:
+            await jobs.note(job_id, f"{len(tables)} tables")
+        return tables
+
+
+async def _introspect(db: AsyncSession, source: DataSource, login, user: User):
     try:
         return await data_source_service.introspect(db, source, login)
     except HTTPException:  # no login, or an ETL run holding the file
@@ -931,15 +985,14 @@ async def concept_cache_status(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Whether the caller's view of the source has a materialized concept-list
-    cache, its "last refreshed" time (the Parquet file's mtime), and where the
-    counting run that writes it stands."""
-    source = await _load_source(db, source_id, user, "databases:read")
-    principal = _principal(source, user)
+    """Whether the source has a materialized concept-list cache, its "last
+    refreshed" time (the Parquet file's mtime), and where the counting run that
+    writes it stands."""
+    await _load_source(db, source_id, user, "databases:read")
     return ConceptCacheStatus(
-        exists=concept_cache_fs.exists(source_id, principal),
-        refreshed_at=concept_cache_fs.refreshed_at(source_id, principal),
-        run=concept_cache_fs.run_status(source_id, principal),
+        exists=concept_cache_fs.exists(source_id),
+        refreshed_at=concept_cache_fs.refreshed_at(source_id),
+        run=concept_cache_fs.run_status(source_id),
     )
 
 
@@ -951,13 +1004,12 @@ async def start_concept_run(
     db: AsyncSession = Depends(get_db),
 ):
     """Store the counting run's manifest — `reset` drops the units already done.
-    For a file database the cache is shared, so it takes the editor role; for an
-    external one it is the caller's own."""
+    The cache is shared by everyone who opens the database, so it takes the
+    editor role."""
     source = await _load_source(db, source_id, user, "databases:read")
-    await _require_source_access(db, source, user, _cache_write_permission(source))
-    login = await _login(db, source, user)
+    await _require_source_access(db, source, user, "databases:write")
     try:
-        await data_source_service.start_concept_run(source, login, body.manifest, body.reset)
+        await data_source_service.start_concept_run(source, body.manifest, body.reset)
     except concept_cache_fs.RunConflict as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
     except ValueError as e:
@@ -975,13 +1027,13 @@ async def start_concept_units_job(
     units too long for one request — 409 when that run is no longer the stored
     one. The job lists each unit done once its file is kept."""
     source = await _load_source(db, source_id, user, "databases:read")
-    await _require_source_access(db, source, user, _cache_write_permission(source))
+    await _require_source_access(db, source, user, "databases:write")
     if not source.workspace_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "this database belongs to no workspace")
     login = await _login(db, source, user)
     if len({u.key for u in body.units}) != len(body.units):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "unit keys must be unique")
-    run = concept_cache_fs.run_status(source.id, _principal(source, user))
+    run = concept_cache_fs.run_status(source.id)
     if run is None or run["manifest"].get("runId") != body.run_id:
         raise HTTPException(status.HTTP_409_CONFLICT, "this counting run was replaced")
     return await query_jobs.start(
@@ -1000,7 +1052,7 @@ async def assemble_concept_cache(
     """Write the concept list from the units done so far. Atomic: readers keep
     seeing the previous list until the new one is in place."""
     source = await _load_source(db, source_id, user, "databases:read")
-    await _require_source_access(db, source, user, _cache_write_permission(source))
+    await _require_source_access(db, source, user, "databases:write")
     login = await _login(db, source, user)
     try:
         mtime = await data_source_service.assemble_concept_cache(db, source, login, body.select_sql)
@@ -1010,10 +1062,7 @@ async def assemble_concept_cache(
         raise
     except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, redact_secrets(str(e)))
-    principal = _principal(source, user)
-    return ConceptCacheStatus(
-        exists=True, refreshed_at=mtime, run=concept_cache_fs.run_status(source_id, principal),
-    )
+    return ConceptCacheStatus(exists=True, refreshed_at=mtime, run=concept_cache_fs.run_status(source_id))
 
 
 @router.post("/{source_id}/concept-cache/query", response_model=ConceptPageResult)
@@ -1025,9 +1074,9 @@ async def query_concept_cache(
 ):
     """Run a page/filter/sort query against the cached concept Parquet (view
     `concepts`). 404 if the cache has not been built yet."""
-    source = await _load_source(db, source_id, user, "databases:read")
+    await _load_source(db, source_id, user, "databases:read")
     try:
-        rows = await data_source_service.query_concept_cache(source_id, _principal(source, user), body.sql)
+        rows = await data_source_service.query_concept_cache(source_id, body.sql)
     except FileNotFoundError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No concept cache")
     except Exception as e:  # noqa: BLE001
@@ -1044,30 +1093,24 @@ async def concept_cache_relations(
 ):
     """The event relations the last counting run counted, and which of them hold
     any of `conceptIds` — a patient's timeline then reads only those."""
-    source = await _load_source(db, source_id, user, "databases:read")
+    await _load_source(db, source_id, user, "databases:read")
     ids = [str(i) for i in body.concept_ids]
-    relations = await asyncio.to_thread(concept_cache_fs.counted_relations, source_id, _principal(source, user), ids)
+    relations = await asyncio.to_thread(concept_cache_fs.counted_relations, source_id, ids)
     return ConceptRelationsResult(relations=relations)
 
 
-@router.post("/{source_id}/concept-cache/stats-plan", response_model=ConceptStatsPlanResult)
-async def plan_concept_stats(
+@router.post("/{source_id}/concept-cache/relation-records", response_model=RelationRecordsResult)
+async def concept_cache_relation_records(
     source_id: str,
-    body: ConceptStatsPlanRequest,
+    body: RelationRecordsRequest,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """The id ranges of the counting run's `stats` units, about `maxRows` values
-    each, packed from the row counts its record units hold."""
-    source = await _load_source(db, source_id, user, "databases:read")
-    await _require_source_access(db, source, user, _cache_write_permission(source))
-    dicts = [{"dictKey": d.dict_key, "relations": d.relations} for d in body.dicts]
-    ranges = await asyncio.to_thread(
-        concept_cache_fs.plan_stats_ranges, source_id, _principal(source, user), dicts, body.max_rows,
-    )
-    return ConceptStatsPlanResult(
-        ranges=[ConceptStatsRange(dict_key=r["dictKey"], lo=r["lo"], hi=r["hi"]) for r in ranges],
-    )
+    """The records of each concept in one event relation, from the last counting
+    run — a ranking of the concepts by volume reads them instead of the table."""
+    await _load_source(db, source_id, user, "databases:read")
+    counts = await asyncio.to_thread(concept_cache_fs.counted_records, source_id, body.relation, body.signature)
+    return RelationRecordsResult(counts=counts)
 
 
 @router.get(
@@ -1076,56 +1119,15 @@ async def plan_concept_stats(
 async def get_concept_stats(
     source_id: str,
     concept_id: int,
-    dict_key: str | None = Query(default=None, alias="dictKey"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Detail-panel stats for one concept, as the caller sees the source: the
-    newer of those the counting run's `stats` step computed and those cached by
-    a click. 404 until either exists."""
-    source = await _load_source(db, source_id, user, "databases:read")
-    principal = _principal(source, user)
-    precomputed = await asyncio.to_thread(
-        concept_cache_fs.precomputed_stats, source_id, principal, concept_id, dict_key,
-    )
-    row = await concept_stats_cache_service.get(db, source_id, concept_id, principal)
-    if precomputed is not None:
-        stats, computed_at = precomputed
-        if row is None or _as_utc(row.updated_at).timestamp() <= computed_at:
-            return ConceptStatsResponse(
-                data_source_id=source_id, concept_id=concept_id, stats=stats,
-                updated_at=datetime.fromtimestamp(computed_at, tz=UTC),
-            )
+    """Detail-panel stats for one concept, cached by a click. 404 until they are."""
+    await _load_source(db, source_id, user, "databases:read")
+    row = await concept_stats_cache_service.get(db, source_id, concept_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No stats")
     return row
-
-
-def _as_utc(moment: datetime) -> datetime:
-    # SQLite hands timestamps back naive; they are stored in UTC.
-    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
-
-
-@router.get(
-    "/{source_id}/concept-stats/{concept_id}/diagnose",
-    response_model=ConceptStatsDiagnosis,
-    response_model_exclude_none=True,
-)
-async def diagnose_concept_stats(
-    source_id: str,
-    concept_id: int,
-    dict_key: str | None = Query(default=None, alias="dictKey"),
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """What the counting run's `stats` step holds for one concept, and the unit
-    that should have described it — for the detail panel, when it has none.
-    Gated like computing them: it describes the run's own files."""
-    source = await _load_source(db, source_id, user, "databases:read")
-    await _require_source_access(db, source, user, _cache_write_permission(source))
-    return await asyncio.to_thread(
-        concept_cache_fs.diagnose_stats, source_id, _principal(source, user), concept_id, dict_key,
-    )
 
 
 @router.put(
@@ -1138,13 +1140,77 @@ async def save_concept_stats(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Persist the stats a client computed for one concept, for everyone who sees
-    the source through the same principal."""
+    """Persist the stats a client computed for one concept, for everyone who
+    opens the source."""
     source = await _load_source(db, source_id, user, "databases:read")
-    await _require_source_access(db, source, user, _cache_write_permission(source))
-    return await concept_stats_cache_service.save(
-        db, source_id, concept_id, _principal(source, user), body.stats
+    await _require_source_access(db, source, user, "databases:write")
+    return await concept_stats_cache_service.save(db, source_id, concept_id, body.stats)
+
+
+# --- Concept profiles: one exact profile per concept, shared by the database's
+# views (concept_profile_service). Writing them is an edit, like the concept list.
+
+@router.post("/{source_id}/concept-profiles/read", response_model=ConceptProfilesResult)
+async def read_concept_profiles(
+    source_id: str,
+    body: ConceptProfilesRead,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The stored profiles of these concepts of one dictionary (absent ones left out)."""
+    await _load_source(db, source_id, user, "databases:read")
+    return ConceptProfilesResult(
+        profiles=await concept_profile_service.read(db, source_id, body.dict_key, body.concept_ids, body.meta),
     )
+
+
+@router.put("/{source_id}/concept-profiles", status_code=status.HTTP_204_NO_CONTENT)
+async def write_concept_profiles(
+    source_id: str,
+    body: ConceptProfilesWrite,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Replace the profiles of the concepts sent."""
+    source = await _load_source(db, source_id, user, "databases:read")
+    await _require_source_access(db, source, user, "databases:write")
+    for p in body.profiles:
+        if not isinstance(p.get("dictKey"), str) or not isinstance(p.get("conceptId"), int):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "each profile needs a dictKey and an integer conceptId")
+    await concept_profile_service.write(db, source_id, body.profiles)
+
+
+@router.get("/{source_id}/concept-profiles/summary", response_model=ConceptProfilesSummary)
+async def concept_profiles_summary(
+    source_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _load_source(db, source_id, user, "databases:read")
+    return await concept_profile_service.summary(db, source_id)
+
+
+@router.put("/{source_id}/concept-profiles/run", status_code=status.HTTP_204_NO_CONTENT)
+async def save_concept_profiles_run(
+    source_id: str,
+    body: ConceptProfilesRunSave,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    source = await _load_source(db, source_id, user, "databases:read")
+    await _require_source_access(db, source, user, "databases:write")
+    await concept_profile_service.save_run(db, source_id, body.computed_at, body.run)
+
+
+@router.delete("/{source_id}/concept-profiles", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_concept_profiles(
+    source_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    source = await _load_source(db, source_id, user, "databases:read")
+    await _require_source_access(db, source, user, "databases:write")
+    await concept_profile_service.delete_for_source(db, source_id)
 
 
 _STATS_SCOPE = "database"
@@ -1208,20 +1274,30 @@ async def list_data_source_files(
 
 # --- The acting user's own login ------------------------------------------------
 
+def _login_purpose(purpose: str) -> str:
+    if purpose not in database_credential_service.PURPOSES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"a login is for {' or '.join(database_credential_service.PURPOSES)}")
+    return purpose
+
+
 @router.get("/{source_id}/my-login", response_model=DatabaseLoginStatus)
 async def get_my_login(
     source_id: str,
+    purpose: str = Query(default="read"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """`purpose=write`: the account the user's cohort derivations write this
+    database with, apart from the one they read it with."""
     source = await _load_source(db, source_id, user, "databases:read")
-    state = await database_credential_service.status_for(db, source, user.id)
+    state = await database_credential_service.status_for(db, source, user.id, _login_purpose(purpose))
     return DatabaseLoginStatus(
         has_login=state["hasLogin"],
         username=state["username"],
         remembered=state["remembered"],
         last_used_at=state["lastUsedAt"],
         session_only=source.require_session_only,
+        purpose=purpose,
     )
 
 
@@ -1229,35 +1305,48 @@ async def get_my_login(
 async def save_my_login(
     source_id: str,
     body: DatabaseLoginSave,
+    purpose: str = Query(default="read"),
     user: User = Depends(get_session_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Test the login against the database, and keep it only if it connects.
-    Session JWT only: an agent's API key never sets a password."""
-    source = await _load_source(db, source_id, user, "databases:read")
+    Session JWT only: an agent's API key never sets a password. A write login
+    takes `databases:write`, and only on a database whose owner allowed Linkr to
+    write (`allowWrites`); it is tested by connecting writable, where a read
+    login must prove read-only."""
+    purpose = _login_purpose(purpose)
+    source = await _load_source(
+        db, source_id, user, "databases:write" if purpose == database_credential_service.WRITE else "databases:read",
+    )
     audit.bind(action="credential_set", data_source_id=source.id, workspace_id=source.workspace_id,
-               detail=f"username={body.username} remember={body.remember}")
+               detail=f"username={body.username} remember={body.remember} purpose={purpose}")
     if not database_credential_service.is_external(source):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "this database takes no login")
     config = {**(source.connection_config or {}), "username": body.username, "password": body.password}
-    ok, error, _tables = await data_source_service.test_connection(config)
+    if purpose == database_credential_service.WRITE:
+        if not cohort_derive_service.takes_write_login(source):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "this database takes no write login")
+        ok, error = await cohort_derive_service.test_write_login(config, body.password)
+    else:
+        ok, error, _tables = await data_source_service.test_connection(config)
     if not ok:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, error or "could not connect")
     await database_credential_service.save(
-        db, source, user.id, body.username, body.password, remember=body.remember
+        db, source, user.id, body.username, body.password, remember=body.remember, purpose=purpose,
     )
-    return await get_my_login(source_id, user, db)
+    return await get_my_login(source_id, purpose, user, db)
 
 
 @router.delete("/{source_id}/my-login", status_code=status.HTTP_204_NO_CONTENT)
 async def forget_my_login(
     source_id: str,
+    purpose: str = Query(default="read"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     source = await _load_source(db, source_id, user, "databases:read")
     audit.bind(action="credential_forget", data_source_id=source.id, workspace_id=source.workspace_id)
-    await database_credential_service.forget(db, source, user.id)
+    await database_credential_service.forget(db, source, user.id, _login_purpose(purpose))
 
 
 @router.get("/{source_id}/login-count")

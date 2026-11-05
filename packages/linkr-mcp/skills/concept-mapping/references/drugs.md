@@ -10,11 +10,11 @@ replaces `clinical.md` for them. Equivalence levels and comment rules are in
 almost identical to any name similarity, yet they are different drugs. Keep two
 things apart:
 
-- **Finding candidates** — which drugs *resemble* the source. Precomputed
-  scores are good at this: they find the right **ingredient**, even from brand
-  names and other languages. They are **blind to strength**.
+- **Finding candidates** — which drugs *resemble* the source. Semantic search
+  and precomputed scores are good at this: they find the right **ingredient**,
+  even from brand names and other languages. They are **blind to strength**.
 - **Deciding** — which candidate has the *same* ingredient, strength and form.
-  That is what the parsed label is for.
+  That is what the parsed label and the candidate's components are for.
 
 Scores propose, the components decide. A score never settles a strength: a
 two-fold dose difference scores almost the same and is a clinical error.
@@ -22,7 +22,8 @@ two-fold dose difference scores almost the same and is a clinical error.
 Evidence (French UCD codes, 287 expert-validated, MIE 2026): BioLORD scores put
 the right ingredient in the top 10 for 73.6 % of codes; a plain name search on
 the French label reached about 50 %, and 9.7 % on the half of codes that are
-brand names or abbreviations. Use suggestions first; searching is the fallback.
+brand names or abbreviations. Search by meaning first; word search is the
+fallback.
 
 ## Target the most granular standard concept
 
@@ -36,11 +37,29 @@ Map to the most specific standard concept the source supports:
 | Quant Clinical Drug | ingredient + quantified strength + form | a volume, no brand |
 | Clinical Drug | ingredient + strength + form | generic name, strength and form |
 | Clinical Drug Form | ingredient + form | no readable strength |
-| Ingredient | ingredient | last resort → `skos:broadMatch` |
+| Ingredient | ingredient | the molecule alone (exactMatch, below); otherwise last resort → `skos:broadMatch` |
 
 Vocabulary `RxNorm` or `RxNorm Extension` (international products absent from
 US RxNorm), always standard and valid. With a brand name, default to the branded
 level; fall back to the Clinical Drug family only when no branded concept fits.
+A brand in parentheses after a generic name — `Lorazepam (Ativan)`,
+`Drotrecogin (Xigris)`, an order-set item, not a product — is a synonym, even
+for a drug sold under one brand only: stay at the generic level and name the
+brand in the comment. The branded level is for a source that names the
+product (`AUGMENTIN 1 g/125 mg`).
+
+**A label that names only the molecule** (`Epinephrine`, `Amiodarone`: an ICU
+administration item, no strength or form) maps to the **Ingredient**, as
+`skos:exactMatch` — the source holds nothing more, so nothing is lost. A
+Clinical Drug Form adds a form the source does not state: suggest it only when
+the metadata shows the form (an infusion rate in mcg/kg/min, a route), as
+`skos:narrowMatch`. RxNorm often has two near-identical forms (`Injection`,
+`Injectable Solution`): without the source stating which, do not choose. A
+combination named alone (`Ampicillin/Sulbactam`) has no single Ingredient:
+suggest the combination's Clinical Drug Form as `skos:narrowMatch`, saying
+which form it adds.
+Packs, boxes (`Clinical Drug Box`, `Branded Drug Box`, `Quant … Box`) and
+`Marketed Product` (a box by a manufacturer) only when the source names them.
 
 ## 1. Parse the label
 
@@ -53,15 +72,33 @@ Once per concept, from its name and metadata:
 | Dose form | Oral Tablet, Injectable Solution |
 | Brand | LOXEN, FORXIGA, AUGMENTIN — decides branded vs clinical level |
 
-## 2. Candidates from suggestions
+## 2. Candidates
 
-`get_source_concept` lists precomputed candidates with names: biolord first,
-Jaro-Winkler as a tie-breaker. Carry every plausible ingredient forward — the
-list usually spans several strengths and forms of the right one; step 4 picks.
+Carry every plausible ingredient forward: the lists usually span several
+strengths and forms of the right one, and step 4 picks.
 
-## 3. Fallback: search
+1. **Suggestions** — `get_source_concept` lists the precomputed candidates
+   with names: semantic first, Jaro-Winkler as a tie-breaker.
+2. **Semantic search** — `semantic_search_vocabulary`, one call per level the
+   batch needs, scope `domains: ["Drug"]`,
+   `vocabularies: ["RxNorm", "RxNorm Extension"]` and `concept_classes`:
+   - the **ingredients** of the whole batch: the bare INNs in English
+     (`lorazepam`, `amoxicillin clavulanate`), `concept_classes: ["Ingredient"]`.
+     A text carrying a strength or a form ranks products first and pushes the
+     ingredient out of the list;
+   - the **products**, for the concepts that give a strength or a form: RxNorm's
+     wording (`acetaminophen 500 MG Oral Tablet`; a brand in brackets,
+     `dapagliflozin 10 MG Oral Tablet [Forxiga]`),
+     `concept_classes: ["Clinical Drug", "Quant Clinical Drug"]` or the branded
+     ones.
 
-Only when there are no suggestions, or none survives step 4:
+   A brand name alone (`Tylenol`) does not find its ingredient: search it
+   among the branded classes, then read the ingredient from the product's
+   components.
+
+## 3. Fallback: word search
+
+When neither gives the ingredient, or no candidate survives step 4:
 
 - **Ingredient** — `search_vocabulary` with the INN,
   `concept_classes: ["Ingredient"]`, `vocabularies: ["RxNorm", "RxNorm Extension"]`.
@@ -74,6 +111,12 @@ Only when there are no suggestions, or none survives step 4:
   ancestors (the ingredient) and its descendants (products).
 
 ## 4. Validate and pick
+
+`get_vocabulary_concept` on a drug starts with its **components**: each
+ingredient with its strength from OMOP's `drug_strength` (an amount, `500 mg`,
+or a concentration, `10000 [U]/5 mL = 2000 [U]/mL`), the dose form and the
+brand. Compare the parsed source with these values, never with the concept's
+name: names abbreviate (`UNT`, `MG`) and round, the components do not.
 
 | Component | Must |
 |---|---|
@@ -88,11 +131,13 @@ Equivalence:
   plain tablet) → `skos:closeMatch`, naming the difference;
 - no strength in the source, ingredient and form match a Clinical Drug Form →
   `skos:narrowMatch` or `skos:broadMatch` as the direction dictates;
-- no product fits but the ingredient is unambiguous → the Ingredient,
-  `skos:broadMatch`.
+- the source gives a strength or form, no product fits, but the ingredient is
+  unambiguous → the Ingredient, `skos:broadMatch`;
+- the source names only the molecule → the Ingredient, `skos:exactMatch`.
 
-Scores: 0.95 for ingredient + strength + form, 0.75 for ingredient + form, 0.5
-for ingredient only.
+Scores: 0.95 for ingredient + strength + form, 0.9 for a molecule-only label
+on its Ingredient, 0.75 for ingredient + form, 0.5 for an Ingredient that loses
+the source's strength or form.
 
 ## Stop — do not map
 

@@ -25,7 +25,6 @@ import { Button } from '@/components/ui/button'
 import { useEtlStore } from '@/stores/etl-store'
 import { useEtlActions } from './use-etl-actions'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
-import { EtlPipelinePull } from '@/components/versioning/EtlPipelinePull'
 import { EtlScriptsTab } from './EtlScriptsTab'
 import { EtlPipelineTab } from './EtlPipelineTab'
 import { EtlSchemasTab } from './EtlSchemasTab'
@@ -225,7 +224,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
           </div>
         )}
         {activeTab === 'versioning' && (
-          <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col px-6 py-6">
+          <div className="flex h-full min-h-0 w-full flex-col px-6 py-6">
             {/* Git link + push/pull sync panel. Export is a menu action here, so
                 no export UI in this tab. */}
             <GitRepositoryTab
@@ -233,15 +232,6 @@ export function EtlPipelinePage({ pipelineId }: Props) {
               onSave={(cfg) => updatePipeline(pipeline.id, { gitRemoteConfig: cfg ?? undefined })}
               syncScope="etl-pipelines"
               syncId={pipeline.id}
-              renderInlinePull={({ branch, remoteHead, mode, onPulled }) => (
-                <EtlPipelinePull
-                  pipelineId={pipeline.id}
-                  branch={branch}
-                  remoteHead={remoteHead}
-                  mode={mode}
-                  onPulled={onPulled}
-                />
-              )}
               // A pull writes the pipeline row and its files straight to storage,
               // behind the store this page reads — reload both or the tabs keep
               // showing the version that was there before it.

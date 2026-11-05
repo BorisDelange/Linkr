@@ -18,11 +18,11 @@ vi.mock('@/lib/duckdb/engine', () => ({
 }))
 
 vi.mock('@/lib/duckdb/cohort-query', () => ({
-  buildCohortCountSql: (c: Cohort) => `COUNT ${c.customSql ?? 'criteria'}`,
+  buildCohortResultsSql: (c: Cohort) => `RESULTS ${c.customSql ?? 'criteria'}`,
   buildAttritionQueries: () => [],
-  buildCohortResultsSql: () => null,
   buildCustomSqlOutputSql: () => null,
   buildCohortMembershipSql: () => null,
+  cohortIdColumn: () => 'patient_id',
   cohortRunError: (_c: Cohort, message: string) => message,
 }))
 
@@ -75,7 +75,7 @@ describe('overlapping cohort runs', () => {
     expect(s.executionErrors.has('c1')).toBe(false)
     expect(s.executionAborts.has('c1')).toBe(true)
 
-    pending[1].resolve([{ cnt: 2 }])
+    pending[1].resolve([{ cohort_total: 2 }])
     await second
     s = useCohortStore.getState()
     expect(s.executionResults.get('c1')?.totalCount).toBe(2)
@@ -100,14 +100,14 @@ describe('overlapping cohort runs', () => {
     const store = useCohortStore.getState()
     const run = store.executeCohort('c1', 'ds', MAPPING, 'SELECT 3 AS patient_id')
     await flush()
-    pending[0].resolve([{ cnt: 3 }])
+    pending[0].resolve([{ cohort_total: 3 }])
     await run
     await useCohortStore.getState().settleDraftResult('c1')
     expect(useCohortStore.getState().executionResults.has('c1')).toBe(false)
 
     const again = store.executeCohort('c1', 'ds', MAPPING, 'SELECT 3 AS patient_id')
     await flush()
-    pending[1].resolve([{ cnt: 3 }])
+    pending[1].resolve([{ cohort_total: 3 }])
     await again
     useCohortStore.setState((s) => ({ cohorts: s.cohorts.map((c) => ({ ...c, customSql: 'SELECT 3 AS patient_id' })) }))
     await useCohortStore.getState().settleDraftResult('c1')
@@ -117,13 +117,22 @@ describe('overlapping cohort runs', () => {
     expect(update).toHaveBeenCalledWith('c1', { resultCount: 3, attrition: [] })
   })
 
+  it('without a hand-written query, the SQL output is the members just read', async () => {
+    const run = useCohortStore.getState().executeCohort('c1', 'ds', MAPPING)
+    await flush()
+    pending[0].resolve([{ patient_id: 7, gender: 'F', cohort_total: 2 }])
+    await run
+    expect(pending).toHaveLength(1)
+    expect(useCohortStore.getState().customSqlOutputs.get('c1')).toMatchObject({ rows: [{ patient_id: 7 }], truncated: true })
+  })
+
   it('a run taking over while the previous one is being saved never leaves storage ahead of the state', async () => {
     let saved!: () => void
     update.mockImplementationOnce(() => new Promise<void>((r) => { saved = r }))
     const store = useCohortStore.getState()
     const first = store.executeCohort('c1', 'ds', MAPPING)
     await flush()
-    pending[0].resolve([{ cnt: 4 }])
+    pending[0].resolve([{ cohort_total: 4 }])
     await flush()
     const second = store.executeCohort('c1', 'ds', MAPPING)
     await flush()

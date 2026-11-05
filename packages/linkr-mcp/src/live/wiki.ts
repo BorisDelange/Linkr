@@ -51,7 +51,7 @@ export function renderWikiTree(pages: WikiPage[], max = 300, lang = 'en'): strin
   const walk = (parentId: string | null, depth: number) => {
     for (const p of childrenOf(pages, parentId)) {
       lines.push(`${'  '.repeat(depth)}- ${localized(p.title, lang) || '(untitled)'} — page_id: ${p.id}`
-        + `${p.verified ? ' · verified' : ''}${chars(p.content)}`)
+        + `${p.status && p.status !== 'draft' ? ` · ${p.status}` : ''}${chars(p.content)}`)
       walk(p.id, depth + 1)
     }
   }

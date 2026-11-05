@@ -43,7 +43,6 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
-import { SchemaPresetPull } from '@/components/versioning/SchemaPresetPull'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { IncompatibleAppVersionError, WrongEntityTypeError } from '@/lib/app-version-compat'
@@ -287,7 +286,6 @@ function SchemaCard({
                 to reveal itself on hover, as it does on every other entity card. */}
             <TruncatedText
               text={localized(mapping.presetLabel, i18n.language)}
-              readOnly
               className="text-sm font-medium"
             />
             <TruncatedText
@@ -297,7 +295,6 @@ function SchemaCard({
                     mappedCount > 0 ? `${mappedCount} ${t('settings.schema_preset_mapped_tables').toLowerCase()}` : null,
                   ].filter(Boolean).join(', ')
                 : t('settings.schema_preset_no_mapping'))}
-              readOnly
               className="mt-0.5 text-xs text-muted-foreground"
             />
           </div>
@@ -670,7 +667,7 @@ function SchemaDetailView({
         </TabsContent>
 
         <TabsContent value="versioning" className="m-0 min-h-0 flex-1 p-0">
-          <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col px-6 py-6">
+          <div className="flex h-full min-h-0 w-full flex-col px-6 py-6">
             {/* Git link + push-only sync panel. Export is a menu action here, so
                 no export UI in this tab. */}
             {preset && (
@@ -679,15 +676,6 @@ function SchemaDetailView({
                 onSave={(cfg) => setGitRemote(preset.id, cfg)}
                 syncScope="schema-presets"
                 syncId={preset.id}
-                renderInlinePull={({ branch, remoteHead, mode, onPulled }) => (
-                  <SchemaPresetPull
-                    presetId={preset.id}
-                    branch={branch}
-                    remoteHead={remoteHead}
-                    mode={mode}
-                    onPulled={onPulled}
-                  />
-                )}
                 // The pull writes to storage; this page reads the preset from the
                 // store, in the SAME workspace scope the list uses.
                 onAfterPull={() => loadPresets(preset.workspaceId)}

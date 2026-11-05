@@ -6,23 +6,16 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { DialogShell } from '@/components/ui/dialog-shell'
-import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import { paths } from '@/lib/paths'
 import { getStorage } from '@/lib/storage'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
-import type { ConceptSet, DataDictionary, MappingProject } from '@/types'
+import { conceptSetColumns, NOT_DEPRECATED, toConceptSetRow, type ConceptSetRow } from '@/features/warehouse/vocabularies/concept-set-columns'
+import type { DataDictionary, MappingProject } from '@/types'
 
 interface PickConceptSetsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   project: MappingProject
-}
-
-interface Row {
-  set: ConceptSet
-  name: string
-  dictionary: string
-  category: string
 }
 
 /**
@@ -38,7 +31,7 @@ export function PickConceptSetsDialog({ open, onOpenChange, project }: PickConce
   const [dictionaries, setDictionaries] = useState<DataDictionary[]>([])
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
-  const [visible, setVisible] = useState<Row[]>([])
+  const [visible, setVisible] = useState<ConceptSetRow[]>([])
 
   useEffect(() => {
     if (!open) return
@@ -47,22 +40,14 @@ export function PickConceptSetsDialog({ open, onOpenChange, project }: PickConce
   }, [open, project.workspaceId])
 
   const already = useMemo(() => new Set(project.conceptSetIds ?? []), [project.conceptSetIds])
-  const rows = useMemo<Row[]>(() => {
+  const rows = useMemo<ConceptSetRow[]>(() => {
     const names = new Map(dictionaries.map((d) => [d.id, d.name]))
     return conceptSets
       .filter((s) => s.workspaceId === project.workspaceId && !already.has(s.id))
-      .map((set) => {
-        const tr = getConceptSetI18n(set, i18n.language)
-        return {
-          set,
-          name: tr.name,
-          dictionary: (set.dictionaryId && names.get(set.dictionaryId)) || t('data_dictionaries.local_name'),
-          category: tr.category ?? '',
-        }
-      })
+      .map((set) => toConceptSetRow(set, names, i18n.language, t))
   }, [conceptSets, dictionaries, project.workspaceId, already, i18n.language, t])
 
-  const columns = useMemo<DataTableColumn<Row>[]>(() => [
+  const columns = useMemo<DataTableColumn<ConceptSetRow>[]>(() => [
     {
       id: 'pick',
       header: t('common.select_all'),
@@ -100,10 +85,7 @@ export function PickConceptSetsDialog({ open, onOpenChange, project }: PickConce
         />
       ),
     },
-    { id: 'name', header: t('common.name'), accessor: (r) => r.name, filter: 'text', size: 320 },
-    { id: 'category', header: t('concept_mapping.col_category'), accessor: (r) => r.category, filter: 'select', size: 180 },
-    { id: 'dictionary', header: t('data_dictionaries.title'), accessor: (r) => r.dictionary, filter: 'select', size: 180 },
-    { id: 'version', header: t('common.version'), accessor: (r) => r.set.version ?? '', size: 80 },
+    ...conceptSetColumns<ConceptSetRow>(t),
   ], [picked, visible, t])
 
   const add = async () => {
@@ -122,6 +104,7 @@ export function PickConceptSetsDialog({ open, onOpenChange, project }: PickConce
       open={open}
       onOpenChange={onOpenChange}
       kind="workbench"
+      className="sm:max-w-6xl"
       title={t('concept_mapping.cs_pick_title')}
       description={t('concept_mapping.cs_pick_description')}
       onConfirm={add}
@@ -140,7 +123,8 @@ export function PickConceptSetsDialog({ open, onOpenChange, project }: PickConce
         columns={columns}
         rowKey={(r) => r.set.id}
         pageSize={100}
-        initialSorting={{ columnId: 'name', desc: false }}
+        initialSorting={{ columnId: 'category', desc: false }}
+        initialFilters={{ status: NOT_DEPRECATED }}
         viewKey="pick-concept-sets"
         // The header checkbox reads `visible`, so the columns change with it and
         // the table re-reports its rows: keep the same array when they are the

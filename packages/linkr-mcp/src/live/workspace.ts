@@ -304,7 +304,7 @@ export type NewDatabase =
   | { kind: 'empty-from-schema'; preset: CustomSchemaPreset; path?: string }
   | { kind: 'server-path'; engine: 'duckdb' | 'sqlite'; path: string; preset?: CustomSchemaPreset }
   | {
-      kind: 'external'; engine: 'postgresql' | 'mysql' | 'doris'; host: string; port?: number; database: string; schema?: string
+      kind: 'external'; engine: 'postgresql' | 'mysql' | 'doris' | 'sqlserver' | 'oracle'; host: string; port?: number; database: string; schema?: string
       allowWrites?: boolean; requireSessionOnly?: boolean; preset?: CustomSchemaPreset
     }
 

@@ -19,8 +19,9 @@ import type {
 } from '@/types'
 import type { SchemaMapping } from '@/types'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
-import { classRelation, conceptRelation, eventRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
+import { classRelation, codesRelation, conceptRelation, dictionaryOf, eventRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { toNativeSql } from '@/lib/schema-classes/native-sql'
+import { hang, idListSql, indent, sqlComment, subquerySql } from './sql-layout'
 
 // ---------------------------------------------------------------------------
 // Untrusted-input guards
@@ -55,58 +56,16 @@ function sqlOperator(value: unknown, allowed: Set<string>): string | null {
 // one condition per line, each criterion under a `--` comment naming it,
 // subqueries indented, and parentheses only where precedence needs them.
 
-const INDENT = '  '
-
-/**
- * Every non-empty line pushed right by `by` — except a line that continues a
- * string literal, whose content the padding would change (a hand-written query
- * may hold one).
- */
-function indent(sql: string, by = INDENT, skipFirst = false): string {
-  let out = ''
-  let quote: string | null = null
-  let comment = false
-  let lineStart = !skipFirst
-  for (let i = 0; i < sql.length; i++) {
-    const ch = sql[i]
-    if (lineStart) {
-      if (quote === null && ch !== '\n') out += by
-      lineStart = false
-    }
-    out += ch
-    if (ch === '\n') {
-      comment = false
-      lineStart = true
-    } else if (comment) {
-      continue
-    } else if (quote !== null) {
-      if (ch === quote) quote = null
-    } else if (ch === "'" || ch === '"') {
-      quote = ch
-    } else if (ch === '-' && sql[i + 1] === '-') {
-      comment = true
-    }
-  }
-  return out
-}
-
-/** Every line but the first pushed right: a multi-line operand after a keyword. */
-function hang(sql: string, by = INDENT): string {
-  return indent(sql, by, true)
-}
-
-/**
- * A label as a `--` comment. Line breaks are dropped: the label can be the
- * user's (a concept name, a group label) and a line break would end the comment
- * and let the rest of it run as SQL.
- */
-export function sqlComment(label: string): string {
-  return `-- ${label.replace(/[\r\n\u0085\u2028\u2029\0]+/g, ' ').trim()}`
-}
-
-/** `WHERE a` then `  AND b` per condition. */
+/** `WHERE a` then `  AND b` per condition; a condition's leading comment goes
+ *  on the line above its keyword. */
 function whereLines(conditions: string[]): string {
-  return conditions.map((c, i) => `${i === 0 ? 'WHERE' : '  AND'} ${hang(c)}`).join('\n')
+  return conditions.map((c, i) => {
+    const pad = i === 0 ? '' : '  '
+    const keyword = `${pad}${i === 0 ? 'WHERE' : 'AND'}`
+    const note = /^(--[^\n]*)\n/.exec(c)
+    const body = note ? c.slice(note[0].length) : c
+    return `${note ? `${pad}${note[1]}\n` : ''}${keyword} ${pad ? hang(body, pad) : body}`
+  }).join('\n')
 }
 
 /** `EXISTS (SELECT 1 FROM … WHERE …)`, one condition per line. */
@@ -181,6 +140,14 @@ function notSql(sql: string): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * For each event relation the last concept count speaks for, which of these
+ * concepts it holds (`cohortRelationNarrowing`). A relation holding none is
+ * named in a comment, never queried; one holding some is searched for those
+ * only; one absent from the map is searched for all of them.
+ */
+export type RelationNarrowing = (conceptIds: readonly number[]) => ReadonlyMap<string, readonly number[]>
+
+/**
  * Reusable query parts (FROM + WHERE) from a Cohort criteria tree.
  * Used by buildCohortCountSql, buildCohortResultsSql, and patient-data-queries.
  */
@@ -202,6 +169,7 @@ export function buildCohortQueryParts(
    *  regardless of the criteria — otherwise the query is built referencing a
    *  table that isn't in the FROM. */
   forcePatientJoin = false,
+  narrowing?: RelationNarrowing,
 ): CohortQueryParts | null {
   const baseTable = getBaseTable(cohort.level, mapping)
   const idColumn = getIdColumn(cohort.level, mapping)
@@ -217,7 +185,7 @@ export function buildCohortQueryParts(
     }
   }
 
-  const where = buildTreeWhereClause(cohort.criteriaTree, cohort.level, mapping, baseTable)
+  const where = buildTreeWhereClause(cohort.criteriaTree, cohort.level, mapping, baseTable, narrowing)
   const from = buildFromClause(
     cohort.level,
     mapping,
@@ -291,9 +259,9 @@ export const CUSTOM_SQL_STEP_ID = '__custom_sql__'
  * The query generated from the criteria alone — what the SQL tab shows, and
  * what a hand edit starts from: the level's id, under its own name.
  */
-export function buildCohortCriteriaSql(cohort: Cohort, mapping: SchemaMapping, namedId = false): string | null {
+export function buildCohortCriteriaSql(cohort: Cohort, mapping: SchemaMapping, namedId = false, narrowing?: RelationNarrowing): string | null {
   if (cohort.level === 'event') return null
-  const parts = buildCohortQueryParts({ ...cohort, customSql: null }, mapping)
+  const parts = buildCohortQueryParts({ ...cohort, customSql: null }, mapping, false, narrowing)
   if (!parts) return null
   const lines = [
     sqlComment(`One row per ${cohort.level}: its ${parts.idColumn}`),
@@ -311,16 +279,16 @@ export function buildCohortCriteriaSql(cohort: Cohort, mapping: SchemaMapping, n
  * The same query written on the database's own tables (`toNativeSql`), or null
  * when it cannot be — the Linkr form then stands alone.
  */
-export function buildCohortNativeSql(cohort: Cohort, mapping: SchemaMapping): string | null {
-  const sql = buildCohortCriteriaSql(cohort, mapping, true)
+export function buildCohortNativeSql(cohort: Cohort, mapping: SchemaMapping, narrowing?: RelationNarrowing): string | null {
+  const sql = buildCohortCriteriaSql(cohort, mapping, true, narrowing)
   return sql ? toNativeSql(sql, mapping) : null
 }
 
 /**
  * Build a COUNT(DISTINCT id) query from a Cohort definition.
  */
-export function buildCohortCountSql(cohort: Cohort, mapping: SchemaMapping): string | null {
-  const parts = buildCohortQueryParts(cohort, mapping)
+export function buildCohortCountSql(cohort: Cohort, mapping: SchemaMapping, narrowing?: RelationNarrowing): string | null {
+  const parts = buildCohortQueryParts(cohort, mapping, false, narrowing)
   if (!parts) return null
 
   const lines = [
@@ -336,40 +304,55 @@ export function buildCohortCountSql(cohort: Cohort, mapping: SchemaMapping): str
 }
 
 /**
- * Build a paginated SELECT query returning result rows.
+ * The cohort's first `limit` rows and its size (`cohort_total`, on every row),
+ * in one query: the criteria run once, in `members`, and only the rows kept read
+ * the result columns — the age's first-visit lookup, evaluated for every member
+ * before the LIMIT, cost as much as the criteria on a large cohort. An empty
+ * cohort returns no row: its size is 0.
  */
 export function buildCohortResultsSql(
   cohort: Cohort,
   mapping: SchemaMapping,
   limit: number = 50,
-  offset: number = 0,
+  narrowing?: RelationNarrowing,
 ): string | null {
-  // The result columns read gender/age off the patient table through `p`, which
-  // the criteria alone may not have joined (a concept-only cohort at visit level
-  // used to build `p."gender_concept_id"` with no `p` in the FROM — the count
-  // succeeded and only this query failed).
-  const needsPatient =
-    cohort.level !== 'patient' && selectNeedsPatientAlias(mapping)
-  const parts = buildCohortQueryParts(cohort, mapping, needsPatient)
+  const parts = buildCohortQueryParts(cohort, mapping, false, narrowing)
   if (!parts) return null
+  const { baseTable, idColumn } = parts
 
-  const selectCols = buildSelectColumns(cohort.level, mapping, parts.baseTable)
-  const lines = [
+  const members = [
     `SELECT DISTINCT`,
-    `  ${selectCols}`,
+    `  ${baseTable}.${idColumn} AS member_id`,
     `FROM`,
     `  ${parts.from}`,
-  ]
-  if (parts.whereClause) {
-    lines.push(`WHERE`, indent(parts.whereClause))
-  }
-  lines.push(
+    ...(parts.whereClause ? [`WHERE`, indent(parts.whereClause)] : []),
+  ].join('\n')
+  // The window counts before the LIMIT keeps the page.
+  const page = [
+    `SELECT`,
+    `  members.member_id,`,
+    `  COUNT(*) OVER () AS cohort_total`,
+    `FROM ${subquerySql(members)} members`,
     `ORDER BY`,
-    `  ${parts.baseTable}.${parts.idColumn}`,
+    `  members.member_id`,
     `LIMIT ${limit}`,
-    `OFFSET ${offset}`,
-  )
-  return lines.join('\n')
+  ].join('\n')
+
+  // The result columns read gender/age off the patient table through `p`, which
+  // the criteria alone may not have joined (a concept-only cohort at visit level
+  // used to build `p."gender_concept_id"` with no `p` in the FROM).
+  const needsPatient = cohort.level !== 'patient' && selectNeedsPatientAlias(mapping)
+  return [
+    `SELECT DISTINCT`,
+    `  ${buildSelectColumns(cohort.level, mapping, baseTable)},`,
+    `  page.cohort_total`,
+    `FROM`,
+    `  ${buildFromClause(cohort.level, mapping, null, baseTable, needsPatient)}`,
+    `  INNER JOIN ${subquerySql(page, '  ')} page`,
+    `    ON page.member_id = ${baseTable}.${idColumn}`,
+    `ORDER BY`,
+    `  ${baseTable}.${idColumn}`,
+  ].join('\n')
 }
 
 /**
@@ -377,9 +360,9 @@ export function buildCohortResultsSql(
  * Returns two columns: `id` (level id) and `patient_id`. At patient level the two
  * are identical. Event level has no single base table, so it returns null.
  */
-export function buildCohortMembershipSql(cohort: Cohort, mapping: SchemaMapping): string | null {
+export function buildCohortMembershipSql(cohort: Cohort, mapping: SchemaMapping, narrowing?: RelationNarrowing): string | null {
   if (cohort.level === 'event') return null
-  const parts = buildCohortQueryParts(cohort, mapping)
+  const parts = buildCohortQueryParts(cohort, mapping, false, narrowing)
   if (!parts) return null
 
   const lines = [
@@ -404,7 +387,7 @@ export function buildAttritionQueries(
   mapping: SchemaMapping,
   /** Also count the distinct patients at each step (`patients` column), beside
    *  the level's own ids (`cnt`) — the cohort report's flowchart shows both. */
-  opts: { withPatients?: boolean } = {},
+  opts: { withPatients?: boolean; narrowing?: RelationNarrowing } = {},
 ): { nodeId: string; label: string; sql: string }[] {
   const baseTable = getBaseTable(cohort.level, mapping)
   const idColumn = getIdColumn(cohort.level, mapping)
@@ -447,7 +430,7 @@ export function buildAttritionQueries(
       children: enabledChildren.slice(0, i + 1),
     }
     const from = buildFromClause(cohort.level, mapping, progressiveTree, baseTable)
-    const where = buildTreeWhereClause(progressiveTree, cohort.level, mapping, baseTable)
+    const where = buildTreeWhereClause(progressiveTree, cohort.level, mapping, baseTable, opts.narrowing)
     queries.push({
       nodeId: enabledChildren[i].id,
       label: getNodeLabel(enabledChildren[i], mapping),
@@ -467,11 +450,12 @@ function buildTreeWhereClause(
   level: CohortLevel,
   mapping: SchemaMapping,
   baseTable: string,
+  narrowing?: RelationNarrowing,
 ): string {
   if (!node.enabled) return '1=1'
 
   if (node.kind === 'criterion') {
-    const clause = buildCriterionClause(node, level, mapping, baseTable)
+    const clause = buildCriterionClause(node, level, mapping, baseTable, narrowing)
     // A criterion with nothing to apply is skipped, excluded or not.
     return node.exclude && clause !== '1=1' ? notSql(clause) : clause
   }
@@ -479,7 +463,7 @@ function buildTreeWhereClause(
   // Group node: each child carries its own operator linking it to the previous sibling
   const items: ClauseItem[] = []
   for (const child of node.children.filter((c) => c.enabled)) {
-    const clause = buildTreeWhereClause(child, level, mapping, baseTable)
+    const clause = buildTreeWhereClause(child, level, mapping, baseTable, narrowing)
     if (clause === '1=1') continue
     const comment = child.kind === 'criterion' ? commentLabel(child, mapping) : child.label
     items.push({ clause, operator: child.operator, ...(comment ? { comment } : {}) })
@@ -496,10 +480,32 @@ function buildTreeWhereClause(
  */
 function commentLabel(node: CriterionNode, mapping: SchemaMapping): string | undefined {
   try {
-    return getNodeLabel(node, mapping)
+    return node.type === 'concept' ? conceptComment(node) : getNodeLabel(node, mapping)
   } catch {
     return undefined
   }
+}
+
+/**
+ * A concept criterion said in full, one line per concept: what is matched, where
+ * it is searched, and each concept's id, vocabulary and name — the label shown
+ * in the builder keeps two names at most.
+ */
+function conceptComment(node: CriterionNode): string {
+  const c = node.config as ConceptCriteriaConfig
+  const ids = c.conceptIds ?? []
+  const which = ids.length <= 1
+    ? 'this concept'
+    : c.conceptMatch === 'all' ? `each of these ${ids.length} concepts, every one on its own` : `at least one of these ${ids.length} concepts`
+  const listed = listedEventTables(c)
+  const where = !listed
+    ? `searched in every table that may hold ${ids.length <= 1 ? 'it' : 'them'}`
+    : `searched in ${listed.join(', ') || 'no table'}`
+  const label = conceptLabel(c)
+  return [
+    `${node.exclude ? 'Excluded — ' : ''}Concept criterion: ${which}, ${where}`,
+    ...ids.map((id) => `  ${[id, label(Number(id))].filter(Boolean).join(' - ')}`),
+  ].join('\n')
 }
 
 interface ClauseItem {
@@ -525,9 +531,10 @@ function buildPrecedenceClause(items: ClauseItem[]): string {
 
   const render = (item: ClauseItem, op: string | null, inAnd: boolean) => {
     const clause = inAnd && hasTopLevelOr(item.clause) ? wrapSql(item.clause) : item.clause
-    const head = [op, item.comment ? sqlComment(item.comment) : null].filter(Boolean).join(' ')
-    if (!head) return clause
-    return item.comment ? `${head}\n${clause}` : `${head} ${clause}`
+    // The comment above its operator, so that it reads as the heading of all
+    // that follows: the operator, then the clause.
+    const note = item.comment ? `${item.comment.split('\n').map(sqlComment).join('\n')}\n` : ''
+    return `${note}${op ? `${op} ` : ''}${clause}`
   }
   // A blank line between conditions once they span several lines each.
   const gap = (parts: string[]) => (parts.some((p) => p.includes('\n')) ? '\n\n' : '\n')
@@ -557,6 +564,7 @@ function buildCriterionClause(
   level: CohortLevel,
   mapping: SchemaMapping,
   baseTable: string,
+  narrowing?: RelationNarrowing,
 ): string {
   switch (criterion.type) {
     case 'age':
@@ -572,7 +580,7 @@ function buildCriterionClause(
     case 'care_site':
       return buildCareSiteCriteria(criterion.config as CareSiteCriteriaConfig, level, mapping, baseTable)
     case 'concept':
-      return buildConceptCriteria(criterion.config as ConceptCriteriaConfig, level, mapping, baseTable)
+      return buildConceptCriteria(criterion.config as ConceptCriteriaConfig, level, mapping, baseTable, narrowing)
     case 'text':
       return buildTextCriteria(criterion.config as TextCriteriaConfig, level, mapping, baseTable)
     case 'id_list':
@@ -800,11 +808,14 @@ function buildTextCriteria(
   baseTable: string,
 ): string {
   const searches = (config.searches ?? []).filter((s) => s.terms.some((t) => t.trim()))
-  // With nothing to search on this stays descriptive, as it was before.
-  if (searches.length === 0) return '1=1'
-
   const note = classRelation(mapping, 'note')
   if (!note) return '1=1'
+  const types = has(note, 'note_type') ? (config.noteTypes ?? []).filter((v) => v.trim()) : []
+  // With nothing to search on, nor a note type to keep, this stays descriptive.
+  if (searches.length === 0 && types.length === 0) return '1=1'
+  const typeClause = types.length
+    ? `CAST(n.note_type AS VARCHAR) IN (${types.map((v) => `'${escSql(v)}'`).join(', ')})`
+    : null
 
   const conditions: { clause: string; operator: CriteriaOperator }[] = []
   for (const search of searches) {
@@ -825,9 +836,9 @@ function buildTextCriteria(
       operator: search.operator ?? 'AND',
     })
   }
-  if (conditions.length === 0) return '1=1'
+  if (conditions.length === 0 && !typeClause) return '1=1'
   // Same AND > OR precedence as the criteria tree, so the two read alike.
-  const combined = buildPrecedenceClause(conditions)
+  const combined = conditions.length ? buildPrecedenceClause(conditions) : null
 
   // Notes hang off the patient; at visit level, narrow to the visit when the
   // mapping says which visit a note belongs to, else to the stay's dates.
@@ -839,7 +850,11 @@ function buildTextCriteria(
     if (window) links.push(window)
   }
 
-  return existsSql(`${note.name} n`, [...links, hasTopLevelOr(combined) ? wrapSql(combined) : combined])
+  return existsSql(`${note.name} n`, [
+    ...links,
+    ...(typeClause ? [typeClause] : []),
+    ...(combined ? [hasTopLevelOr(combined) ? wrapSql(combined) : combined] : []),
+  ])
 }
 
 function buildDurationCriteria(
@@ -975,24 +990,31 @@ function buildIdListCriteria(
  * an OMOP `visit_end_date` must still admit that day's 14:00 measurement, and a
  * date-only event must still count on the admission day. A NULL bound is open —
  * a stay still in progress has no end.
+ *
+ * An event without a date is in no stay.
+ *
+ * Each bound leads with a plain range on the event date (from the start's day,
+ * before the day after the end; an open bound is the calendar's edge), which
+ * the day-precision rule then narrows: a database can read that range from an
+ * index on (patient, date) instead of every event of the patient — Oracle
+ * answers a stay criterion ten times faster.
  */
 export function withinStaySql(eventDate: string, start: string, end: string | null): string {
   const ts = (x: string) => `CAST(${x} AS TIMESTAMP)`
-  const dayOnly = (x: string) => `${ts(x)} = CAST(CAST(${x} AS DATE) AS TIMESTAMP)`
-  const bound = (b: string, op: '>=' | '<=') => [
-    `(`,
-    `  ${b} IS NULL`,
-    `  OR CASE`,
-    `    WHEN ${dayOnly(eventDate)}`,
-    `      OR ${dayOnly(b)}`,
-    `    THEN CAST(${eventDate} AS DATE) ${op} CAST(${b} AS DATE)`,
-    `    ELSE ${ts(eventDate)} ${op} ${ts(b)}`,
-    `  END`,
-    `)`,
+  const day = (x: string) => `CAST(CAST(${x} AS DATE) AS TIMESTAMP)`
+  const dayOnly = (x: string) => `${ts(x)} = ${day(x)}`
+  const bound = (b: string, range: string, exact: string[]) => [
+    '(',
+    indent([range, `AND (`, indent([`${b} IS NULL`, ...exact].join('\nOR ')), ')'].join('\n')),
+    ')',
   ].join('\n')
+  const from = bound(start, `${ts(eventDate)} >= COALESCE(${day(start)}, TIMESTAMP '0001-01-01 00:00:00')`,
+    [`${ts(eventDate)} >= ${ts(start)}`, dayOnly(eventDate)])
+  const until = end && bound(end, `${ts(eventDate)} < COALESCE(${day(end)}, TIMESTAMP '9999-12-30 00:00:00') + INTERVAL 1 DAY`,
+    [`${ts(eventDate)} <= ${ts(end)}`, dayOnly(eventDate), dayOnly(end)])
   return [
     sqlComment(end ? 'Within the stay' : 'From the stay start'),
-    [bound(start, '>='), ...(end ? [bound(end, '<=')] : [])].join('\nAND '),
+    [from, ...(until ? [until] : [])].join('\nAND '),
   ].join('\n')
 }
 
@@ -1091,6 +1113,16 @@ function valueConditions(config: ConceptCriteriaConfig): string[] {
   return single ? [single] : []
 }
 
+/** What a criterion's concept is, for the comment after its id: its vocabulary
+ *  and name, as far as the criterion knows them. */
+export function conceptLabel(config: Pick<ConceptCriteriaConfig, 'conceptNames' | 'conceptVocabularies'>): (id: number) => string | undefined {
+  return (id) => {
+    const name = config.conceptNames?.[id]
+    const parts = [config.conceptVocabularies?.[id], name && name !== `#${id}` ? name : undefined].filter(Boolean)
+    return parts.length > 0 ? parts.join(' - ') : undefined
+  }
+}
+
 /** What an event row of `event` must meet for the criterion: one of its
  *  concepts, the entity's patient (and stay), the value filters. */
 function conceptConditions(
@@ -1100,10 +1132,19 @@ function conceptConditions(
   mapping: SchemaMapping,
   baseTable: string,
 ): string[] {
-  const ids = config.conceptIds.join(', ')
-  let conceptMatch = `e.concept_id IN (${ids})`
+  const ids = idListSql(config.conceptIds, conceptLabel(config))
+  const dict = event.compositeConceptKey ? dictionaryOf(mapping, event) : undefined
+  // Read through its codes (`conceptSource`): the few (terminology, code) pairs
+  // of these ids, rather than every row's id looked up in the whole dictionary.
+  let conceptMatch = dict
+    ? existsSql(`${dict.name} c`, [
+      `c.concept_id IN ${ids}`,
+      'c.concept_terminology = e.concept_terminology',
+      'c.concept_code = e.concept_code',
+    ])
+    : `e.concept_id IN ${ids}`
   if (has(event, 'source_concept_id')) {
-    conceptMatch = `(${conceptMatch} OR e.source_concept_id IN (${ids}))`
+    conceptMatch = `(\n${indent(`${conceptMatch}\nOR e.source_concept_id IN ${ids}`)}\n)`
   }
   const conditions = [conceptMatch, `e.patient_id = ${baseTable}.patient_id`]
   const window = stayWindowClause(level, mapping, baseTable, has(event, 'start_datetime') ? 'e.start_datetime' : undefined)
@@ -1112,11 +1153,18 @@ function conceptConditions(
   return conditions
 }
 
+/** What a criterion reads an event relation as: a composite-key event through
+ *  its codes, matched on its dictionary's (terminology, code) pairs. */
+function conceptSource(event: ClassRelation, mapping: SchemaMapping): string {
+  return event.compositeConceptKey && dictionaryOf(mapping, event) ? codesRelation(event.name) : event.name
+}
+
 function buildConceptCriteria(
   config: ConceptCriteriaConfig,
   level: CohortLevel,
   mapping: SchemaMapping,
   baseTable: string,
+  narrowing?: RelationNarrowing,
 ): string {
   if (config.conceptIds.length === 0) return '1=1'
   if (!validateIntegerIds(config.conceptIds)) return '1=1'
@@ -1125,14 +1173,40 @@ function buildConceptCriteria(
   // value filters and occurrence count.
   if (config.conceptMatch === 'all' && config.conceptIds.length > 1) {
     const each = config.conceptIds.map((id) =>
-      buildConceptCriteria({ ...config, conceptMatch: 'any', conceptIds: [id] }, level, mapping, baseTable))
+      buildConceptCriteria({ ...config, conceptMatch: 'any', conceptIds: [id] }, level, mapping, baseTable, narrowing))
     if (each.includes('1=1')) return '1=1'
     return `(\n${indent(each.join('\nAND '))}\n)`
   }
 
-  const scopes = conceptCriterionRelations(config, mapping)
-    .map((event) => ({ event, conditions: conceptConditions(event, config, level, mapping, baseTable) }))
-  if (scopes.length === 0) return '1=1'
+  const searched = conceptCriterionRelations(config, mapping)
+  if (searched.length === 0) return '1=1'
+  const holding = narrowing?.(config.conceptIds.map(Number)) ?? new Map<string, readonly number[]>()
+  const idsIn = (event: ClassRelation) => holding.get(event.name) ?? config.conceptIds
+  const skipped = searched.filter((event) => idsIn(event).length === 0)
+  const scopes = searched
+    .filter((event) => idsIn(event).length > 0)
+    .map((event) => ({
+      event,
+      from: conceptSource(event, mapping),
+      conditions: conceptConditions(event, { ...config, conceptIds: [...idsIn(event)] }, level, mapping, baseTable),
+    }))
+  // Said in the SQL rather than silently dropped: a reader sees why a table it
+  // expected is not searched, and that nothing reads it.
+  const narrowed = scopes.some(({ event }) => idsIn(event).length < config.conceptIds.length)
+  const notes = [
+    ...(skipped.length > 0
+      ? [
+        'Not searched, as the concept count found none of these concepts there:',
+        ...skipped.map((e) => `  ${e.name}`),
+      ]
+      : []),
+    ...(narrowed ? ['Each table is searched for the concepts the concept count found there only'] : []),
+  ].map(sqlComment).join('\n')
+  // Inside the parentheses an OR of tables already has, rather than in a second pair.
+  const noted = (sql: string) => !notes
+    ? sql
+    : sql.startsWith('(\n') ? `(\n${indent(notes)}\n${sql.slice(2)}` : `(\n${indent(`${notes}\n${sql}`)}\n)`
+  if (scopes.length === 0) return noted('FALSE')
 
   // Occurrence count → IN subquery with GROUP BY + HAVING, over the rows of
   // every table searched: one table or several, an entity with no occurrence
@@ -1145,8 +1219,8 @@ function buildConceptCriteria(
   const ocOperator = sqlOperator(oc?.operator, COUNT_OPERATORS)
   const ocCount = sqlNumber(oc?.count)
   if (oc && ocOperator && ocCount != null) {
-    const rows = scopes.map(({ event, conditions }) =>
-      [`SELECT e.patient_id`, `FROM ${event.name} e`, whereLines(conditions)].join('\n'))
+    const rows = scopes.map(({ from, conditions }) =>
+      [`SELECT e.patient_id`, `FROM ${from} e`, whereLines(conditions)].join('\n'))
     const grouped = rows.length === 1
       ? [rows[0], `GROUP BY e.patient_id`]
       : [
@@ -1156,15 +1230,15 @@ function buildConceptCriteria(
         `) occurrence`,
         `GROUP BY occurrence.patient_id`,
       ]
-    return [
+    return noted([
       `${baseTable}.patient_id IN (`,
       indent([...grouped, `HAVING COUNT(*) ${ocOperator} ${ocCount}`].join('\n')),
       `)`,
-    ].join('\n')
+    ].join('\n'))
   }
 
-  const exists = scopes.map(({ event, conditions }) => existsSql(`${event.name} e`, conditions))
-  return exists.length === 1 ? exists[0] : `(\n${indent(exists.join('\nOR '))}\n)`
+  const exists = scopes.map(({ from, conditions }) => existsSql(`${from} e`, conditions))
+  return noted(exists.length === 1 ? exists[0] : `(\n${indent(exists.join('\nOR '))}\n)`)
 }
 
 // ---------------------------------------------------------------------------
@@ -1320,6 +1394,50 @@ function buildSelectColumns(level: CohortLevel, mapping: SchemaMapping, baseTabl
   return cols.join(',\n  ')
 }
 
+/** How long the concept names of a step's label may run before `+N`. */
+const LABEL_NAMES_LENGTH = 60
+/** The most lines a step's detail lists before `+N`. */
+const DETAIL_LINES = 30
+
+/** As many names as fit in `length` characters — always the first — then
+ *  how many were left out. */
+function namesWithin(names: readonly string[], length: number): string {
+  let shown = 1
+  let used = names[0]?.length ?? 0
+  while (shown < names.length && used + 2 + names[shown].length <= length) used += 2 + names[shown++].length
+  const rest = names.length - shown
+  return `${names.slice(0, shown).join(', ')}${rest > 0 ? ` +${rest}` : ''}`
+}
+
+const capped = (lines: string[]) =>
+  lines.length > DETAIL_LINES ? [...lines.slice(0, DETAIL_LINES), `+${lines.length - DETAIL_LINES}`] : lines
+
+/**
+ * What a step's short label leaves out, one item per line, for its tooltip: a
+ * concept criterion's tables and each of its concepts, a group's criteria, an id
+ * list's ids. Empty when the label already says it all.
+ */
+export function getNodeDetail(node: CriteriaTreeNode, mapping?: SchemaMapping): string[] {
+  if (node.kind === 'group') return capped(node.children.filter((c) => c.enabled).map((c) => getNodeLabel(c, mapping)))
+  switch (node.type) {
+    case 'concept': {
+      const c = node.config as ConceptCriteriaConfig
+      const label = conceptLabel(c)
+      const listed = listedEventTables(c)
+      return [
+        !listed ? 'All tables' : listed.length ? `Tables: ${listed.join(', ')}` : 'No table',
+        ...capped((c.conceptIds ?? []).map((id) => [id, label(id)].filter(Boolean).join(' - '))),
+      ]
+    }
+    case 'id_list': {
+      const ids = cleanIdList((node.config as IdListCriteriaConfig).ids)
+      return ids.length > 3 ? capped(ids) : []
+    }
+    default:
+      return []
+  }
+}
+
 /** Human-readable label for a criteria tree node (for attrition chart). */
 export function getNodeLabel(node: CriteriaTreeNode, mapping?: SchemaMapping): string {
   if (node.kind === 'group') {
@@ -1372,7 +1490,7 @@ export function getNodeLabel(node: CriteriaTreeNode, mapping?: SchemaMapping): s
     case 'concept': {
       const c = node.config as ConceptCriteriaConfig
       const names = Object.values(c.conceptNames ?? {})
-      const label = names.length <= 2 ? names.join(', ') : `${names[0]} +${names.length - 1}`
+      const label = namesWithin(names, LABEL_NAMES_LENGTH)
       const listed = listedEventTables(c)
       const tables = !listed ? 'All tables' : listed.length ? listed.join(', ') : 'No table'
       return `${prefix}${tables}: ${c.conceptMatch === 'all' && names.length > 1 ? `all of ${label}` : label}`

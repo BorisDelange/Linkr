@@ -19,7 +19,7 @@ and exports exactly as before.
 import sqlalchemy as sa
 from alembic import op
 
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 revision = "d1e2f3a4b5c6"
 down_revision = "c0d1e2f3a4b5"
@@ -28,7 +28,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("sql_script_collections", sa.Column("config", JSONB_or_JSON, nullable=True))
+    op.add_column("sql_script_collections", sa.Column("config", PortableJSON, nullable=True))
 
 
 def downgrade() -> None:

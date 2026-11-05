@@ -159,7 +159,7 @@ async function countInBatches(
     const rows = await Promise.all(batch.map(async (table) => {
       try {
         const r = await duckdbEngine.queryDataSource(
-          dataSourceId, `SELECT COUNT(*) as cnt FROM ${quoteTableRef(table)}`,
+          dataSourceId, `SELECT COUNT(*) as cnt FROM ${quoteTableRef(table)}`, { origin: `Tables · row count (${table})` },
         )
         return [table, Number(r[0]?.cnt ?? 0)] as const
       } catch {

@@ -10,8 +10,8 @@ mkdir -p "$LINKR_DATA_DIR/_duckdb_ext"
 cp -rn "$LINKR_DUCKDB_EXT_BUNDLE"/. "$LINKR_DATA_DIR/_duckdb_ext"/ 2>/dev/null || true
 export MATRIX_DUCKDB_EXT_DIR="$LINKR_DATA_DIR/_duckdb_ext"
 
-# Same pytest as apps/api/uv.lock.
-pip install --quiet --disable-pip-version-check pytest==9.1.1 >/dev/null
+# Same pytest as apps/api/uv.lock; Oracle's own driver loads the Oracle datamart.
+pip install --quiet --disable-pip-version-check pytest==9.1.1 oracledb==26.0.1 >/dev/null
 
 wait_for() {  # host port label
   for _ in $(seq 1 90); do
@@ -29,6 +29,8 @@ if [ "${MATRIX_LOAD:-1}" = "1" ]; then
       duckdb|sqlite) python3 /matrix/matrix.py load /data "$engine" --target "/work/omop.$engine" ;;
       postgresql) { wait_for "${MATRIX_POSTGRESQL_HOST:-datamart-postgres}" 5432 PostgreSQL || exit 1; }; python3 /matrix/matrix.py load /data postgresql ;;
       mysql) { wait_for "${MATRIX_MYSQL_HOST:-datamart-mysql}" 3306 MySQL || exit 1; }; python3 /matrix/matrix.py load /data mysql ;;
+      sqlserver) { wait_for "${MATRIX_SQLSERVER_HOST:-datamart-sqlserver}" 1433 "SQL Server" || exit 1; }; python3 /matrix/matrix.py load /data sqlserver ;;
+      oracle) { wait_for "${MATRIX_ORACLE_HOST:-datamart-oracle}" 1521 Oracle || exit 1; }; python3 /matrix/matrix.py load /data oracle ;;
     esac
   done
 fi

@@ -2,7 +2,7 @@ from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text
 from sqlalchemy import false as sa_false
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin
+from app.models.base import PortableJSON, Base, TimestampMixin
 
 
 class DqRuleSet(Base, TimestampMixin):
@@ -18,22 +18,22 @@ class DqRuleSet(Base, TimestampMixin):
     )
     # Human-readable, URL-safe id set once at creation.
     entity_id: Mapped[str | None] = mapped_column(String(255))
-    name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
-    description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    name: Mapped[dict] = mapped_column(PortableJSON, default=dict)  # LocalizedString
+    description: Mapped[dict] = mapped_column(PortableJSON, default=dict)
     # Badges for grouping/tagging (list of {id, label, color}).
-    badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
-    readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    badges: Mapped[list | None] = mapped_column(PortableJSON)
+    readme: Mapped[dict | None] = mapped_column(PortableJSON)
     # Entity licence: {id, name?, text} — the text is snapshotted at pick time
     # so it travels with the export (LICENSE.md) independently of the picker.
-    license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    license: Mapped[dict | None] = mapped_column(PortableJSON)
     data_source_id: Mapped[str] = mapped_column(String(36))
     # Portable identity of the database above ({lineageId?, entityId?, label?}).
     # data_source_id is this instance's local UUID and means nothing elsewhere, so
     # this is what the export carries and the import resolves back to a local row.
-    data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    data_source_ref: Mapped[dict | None] = mapped_column(PortableJSON)
     # Schema preset the rule set was generated from, as a portable pointer only
     # ({lineageId?, entityId?, label?}): informative, resolved where it is shown.
-    schema_preset_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    schema_preset_ref: Mapped[dict | None] = mapped_column(PortableJSON)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     last_run_at: Mapped[str | None] = mapped_column(String(40))
     last_run_duration_ms: Mapped[int | None] = mapped_column(Integer)
@@ -45,17 +45,17 @@ class DqRuleSet(Base, TimestampMixin):
     # created_by_details are the display snapshot kept for cross-instance imports.
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(Text)
-    created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    created_by_details: Mapped[dict | None] = mapped_column(PortableJSON)
     # Frozen provenance snapshot of the origin organization (not a live link).
-    organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    organization: Mapped[dict | None] = mapped_column(PortableJSON)
     # Stable cross-instance identity (separate from the local PK). Preserved across
     # export/import; a fork mints a new lineage_id and points parent_lineage_id at its source.
     lineage_id: Mapped[str | None] = mapped_column(String(36))
     parent_lineage_id: Mapped[str | None] = mapped_column(String(36))
-    git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    git_remote_config: Mapped[dict | None] = mapped_column(PortableJSON)
     # Check groups with no check yet (a group is otherwise the table_name its
     # checks share, so an empty one has nowhere else to live). Null when none.
-    check_groups: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    check_groups: Mapped[list | None] = mapped_column(PortableJSON)
 
 
 class DqRunHistory(Base):
@@ -80,7 +80,7 @@ class DqRunHistory(Base):
     errors: Mapped[int] = mapped_column(Integer, default=0)
     not_applicable: Mapped[int] = mapped_column(Integer, default=0)
     duration_ms: Mapped[int | None] = mapped_column(Integer)
-    report: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    report: Mapped[dict | None] = mapped_column(PortableJSON)
 
 
 class DqCustomCheck(Base, TimestampMixin):

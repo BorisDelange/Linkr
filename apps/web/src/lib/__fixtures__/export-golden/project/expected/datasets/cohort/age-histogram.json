@@ -1,5 +1,4 @@
 {
-  "id": "an-1",
   "datasetPath": "cohort.csv",
   "name": "Age histogram",
   "type": "chart",

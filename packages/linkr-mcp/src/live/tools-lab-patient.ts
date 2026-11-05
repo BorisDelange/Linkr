@@ -179,17 +179,23 @@ export function registerPatientBoardTools(server: Server): void {
 
   server.registerTool('update_patient_board', {
     description: 'Change a patient board: name, description, database, display settings (widget titles, spacing, '
-      + 'fit to screen height, reload widgets on tab switch, share synced timeline windows across tabs).',
+      + 'fit to screen height, reload widgets on tab switch, share synced timeline windows across tabs, how many '
+      + 'patients after the one on screen to load in advance).',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{
       board_id: string; name?: string; description?: string; database_id?: string; show_widget_titles?: boolean
       widget_spacing?: number; fit_to_height?: boolean; reload_widgets_on_tab_switch?: boolean; sync_timelines_across_tabs?: boolean
+      read_ahead_patients?: number
     }>({
       type: 'object',
       properties: {
         board_id: { type: 'string' }, name: { type: 'string' }, description: { type: 'string' }, database_id: { type: 'string' },
         show_widget_titles: { type: 'boolean' }, widget_spacing: { type: 'number', description: 'Pixels between widgets.' },
         fit_to_height: { type: 'boolean' }, reload_widgets_on_tab_switch: { type: 'boolean' }, sync_timelines_across_tabs: { type: 'boolean' },
+        read_ahead_patients: {
+          type: 'integer', minimum: 0, maximum: 10,
+          description: 'Patients after the one on screen whose data is loaded in advance; 0 loads none (default 1).',
+        },
       },
       required: ['board_id'],
     }),
@@ -209,6 +215,7 @@ export function registerPatientBoardTools(server: Server): void {
     const flags = {
       showWidgetTitles: a.show_widget_titles, widgetSpacing: a.widget_spacing, fitToHeight: a.fit_to_height,
       reloadWidgetsOnTabSwitch: a.reload_widgets_on_tab_switch, syncTimelinesAcrossTabs: a.sync_timelines_across_tabs,
+      readAheadPatients: a.read_ahead_patients,
     }
     for (const [k, v] of Object.entries(flags)) if (v !== undefined) changes[k] = v
     if (Object.keys(changes).length === 0) return failure('Nothing to change.')

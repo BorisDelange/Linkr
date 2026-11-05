@@ -19,6 +19,7 @@ from app.services import (
     notification_service,
     undo_service,
 )
+from app.services.execution import jobs
 
 router = APIRouter(prefix="/cohorts", tags=["cohorts"])
 
@@ -210,7 +211,10 @@ async def materialize_cohort(
     # A membership of millions of rows outlives a gateway's timeout: past
     # `deferred.WAIT_SECONDS` it goes on as a job of the project (core/deferred).
     return await deferred.respond(
-        user.id, work, deferred.AsJob("Freeze cohort", project_uid=cohort.project_uid, lane="heavy_query"),
+        user.id, work, deferred.AsJob(
+            "Freeze cohort · write its members", project_uid=cohort.project_uid, lane="heavy_query",
+            input=body.membership_sql, always=True, kind=jobs.QUERY_KIND,
+        ),
     )
 
 

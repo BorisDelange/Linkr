@@ -264,7 +264,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
               const dsId = fileSourceDataSourceId(proj.id)
               // SELECT * — vocabulary_id is only in the view when a terminology column
               // was mapped; naming it explicitly threw and silently assigned nothing.
-              const rows = await queryDataSourceAll(dsId, 'SELECT * FROM source_concepts')
+              const rows = await queryDataSourceAll(dsId, 'SELECT * FROM source_concepts', { origin: 'Concept mapping · source concepts for id ranges' })
               for (const row of rows) {
                 const code = String(row.concept_code ?? '')
                 // 'en', not the UI language: this falls into the assignment key,

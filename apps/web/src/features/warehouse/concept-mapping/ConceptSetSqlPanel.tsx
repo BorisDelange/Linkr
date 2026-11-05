@@ -1,10 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Check, Copy } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { CopyIconButton } from '@/components/ui/copy-icon-button'
+import { Button } from '@/components/ui/button'
+import { CodeViewer } from '@/components/editor/CodeViewer'
+import { CodeViewerBoundary } from '@/components/editor/CodeViewerBoundary'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { getStorage } from '@/lib/storage'
+import { copyText } from '@/lib/clipboard'
 import { APP_VERSION } from '@/lib/version'
 import { sanitizeRecommendedUnits, sanitizeUnitConversions } from '@/lib/data-dictionary/content'
 import {
@@ -43,7 +47,7 @@ function permalinkOf(set: ConceptSet, dictionary: DataDictionary | undefined): s
  * reference unit with the dictionary's unit conversions.
  */
 export function ConceptSetSqlPanel({ conceptSet, concepts }: ConceptSetSqlPanelProps) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const [dictionary, setDictionary] = useState<DataDictionary | undefined>()
   const [referenceUnit, setReferenceUnit] = useState<number | null | undefined>(undefined)
   const [dropOtherUnits, setDropOtherUnits] = useState(false)
@@ -82,42 +86,59 @@ export function ConceptSetSqlPanel({ conceptSet, concepts }: ConceptSetSqlPanelP
     )
   }, [conceptSet, dictionary, concepts, conversions, recommended, effectiveUnit, dropOtherUnits])
 
+  const [copied, setCopied] = useState(false)
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
+  const handleCopy = async () => {
+    if (!(await copyText(sql))) return
+    setCopied(true)
+    if (copiedTimer.current) clearTimeout(copiedTimer.current)
+    copiedTimer.current = setTimeout(() => setCopied(false), 2000)
+  }
+
   const unitName = (u: number) => (labels.get(u) ? `${labels.get(u)} (${u})` : String(u))
 
   return (
     <div className="flex h-full flex-col gap-3 px-4 py-3">
       <div className="flex flex-wrap items-center gap-4">
-        {units.length > 0 && (
-          <div className="flex items-center gap-2">
-            <Label>{t('concept_mapping.cs_sql_reference_unit')}</Label>
-            <Select
-              value={effectiveUnit == null ? NO_UNIT : String(effectiveUnit)}
-              onValueChange={(v) => setReferenceUnit(v === NO_UNIT ? null : Number(v))}
-            >
-              <SelectTrigger className="h-7 w-48 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NO_UNIT} className="text-xs">{t('concept_mapping.cs_sql_no_conversion')}</SelectItem>
-                {units.map((u) => <SelectItem key={u} value={String(u)} className="text-xs">{unitName(u)}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-        {effectiveUnit != null && (
-          <label className="flex items-center gap-2">
-            <Switch checked={dropOtherUnits} onCheckedChange={setDropOtherUnits} size="sm" />
-            <span className="text-xs text-muted-foreground">{t('concept_mapping.cs_sql_drop_other_units')}</span>
-          </label>
-        )}
-        <div className="ml-auto">
-          <CopyIconButton text={sql} size={14} />
+        {/* Always shown, disabled when they do not apply, so the toolbar reads
+            the same for every set — a set with no convertible unit included. */}
+        <div className="flex items-center gap-2">
+          <Label>{t('concept_mapping.cs_sql_reference_unit')}</Label>
+          <Select
+            value={effectiveUnit == null ? NO_UNIT : String(effectiveUnit)}
+            onValueChange={(v) => setReferenceUnit(v === NO_UNIT ? null : Number(v))}
+            disabled={units.length === 0}
+          >
+            <SelectTrigger className="h-7 w-48 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_UNIT} className="text-xs">{t('concept_mapping.cs_sql_no_conversion')}</SelectItem>
+              {units.map((u) => <SelectItem key={u} value={String(u)} className="text-xs">{unitName(u)}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
+        <label className="flex items-center gap-2">
+          <Switch
+            checked={effectiveUnit != null && dropOtherUnits}
+            onCheckedChange={setDropOtherUnits}
+            disabled={effectiveUnit == null}
+            size="sm"
+          />
+          <span className="text-xs text-muted-foreground">{t('concept_mapping.cs_sql_drop_other_units')}</span>
+        </label>
+        <Button variant="ghost" size="sm" onClick={handleCopy} className="ml-auto h-6 gap-1 text-xs">
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+          {copied ? t('common.copied') : t('cohorts.sql_copy')}
+        </Button>
       </div>
       {!conceptSet.dictionaryId && (
         <p className="text-xs text-muted-foreground">{t('concept_mapping.cs_sql_no_dictionary')}</p>
       )}
-      <pre className="min-h-0 flex-1 overflow-auto rounded-md border bg-muted/30 p-3 font-mono text-xs leading-relaxed" lang={i18n.language}>
-        {sql}
-      </pre>
+      <div className="min-h-0 flex-1 overflow-hidden rounded-md border">
+        <CodeViewerBoundary fallback={<pre className="h-full overflow-auto p-3 font-mono text-xs leading-relaxed">{sql}</pre>}>
+          <CodeViewer value={sql} language="sql" height="100%" />
+        </CodeViewerBoundary>
+      </div>
     </div>
   )
 }

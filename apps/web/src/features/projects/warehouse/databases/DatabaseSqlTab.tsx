@@ -83,7 +83,7 @@ export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialS
     let execution: QueryExecution | null = null
     const onExecution = (e: QueryExecution) => { execution = e }
     try {
-      const rows = await queryDataSource(dataSourceId, sql, { native: offersNative && native, onExecution, signal: controller.signal })
+      const rows = await queryDataSource(dataSourceId, sql, { native: offersNative && native, onExecution, signal: controller.signal, origin: 'SQL console' })
       const headers = rows.length > 0 ? Object.keys(rows[0]) : []
       setOutcome({
         kind: 'rows',
@@ -165,7 +165,7 @@ export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialS
                 </Label>
               </div>
             </TooltipTrigger>
-            <TooltipContent className="max-w-xs">{t('databases.sql_native_hint', { engine: ENGINE_LABELS[engine] })}</TooltipContent>
+            <TooltipContent className="max-w-xs">{t(engine === 'oracle' ? 'databases.sql_native_hint_oracle' : 'databases.sql_native_hint', { engine: ENGINE_LABELS[engine] })}</TooltipContent>
           </Tooltip>
         )}
         {/* Every engine opens the source read-only here (see db_connect / engine.ts):

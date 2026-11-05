@@ -1,12 +1,17 @@
 from datetime import datetime
+from typing import Literal
 
 from app.schemas.base import CamelModel
+
+WikiPageStatus = Literal["draft", "needs_revision", "approved"]
 
 
 class WikiPageCreate(CamelModel):
     id: str  # client supplies crypto.randomUUID()
     workspace_id: str
     entity_id: str | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
     parent_id: str | None = None
     title: dict[str, str] = {}
     slug: str = ""
@@ -14,10 +19,13 @@ class WikiPageCreate(CamelModel):
     content: dict[str, str] = {}
     template: str | None = None
     owner: str | None = None
-    verified: bool | None = None
-    verified_at: str | None = None
+    status: WikiPageStatus | None = None
+    status_changed_at: str | None = None
     review_due_at: str | None = None
     sort_order: int = 0
+    # Restored from the export on import and pull — without it the server stamps
+    # "now" and the page's _tree.json entry differs from the remote on every push.
+    created_at: datetime | None = None
     created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
@@ -26,6 +34,8 @@ class WikiPageCreate(CamelModel):
 class WikiPageUpdate(CamelModel):
     workspace_id: str | None = None
     entity_id: str | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
     parent_id: str | None = None
     title: dict[str, str] | None = None
     slug: str | None = None
@@ -33,10 +43,11 @@ class WikiPageUpdate(CamelModel):
     content: dict[str, str] | None = None
     template: str | None = None
     owner: str | None = None
-    verified: bool | None = None
-    verified_at: str | None = None
+    status: WikiPageStatus | None = None
+    status_changed_at: str | None = None
     review_due_at: str | None = None
     sort_order: int | None = None
+    created_at: datetime | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
 
@@ -51,6 +62,8 @@ class WikiPageResponse(CamelModel):
     id: str
     workspace_id: str | None = None
     entity_id: str | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
     parent_id: str | None = None
     title: dict[str, str]
     slug: str
@@ -58,8 +71,8 @@ class WikiPageResponse(CamelModel):
     content: dict[str, str]
     template: str | None = None
     owner: str | None = None
-    verified: bool | None = None
-    verified_at: str | None = None
+    status: WikiPageStatus | None = None
+    status_changed_at: str | None = None
     review_due_at: str | None = None
     sort_order: int
     created_by_id: int | None = None

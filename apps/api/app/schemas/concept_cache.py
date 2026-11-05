@@ -65,36 +65,28 @@ class CountedRelation(CamelModel):
     relation: str
     # Of the relation's SQL when it was counted: a mapping changed since makes it stale.
     signature: str | None = None
-    # Whether it holds any of the requested concepts.
+    # Whether it holds any of the requested concepts, and which.
     holds: bool
+    held: list[str] = Field(default_factory=list)
 
 
 class ConceptRelationsResult(CamelModel):
     relations: list[CountedRelation]
 
 
-class ConceptStatsDictionary(CamelModel):
-    """A dictionary with values to describe, and its value-bearing event relations."""
-
-    dict_key: str = Field(min_length=1, max_length=255)
-    relations: list[str] = Field(min_length=1, max_length=200)
+class RelationRecordsRequest(CamelModel):
+    relation: str = Field(min_length=1, max_length=200)
+    signature: str = Field(min_length=1, max_length=100)
 
 
-class ConceptStatsPlanRequest(CamelModel):
-    dicts: list[ConceptStatsDictionary] = Field(max_length=200)
-    max_rows: int = Field(ge=1)
+class RelationRecord(CamelModel):
+    concept_id: str
+    record_count: int
 
 
-class ConceptStatsRange(CamelModel):
-    """The concepts of `dict_key` whose id lies in [lo, hi], a null bound open."""
-
-    dict_key: str
-    lo: int | None = None
-    hi: int | None = None
-
-
-class ConceptStatsPlanResult(CamelModel):
-    ranges: list[ConceptStatsRange]
+class RelationRecordsResult(CamelModel):
+    # None: the last run did not count this relation under this signature.
+    counts: list[RelationRecord] | None
 
 
 class ConceptStatsSave(CamelModel):
@@ -108,38 +100,36 @@ class ConceptStatsResponse(CamelModel):
     updated_at: datetime
 
 
-class ConceptStatsCoveringUnit(CamelModel):
-    """A `stats` unit whose id range covers the concept, and what it wrote."""
+# --- Concept profiles (concept_profile_service) ------------------------------
 
-    unit: str
-    dict_key: str | None = None
-    lo: int | None = None
-    hi: int | None = None
-    done: bool
-    rows: int | None = None
-    concepts: int | None = None
-    min_concept_id: int | None = None
-    max_concept_id: int | None = None
-    concept_id_type: str | None = None
+# The profile rows are the browser's (`profile-store.ts` StoredProfile): they
+# travel as it writes them, camelCase, and are stored as they come.
+
+class ConceptProfilesRead(CamelModel):
+    dict_key: str = Field(max_length=200)
+    concept_ids: list[int] = Field(max_length=20_000)
+    # Without the profiles' JSON.
+    meta: bool = False
 
 
-class ConceptStatsUnitHit(CamelModel):
-    """A unit that holds the concept, or could not be read (`error`)."""
-
-    unit: str
-    as_text: int | None = None
-    as_number: int | None = None
-    dict_keys: str | None = None
-    error: str | None = None
+class ConceptProfilesWrite(CamelModel):
+    profiles: list[dict] = Field(max_length=5_000)
 
 
-class ConceptStatsDiagnosis(CamelModel):
-    concept_id: int
-    dict_key: str | None = None
-    stats_units_planned: int
-    stats_units_done: int
-    covering: list[ConceptStatsCoveringUnit]
-    in_stats_units: list[ConceptStatsUnitHit]
-    in_record_units: list[ConceptStatsUnitHit]
-    stats_rows: int | None = None
-    stats_concepts: int | None = None
+class ConceptProfilesResult(CamelModel):
+    profiles: list[dict]
+
+
+class ConceptProfilesRunSave(CamelModel):
+    """The Concepts tab's profiling run (null: forget it)."""
+
+    run: dict | None = None
+    computed_at: str = Field(default="", max_length=40)
+
+
+class ConceptProfilesSummary(CamelModel):
+    count: int
+    last_computed_at: str | None = None
+    sections: dict[str, int]
+    fingerprints: dict[str, int]
+    run: dict | None = None

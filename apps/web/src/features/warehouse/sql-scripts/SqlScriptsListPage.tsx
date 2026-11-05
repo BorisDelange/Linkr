@@ -232,12 +232,12 @@ export function SqlScriptsListPage() {
             <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', ENTITY_COLORS['sql-collection'].bg)}>
               <SquareTerminal size={20} className={ENTITY_COLORS['sql-collection'].icon} />
             </div>
-            <TruncatedText text={localized(collection.name, language)} readOnly className="min-w-0 flex-1 text-sm font-medium" />
+            <TruncatedText text={localized(collection.name, language)} className="min-w-0 flex-1 text-sm font-medium" />
             <div className="ml-auto shrink-0">{actionsMenu}</div>
           </div>
           <div className="mt-2 h-4">
             {localized(collection.description, language) && (
-              <TruncatedText text={localized(collection.description, language)} readOnly className="text-xs text-muted-foreground" />
+              <TruncatedText text={localized(collection.description, language)} className="text-xs text-muted-foreground" />
             )}
           </div>
           <BadgeStrip badges={collection.badges ?? []} className="mt-1.5 h-5" />

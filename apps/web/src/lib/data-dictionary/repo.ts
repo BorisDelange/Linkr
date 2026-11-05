@@ -21,10 +21,7 @@ export function githubRepoOf(url: string): { owner: string; repo: string } | nul
   return m ? { owner: m[1], repo: m[2] } : null
 }
 
-/** A readable name for a repository URL: its last path segment. */
-export function repoName(url: string): string {
-  return url.trim().replace(/\.git$/, '').replace(/\/+$/, '').split(/[/:]/).pop() || url
-}
+export { repoName } from './content'
 
 async function fromClone(url: string, branch: string): Promise<{ files: Record<string, string>; commit: string | null }> {
   const { blob, oid } = await gitCloneToZip(url, branch, undefined, getActiveWorkspaceId())

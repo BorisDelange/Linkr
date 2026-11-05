@@ -4,8 +4,13 @@ An API response is data for the app's own code, never a page to render: if one
 is opened directly (an HTML attachment, a JSON body sniffed as HTML), it must
 not run script, be framed, or leak the URL it came from. Only `/api/`: the
 interactive docs are pages and load their own assets. The web app's own headers
-are nginx's (docker/nginx.conf).
+are nginx's (docker/nginx.conf). The web-app proxy (routes/apps.py) serves pages
+made to be framed by Linkr, and sets its own.
 """
+
+import re
+
+_APP_PROXY = re.compile(r"^/api/v1/apps/[^/]+/proxy(/|$)")
 
 _HEADERS = [
     (b"x-content-type-options", b"nosniff"),
@@ -22,7 +27,8 @@ class SecurityHeadersMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or not scope.get("path", "").startswith("/api/"):
+        path = scope.get("path", "")
+        if scope["type"] != "http" or not path.startswith("/api/") or _APP_PROXY.match(path):
             await self.app(scope, receive, send)
             return
 

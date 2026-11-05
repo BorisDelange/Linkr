@@ -53,7 +53,8 @@ describe('DQ rule set round trip', () => {
     expect(await applyClonedEntity(zip, 'dq-rule-set', 'rs-target', store)).toEqual({ ok: true })
     expect(updates[0].schemaPresetRef).toEqual(RULE_SET.schemaPresetRef)
     expect(created).toHaveLength(1)
-    expect(created[0]).toMatchObject({ ...PORTABLE, ruleSetId: 'rs-target' })
+    // `order` is renumbered from the file's order on import (dq-check-portable.ts).
+    expect(created[0]).toMatchObject({ ...PORTABLE, order: 0, ruleSetId: 'rs-target' })
   })
 
   it('a cloned repo whose checks are refused keeps the previous checks and metadata', async () => {

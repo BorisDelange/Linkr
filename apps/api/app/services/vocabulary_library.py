@@ -21,11 +21,13 @@ reaches the same views without rewriting rows).
 """
 
 import asyncio
+import hashlib
 import re
 import shutil
 import tempfile
 import time
 import uuid
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -168,6 +170,120 @@ def group_export_files(files: ExportFiles) -> dict[str, ExportFiles]:
         if table:
             groups.setdefault(table, []).append((name, path))
     return groups
+
+
+# --- Zipped exports -----------------------------------------------------------
+
+
+def _zip_root() -> Path:
+    return settings.data_path / "vocabularies" / ".zips"
+
+
+def _is_zip(name: str) -> bool:
+    return name.lower().endswith(".zip")
+
+
+# An extraction nothing has read for this long is left over (an inspect with no
+# import after it): the next extraction removes it.
+ZIP_EXTRACTION_TTL_SECONDS = 24 * 3600
+# Free space kept beyond what an extraction writes.
+ZIP_EXTRACTION_MARGIN = 0.1
+
+
+def _zip_dir(path: str) -> Path:
+    """One extraction per zip file *and* version: a zip replaced at the same path
+    (another size or modification time) is extracted again."""
+    st = Path(path).stat()
+    version = hashlib.sha256(f"{st.st_size}:{st.st_mtime_ns}".encode()).hexdigest()[:12]
+    return _zip_root() / f"{_zip_path_key(path)}-{version}"
+
+
+def _zip_path_key(path: str) -> str:
+    return hashlib.sha256(path.encode()).hexdigest()[:24]
+
+
+def _prune_zip_extractions(keep: Path) -> None:
+    """Drop the extractions of older versions of the zip `keep` is for, and those
+    nothing has read for `ZIP_EXTRACTION_TTL_SECONDS`."""
+    root = _zip_root()
+    if not root.is_dir():
+        return
+    prefix = keep.name.rsplit("-", 1)[0] + "-"
+    cutoff = time.time() - ZIP_EXTRACTION_TTL_SECONDS
+    for d in root.iterdir():
+        if d == keep or not d.is_dir():
+            continue
+        marker = d / ".complete"
+        try:
+            last_read = (marker if marker.exists() else d).stat().st_mtime
+        except OSError:
+            continue
+        if d.name.startswith(prefix) or last_read < cutoff:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+def _check_free_space(wanted: list[zipfile.ZipInfo], dest: Path) -> None:
+    needed = sum(info.file_size for info in wanted)
+    free = shutil.disk_usage(dest).free
+    if needed * (1 + ZIP_EXTRACTION_MARGIN) > free:
+        raise ValueError(
+            f"Not enough disk space to extract the zip: {needed / 1e9:.1f} GB of vocabulary files, "
+            f"{free / 1e9:.1f} GB free"
+        )
+
+
+def expand_zips(files: ExportFiles) -> ExportFiles:
+    """`files` with every .zip replaced by the vocabulary files inside it.
+
+    ATHENA delivers its export as one zip of CSVs. Each zip is extracted once
+    beside the libraries — inspecting then importing it reads the same copy —
+    and only its vocabulary tables; `discard_zip_expansions` removes the copy.
+    Raises ValueError when the disk cannot hold the extracted files.
+    """
+    out: ExportFiles = []
+    for name, path in files:
+        if not _is_zip(name):
+            out.append((name, path))
+            continue
+        dest = _zip_dir(path)
+        done = dest / ".complete"
+        _prune_zip_extractions(dest)
+        if done.exists():
+            done.touch()
+        else:
+            shutil.rmtree(dest, ignore_errors=True)
+            dest.mkdir(parents=True)
+            try:
+                with zipfile.ZipFile(path) as zf:
+                    wanted = [info for info in zf.infolist() if not info.is_dir() and table_of(info.filename)]
+                    _check_free_space(wanted, dest)
+                    for info in wanted:
+                        target = (dest / info.filename).resolve()
+                        # A crafted entry name (`../../x`) must not write outside dest.
+                        if not target.is_relative_to(dest.resolve()):
+                            continue
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with zf.open(info) as src, open(target, "wb") as dst:
+                            shutil.copyfileobj(src, dst, 1024 * 1024)
+            except BaseException:
+                shutil.rmtree(dest, ignore_errors=True)
+                raise
+            done.touch()
+        out.extend(
+            (str(p.relative_to(dest)), str(p))
+            for p in sorted(dest.rglob("*"))
+            if p.is_file() and p != done
+        )
+    return out
+
+
+def discard_zip_expansions(files: ExportFiles) -> None:
+    for name, path in files:
+        if _is_zip(name):
+            try:
+                shutil.rmtree(_zip_dir(path), ignore_errors=True)
+            except OSError:
+                continue
 
 
 def _lit(value: str) -> str:

@@ -218,19 +218,41 @@ export function BadgeEditor({ value, onChange, categories = [], suggestions = []
             {t('concept_mapping.badge_suggestions')}
           </SectionLabel>
           <div className="flex flex-wrap gap-1.5">
-            {available.map((badge) => (
-              <button
-                key={localized(badge.label, language)}
-                type="button"
-                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-opacity hover:opacity-80 ${getBadgeClasses(badge.color)}`}
-                style={getBadgeStyle(badge.color)}
-                onClick={() => add(badge)}
-                title={t('concept_mapping.badge_suggestion_add')}
-              >
-                <Plus size={10} />
-                {localized(badge.label, language)}
-              </button>
-            ))}
+            {available.map((badge) => {
+              const category = categoryOf(badge, categories, language)
+              if (category) {
+                return (
+                  <button
+                    key={localized(badge.label, language)}
+                    type="button"
+                    className="rounded-full transition-opacity hover:opacity-80"
+                    onClick={() => add(badge)}
+                    title={t('concept_mapping.badge_suggestion_add')}
+                  >
+                    <CategoryBadge
+                      category={localized(category.name, language)}
+                      value={valueOf(badge, categories, language)}
+                      color={category.color}
+                      size="md"
+                      icon={<Plus size={10} />}
+                    />
+                  </button>
+                )
+              }
+              return (
+                <button
+                  key={localized(badge.label, language)}
+                  type="button"
+                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-opacity hover:opacity-80 ${getBadgeClasses(badge.color)}`}
+                  style={getBadgeStyle(badge.color)}
+                  onClick={() => add(badge)}
+                  title={t('concept_mapping.badge_suggestion_add')}
+                >
+                  <Plus size={10} />
+                  {localized(badge.label, language)}
+                </button>
+              )
+            })}
           </div>
         </div>
       )}
@@ -242,7 +264,7 @@ export function BadgeEditor({ value, onChange, categories = [], suggestions = []
               value={newCategoryId || NO_CATEGORY}
               onValueChange={(v) => setNewCategoryId(v === NO_CATEGORY ? '' : v)}
             >
-              <SelectTrigger className="h-8 w-32 shrink-0 text-xs">
+              <SelectTrigger className="h-8 w-40 shrink-0 text-xs">
                 <SelectValue placeholder={t('badge_categories.pick_category')} />
               </SelectTrigger>
               <SelectContent>

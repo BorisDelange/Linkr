@@ -15,6 +15,7 @@ from app.core.database import async_session
 from app.core.logging import setup_logging
 from app.core.migrations import run_migrations
 from app.core.permissions import seed_default_roles
+from app.api.v1.routes.apps import router as apps_router
 from app.api.v1.routes.audit_log import router as audit_log_router
 from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.cohorts import router as cohorts_router
@@ -22,6 +23,7 @@ from app.api.v1.routes.notifications import router as notifications_router
 from app.api.v1.routes.concept_lists import router as concept_lists_router
 from app.api.v1.routes.concept_sets import router as concept_sets_router
 from app.api.v1.routes.vocabulary_library import router as vocabulary_library_router
+from app.api.v1.routes.suggestion_engines import router as suggestion_engines_router
 from app.api.v1.routes.data_dictionaries import router as data_dictionaries_router
 from app.api.v1.routes.dashboards import router as dashboards_router
 from app.api.v1.routes.patient_dashboards import router as patient_dashboards_router
@@ -121,17 +123,26 @@ async def lifespan(app: FastAPI):
     from app.services import storage_gc
 
     gc_task = asyncio.create_task(storage_gc.run_periodic())
+    from app.services.execution import web_apps
+
+    web_apps.reap_orphans()
+    app_sweep_task = asyncio.create_task(web_apps.run_idle_sweeper())
     audit_task = asyncio.create_task(audit.run_periodic())
     yield
     from app.services.execution.kernel import manager as kernel_manager
     from app.services.execution.kernel import warm_pool
     from app.services.execution.pty_kernel import manager as pty_manager
+    from app.services.execution.web_apps import manager as web_app_manager
+    from app.api.v1.routes.apps import close_client as close_app_proxy
 
     gc_task.cancel()
+    app_sweep_task.cancel()
     audit_task.cancel()
     await kernel_manager.shutdown_all()
     await warm_pool.shutdown_all()
     pty_manager.shutdown_all()
+    await web_app_manager.shutdown_all()
+    await close_app_proxy()
     logger.info("shutting_down_linkr")
 
 
@@ -219,6 +230,7 @@ app.include_router(dq_rule_sets_router, prefix="/api/v1")
 app.include_router(data_catalogs_router, prefix="/api/v1")
 app.include_router(concept_sets_router, prefix="/api/v1")
 app.include_router(vocabulary_library_router, prefix="/api/v1")
+app.include_router(suggestion_engines_router, prefix="/api/v1")
 app.include_router(data_dictionaries_router, prefix="/api/v1")
 app.include_router(source_concept_ids_router, prefix="/api/v1")
 app.include_router(mapping_projects_router, prefix="/api/v1")
@@ -229,6 +241,7 @@ app.include_router(client_lib_router, prefix="/api/v1")
 app.include_router(pipelines_router, prefix="/api/v1")
 app.include_router(etl_pipelines_router, prefix="/api/v1")
 app.include_router(execution_router, prefix="/api/v1")
+app.include_router(apps_router, prefix="/api/v1")
 app.include_router(environments_router, prefix="/api/v1")
 app.include_router(git_router, prefix="/api/v1")
 app.include_router(ide_files_router, prefix="/api/v1")

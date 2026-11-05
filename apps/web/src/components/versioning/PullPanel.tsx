@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 import { SYNC_ALL_ACCENT } from '@/lib/versioning-accent'
 import { SectionLabel } from '@/components/ui/section-label'
 import { groupGitFiles } from '@/lib/git-file-meta'
-import { cardsForScope, cardMatches, type PullCardDef } from '@/lib/pull-quick-actions'
+import { assignToCards, type PullCardDef } from '@/lib/pull-quick-actions'
 import {
   conflictCount,
   isCompletePull,
@@ -114,12 +114,10 @@ export function PullPanel({
   )
 
   if (mode === 'quick') {
-    const cards = cardsForScope(plan.scope)
-      .map((card) => ({ card, files: plan.files.filter((f) => cardMatches(card, f.path)) }))
-      // Empty cards are HIDDEN in pull (unlike push, where a greyed card usefully
-      // says "nothing to send"): a pull is an event to process, and three empty
-      // cards around one active one drown the signal.
-      .filter(({ files }) => files.length > 0)
+    // Empty cards are HIDDEN in pull (unlike push, where a greyed card usefully
+    // says "nothing to send"): a pull is an event to process, and three empty
+    // cards around one active one drown the signal.
+    const cards = assignToCards(plan.scope, plan.files, (f) => f.path).map(({ card, items }) => ({ card, files: items }))
 
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -132,6 +130,7 @@ export function PullPanel({
                 files={files}
                 decisions={decisions}
                 onDecide={(decision) => onDecide(files.flatMap(idsOf), decision)}
+                onDecideFile={decideFile}
                 onOpenTable={onOpenTable}
                 onOpenDiff={onOpenDiff}
                 canOpenDiff={canOpenDiff}
@@ -202,12 +201,14 @@ export function PullPanel({
 
 /** One quick-action card: what it brings in, and one gesture to take or refuse it. */
 function PullCard({
-  card, files, decisions, onDecide, onOpenTable, onOpenDiff, canOpenDiff,
+  card, files, decisions, onDecide, onDecideFile, onOpenTable, onOpenDiff, canOpenDiff,
 }: {
   card: PullCardDef
   files: PullFile[]
   decisions: Map<string, PullDecision>
   onDecide: (decision: PullDecision) => void
+  /** Take or leave one file, so the card is not all-or-nothing. */
+  onDecideFile: (file: PullFile, decision: PullDecision) => void
   onOpenTable?: (file: PullFile) => void
   onOpenDiff?: (path: string) => void
   canOpenDiff?: (file: PullFile) => boolean
@@ -235,7 +236,7 @@ function PullCard({
       <div className={cn('flex items-center gap-2 px-3 py-2', accent ? SYNC_ALL_ACCENT.headerBg : 'bg-muted/40')}>
         <ArrowDownToLine size={14} className={cn('shrink-0', accent ? SYNC_ALL_ACCENT.icon : 'text-muted-foreground')} />
         <span className={cn('text-xs font-semibold', accent && SYNC_ALL_ACCENT.icon)}>
-          {t(`versioning.pull_card_${card.id}`)}
+          {t(`versioning.subject_${card.id}`)}
         </span>
       </div>
       <div className="flex flex-1 flex-col gap-2 p-3">
@@ -262,14 +263,14 @@ function PullCard({
                 <button
                   type="button"
                   onClick={() => onOpenDiff(f.path)}
-                  className="block min-w-0 flex-1 truncate text-left font-mono text-muted-foreground hover:text-foreground hover:underline"
+                  className={cn('block min-w-0 flex-1 truncate text-left text-muted-foreground hover:text-foreground hover:underline', !f.label && 'font-mono')}
                   title={f.path}
                 >
-                  {f.path}
+                  {f.label ?? f.path}
                 </button>
               ) : (
-                <span className="block min-w-0 flex-1 truncate text-left font-mono text-muted-foreground" title={f.path}>
-                  {f.path}
+                <span className={cn('block min-w-0 flex-1 truncate text-left text-muted-foreground', !f.label && 'font-mono')} title={f.path}>
+                  {f.label ?? f.path}
                 </span>
               )}
               {onOpenTable && f.pickable && f.items.length > 0 && (
@@ -281,6 +282,7 @@ function PullCard({
                   {t('versioning.pull_choose')}
                 </button>
               )}
+              <FileVerdict file={f} decisions={decisions} onDecide={(d) => onDecideFile(f, d)} />
             </li>
           ))}
         </ul>
@@ -329,6 +331,53 @@ function PullCard({
         </div>
       </div>
     </div>
+  )
+}
+
+/** The ✓ / ✗ pair on one file of a card. A file holding a conflict cannot be
+ *  taken from here: the choice inside it is made in Details. */
+function FileVerdict({ file, decisions, onDecide }: {
+  file: PullFile
+  decisions: Map<string, PullDecision>
+  onDecide: (decision: PullDecision) => void
+}) {
+  const { t } = useTranslation()
+  const verdicts = file.wholeFile
+    ? [decisions.get(wholeFileId(file))]
+    : file.items.map((i) => decisions.get(itemId(file, i)))
+  const accepted = verdicts.length > 0 && verdicts.every((v) => v === 'accept')
+  const declined = verdicts.length > 0 && verdicts.every((v) => v === 'decline')
+  const conflicted = conflictCount(file) > 0
+  return (
+    <span className="flex shrink-0 items-center gap-0.5">
+      <button
+        type="button"
+        onClick={() => onDecide('accept')}
+        disabled={conflicted}
+        title={conflicted ? t('versioning.pull_conflicts_in_details') : t('versioning.pull_take')}
+        aria-label={`${t('versioning.pull_take')} ${file.path}`}
+        aria-pressed={accepted}
+        className={cn(
+          'flex h-5 w-5 items-center justify-center rounded border text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40',
+          accepted && 'border-emerald-500 bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
+        )}
+      >
+        <Check size={11} />
+      </button>
+      <button
+        type="button"
+        onClick={() => onDecide('decline')}
+        title={t('versioning.pull_keep_mine')}
+        aria-label={`${t('versioning.pull_keep_mine')} ${file.path}`}
+        aria-pressed={declined}
+        className={cn(
+          'flex h-5 w-5 items-center justify-center rounded border text-muted-foreground hover:text-foreground',
+          declined && 'bg-muted text-foreground',
+        )}
+      >
+        <X size={11} />
+      </button>
+    </span>
   )
 }
 

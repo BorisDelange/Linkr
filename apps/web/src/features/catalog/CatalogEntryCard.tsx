@@ -112,7 +112,7 @@ export function CatalogEntryCard({
               </div>
               {/* TruncatedText, not a bare truncate: a long name has to clip with its
                   full value on hover, never push the version and the menu out of the row. */}
-              <TruncatedText text={name} readOnly className="min-w-0 flex-1 text-sm font-medium" />
+              <TruncatedText text={name} className="min-w-0 flex-1 text-sm font-medium" />
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
                 {/* Shown before any click: a database ships its Parquet (MIMIC-IV demo
                     is 18 MB), and starting that download unannounced is a surprise on a
@@ -133,7 +133,7 @@ export function CatalogEntryCard({
                 description leaves the row blank rather than saying so. */}
             <div className="mt-2 h-4">
               {description && (
-                <TruncatedText text={description} readOnly className="text-xs text-muted-foreground" />
+                <TruncatedText text={description} className="text-xs text-muted-foreground" />
               )}
             </div>
 

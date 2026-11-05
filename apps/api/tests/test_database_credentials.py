@@ -229,6 +229,24 @@ async def test_stats_cache_is_per_user_on_an_external_database(client, db):
     assert (await client.put(f"{API}/data-sources/{source_id}/stats-cache", headers=bob, json=payload)).status_code == 200
 
 
+async def test_concept_cache_is_the_databases_on_an_external_database(client, db):
+    """Concept counts are aggregates every user of the database reads: computed
+    once, by an editor, never once per login."""
+    admin, source_id = await _setup(client, db)
+    bob_id = (await _user(db, "bob")).id
+    bob = await _login_headers(client, "bob")
+    ws = (await db.get(DataSource, source_id)).workspace_id
+    r = await client.put(f"{API}/workspaces/{ws}/members", headers=admin, json={"userId": bob_id, "role": "viewer"})
+    assert r.status_code < 400
+
+    run = {"manifest": {"runId": "r1"}, "reset": True}
+    assert (await client.put(f"{API}/data-sources/{source_id}/concept-cache/run", headers=admin, json=run)).status_code == 204
+    status = (await client.get(f"{API}/data-sources/{source_id}/concept-cache", headers=bob)).json()
+    assert status["run"]["manifest"]["runId"] == "r1"
+    # A reader reads the editor's run, and cannot replace it.
+    assert (await client.put(f"{API}/data-sources/{source_id}/concept-cache/run", headers=bob, json=run)).status_code == 403
+
+
 async def test_logout_forgets_session_only_logins(client, db, monkeypatch):
     admin, source_id = await _setup(client, db)
 

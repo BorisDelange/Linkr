@@ -120,6 +120,23 @@ def _cohort_export_shape(meta: dict) -> dict:
     return {k: v for k, v in meta.items() if k not in ("attrition", "resultCount", "materialization", "derivations", "id")}
 
 
+def _analysis_file_keys(analyses: list[dict]) -> list[tuple[str, dict]]:
+    """File name (without ``.json``) of each analysis of one dataset: the slug of
+    its name, ``analysis`` when unnamed, ``-<n>`` on a collision, in creation
+    order. Twin of ``analysisFileKeys`` (entity-io.ts); byte-identical output."""
+    out: list[tuple[str, dict]] = []
+    seen: set[str] = set()
+    for a in sorted(analyses, key=lambda a: f"{a.get('createdAt') or ''}\0{a['id']}"):
+        base = _slugify(a.get("name") or "analysis")
+        key, n = base, 2
+        while key in seen:
+            key = f"{base}-{n}"
+            n += 1
+        seen.add(key)
+        out.append((key, a))
+    return out
+
+
 def _cohort_keys(cohorts: list[dict]) -> dict[str, dict]:
     """Export key → cohort, ``#<n>`` on a name collision.
 
@@ -889,10 +906,10 @@ def build_project_tree(
             # _tree.json — the redundant per-dataset _columns.json is no longer
             # written (it was never read back on import; see dataset-metadata-plan).
 
-            for a in dataset_analyses.get(df["id"], []):
-                tree[
-                    f"datasets/{folder_name}/{_slugify(a.get('name') or a['id'])}.json"
-                ] = _json(_strip_instance_fields(a))
+            for key, a in _analysis_file_keys(dataset_analyses.get(df["id"], [])):
+                tree[f"datasets/{folder_name}/{key}.json"] = _json(
+                    {k: v for k, v in _strip_instance_fields(a).items() if k != "id"}
+                )
 
             # A data file leaves the machine only when the user marked it for
             # versioning. Marking key is the logical `datasets/<ds_path>`; the tree

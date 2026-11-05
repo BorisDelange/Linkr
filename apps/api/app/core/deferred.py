@@ -25,6 +25,7 @@ first response is sent. Check permissions before calling ``respond``.
 
 import asyncio
 import contextlib
+import contextvars
 import logging
 import time
 import uuid
@@ -124,6 +125,34 @@ class AsJob:
     lane: str | None = None
     # What the work runs (a query's SQL), shown with the job.
     input: str | None = None
+    # A job from the start, however short the work: what reads or writes a
+    # database, so every query to it shows in the panel and can be stopped there.
+    always: bool = False
+    # The job's kind when `always` ("sql_query" for a query).
+    kind: str = "task"
+    # The action it is one of, folded into one row of the panel (jobs.create).
+    group_key: str | None = None
+    group_label: str | None = None
+
+
+# The job the running work shows as, when it has one from the start: the work
+# writes its outcome there (a query's row count).
+current_job: contextvars.ContextVar[str | None] = contextvars.ContextVar("deferred_job", default=None)
+
+
+class Stopped(HTTPException):
+    """Work stopped before it answered — its job ends cancelled, not in error.
+    The client tells a stop from a failure by these details (lib/api/query-stopped.ts)."""
+
+    def __init__(self, detail: str = "query cancelled") -> None:
+        super().__init__(status.HTTP_409_CONFLICT, detail)
+
+
+class CancelledFromPanel(Stopped):
+    """Work stopped from the jobs panel before it answered."""
+
+    def __init__(self) -> None:
+        super().__init__("cancelled from the jobs panel")
 
 
 async def respond(user_id: str, work: Callable[[], Awaitable[Any]], as_job: AsJob | None = None) -> Any:
@@ -140,6 +169,16 @@ async def respond(user_id: str, work: Callable[[], Awaitable[Any]], as_job: AsJo
         )
 
     started = _Started(as_job is None or as_job.lane is None)
+    job_id: str | None = None
+    if as_job is not None and as_job.always and (as_job.project_uid or as_job.workspace_id):
+        async with session() as db:
+            job = await jobs.create(
+                db, as_job.project_uid, int(user_id), as_job.kind, as_job.label,
+                workspace_id=as_job.workspace_id, input=as_job.input, running=started.now,
+                group_key=as_job.group_key, group_label=as_job.group_label,
+            )
+        job_id = job.id
+    token = current_job.set(job_id)
 
     async def run() -> Any:
         if started.now:
@@ -148,10 +187,22 @@ async def respond(user_id: str, work: Callable[[], Awaitable[Any]], as_job: AsJo
             await started.mark()
             return await work()
 
+    # Created with the job in its context: the work reads it there.
     task = asyncio.create_task(run())
+    current_job.reset(token)
     task.add_done_callback(_on_done)
+    if job_id is not None:
+        async with started.lock:
+            started.job_id = job_id
+            await jobs.adopt(job_id, task, running=started.now, written=started.now)
     try:
         return await asyncio.wait_for(asyncio.shield(task), WAIT_SECONDS)
+    except asyncio.CancelledError:
+        # The work was stopped from the panel, not this request: say so, as a
+        # query stopped by its client is (409).
+        if task.cancelled() and not asyncio.current_task().cancelling():
+            raise CancelledFromPanel() from None
+        raise
     except TimeoutError:
         # Only long work counts against the cap: every query goes through here,
         # and a page firing a few at once must not be refused.
@@ -160,7 +211,9 @@ async def respond(user_id: str, work: Callable[[], Awaitable[Any]], as_job: AsJo
         task_id = uuid.uuid4().hex
         # An entity outside any project and workspace (a user's own settings) has
         # no panel to show in: it stays a plain deferred request.
-        if as_job is not None and (as_job.project_uid or as_job.workspace_id):
+        if job_id is not None:
+            task_id = job_id
+        elif as_job is not None and (as_job.project_uid or as_job.workspace_id):
             task_id = await _as_job(user_id, task, as_job, started)
         _tasks[task_id] = _Entry(user_id=user_id, task=task)
         return _pending_response(task_id)
@@ -192,7 +245,7 @@ async def _as_job(user_id: str, task: asyncio.Task, as_job: AsJob, started: _Sta
     async with session() as db:
         job = await jobs.create(
             db, as_job.project_uid, int(user_id), "task", as_job.label, workspace_id=as_job.workspace_id,
-            input=as_job.input,
+            input=as_job.input, group_key=as_job.group_key, group_label=as_job.group_label,
         )
     async with started.lock:
         started.job_id = job.id

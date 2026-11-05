@@ -13,6 +13,13 @@ describe('maskSourceConceptsCsv', () => {
     expect(maskSourceConceptsCsv(read('input.csv'), null, 11)).toBe(read('expected.csv'))
   })
 
+  it('changes nothing in a file it masked already, unless the threshold rose', () => {
+    // A pulled file is masked already; pushing it back must not erode it further.
+    const once = maskSourceConceptsCsv(read('input.csv'), null, 11)
+    expect(maskSourceConceptsCsv(once, null, 11)).toBe(once)
+    expect(maskSourceConceptsCsv(once, null, 20)).not.toBe(once)
+  })
+
   it('follows the project column mapping and the file delimiter', () => {
     expect(maskSourceConceptsCsv(read('input-semicolon.csv'), { recordCountColumn: 'n_records' }, 11))
       .toBe(read('expected-semicolon.csv'))

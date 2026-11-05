@@ -138,12 +138,15 @@ const columns: DataTableColumn<Row>[] = [
 
 It already gives you: **per-column sort** (tri-state desc → asc → off),
 **column resize** (drag, double-click to reset), **inline filters** under each
-header (text / number / multi-select), **column visibility** menu, **client
-pagination**, and **truncation tooltips**. Pass `reorderable` to let users drag
+header (text / number / range / multi-select — `number` finds an id by its
+digits, `range` compares a quantity: `>= 1`, `< 5`, `2-10`), **column
+visibility** menu, **client pagination**, and **truncation tooltips**. Pass `reorderable` to let users drag
 columns into a different order — off by default, since the drag grip is noise on
 a three-column table. `DataTableColumn` also supports `cell` (custom renderer),
-`sortable`, `hidden`, `center`, `size`/`minSize`, `selectOptionLabel` and
-`tooltip`.
+`sortable`, `hidden`, `center`, `size`/`minSize`, `selectOptionLabel`,
+`selectOptionRender` (an option drawn as the badge its cell shows),
+`selectOptionOrder` (e.g. newest version first) and `tooltip`; the table takes
+`initialFilters` the way it takes `initialSorting`.
 
 **Do not hand-roll a `useReactTable`** to get sorting or resizing. Seven files still
 do; each is listed below with the specific thing holding it back. The pieces they
@@ -185,11 +188,14 @@ that can run long: a DOM node per row is what makes sorting and row selection
 lag. The app has no infinite-scroll tables — paging is the one idiom, and the
 footer places it identically everywhere.
 
-**`cellTooltips`** decides what a hover reveals: `truncated` (default) only when
-text is cut, `all` for tables whose values get copied out routinely — concept
-ids, source codes — and `readOnly` to drop the copy button in dense
-pick-a-row tables, where a hoverable panel would sit over the next rows. No mode
-mounts a tooltip per cell; they are built on first hover.
+**Cell tooltips** appear only when a cell's text is cut, carry no button and do
+not take the pointer; none is mounted per cell, they are built on first hover.
+**Copying a value is the right-click menu**, which every `DataTable` has
+(*Copy value*). A hand-rolled table gets the same menu from
+`CellContextMenu` (`components/ui/cell-context-menu.tsx`): wrap its
+`<TableBody>`, pass `cellMenu.on(value)` as each data cell's `onContextMenu`,
+and optionally a thunk of row-level `ContextMenuItem`s (the Concepts page adds
+"add to list" that way). One menu per table, not per cell.
 
 ### Server mode: one page at a time
 
@@ -228,8 +234,7 @@ it is `ConceptTable` with `pickMode` under `ConceptPickerToolbar`, fed by
 
 **Do not trust the `manual*` flags to tell you which.** `manualSorting` /
 `manualFiltering` / `manualPagination` have been copy-pasted into tables that are
-entirely client-side — `ConceptSetsTab`, `MappingsTab` and `TargetConceptPanel`
-all set them while slicing in JS (`sorted.slice(page * 50, …)`), and
+entirely client-side — `MappingsTab` and `TargetConceptPanel` both set them while slicing in JS (`sorted.slice(page * 50, …)`), and
 `GlobalSummaryView` is the inverse: fully SQL-driven with no flags at all. Read
 where the rows come from, not what the options say.
 
@@ -280,10 +285,10 @@ Two traps seen in the wild: omitting `px-2 py-1` on the cell silently inherits
 
 | Component | Use for |
 |---|---|
-| `MultiSelectFilter` | Any multi-value filter. Caps rendering at 200 options; Enter adds every match to the selection. |
+| `MultiSelectFilter` | Any multi-value filter. Caps rendering at 200 options; Enter adds every match to the selection. For a column with too many values to load (the concept Category, up to millions), pass `onSearch`: `options` is then a first page, the search runs on the server on Enter (↵ shown in the field), and a second Enter selects the matches — as one match value (`lib/match-filter.ts`) that the query turns into a predicate when they outnumber the page. |
 | `SelectionTriggerLabel` | **What a closed multi-select shows.** The chosen values as badges while they fit the trigger (measured, so a resized panel re-decides), "N selected" / "All selected" once they overflow. `MultiSelectFilter`, the analysis config multi-selects and the dashboard categorical filter use it — never write a trigger that says "All selected" for a single option or "2 selected" when both names fit. |
 | `ColumnVisibilityMenu` | Column toggling with search + select all/none. `DataTable` uses it, so you only reach for it directly in a bespoke table. |
-| `TruncatedText` / `TruncatedHeader` | Text that may overflow. Shows a tooltip *only* when actually truncated. Needs a width-bounded parent. A very long value (a query, a script) is cut in the tooltip (`clipForTooltip`, 500 characters / 12 lines) so it stays on the page; the copy button copies all of it. |
+| `TruncatedText` / `TruncatedHeader` | Text that may overflow. Shows a tooltip *only* when actually truncated. Needs a width-bounded parent. A very long value (a query, a script) is cut in the tooltip (`clipForTooltip`, 500 characters / 12 lines) so it stays on the page. No copy button — in a table, copying is the cell's right-click menu (`CellContextMenu`). |
 | `OverflowBadgeList` | A badge row too narrow for its items. Keeps whole badges, folds the rest into `+N` with the full list as bullets on hover. Never clip a badge row with `overflow-hidden`. |
 | `DebouncedInput` | Any search box over a large set (300 ms). One shared copy at `ui/debounced-input` — do not re-declare it locally. |
 
@@ -326,7 +331,8 @@ order, so two dialogs of the same purpose are identical *by construction*:
 | `settings` | `sm:max-w-lg` | configuration, usually tabbed |
 | `workbench` | `h-[85vh] sm:max-w-5xl` | pickers, diffs, viewers — body scrolls, header/footer pinned |
 
-Other props: `destructive` (red primary), `footerExtra` (tertiary action),
+Other props: `destructive` (red primary), `footerExtra` (tertiary action, far left), `extraActions` (a second way to
+confirm, beside the primary button),
 `hideFooter` (viewers), `cancelLabel`, `hideCancel`, and
 `className`/`contentClassName` as escape hatches. Omit `onConfirm` and the footer
 becomes a single Close button. `hideCancel` is the narrow case where the primary
@@ -557,7 +563,11 @@ Same scale as dialog bodies: a bare `<Label>` (the primitive already carries
 hint `text-xs text-muted-foreground`, `RequiredMark` for required fields. Use
 `<Input>`/`<Textarea>`, never a raw `<input>` — roughly 35 files outside
 `components/ui/` still do, so copying a neighbour is not a safe guide here.
-Reach for `SearchableSelect` when a `<Select>` gets long.
+Reach for `SearchableSelect` when a `<Select>` gets long. It also takes `groups`
+(headed sections, an option's `group` places it), `favorites` + `onToggleFavorite`
+(a star per row, favourites listed first under their own heading) and
+`renderValue` (an icon in the trigger) — the file-type picker of *Create a file*
+uses all three.
 
 ### Code editors: completion
 
@@ -580,6 +590,13 @@ the call). Notebook cells bind the same contexts per cell.
 
 Monaco providers are global per language; `components/editor/completion-providers.ts`
 maps each editor's model to its context — never register a provider elsewhere.
+
+### Diff views: `SafeDiffEditor`
+
+A side-by-side diff is `SafeDiffEditor` (`components/editor/SafeDiffEditor.tsx`),
+never `@monaco-editor/react`'s `DiffEditor` directly: the latter throws an
+uncaught "TextModel got disposed before DiffEditorWidget model got reset" each
+time its dialog closes, which fails every journey that opens one.
 
 ### Editor tab bars: `editorTabClass`
 
@@ -607,9 +624,11 @@ a "Choose on the server" zone sit side by side, and the picker opens on click.
 `scope` (an `FsScope`) decides which permission the browse answers to. A form that
 keeps the chosen path on screen (add database) controls `origin`; a dialog that
 acts on the pick at once (dataset import, IDE upload) passes `serverPath=""` and
-handles `onServerPathChange` itself. Client-only, it renders the upload side alone.
-Used by the two add-database dialogs, the mapping-project source, the dataset
-import and the IDE upload — don't hand-roll a second "from the server" button.
+handles `onServerPathChange` itself. `expect="files"` ticks several files of one
+folder and hands them to `onServerPathsChange`. Client-only, it renders the upload
+side alone. Used by the two add-database dialogs, the mapping-project source, the
+dataset import, the IDE upload and the ATHENA import — don't hand-roll a second
+"from the server" button.
 
 That is the whole point: these zones sit side by side across the add-database
 dialogs (upload a file · upload a folder · pick a server path) and used to be
@@ -679,7 +698,9 @@ alone says how far but not what is happening. First user: the data catalog run
 ### Section headers (uppercase group labels)
 
 Use **`SectionLabel`** (`components/ui/section-label.tsx`), with `as` to keep the
-real tag where the label is a heading (`as="h3"`).
+real tag where the label is a heading (`as="h3"`). What a section is for goes in
+its `info` prop (an ⓘ with a tooltip, `FieldInfo`), not in a paragraph under it:
+an always-visible explanation competes with the controls it explains.
 
 **Do not use it for a form `<label>`.** ~25 sites keep a hand-written class for
 that reason: `SectionLabel` renders a `div`/`span`/heading, and swapping the tag
@@ -709,6 +730,8 @@ Check this table before writing any form field.
 | `FullscreenButton` + `useFullscreen` | **Any page shown full screen** (dashboards, patient boards). The hook gives the `ref` of the element to show, `isFullscreen` and `toggle`, and a `portalContainer` to pass to a `PortalContainerProvider` around that element — in fullscreen only its subtree is drawn, so menus, dialogs and tooltips portaled to the body would be invisible. Give the element an explicit `bg-background`. |
 | `NumberInput` | **Any field bound to a required number.** It can be emptied while typing; leaving it restores the value, clamped to `min`/`max`. A plain `<Input type="number">` whose handler writes `parseInt(v) \|\| 1` back can never be cleared: the "1" returns on every keystroke. A number that may be absent (`value ?? ''`, empty → undefined) needs no wrapper. |
 | `PasswordInput` | Any secret input (reveal toggle). |
+| `OutputPaneToggle` + `useOutputPane` | **The Output toggle of a plugin editor** (patient widget, warehouse plugin, dashboard widget, dataset analysis): at the far right of the Config / Code row, shows or hides the output pane, remembered per editor kind. Never let it hide the output while the left pane is hidden too (`disabled`). |
+| `SqlFormSelect` | **Any view of a generated query**: picks the *Linkr version* (on the `linkr_*` relations) or the *Source database version* (on the database's own tables), with the same names and hints everywhere. Never add a third form. |
 | `RequiredMark` | The required-field asterisk. |
 | `GatedButton` | An action the user may lack permission for: renders disabled with an explanatory tooltip. **UX only — real enforcement is server-side.** |
 | `ExecuteNotPermitted` | Placeholder in place of a code-backed widget the user can't execute. |
@@ -767,10 +790,15 @@ recharts `content`, and `FloatingChartTooltip` for a chart not drawn by recharts
 Style it as little as possible — `side`/`align` and, at most, a width. The dark
 panel, the padding and the text size come from the primitive.
 
+The one exception is **`variant="card"`**: a light popover surface (border,
+shadow, no arrow) for content that carries its own colours — badge chips in
+`BadgeStrip`'s "+N" and truncated-badge tooltips. On the dark panel those
+colours turn muddy in light mode. Text-only tooltips stay on the default.
+
 For **text that may be cut off**, don't build the tooltip by hand: use
-`TruncatedText` / `TruncatedHeader`, or a table's `cellTooltips` (§2). They
-measure the overflow, only reveal what is actually truncated, add the copy
-button, and mount nothing until the pointer arrives.
+`TruncatedText` / `TruncatedHeader`, or a `DataTable` column's `tooltip` (§2). They
+measure the overflow, only reveal what is actually truncated, and mount nothing
+until the pointer arrives.
 
 **The native `title=` attribute is the exception, not the fallback.** It renders
 the OS tooltip — pale, unstyled, ~1s delay, unthemed — so it does not match the
@@ -803,8 +831,8 @@ for the button, `concept_mapping.create_project_title` for the dialog).
 
 When a shared component *almost* fits, add the missing capability to it. Do not
 fork it, and do not drop the feature from the screen you are building.
-`onVisibleRowsChange`, `headerCell`, `viewKey`, `filterCell`, `rowClassName`,
-`resizable` and `cellTooltips` exist on `DataTable` for exactly that
+`onVisibleRowsChange`, `headerCell`, `viewKey`, `filterCell`, `rowClassName`
+and `resizable` exist on `DataTable` for exactly that
 reason: each one is a capability a caller needed and would otherwise have lost.
 
 The judgement call: if the capability is **general** (any table might want it),

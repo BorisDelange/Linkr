@@ -421,12 +421,15 @@ function ResultCard({ result, isLatest }: { result: ExecutionResult; isLatest?: 
             card's tint is 5% opaque, so a single tinted background would let the
             output scroll visibly through the header — an opaque `bg-background`
             sits underneath, the tint on top of it. */}
-        <div className="sticky top-0 z-10 rounded-t-md bg-background">
+        {/* Folded, the header is the whole card: its bottom corners round too,
+            or its opaque layer shows past the card's. */}
+        <div className={cn('sticky top-0 z-10 bg-background', collapsed ? 'rounded-md' : 'rounded-t-md')}>
           {/* Padding does NOT vary with `collapsed`: the title and the buttons
               must not shift as a card folds and unfolds. */}
           <div
             className={cn(
-              'flex items-center justify-between rounded-t-md px-3 py-2',
+              'flex items-center justify-between px-3 py-2',
+              collapsed ? 'rounded-md' : 'rounded-t-md',
               !result.success
                 ? 'bg-red-500/5'
                 : result.warned

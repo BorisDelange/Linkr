@@ -24,8 +24,6 @@ export const TILE_BUCKETS = 256
 /** Smallest bucket, in ms: below a second, finer buckets show nothing more. */
 const MIN_BUCKET_MS = 1024
 
-/** Tiles kept, across rows and zoom levels, before the oldest are dropped. */
-const MAX_TILES = 4000
 /** Event windows kept per row. */
 const MAX_WINDOWS = 6
 
@@ -71,6 +69,12 @@ export interface EventWindow {
 
 /** Per widget: the density tiles and event windows read so far. */
 export class OverviewDataCache {
+  /** Tiles kept, across rows and zoom levels, before the oldest are dropped. */
+  private readonly maxTiles: number
+  constructor(maxTiles = 4000) {
+    this.maxTiles = maxTiles
+  }
+
   private tiles = new Map<string, Float64Array>()
   private windows = new Map<string, EventWindow[]>()
   /** Rows (cache keys) with a read in flight: the painter marks them loading. */
@@ -92,7 +96,7 @@ export class OverviewDataCache {
     this.tiles.delete(key)
     this.tiles.set(key, counts)
     // Map order is insertion order: the first keys are the least recently stored.
-    while (this.tiles.size > MAX_TILES) this.tiles.delete(this.tiles.keys().next().value!)
+    while (this.tiles.size > this.maxTiles) this.tiles.delete(this.tiles.keys().next().value!)
   }
 
   /**

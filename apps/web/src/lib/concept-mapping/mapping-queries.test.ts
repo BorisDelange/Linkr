@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
-import { buildFileSourceConceptsQuery, buildFileSourceFilterOptionsQuery, buildFileSourceConceptsCountQuery, buildFileSourceDuplicateCountQuery, buildFileSourceConceptsGroupCountQuery, buildStandardConceptSearchQuery } from './mapping-queries'
+import { buildFileSourceConceptsQuery, buildFileSourceFilterOptionsQuery, buildFileSourceConceptsCountQuery, buildFileSourceDuplicateCountQuery, buildFileSourceConceptsGroupCountQuery, buildStandardConceptSearchQuery, buildStandardConceptFilterOptionsQueries, NULL_FILTER_VALUE } from './mapping-queries'
 
 describe('buildFileSourceFilterOptionsQuery — vocabulary scoping', () => {
   it('is unscoped by default', () => {
@@ -28,6 +28,12 @@ describe('buildWhereClause — suggestion-category filter', () => {
   it('matches no rows when the filter is on but no keys are provided', () => {
     const sql = buildFileSourceConceptsCountQuery({ hasSuggestionCategoryFilter: true, suggestionCategoryKeys: [] })
     expect(sql).toContain('WHERE 1=0')
+  })
+
+  it('leaves out the excluded keys, and adds nothing when there are none', () => {
+    const sql = buildFileSourceConceptsCountQuery({ excludedKeys: [`d_items${SEP}220045`] })
+    expect(sql).toContain("NOT (vocabulary_id, concept_code) IN (('d_items','220045'))")
+    expect(buildFileSourceConceptsCountQuery({ excludedKeys: [] })).not.toContain('NOT')
   })
 
   it('adds no predicate when the filter is off', () => {
@@ -165,6 +171,34 @@ describe('buildStandardConceptSearchQuery', () => {
       .toContain('d.concept_id IN (3019550,3000285)')
     expect(buildStandardConceptSearchQuery(vocabMapping, '', { conceptIds: [] }, 25)).toContain('WHERE FALSE')
   })
+
+  it('filters on an id prefix and a code fragment, escaped', () => {
+    const sql = buildStandardConceptSearchQuery(vocabMapping, '', { conceptIdPrefix: '301', conceptCode: "o'k" }, 25)
+    expect(sql).toContain("CAST(d.concept_id AS VARCHAR) LIKE '301%' ESCAPE '\\'")
+    expect(sql).toContain("LOWER(d.concept_code) LIKE LOWER('%o''k%') ESCAPE '\\'")
+  })
+
+  // A code like `A_1` or `50%` is matched as typed, not as a wildcard pattern.
+  it('matches LIKE wildcards and the escape character literally', () => {
+    const sql = buildStandardConceptSearchQuery(vocabMapping, '', { conceptIdPrefix: '3_', conceptCode: '50%\\x' }, 25)
+    expect(sql).toContain("CAST(d.concept_id AS VARCHAR) LIKE '3\\_%' ESCAPE '\\'")
+    expect(sql).toContain("LOWER(d.concept_code) LIKE LOWER('%50\\%\\\\x%') ESCAPE '\\'")
+    expect(buildFileSourceConceptsQuery({ searchCode: 'a_b' }, null, 10, 0))
+      .toContain("LOWER(concept_code) LIKE LOWER('%a\\_b%') ESCAPE '\\'")
+  })
+
+  it('pages with an offset, after the limit', () => {
+    expect(buildStandardConceptSearchQuery(vocabMapping, '', undefined, 50, { offset: 100 })).toMatch(/LIMIT 50 OFFSET 100$/)
+    expect(buildStandardConceptSearchQuery(vocabMapping, 'aspirin', undefined, 50, { offset: 50 })).toMatch(/LIMIT 50 OFFSET 50$/)
+  })
+
+  // A ranked search sorted by a column still breaks ties by rank, then id.
+  it('sorts on a known column ahead of the default order, and ignores an unknown one', () => {
+    expect(buildStandardConceptSearchQuery(vocabMapping, 'aspirin', undefined, 50, { sort: { columnId: 'concept_name', desc: true } }))
+      .toContain('ORDER BY d.concept_name DESC NULLS LAST, _rank, d.concept_id')
+    expect(buildStandardConceptSearchQuery(vocabMapping, '', undefined, 50, { sort: { columnId: 'x; DROP', desc: false } }))
+      .toContain('ORDER BY d.concept_id LIMIT 50')
+  })
 })
 
 describe('buildFileSourceConceptsQuery — source concept id search', () => {
@@ -172,7 +206,7 @@ describe('buildFileSourceConceptsQuery — source concept id search', () => {
     buildFileSourceConceptsQuery(filters, null, 10, 0)
 
   it('matches the id column when the source carries its own ids', () => {
-    expect(q({ searchId: '42' })).toContain("CAST(concept_id AS VARCHAR) LIKE '42%'")
+    expect(q({ searchId: '42' })).toContain("CAST(concept_id AS VARCHAR) LIKE '42%' ESCAPE '\\'")
   })
 
   it('filters on the concepts the registry id resolved to', () => {
@@ -237,5 +271,29 @@ describe('source concept search', () => {
     expect(sql).toContain('LOWER(concept_code)')
     // A file's own id column may be text: compared as a number only where it is one.
     expect(sql).toContain('TRY_CAST(concept_id AS BIGINT) = 4242')
+  })
+})
+
+describe('buildStandardConceptFilterOptionsQueries', () => {
+  it('lists the distinct values of each filterable column the dictionary has', () => {
+    const q = buildStandardConceptFilterOptionsQueries(vocabMapping)
+    expect(Object.keys(q)).toEqual(expect.arrayContaining(['vocabulary_id', 'concept_class_id', 'standard_concept']))
+    expect(q.vocabulary_id).toMatch(/^SELECT DISTINCT d\.terminology_id AS v FROM .* d WHERE d\.terminology_id IS NOT NULL ORDER BY v$/)
+  })
+
+  // Non-standard concepts carry no flag at all: without the sentinel the
+  // filter could offer S and C, never NS.
+  it('offers non-standard as a sentinel for the missing flag', () => {
+    expect(buildStandardConceptFilterOptionsQueries(vocabMapping).standard_concept)
+      .toContain(`COALESCE(NULLIF(d."extra_standard_concept", ''), '${NULL_FILTER_VALUE}')`)
+  })
+})
+
+describe('standard concept filter', () => {
+  it('reads the sentinel as a missing flag, alone or beside S and C', () => {
+    expect(buildStandardConceptSearchQuery(vocabMapping, '', { standardConcepts: [NULL_FILTER_VALUE] }, 25))
+      .toContain(`WHERE NULLIF(d."extra_standard_concept", '') IS NULL`)
+    expect(buildStandardConceptSearchQuery(vocabMapping, '', { standardConcepts: ['S', NULL_FILTER_VALUE] }, 25))
+      .toContain(`(d."extra_standard_concept" IN ('S') OR NULLIF(d."extra_standard_concept", '') IS NULL)`)
   })
 })

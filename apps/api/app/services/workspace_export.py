@@ -23,10 +23,12 @@ never re-implements those builders: the caller runs ``build_project_tree`` /
 ``build_mapping_project_tree`` and passes the result in.
 """
 
+import re
 import unicodedata
 from typing import Any
 
 from app.core.json_export import export_json as _json
+from app.services.dq_check_portable import portable_checks
 from app.services.export_layout import (
     ENTITY_MANIFEST,
     git_pointer_manifest,
@@ -66,6 +68,7 @@ from app.services.org_snapshot import org_snapshot
 # apps/web/src/lib/entity-io.ts. ``createdAt`` is NOT here (portable provenance);
 # only ``updatedAt`` moves on every edit, so it is dropped.
 _INSTANCE_FIELDS = (
+    "gitPushPolicy",
     "ownerId",
     "createdById",
     "origin",
@@ -244,28 +247,54 @@ def _build_projects_section(
             tree.update(_readme_files(f"projects/{folder}/", entry.get("readme")))
 
 
+_WIKI_LOCAL_FIELDS = {"id", "parentId", "content", "history"}
+
+
+def _wiki_page_folder(page: dict) -> str:
+    """Twin of ``wikiPageFolder`` (lib/wiki/wiki-tree.ts): the page's name in the
+    repo. A page predating entityIds keeps the name its files were written under."""
+    return page.get("entityId") or (
+        f"{_slugify(_localized_en(page.get('title')) or page['id'])}--{page['id']}"
+    )
+
+
+def _wiki_tree(wiki_pages: list[dict]) -> list[dict]:
+    """Twin of ``buildWikiTree``: entries keyed by entityId, sorted by it, each
+    with ``parentId`` replaced in place by ``parentEntityId``. The local ids stay
+    out — an instance re-minting them rewrote the whole tree on its next push."""
+    folder_of = {p["id"]: _wiki_page_folder(p) for p in wiki_pages}
+    entries = []
+    for page in wiki_pages:
+        entity_id = folder_of[page["id"]]
+        parent = folder_of.get(page.get("parentId") or "")
+        out: dict = {} if page.get("entityId") else {"entityId": entity_id}
+        for key, value in _strip_instance_fields(page).items():
+            if key == "parentId":
+                out["parentEntityId"] = parent
+            elif key == "entityId":
+                out["entityId"] = entity_id
+            # Pydantic writes the absent lineage as null; the client omits it.
+            elif key in ("lineageId", "parentLineageId") and value is None:
+                continue
+            elif key not in _WIKI_LOCAL_FIELDS:
+                out[key] = value
+        out.setdefault("parentEntityId", parent)
+        entries.append(out)
+    return sorted(entries, key=lambda e: e["entityId"])
+
+
 def _build_wiki_section(
     tree: dict[str, bytes],
     wiki_pages: list[dict],
     wiki_attachments: list[dict],
     wiki_attachment_blobs: dict[str, bytes],
 ) -> None:
-    """Port of the wiki/ section (entity-io.ts:1924-1954)."""
+    """Port of the wiki/ section (entity-io.ts, lib/wiki/wiki-tree.ts)."""
     if not wiki_pages:
         return
-    # Stripped like every other section: the raw rows leaked this instance's
-    # workspaceId/createdById and an updatedAt that churns on every edit.
-    # id/parentId stay — they are the tree's own structure.
-    tree["wiki/_tree.json"] = _json(
-        [
-            _strip_instance_fields({k: v for k, v in p.items() if k != "content"})
-            for p in wiki_pages
-        ]
-    )
+    tree["wiki/_tree.json"] = _json(_wiki_tree(wiki_pages))
     for page in wiki_pages:
-        page_folder = page.get("entityId") or (
-            f"{_slugify(_localized_en(page.get('title')) or page['id'])}--{page['id']}"
-        )
+        page_folder = _wiki_page_folder(page)
         content = _to_localized(page.get("content"))
         langs = [lang for lang in content if content[lang]]
         if not langs:
@@ -276,14 +305,30 @@ def _build_wiki_section(
                 suffix = "" if lang == primary else f".{lang}"
                 tree[f"wiki/{page_folder}{suffix}.md"] = str(content[lang]).encode("utf-8")
 
-    if wiki_attachments:
+    # Twin of buildWikiAttachmentMeta: named by page entityId + file name (what
+    # page content links to), never by the local ids.
+    folder_of = {p["id"]: _wiki_page_folder(p) for p in wiki_pages}
+    meta = []
+    for att in wiki_attachments:
+        folder = folder_of.get(att.get("pageId"))
+        if folder is None:
+            continue
+        entry = {
+            "pageEntityId": folder,
+            "fileName": att["fileName"],
+            "mimeType": att.get("mimeType"),
+            "fileSize": att.get("fileSize"),
+        }
+        if att.get("createdAt"):
+            entry["createdAt"] = att["createdAt"]
+        meta.append(entry)
+        blob = wiki_attachment_blobs.get(att["id"])
+        if blob is not None:
+            tree[f"wiki/_attachments/{folder}/{att['fileName']}"] = blob
+    if meta:
         tree["wiki/_attachments/_meta.json"] = _json(
-            [{k: v for k, v in a.items() if k != "data"} for a in wiki_attachments]
+            sorted(meta, key=lambda e: (e["pageEntityId"], e["fileName"]))
         )
-        for att in wiki_attachments:
-            blob = wiki_attachment_blobs.get(att["id"])
-            if blob is not None:
-                tree[f"wiki/_attachments/{att['id']}-{att['fileName']}"] = blob
 
 
 def _build_schemas_section(
@@ -455,13 +500,64 @@ def _build_data_quality_section(
         for name, content in (entry.get("docs") or {}).items():
             tree[f"{prefix}{name}"] = content
         if checks:
-            tree[f"{prefix}{CONTENT_DQ_CHECKS}"] = _json(checks)
+            tree[f"{prefix}{CONTENT_DQ_CHECKS}"] = _json(portable_checks(checks))
 
 
-def _build_concept_sets_section(tree: dict[str, bytes], concept_sets: list[dict]) -> None:
-    """Port of the concept-sets/ section (entity-io.ts). Workspace-scoped imported
-    data dictionaries. Metadata arrives already stripped from the caller."""
+def _repo_name(url: str) -> str:
+    """Twin of ``repoName`` (lib/data-dictionary/repo.ts)."""
+    trimmed = re.sub(r"/+$", "", re.sub(r"\.git$", "", url.strip()))
+    return re.split(r"[/:]", trimmed)[-1] or url
+
+
+def _dictionary_links(dictionaries: list[dict]) -> list[dict]:
+    """Twin of ``buildDictionaryLinks`` (lib/data-dictionary/dictionary-links.ts):
+    the git-linked dictionaries as index entries, sorted by entityId — the name's
+    slug, suffixed -2, -3… in repo-then-branch order when two share it."""
+    linked = []
+    for d in dictionaries:
+        url = (d.get("sourceRepo") or "").strip()
+        if not url:
+            continue
+        branch = d.get("branch") or "main"
+        slug = _slugify(d.get("name") or _repo_name(url)) or "dictionary"
+        linked.append((slug, url, branch, d))
+    linked.sort(key=lambda x: (x[0], x[1], x[2]))
+    taken: dict[str, int] = {}
+    out = []
+    for slug, url, branch, d in linked:
+        taken[slug] = taken.get(slug, 0) + 1
+        entry: dict = {
+            "entityId": slug if taken[slug] == 1 else f"{slug}-{taken[slug]}",
+            "name": d.get("name") or "",
+        }
+        if d.get("createdAt"):
+            entry["createdAt"] = d["createdAt"]
+        entry["git"] = {"url": url, "branch": branch}
+        out.append(entry)
+    return sorted(out, key=lambda e: e["entityId"])
+
+
+def _build_concept_sets_section(
+    tree: dict[str, bytes],
+    concept_sets: list[dict],
+    dictionaries: list[dict],
+    git_links: _GitLinks,
+) -> None:
+    """Port of the data-dictionaries/ + concept-sets/ section (entity-io.ts). A
+    dictionary synced from a repository travels as a pointer — its sets and units
+    come back from the repo; every other set as its own file. Set metadata arrives
+    already stripped from the caller, with its dictionaryId under
+    ``_dictionaryId`` (a local key, never written)."""
+    links = _dictionary_links(dictionaries)
+    if links:
+        tree["data-dictionaries/_dictionaries.json"] = _json(links)
+        for link in links:
+            git_links.add("data-dictionary", link["entityId"], link["git"])
+    linked = {d["id"] for d in dictionaries if (d.get("sourceRepo") or "").strip()}
     for cs in concept_sets:
+        dictionary_id = cs.pop("_dictionaryId", None)
+        if dictionary_id and dictionary_id in linked:
+            continue
         slug = _slugify(cs.get("name") or cs["id"])
         tree[f"concept-sets/{slug}.json"] = _json(cs)
 
@@ -584,6 +680,7 @@ def build_workspace_tree(
     dq_rule_sets: list[dict] | None,
     mapping_projects: list[dict] | None,
     concept_sets: list[dict] | None,
+    data_dictionaries: list[dict] | None = None,
     id_ranges: list[dict] | None,
     catalogs: list[dict] | None,
     service_mappings: list[dict] | None,
@@ -649,7 +746,7 @@ def build_workspace_tree(
     if dq_rule_sets is not None:
         _build_data_quality_section(tree, dq_rule_sets, git_links)
     if concept_sets is not None:
-        _build_concept_sets_section(tree, concept_sets)
+        _build_concept_sets_section(tree, concept_sets, data_dictionaries or [], git_links)
     if mapping_projects is not None:
         _build_mapping_projects_section(
             tree, mapping_projects, id_ranges or [], git_links
@@ -676,6 +773,6 @@ def build_workspace_tree(
                 ),
             )
         ]
-        tree["git-links.json"] = _json({"appVersion": APP_VERSION, "links": links})
+        tree["git-links.json"] = _json({"links": links})
 
     return tree

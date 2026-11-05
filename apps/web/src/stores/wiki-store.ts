@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
-import { stampAuthored } from '@/stores/app-store'
+import { stampAuthored, stampLineage } from '@/stores/app-store'
 import type { WikiPage, LocalizedString } from '@/types'
 import { foldAccents } from '@/lib/fold-accents'
 
@@ -80,7 +80,7 @@ export const useWikiStore = create<WikiState>((set, get) => ({
   // TODO(fullstack-offload): in server mode this still fetches every page's
   // full `content` JSONB. A later task should make the list metadata-only and
   // lazy-load content per page (the editor already loads the open page). Search
-  // already goes through the server endpoint (see WikiSearchDialog).
+  // already goes through the server endpoint (see the wiki sidebar search).
   loadPages: async (workspaceId) => {
     const storage = getStorage()
     const pages = await storage.wikiPages.getByWorkspace(workspaceId)
@@ -111,6 +111,7 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     const page: WikiPage = {
       id,
       entityId: entityId || undefined,
+      ...stampLineage(),
       workspaceId,
       parentId,
       title,

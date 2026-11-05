@@ -18,7 +18,7 @@ function readWindow(dataSourceId: string, sql: string | null): Promise<TimeWindo
   const key = `${dataSourceId}\u0001${sql}`
   let hit = windows.get(key)
   if (!hit) {
-    hit = queryDataSource(dataSourceId, sql)
+    hit = queryDataSource(dataSourceId, sql, { origin: 'Patient data · time window of the selected stay' })
       .then((rows) => {
         const start = windowBound(rows[0]?.window_start)
         return start ? { start, end: windowBound(rows[0]?.window_end) } : null

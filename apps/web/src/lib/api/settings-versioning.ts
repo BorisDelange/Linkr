@@ -25,19 +25,6 @@ export interface SettingsImportReport {
   warnings: string[]
 }
 
-/** Which families to include in a pull/import (null count = family absent from remote). */
-export interface SettingsFamilySelection {
-  organizations: boolean
-  users: boolean
-  roles: boolean
-}
-
-export interface SettingsPullPreview {
-  organizations: number | null
-  users: number | null
-  roles: number | null
-}
-
 const BASE = '/git/settings/account'
 
 export async function getSettingsGitConfig(): Promise<SettingsGitConfig> {
@@ -64,28 +51,6 @@ export async function settingsImportFile(file: Blob): Promise<SettingsImportRepo
   const form = new FormData()
   form.append('file', file, 'settings.zip')
   const res = await apiFetch(`/api/v1${BASE}/import-file`, { method: 'POST', body: form })
-  if (!res.ok) throw await gitError(res)
-  return res.json()
-}
-
-/** How many organizations/users/roles the remote settings tree holds — drives the
- *  pull dialog's per-family choice. */
-export async function settingsPullPreview(branch?: string): Promise<SettingsPullPreview> {
-  const qs = branch ? `?branch=${encodeURIComponent(branch)}` : ''
-  return apiRequest<SettingsPullPreview>(`${BASE}/pull-preview${qs}`)
-}
-
-/** Pull from the configured remote and upsert the chosen families. */
-export async function settingsImportRemote(
-  selection: SettingsFamilySelection,
-  branch?: string,
-): Promise<SettingsImportReport> {
-  const form = new FormData()
-  if (branch) form.append('branch', branch)
-  form.append('include_orgs', String(selection.organizations))
-  form.append('include_users', String(selection.users))
-  form.append('include_roles', String(selection.roles))
-  const res = await apiFetch(`/api/v1${BASE}/import-remote`, { method: 'POST', body: form })
   if (!res.ok) throw await gitError(res)
   return res.json()
 }

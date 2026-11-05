@@ -83,8 +83,8 @@ details, API keys, git host tokens) — see `docs/design/ai-agents-plan.md` §6.
 | `cohort_report` | the app's cohort report: a text summary for the model + the HTML report as an MCP-UI resource (`ui://`), rendered inline by LibreChat and never sent to the model |
 | `list_concept_sets`, `get_concept_set` | the workspace's imported data dictionaries (read-only): resolved concept ids, `uniqueId`, long description with its Mapping Notes |
 | `list_concept_lists`, `get_concept_list`, `create_concept_list`, `update_concept_list`, `delete_concept_list` | the project's hand-picked concept lists |
-| `list_database_cohorts`, `plan_cohort_derivation` | a database's own cohorts; whether a cohort can be derived and what the copy does with each table |
-| `derive_database_from_cohort` | the app's *Derive*: a new database (or SQL schema) restricted to a cohort — creates the managed target first, starts the server job, returns its `job_id` at once |
+| `list_database_cohorts`, `plan_cohort_derivation` | a database's own cohorts (and the derivations whose key can be reused); whether a cohort can be derived, what the copy does with each table at a scope, and the id columns pseudonymisation replaces |
+| `derive_database_from_cohort` | the app's *Derive*: a new database, or a SQL schema of a writable DuckDB, Postgres, SQL Server, Doris or Oracle database, restricted to a cohort — minimised (scope, tables, variables, birth-date precision) and pseudonymised as the dialog does by default (keyed hash, key kept; optional correspondence table); creates the managed target first, starts the server job, returns its `job_id` at once. A write account is entered by the user in Linkr, never through the agent |
 | `get_job_status`, `cancel_job` | a job's status, progress, log tail and, for a finished derivation, the database id to query |
 
 ### `dq` — data quality
@@ -240,6 +240,16 @@ travel in cleartext over plain HTTP, so put a TLS reverse proxy in front before
 exposing it to other hosts (a LibreChat container can also join the compose network
 and use `http://mcp:3940/mcp`). Release tags publish it as
 `interhop/linkr:mcp-<version>`.
+
+**Which model signs AI suggestions.** A model often misnames itself (an open model
+writing `ai/claude`), and an MCP client never tells the server which model it runs.
+Set it in the client instead: a fixed `X-Linkr-Model: <model id>` header on the MCP
+server entry (LibreChat: `headers` in `librechat.yaml`, one entry per model when a
+`modelSpecs` preset pins the model), or `LINKR_MCP_MODEL` for the stdio entry. AI
+suggestions and model-authored mappings are then signed with it whatever the model
+says, and `get_mapping_project` tells the agent so. LibreChat cannot fill the header
+from the conversation's model (its `{{LIBRECHAT_BODY_*}}` placeholders are only the
+conversation and message ids); without it, the agent gives its own name or asks the user.
 
 Optional single-user mode: set `LINKR_MCP_KEY` (≥ 24 characters) and a request carrying
 it acts with the `.env` credentials. `LINKR_MCP_HOST` / `LINKR_MCP_PORT` override the

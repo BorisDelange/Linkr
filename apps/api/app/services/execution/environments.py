@@ -284,6 +284,12 @@ async def build(
     return env
 
 
+def build_input(project_uid: str, language: str) -> str | None:
+    """A build job's input for the jobs panel: the packages it installs."""
+    packages = _provisioner(language).list_packages(project_uid)
+    return "\n".join(p["name"] + p["spec"] for p in packages) or None
+
+
 def needs_build(env: Environment) -> bool:
     """True when the env declares packages but its venv/library isn't materialised.
 
@@ -325,14 +331,14 @@ async def ensure_ready(
     job = await jobs.create(
         db, project_uid, user_id, kind="build",
         label=f"Build {language_label(language)} environment",
+        input=build_input(project_uid, language),
     )
 
     async def body(handle) -> None:
-        buffer: list[str] = []
         queue: asyncio.Queue[str] | None = asyncio.Queue() if on_log is not None else None
 
         def collect(line: str) -> None:
-            buffer.append(line)
+            to_job(line)
             # The provisioner runs in a worker thread, so hand lines to the event
             # loop rather than awaiting on_log here.
             if queue is not None:
@@ -347,18 +353,16 @@ async def ensure_ready(
                     await res
 
         pump_task = asyncio.create_task(pump()) if queue is not None else None
-        try:
-            async with async_session() as job_db:
-                await build(job_db, project_uid, language, on_log=collect)
-        finally:
-            if pump_task is not None:
-                # Let the queued lines drain before cancelling the pump.
-                while not queue.empty():  # type: ignore[union-attr]
-                    await asyncio.sleep(0)
-                pump_task.cancel()
-            # Flush even on failure (build() raises on a bad build → job 'error').
-            if buffer:
-                await handle.log("\n".join(buffer[-200:]))
+        async with jobs.live_log(handle) as to_job:
+            try:
+                async with async_session() as job_db:
+                    await build(job_db, project_uid, language, on_log=collect)
+            finally:
+                if pump_task is not None:
+                    # Let the queued lines drain before cancelling the pump.
+                    while not queue.empty():  # type: ignore[union-attr]
+                        await asyncio.sleep(0)
+                    pump_task.cancel()
 
     # Auto-build blocks this first run until the env is ready, but runs through the
     # job runner so it's visible/cancellable; then re-read the (now built) env.
@@ -392,14 +396,9 @@ async def run_package_op_as_job(
     ok = {"done": False}
 
     async def body(handle) -> None:
-        buffer: list[str] = []
-        try:
-            async with async_session() as job_db:
-                await op(job_db, buffer.append)
-                ok["done"] = True
-        finally:
-            if buffer:
-                await handle.log("\n".join(buffer[-200:]))
+        async with jobs.live_log(handle) as on_log, async_session() as job_db:
+            await op(job_db, on_log)
+            ok["done"] = True
 
     await jobs.run_now(job.id, body)
     if ok["done"]:

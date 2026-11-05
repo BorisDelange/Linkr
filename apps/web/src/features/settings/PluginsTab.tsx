@@ -36,7 +36,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { usePluginEditorStore, type PluginListItem } from '@/stores/plugin-editor-store'
+import { reloadPulledPlugin, usePluginEditorStore, type PluginListItem } from '@/stores/plugin-editor-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { stampAuthored, stampLineage } from '@/stores/app-store'
 import type { AuthorDetails, OrganizationInfo } from '@/types'
@@ -182,7 +182,6 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
           {(plugin.manifest.description?.[lang] ?? plugin.manifest.description?.en) && (
             <TruncatedText
               text={plugin.manifest.description?.[lang] ?? plugin.manifest.description?.en ?? ''}
-              readOnly
               className="text-xs text-muted-foreground"
             />
           )}
@@ -622,6 +621,7 @@ export function PluginsTab() {
           supportsIncludeData={false}
           syncScope="user-plugins"
           syncId={versioningTarget.id}
+          onAfterPull={() => reloadPulledPlugin(versioningTarget.id)}
           gitRemote={pluginList.find((p) => p.id === versioningTarget.id)?.gitRemoteConfig ?? null}
           onExport={() => pluginActions.onExport({ id: versioningTarget.id, name: versioningTarget.id })}
           onSaveGitRemote={async (config) => {

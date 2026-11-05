@@ -20,7 +20,7 @@ import {
   Users,
   UsersRound,
 } from 'lucide-react'
-import type { CustomSchemaPreset, DataSource, DatabaseConnectionConfig, DatabaseStatsCache, SchemaMapping } from '@/types'
+import type { CustomSchemaPreset, DataSource, DatabaseStatsCache, SchemaMapping } from '@/types'
 import { localized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import { cn } from '@/lib/utils'
@@ -42,7 +42,7 @@ import { NoticeBanner } from '@/components/ui/notice-banner'
 import { notifyDatabaseLocationChanged, useDatabaseLocation } from './use-database-location'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
 import { DatabaseStatsDashboard } from './DatabaseStatsDashboard'
-import { useDatabaseStats } from './use-database-stats'
+import { useDatabaseStats, useStoredDatabaseStats } from './use-database-stats'
 import { StatsErrorBanner } from './stats-error-banner'
 import { SchemaBrowser } from '@/features/warehouse/databases/SchemaBrowser'
 import { ReadmeMarkdown } from '@/components/editor/MarkdownRenderer'
@@ -52,7 +52,6 @@ import { makeReinstall } from '@/lib/entity-reinstall'
 import {
 } from '@/components/ui/dropdown-menu'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
-import { DatabasePull } from '@/components/versioning/DatabasePull'
 import { DatabaseCohortHost } from '@/features/projects/warehouse/cohorts/cohort-host'
 import { CohortList } from '@/features/projects/warehouse/cohorts/CohortListPage'
 import { CohortBuilder } from '@/features/projects/warehouse/cohorts/CohortBuilderPage'
@@ -67,7 +66,6 @@ import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { EntityNotFound } from '@/components/layout/EntityNotFound'
-import { isExternalEngine } from '@/lib/database-engines'
 import { useFlightStatus } from './use-flight-status'
 import { ConnectionStatusBanner } from './connection-status-banner'
 import { ConnectionCard } from './DatabaseConnectionCard'
@@ -120,17 +118,18 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
   const [editOpen, setEditOpen] = useState(false)
   const [flightDismissed, dismissFlight] = useSessionDismissal(`flight:${source?.id}`)
   const [noSchemaDismissed, dismissNoSchema] = useSessionDismissal(`no-schema:${source?.id}`)
+  const [mismatchDismissed, dismissMismatch] = useSessionDismissal(`schema-mismatch:${source?.id}`)
+  const storedStats = useStoredDatabaseStats(source?.id ?? '')
   const updateDataSource = useDataSourceStore((s) => s.updateDataSource)
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
   // Reinstalling replaces the whole entity's content, so it takes the same role
   // the list page requires to delete it — and never from the project's read-only
   // view of a workspace database.
   const canReinstall = useMyWorkspaceRole().atLeast('owner') && !readOnly
-  // The concept counts are a cache: shared for a file database (an edit), the
-  // user's own for an external one — the server's `_cache_write_permission`.
+  // The concept counts are a cache shared by everyone who opens the database:
+  // writing it is an edit.
   const flightStatus = useFlightStatus(source)
   const canCountConcepts = useMyWorkspaceRole().can('databases:write')
-    || isExternalEngine((source?.connectionConfig as DatabaseConnectionConfig | undefined)?.engine)
   const [activeTab, setActiveTab] = useUrlTab<DatabaseTabId>({
     key: `database:${source?.id ?? 'none'}`,
     tabs: readOnly ? PROJECT_TAB_IDS : DATABASE_TAB_IDS,
@@ -207,6 +206,17 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
   }
 
   const hasMappedSchema = !!source.schemaMapping?.patient
+  // On Statistics the banners keep to its centred column (max-w-3xl less its px-6).
+  const bannerClass = shownTab === 'statistics'
+    ? 'mx-auto mb-3 w-[calc(100%-3rem)] max-w-[45rem]'
+    : 'mx-6 mb-3'
+  // A count over a table the schema names but the database lacks fails to zero,
+  // so a wrong schema reads as an empty database — while the table row counts,
+  // taken from the database itself, say otherwise.
+  const showSchemaMismatch = hasMappedSchema && !mismatchDismissed
+    && (shownTab === 'overview' || shownTab === 'statistics')
+    && storedStats?.summary.patientCount === 0
+    && storedStats.tableCounts.some((c) => c.rowCount > 0)
   // Without a data model there are no patient/visit tables to count, but table
   // row counts still make sense — and that is where the refresh button lives.
   const statsMapping = source.schemaMapping ?? EMPTY_MAPPING
@@ -218,7 +228,7 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
         onValueChange={(v) => selectTab(v as DatabaseTabId)}
         className="flex min-h-0 flex-1 flex-col"
       >
-        <div className="flex shrink-0 items-center px-6 py-3">
+        <div className="flex shrink-0 items-center px-6 pt-3 pb-1.5">
           <div className="flex-1" />
           <TabsList>
             <TabsTrigger value="overview">
@@ -269,13 +279,13 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
         <ConnectionStatusBanner
           source={source}
           onEditConnection={canEditLocation ? () => setEditOpen(true) : undefined}
-          className="mx-6 mb-3"
+          className={bannerClass}
         />
         {/* Nothing in this page works until the files are found again. */}
         {location.missing && (
           <NoticeBanner
             tone="danger"
-            className="mx-6 mb-3"
+            className={bannerClass}
             title={t('databases.location_missing_title')}
             description={location.path
               ? t('databases.location_missing_path', { path: location.path })
@@ -291,7 +301,7 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
         {flightStatus && flightStatus.status !== 'ok' && flightStatus.status !== 'not_applicable' && !flightDismissed && (
           <NoticeBanner
             tone="warning"
-            className="mx-6 mb-3"
+            className={bannerClass}
             onDismiss={dismissFlight}
             title={t('databases.flight_slow_title')}
             description={flightStatus.status === 'not_installed'
@@ -305,7 +315,7 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
         {!source.schemaMapping && (shownTab === 'mapping' || !noSchemaDismissed) && (
           <NoticeBanner
             tone="warning"
-            className="mx-6 mb-3"
+            className={bannerClass}
             onDismiss={shownTab === 'mapping' ? undefined : dismissNoSchema}
             title={t('databases.no_schema_title')}
             description={t('databases.no_schema_description')}
@@ -313,6 +323,21 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
               <Button size="sm" onClick={() => setEditOpen(true)}>
                 <Network size={14} />
                 {t('databases.no_schema_assign')}
+              </Button>
+            )}
+          />
+        )}
+        {showSchemaMismatch && (
+          <NoticeBanner
+            tone="warning"
+            className={bannerClass}
+            onDismiss={dismissMismatch}
+            title={t('databases.schema_mismatch_title')}
+            description={t('databases.schema_mismatch_description')}
+            action={canEditLocation && (
+              <Button size="sm" onClick={() => setEditOpen(true)}>
+                <Network size={14} />
+                {t('databases.schema_mismatch_change')}
               </Button>
             )}
           />
@@ -455,7 +480,7 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
         </TabsContent>
 
         <TabsContent value="versioning" className="m-0 min-h-0 flex-1 p-0">
-          <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col px-6 py-6">
+          <div className="flex h-full min-h-0 w-full flex-col px-6 py-6">
             {/* Export is a menu action, so no export UI here — the tab is the
                 push/pull panel alone. */}
             <GitRepositoryTab
@@ -463,14 +488,6 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
               onSave={(cfg) => updateDataSource(source.id, { gitRemoteConfig: cfg ?? undefined })}
               syncScope="databases"
               syncId={source.id}
-              renderInlinePull={({ branch, remoteHead, onPulled }) => (
-                <DatabasePull
-                  sourceId={source.id}
-                  branch={branch}
-                  remoteHead={remoteHead}
-                  onPulled={onPulled}
-                />
-              )}
               // A pull replaces the row and its files wholesale, behind the store
               // the page reads — without this the tabs keep describing the
               // database that was there before it.
@@ -605,6 +622,7 @@ function OverviewTab({
       // then clipped — it rendered behind the cards instead of pushing them down.
       BAND_ROWS[Number(showStatsBanner || showStatsError)],
     )}>
+
       {/* The counts below are COUNT(*) over what may be billions of rows, so
           server mode never runs them unasked — the cards then read "—" with
           nothing saying why, or that one click fixes it. */}

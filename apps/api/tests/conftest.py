@@ -1,11 +1,14 @@
 import asyncio
 import fcntl
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import event
+from sqlalchemy import event, make_url, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 import app.models  # noqa: F401  -- populate Base.metadata
@@ -61,6 +64,17 @@ def _shared_r_cache(monkeypatch):
 
     for name in ("ensure_r_sandbox", "ensure_kernel_r_lib", "ensure_client_r_lib"):
         monkeypatch.setattr(renv_provisioner, name, _under_cache_lock(getattr(renv_provisioner, name)))
+
+
+@pytest.fixture(autouse=True)
+def _own_app_ports(monkeypatch):
+    # Each xdist worker is its own API process with its own web-app manager: on
+    # one shared port range, two workers can both see a port free and race to
+    # bind it ("Address already in use").
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
+    slot = int(worker.removeprefix("gw") or 0) % 10
+    lo = 8700 + slot * 10
+    monkeypatch.setattr(settings, "app_port_range", f"{lo}-{lo + 9}")
 
 
 @pytest.fixture(autouse=True)
@@ -120,6 +134,62 @@ async def _stop_background_jobs() -> None:
     jobs._tasks.clear()
 
 
+# LINKR_TEST_APP_DATABASE_URL (postgresql+asyncpg://…/<name>) runs the suite on
+# Postgres, as a deployment may. The schema is the migrations' — what a Postgres
+# install runs (`alembic upgrade head`), JSON columns and all — built once into
+# a template database, which each test copies afresh.
+_PG_URL = os.environ.get("LINKR_TEST_APP_DATABASE_URL")
+_pg_template_ready = False
+
+
+def _check_disposable_pg_url(raw: str, app_database_url: str | None) -> None:
+    """Every test drops and recreates the database the URL names: refuse one
+    that does not say it is for tests, or that is the app's own."""
+    url = make_url(raw)
+    name = url.database or ""
+    if "test" not in name.lower():
+        raise RuntimeError(
+            f"LINKR_TEST_APP_DATABASE_URL names the database {name!r}, which the tests drop and recreate: "
+            "give it a name containing 'test' (e.g. linkr_test)"
+        )
+    app_url = make_url(app_database_url) if app_database_url else None
+    if app_url is not None and app_url.get_backend_name() == "postgresql" and app_url.database == name and app_url.host == url.host:
+        raise RuntimeError(
+            f"LINKR_TEST_APP_DATABASE_URL names {name!r}, the database LINKR_DATABASE_URL uses: the tests "
+            "would drop it — point them at another one"
+        )
+
+
+async def _fresh_pg_database() -> str:
+    global _pg_template_ready
+    _check_disposable_pg_url(_PG_URL, settings.database_url)
+    url = make_url(_PG_URL)
+    # One database (and template) per xdist worker, or they drop each other's.
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    if worker:
+        url = url.set(database=f"{url.database}_{worker}")
+    template = f"{url.database}_template"
+    admin = create_async_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    try:
+        async with admin.connect() as conn:
+            if not _pg_template_ready:
+                await conn.execute(text(f'DROP DATABASE IF EXISTS "{template}" WITH (FORCE)'))
+                await conn.execute(text(f'CREATE DATABASE "{template}"'))
+                migrated = subprocess.run(
+                    [sys.executable, "-m", "alembic", "upgrade", "head"],
+                    cwd=Path(__file__).resolve().parents[1],
+                    env={**os.environ, "LINKR_DATABASE_URL": url.set(database=template).render_as_string(hide_password=False)},
+                    capture_output=True, text=True,
+                )
+                assert migrated.returncode == 0, migrated.stderr[-4000:]
+                _pg_template_ready = True
+            await conn.execute(text(f'DROP DATABASE IF EXISTS "{url.database}" WITH (FORCE)'))
+            await conn.execute(text(f'CREATE DATABASE "{url.database}" TEMPLATE "{template}"'))
+    finally:
+        await admin.dispose()
+    return url.render_as_string(hide_password=False)
+
+
 @pytest_asyncio.fixture
 async def engine(tmp_path):
     # A file and a real connection pool, as in production: each session its own
@@ -129,20 +199,23 @@ async def engine(tmp_path):
     # connection, reopening the in-memory database empty under the next request.
     # WAL lets the tests' reads run beside a job's write; `timeout` is how long a
     # writer waits for another's transaction to end.
-    eng = create_async_engine(
-        f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
-        connect_args={"check_same_thread": False, "timeout": 30},
-    )
+    if _PG_URL:
+        eng = create_async_engine(await _fresh_pg_database())
+    else:
+        eng = create_async_engine(
+            f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
+            connect_args={"check_same_thread": False, "timeout": 30},
+        )
 
-    @event.listens_for(eng.sync_engine, "connect")
-    def _sqlite_pragmas(dbapi_conn, _record):
-        cur = dbapi_conn.cursor()
-        cur.execute("PRAGMA foreign_keys=ON")
-        cur.execute("PRAGMA journal_mode=WAL")
-        cur.close()
+        @event.listens_for(eng.sync_engine, "connect")
+        def _sqlite_pragmas(dbapi_conn, _record):
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.close()
 
-    async with eng.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        async with eng.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
     yield eng
     await _stop_background_jobs()
     await eng.dispose()
@@ -198,6 +271,10 @@ async def client(engine, seed_roles, monkeypatch):
 
     monkeypatch.setattr(deferred_core, "async_session", maker)
     monkeypatch.setattr(run_jobs_svc, "async_session", maker)
+    # Suggestion-engine jobs read the library inventory and write the scores file.
+    import app.services.suggestions.tasks as suggestion_tasks
+
+    monkeypatch.setattr(suggestion_tasks, "async_session", maker)
     monkeypatch.setattr("app.core.database.async_session", maker)
 
     transport = ASGITransport(app=app)

@@ -4,7 +4,7 @@ import type { TFunction } from 'i18next'
 import type { Cohort } from '@/types'
 import { columnChart, donut, flowchart, horizontalBars, niceScale, verticalBars } from './charts'
 import { describeCriteria } from './describe'
-import { buildCohortReportModel, fillMonths } from './model'
+import { buildCohortReportModel, buildReportSectionsSql, fillMonths } from './model'
 import { buildAgeSql, buildCareUnitSql, buildConceptSql, buildIndexSql, buildVisitCountSql } from './queries'
 import { renderReportHtml } from './render-html'
 import { suppress, suppressedShare } from './suppress'
@@ -102,7 +102,7 @@ describe('queries', () => {
 
   it('matches concepts on either column, as the criterion does', () => {
     const sql = buildConceptSql(m, mapping, { eventTableLabels: ['Measurement'], conceptIds: [1, 2], conceptNames: {} })!
-    expect(sql).toContain('(e.concept_id IN (1, 2) OR e.source_concept_id IN (1, 2))')
+    expect(sql.replace(/\s+/g, ' ')).toContain('( e.concept_id IN ( 1, 2 ) OR e.source_concept_id IN ( 1, 2 ) )')
     expect(buildConceptSql(m, mapping, { eventTableLabels: ['Nope'], conceptIds: [1], conceptNames: {} })).toBeNull()
   })
 
@@ -167,7 +167,7 @@ describe('buildCohortReportModel', () => {
     if (sql.includes('AS concept_id')) return [{ concept_id: 3027018, rows: 1069, patients: 568 }]
     if (sql.includes('AS bin')) return [{ bin: 20, n: 4 }, { bin: 60, n: 300 }]
     if (sql.includes('AS gender')) return [{ gender: '8532', n: 400 }, { gender: '8507', n: 470 }]
-    if (sql.includes('AS month')) return [{ month: '2024-01', n: 30 }, { month: '2024-03', n: 2 }]
+    if (sql.includes('AS month')) return [{ month: 202401, n: 30 }, { month: 202403, n: 2 }]
     if (sql.includes('COUNT(*) AS n FROM')) return [{ n: 40000 }]
     if (sql.includes('AS label')) return [
       { label: 'Drug', rows: 7, patients: 5 },
@@ -178,6 +178,19 @@ describe('buildCohortReportModel', () => {
     return []
   }
 
+  it('types every column alike in every block of the one query, text values as their NULLs', () => {
+    const sql = buildReportSectionsSql('SELECT 1 AS id', [
+      { block: 'events', sql: "SELECT 'Drug' AS label, 1 AS rows, 1 AS patients", columns: ['label', 'rows', 'patients'] },
+      { block: 'units', sql: 'SELECT unit_name AS unit, 1 AS n FROM visit_detail', columns: ['unit', 'n'] },
+      { block: 'none', sql: null, columns: ['n'] },
+    ])
+    expect(sql.split('UNION ALL')).toHaveLength(2)
+    expect(sql).toContain('CAST(b.label AS VARCHAR) AS label')
+    expect(sql).toContain('CAST(b.unit AS VARCHAR) AS unit')
+    expect(sql).toContain('CAST(NULL AS VARCHAR) AS unit')
+    expect(sql).not.toMatch(/^\s*b\.\w+ AS/m)
+  })
+
   it('builds every section, suppressed at the model', async () => {
     const model = await buildCohortReportModel({ cohort: cohort(), mapping, databaseName: 'eHOP', run, t, locale: 'en', threshold: 11, now: new Date('2026-09-23T10:00:00Z') })
     expect(model.kpis.map((k) => k.count.label)).toEqual(['870', '902', '880'])
@@ -186,7 +199,8 @@ describe('buildCohortReportModel', () => {
     expect(model.flow[0].patients).toEqual({ value: null, label: '<11' })
     expect(model.concepts[0]).toMatchObject({ conceptId: 3027018, name: 'Heart rate', coverage: '65.3' })
     expect(model.age[0].count.value).toBeNull()
-    expect(model.sex.map((s) => s.label)).toEqual(['cohort_report.sex_female', 'cohort_report.sex_male'])
+    // Most first, as the query orders them.
+    expect(model.sex.map((s) => s.label)).toEqual(['cohort_report.sex_male', 'cohort_report.sex_female'])
     expect(model.months.map((m) => m.label)).toEqual(['2024-01', '2024-02', '2024-03'])
     expect(model.months[1].count).toEqual({ value: 0, label: '0' })
     expect(model.months[2].count.value).toBeNull()

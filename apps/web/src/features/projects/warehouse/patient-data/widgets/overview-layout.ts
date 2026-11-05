@@ -28,6 +28,9 @@ export interface OverviewConceptRow {
    */
   unitCount?: number
   eventCount: number
+  /** The smallest and largest value recorded, when the concept has numbers. */
+  valueMin?: number | null
+  valueMax?: number | null
   durational: boolean
   /** Read from a drug relation: labelled and described as a drug. */
   drug?: boolean
@@ -54,6 +57,8 @@ export interface OverviewRow {
   conceptCode?: string | null
   /** The concept's own id, on single-concept rows only. */
   conceptId?: string | null
+  /** Its smallest and largest value, on single-concept rows with numbers. */
+  valueRange?: [number, number] | null
   durational: boolean
   /** Single-concept row read from a drug relation. */
   drug?: boolean
@@ -226,6 +231,7 @@ export function buildOverviewRows(opts: BuildRowsOptions): BuildRowsResult {
     unit: (c.unitCount ?? 1) > 1 ? null : c.unit,
     conceptCode: c.conceptCode,
     conceptId: c.conceptId,
+    valueRange: c.valueMin != null && c.valueMax != null ? [c.valueMin, c.valueMax] : null,
     durational: c.durational,
     drug: c.drug,
   })
@@ -296,7 +302,7 @@ export function buildOverviewRows(opts: BuildRowsOptions): BuildRowsResult {
     return { rows, windows, offsets: nextOffsets, classesDropped }
   }
 
-  // Largest-remainder apportionment, floor 1 per group so nothing is starved.
+  // Largest-remainder apportionment, floor 1 per group while the seats allow it.
   const quota = openGroups.map((g) => (g.concepts.length / totalConcepts) * seats)
   const alloc = new Map(openGroups.map((g, i) => [g.key, Math.max(1, Math.floor(quota[i]))]))
   let used = [...alloc.values()].reduce((a, b) => a + b, 0)
@@ -312,9 +318,29 @@ export function buildOverviewRows(opts: BuildRowsOptions): BuildRowsResult {
   }
   while (used > seats) {
     const top = [...alloc.entries()].sort((a, b) => b[1] - a[1])[0]
-    if (!top || top[1] <= 1) break
+    // Down to none: a group keeps its reserved "other" line, which still draws its events.
+    if (!top || top[1] <= 0) break
     alloc.set(top[0], top[1] - 1)
     used--
+  }
+  // A group never needs more seats than its concepts but one: its reserved
+  // "other" line shows the last. What a small group cannot use goes to the
+  // groups that still have concepts to show, the largest first.
+  const capOf = (g: Group) => Math.max(0, g.concepts.length - 1)
+  let surplus = 0
+  for (const g of openGroups) {
+    const over = (alloc.get(g.key) ?? 0) - capOf(g)
+    if (over > 0) {
+      alloc.set(g.key, capOf(g))
+      surplus += over
+    }
+  }
+  const takers = [...openGroups].sort((a, b) => b.concepts.length - a.concepts.length)
+  while (surplus > 0) {
+    const g = takers.find((x) => (alloc.get(x.key) ?? 0) < capOf(x))
+    if (!g) break
+    alloc.set(g.key, (alloc.get(g.key) ?? 0) + 1)
+    surplus--
   }
 
   // Emit each table immediately followed by ITS groups and their concepts, so
@@ -333,9 +359,9 @@ export function buildOverviewRows(opts: BuildRowsOptions): BuildRowsResult {
       }
 
       const sorted = [...g.concepts].sort((a, b) => b.eventCount - a.eventCount)
-      const seatsHere = Math.min(alloc.get(g.key) ?? 0, sorted.length)
-      // The "other" row costs a line too, whenever anything is left out.
-      let n = sorted.length > seatsHere ? Math.max(0, seatsHere - 1) : seatsHere
+      // The group's "other" line is already reserved in `seats`: it shows the
+      // concepts left out, or the last concept when only one is.
+      let n = Math.min(alloc.get(g.key) ?? 0, sorted.length)
       if (sorted.length === n + 1) n += 1
       windows.set(g.key, { shown: n, total: sorted.length })
 

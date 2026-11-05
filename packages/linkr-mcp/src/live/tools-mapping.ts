@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto'
 import type { ConceptMapping, MappingEquivalence, MappingProject, SchemaMapping } from '@/types'
 import {
   buildConceptAncestorsQuery, buildConceptDescendantCountQuery, buildConceptDescendantsQuery,
-  buildConceptRelationsQuery, buildConceptSynonymsQuery,
+  buildConceptRelationsQuery, buildConceptSynonymsQuery, buildDrugStrengthQuery,
 } from '@/lib/concept-mapping/concept-detail-queries'
 import {
   buildFileSourceConceptsCountQuery, buildFileSourceConceptsQuery, buildStandardConceptSearchQuery,
@@ -18,15 +18,16 @@ import {
 import { effectiveMappingStatus, getTotalSourceConcepts } from '@/lib/concept-mapping/mapping-status'
 import { isOmopConceptTable, resolveVocabularyTarget } from '@/lib/concept-mapping/vocabulary-target'
 import {
-  checkJudgement, checkTarget, conceptsByIdSql, describeConcept, describeInfo, describeSourceRow, groupSuggestions,
-  indexKeyToSourceKey, mappingPayload, methodForModel, sourceByCodesSql, sourceKeyOf, sourceKeysInSql, sourceRefCandidates,
+  capPerRelation, checkJudgement, checkTarget, conceptsByIdSql, describeConcept, describeInfo, describeSourceRow, formatDrugStrength, groupSuggestions,
+  indexKeyToSourceKey, mappingPayload, methodForModel, signingModel, sourceByCodesSql, sourceKeyOf, sourceKeysInSql, sourceRefCandidates,
   synonymSearchSql,
-  type SourceRow, type SuggestionInput, type VocabConcept,
+  type DrugStrengthRow, type SourceRow, type SuggestionInput, type VocabConcept,
 } from './mapping.js'
 import type { DataSource } from './api.js'
-import { DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, type Server } from './shared.js'
+import { DESTRUCTIVE, READ, WRITE, agentModel, api, failure, guard, loc, text, type Server } from './shared.js'
 
 export const MAX_WRITE = 200
+const MAX_READ_BATCH = 20
 
 interface Vocabulary { databaseId: string; mapping: SchemaMapping; table: string }
 
@@ -112,7 +113,14 @@ export async function refreshStats(project: MappingProject) {
 }
 
 /** The relationships that decide a mapping first; panels and the like last. */
-const RELATION_ORDER = ['Maps to', 'Maps to value', 'Mapped from', 'Concept replaced by', 'Is a', 'Subsumes', 'Has component', 'Has scale type']
+const RELATION_ORDER = [
+  'Maps to', 'Maps to value', 'Mapped from', 'Concept replaced by', 'Is a', 'Subsumes', 'Has component', 'Has scale type',
+  'RxNorm has dose form', 'Has brand name', 'RxNorm has ing', 'Consists of', 'RxNorm is a', 'Has quantified form', 'Quantified form of',
+]
+/** A drug's packagings: dozens per product, they would bury the relationships that decide. Counted, not listed. */
+const COUNTED_ONLY = new Set(['Available as box', 'Box of', 'Has marketed form', 'Marketed form of'])
+/** A drug is "Mapped from" thousands of package labels: a few of each relationship, the rest counted. */
+const PER_RELATION = 5
 function sortRelations(rows: Record<string, unknown>[]) {
   const rank = (r: Record<string, unknown>) => {
     const i = RELATION_ORDER.indexOf(String(r.relationship_id))
@@ -123,6 +131,59 @@ function sortRelations(rows: Record<string, unknown>[]) {
 
 const statusLabel = (mappings: ConceptMapping[]) =>
   mappings.map((m) => `${effectiveMappingStatus(m)}${m.targetConceptId ? ` → ${m.targetConceptId}` : ''}`).join(', ')
+
+/** A target concept's card: in full (one concept read), or short (a batch of finalists). */
+async function conceptCard(v: Vocabulary, concept: VocabConcept, full: boolean): Promise<string> {
+  const id = concept.concept_id
+  const lines = [describeConcept(concept)]
+  const section = async (title: string, sql: string, format: (r: Record<string, unknown>) => string, max: number) => {
+    try {
+      const rows = await api.query(v.databaseId, sql)
+      if (rows.length) {
+        lines.push('', `${title}${rows.length > max ? ` (${max} of ${rows.length})` : ''}:`, ...rows.slice(0, max).map(format))
+      }
+    } catch { /* the vocabulary lacks that table */ }
+  }
+  const asConcept = (r: Record<string, unknown>) => `  ${describeConcept({ ...(r as unknown as VocabConcept), concept_id: Number(r.concept_id) })}`
+  let relations: Record<string, unknown>[] = []
+  try {
+    // OMOP has every standard concept "Maps to" and "Mapped from" itself.
+    relations = sortRelations(await api.query(v.databaseId, buildConceptRelationsQuery(id, v.table)))
+      .filter((r) => Number(r.concept_id) !== id)
+  } catch { /* no concept_relationship table */ }
+  if (concept.domain_id === 'Drug') {
+    const drug: string[] = []
+    try {
+      const strengths = (await api.query(v.databaseId, buildDrugStrengthQuery(id, v.table))) as unknown as DrugStrengthRow[]
+      // An ingredient has a drug_strength row with no value: nothing to compare.
+      drug.push(...strengths.filter((r) => r.amount_value != null || r.numerator_value != null).map((r) => `  ${formatDrugStrength(r)}`))
+    } catch { /* no drug_strength table */ }
+    for (const [relation, label] of [['RxNorm has dose form', 'Dose form'], ['Has brand name', 'Brand']]) {
+      const names = relations.filter((r) => r.relationship_id === relation).map((r) => String(r.concept_name))
+      if (names.length) drug.push(`  ${label}: ${names.slice(0, 5).join(', ')}${names.length > 5 ? ` (+${names.length - 5})` : ''}`)
+    }
+    if (drug.length) lines.push('', 'Drug components (compare these, not the names):', ...drug)
+  }
+  if (relations.length) {
+    const counts = new Map<string, number>()
+    for (const r of relations) counts.set(String(r.relationship_id), (counts.get(String(r.relationship_id)) ?? 0) + 1)
+    const listed = relations.filter((r) => !COUNTED_ONLY.has(String(r.relationship_id)))
+    const shown = full ? capPerRelation(listed, PER_RELATION, 30) : capPerRelation(listed, 2, 8)
+    lines.push('', `Relationships (${[...counts].map(([k, n]) => `${k} ${n}`).join(', ')}):`,
+      ...shown.map((r) => `  ${String(r.relationship_id)}: ${asConcept(r).trim()}`))
+    if (listed.length > shown.length) lines.push(`  … ${listed.length - shown.length} more (counts above)`)
+  }
+  if (!full) {
+    await section('Ancestors (nearest first)', buildConceptAncestorsQuery(id, v.table), asConcept, 3)
+    return lines.join('\n')
+  }
+  await section('Synonyms', buildConceptSynonymsQuery(id), (r) =>
+    `  ${String(r.concept_synonym_name)}${r.language_name ? ` (${String(r.language_name)})` : ''}`, 20)
+  await section('Ancestors (nearest first)', buildConceptAncestorsQuery(id, v.table), asConcept, 12)
+  await section('Descendants (nearest first)', buildConceptDescendantsQuery(id, v.table), asConcept, 15)
+  await section('Descendant count', buildConceptDescendantCountQuery(id, v.table), (r) => `  ${String(r.cnt)}`, 1)
+  return lines.join('\n')
+}
 
 export function registerMappingTools(server: Server) {
   server.registerTool('list_mapping_projects', {
@@ -172,6 +233,10 @@ export function registerMappingTools(server: Server) {
     } else {
       lines.push('Suggestions file: none (no precomputed scores).')
     }
+    const configured = agentModel()
+    if (configured) {
+      lines.push(`Your AI suggestions are signed ${methodForModel(configured)} (set by your client): leave model out of add_ai_suggestions.`)
+    }
     const src = await sourceOf(p)
     const cm = src.columns
     lines.push('', `Source columns available: code, name${cm.vocabulary ? ', vocabulary_id' : ''}${cm.category ? ', category' : ''}`
@@ -193,11 +258,13 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
 
   server.registerTool('list_source_concepts', {
     description: 'Source concepts of a mapping project, a page at a time, with their counts and a one-line summary of '
-      + 'their metadata. Filter by mapping status, category, name, or whether suggestions exist.',
+      + 'their metadata. Filter by mapping status, category, name, or whether suggestions exist. In suggestions mode, '
+      + 'without_ai_suggestions gives the next batch: suggesting does not change a concept\'s mapping status.',
     annotations: READ,
     inputSchema: fromJsonSchema<{
       mapping_project_id: string; status?: 'unmapped' | 'mapped' | 'all'; category?: string; search?: string
-      with_suggestions?: boolean; sort?: 'records' | 'patients' | 'name'; limit?: number; offset?: number
+      with_suggestions?: boolean; without_ai_suggestions?: boolean; sort?: 'records' | 'patients' | 'name'; limit?: number
+      offset?: number
     }>({
       type: 'object',
       properties: {
@@ -206,13 +273,16 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
         category: { type: 'string', description: 'Exact category, as get_mapping_project lists them.' },
         search: { type: 'string', description: 'Fuzzy match on the concept name.' },
         with_suggestions: { type: 'boolean', description: 'Only concepts that have precomputed or AI suggestions.' },
+        without_ai_suggestions: { type: 'boolean', description: 'Leave out concepts that already have AI suggestions (any model).' },
         sort: { type: 'string', enum: ['records', 'patients', 'name'], description: 'Default records (most frequent first) when counts exist.' },
         limit: { type: 'number', description: 'Default 25, max 100.' },
         offset: { type: 'number' },
       },
       required: ['mapping_project_id'],
     }),
-  }, guard(async ({ mapping_project_id, status = 'unmapped', category, search, with_suggestions, sort, limit = 25, offset = 0 }) => {
+  }, guard(async ({
+    mapping_project_id, status = 'unmapped', category, search, with_suggestions, without_ai_suggestions, sort, limit = 25, offset = 0,
+  }) => {
     const p = await api.getMappingProject(mapping_project_id)
     const src = await sourceOf(p)
     const cm = src.columns
@@ -233,11 +303,12 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
       filters.category = [category]
     }
     if (search?.trim()) filters.searchTextFuzzy = search.trim()
+    const index = with_suggestions || without_ai_suggestions ? await api.scoresIndex(p.id) : null
     if (with_suggestions) {
-      const index = await api.scoresIndex(p.id)
       filters.hasSuggestionCategoryFilter = true
       filters.suggestionCategoryKeys = (index?.sourceKeys ?? []).map(indexKeyToSourceKey)
     }
+    if (without_ai_suggestions) filters.excludedKeys = (index?.categorySourceKeys.agentic ?? []).map(indexKeyToSourceKey)
     const column = sort === 'name' ? null : sort === 'patients' ? (cm.patients ? 'patient_count' : null)
       : (cm.records ? 'record_count' : null)
     const sorting = column && !filters.searchTextFuzzy ? { columnId: column, desc: true } : null
@@ -258,57 +329,83 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
   }))
 
   server.registerTool('get_source_concept', {
-    description: 'One source concept in full: its metadata (units, value distribution, categories, hospital units…), '
-      + 'its existing mappings, and its precomputed / AI suggestions with the target names.',
+    description: 'Source concepts in full: metadata (units, value distribution, categories, hospital units…), '
+      + 'existing mappings, and precomputed / AI suggestions with the target names. Read a whole batch in one call '
+      + 'with concept_codes.',
     annotations: READ,
-    inputSchema: fromJsonSchema<{ mapping_project_id: string; concept_code: string; vocabulary_id?: string; full_metadata?: boolean }>({
+    inputSchema: fromJsonSchema<{
+      mapping_project_id: string; concept_code?: string; concept_codes?: string[]; vocabulary_id?: string
+      full_metadata?: boolean; suggestions?: number
+    }>({
       type: 'object',
       properties: {
         mapping_project_id: { type: 'string' },
         concept_code: { type: 'string', description: 'The code, or vocabulary/code as list_source_concepts prints it.' },
+        concept_codes: {
+          type: 'array', items: { type: 'string' },
+          description: `Several codes at once (up to ${MAX_READ_BATCH}), e.g. a batch from list_source_concepts.`,
+        },
         vocabulary_id: { type: 'string', description: 'The source vocabulary, when codes repeat across vocabularies.' },
         full_metadata: { type: 'boolean', description: 'All metadata (per-year distribution, every ward). Default: reduced.' },
+        suggestions: { type: 'number', description: 'Best suggested targets shown per concept. Default 15, or 8 for a batch.' },
       },
-      required: ['mapping_project_id', 'concept_code'],
+      required: ['mapping_project_id'],
     }),
-  }, guard(async ({ mapping_project_id, concept_code, vocabulary_id, full_metadata }) => {
+  }, guard(async ({ mapping_project_id, concept_code, concept_codes, vocabulary_id, full_metadata, suggestions }) => {
+    const codes = [...new Set([...(concept_code ? [concept_code] : []), ...(concept_codes ?? [])].map(String))]
+    if (codes.length === 0) return failure('Give concept_code or concept_codes.')
+    if (codes.length > MAX_READ_BATCH) return failure(`At most ${MAX_READ_BATCH} concepts per call.`)
+    const perConcept = Math.max(1, Math.min(50, suggestions ?? (codes.length > 1 ? 8 : 15)))
     const p = await api.getMappingProject(mapping_project_id)
     const src = await sourceOf(p)
-    const found = (await sourcesByCode(src, [{ code: concept_code, vocabularyId: vocabulary_id }]))(concept_code, vocabulary_id)
-    if (typeof found === 'string') return failure(`Not found: ${found}.`)
-    const vocab = String(found.vocabulary_id ?? '')
-    const lines = [describeSourceRow(found).replace(/^- /, 'Source concept: ')]
-    if (found.info_json != null) lines.push('', 'Metadata (info_json):', describeInfo(found.info_json, 4000, full_metadata))
-    const extra = Object.entries(found).filter(([k, v]) =>
-      v != null && v !== '' && !['concept_id', 'concept_name', 'concept_code', 'vocabulary_id', 'info_json', 'category',
-        'subcategory', 'record_count', 'patient_count', 'terminology_name'].includes(k))
-    if (extra.length) lines.push('', `Other columns: ${extra.map(([k, v]) => `${k}=${String(v)}`).join(', ')}`)
+    const lookup = await sourcesByCode(src, codes.map((code) => ({ code, vocabularyId: vocabulary_id })))
+    const mappings = await api.listMappings(p.id)
+    let vocabulary: Awaited<ReturnType<typeof vocabularyOf>> | null = null
+    try { vocabulary = await vocabularyOf(p) } catch { /* target names optional */ }
 
-    const existing = (await api.listMappings(p.id))
-      .filter((m) => m.sourceConceptCode === String(found.concept_code) && (m.sourceVocabularyId ?? '') === vocab)
-    lines.push('', existing.length ? 'Existing mappings:' : 'Existing mappings: none.')
-    for (const m of existing) {
-      lines.push(`  ${effectiveMappingStatus(m)} → ${m.targetConceptId} ${m.targetConceptName} [${m.targetVocabularyId}] `
-        + `${m.equivalence}${m.mappedBy ? `, by ${m.mappedBy}` : ''}`)
-    }
+    const describe = async (code: string): Promise<string> => {
+      const found = lookup(code, vocabulary_id)
+      if (typeof found === 'string') return `Source concept ${code}: not found — ${found}.`
+      const vocab = String(found.vocabulary_id ?? '')
+      const lines = [describeSourceRow(found).replace(/^- /, 'Source concept: ')]
+      if (found.info_json != null) lines.push(`Metadata: ${describeInfo(found.info_json, 4000, full_metadata)}`)
+      const extra = Object.entries(found).filter(([k, v]) =>
+        v != null && v !== '' && !['concept_id', 'concept_name', 'concept_code', 'vocabulary_id', 'info_json', 'category',
+          'subcategory', 'record_count', 'patient_count', 'terminology_name'].includes(k))
+      if (extra.length) lines.push(`Other columns: ${extra.map(([k, v]) => `${k}=${String(v)}`).join(', ')}`)
 
-    const scores = await api.queryScores(p.id, vocab, String(found.concept_code)).catch(() => [])
-    if (scores.length === 0) {
-      lines.push('', 'Suggestions: none.')
-    } else {
-      const groups = groupSuggestions(scores).slice(0, 15)
+      const existing = mappings
+        .filter((m) => m.sourceConceptCode === String(found.concept_code) && (m.sourceVocabularyId ?? '') === vocab)
+      lines.push(existing.length ? 'Existing mappings:' : 'Existing mappings: none.')
+      for (const m of existing) {
+        lines.push(`  ${effectiveMappingStatus(m)} → ${m.targetConceptId} ${m.targetConceptName} [${m.targetVocabularyId}] `
+          + `${m.equivalence}${m.mappedBy ? `, by ${m.mappedBy}` : ''}`)
+      }
+
+      const scores = await api.queryScores(p.id, vocab, String(found.concept_code)).catch(() => [])
+      if (scores.length === 0) {
+        lines.push('Suggestions: none.')
+        return lines.join('\n')
+      }
+      const groups = groupSuggestions(scores).slice(0, perConcept)
       let names = new Map<number, VocabConcept>()
-      try { names = await conceptsById(await vocabularyOf(p), groups.map((g) => g.conceptId)) } catch { /* names optional */ }
-      lines.push('', `Suggestions (${groups.length} best targets of ${new Set(scores.map((s) => s.concept_id)).size}):`)
+      if (vocabulary) {
+        try { names = await conceptsById(vocabulary, groups.map((g) => g.conceptId)) } catch { /* names optional */ }
+      }
+      lines.push(`Suggestions (${groups.length} best targets of ${new Set(scores.map((s) => s.concept_id)).size}):`)
       for (const g of groups) {
         const c = names.get(g.conceptId)
-        lines.push(`  ${c ? describeConcept(c) : g.conceptId}`)
-        lines.push(`    ${g.rows.map((r) => `${r.method} ${r.score.toFixed(2)}${r.method.startsWith('ai/') ? ` ${r.equivalence}` : ''}`).join(' · ')}`)
+        const methods = g.rows.map((r) => `${r.method} ${r.score.toFixed(2)}${r.method.startsWith('ai/') ? ` ${r.equivalence}` : ''}`)
+        lines.push(`  ${c ? describeConcept(c) : g.conceptId} — ${methods.join(' · ')}`)
         const comment = g.rows.find((r) => r.comment)?.comment
         if (comment) lines.push(`    “${comment}”`)
       }
+      return lines.join('\n')
     }
-    return text(lines.join('\n'))
+
+    const parts: string[] = []
+    for (const code of codes) parts.push(await describe(code))
+    return text(parts.join('\n\n'))
   }))
 
   server.registerTool('search_vocabulary', {
@@ -346,7 +443,10 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
       domainIds: domains, vocabularyIds: vocabularies, conceptClassIds: concept_classes,
       standardConcepts: standard === 'any' ? undefined : [standard], conceptIds,
     }, size)
-    const hits = (await api.query(v.databaseId, sql)) as unknown as VocabConcept[]
+    const found = (await api.query(v.databaseId, sql)) as unknown as VocabConcept[]
+    // A code search also ranks codes that merely look alike (8867-4 → 18867-4): keep the exact ones.
+    const exact = found.filter((h) => String(h.concept_code ?? '').toLowerCase() === query.trim().toLowerCase())
+    const hits = exact.length ? exact : found
     const seen = new Set(hits.map((h) => Number(h.concept_id)))
     const lines = hits.map((h) => `- ${describeConcept({ ...h, concept_id: Number(h.concept_id) })}`)
     const synSql = !conceptIds && !domains?.length && !vocabularies?.length && !concept_classes?.length
@@ -368,58 +468,54 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
   }))
 
   server.registerTool('get_vocabulary_concept', {
-    description: 'One target concept with its relationships (e.g. "Maps to" from a non-standard concept to its standard '
-      + 'one), synonyms, ancestors and descendants — to pick the right level of specificity.',
+    description: 'Target concepts in detail, to check finalists and pick the right level of specificity: '
+      + 'relationships (e.g. "Maps to" from a non-standard concept to its standard one), synonyms, ancestors and '
+      + 'descendants. For a drug, its components first: each ingredient with its strength (from drug_strength), the '
+      + 'dose form and the brand. Check a whole batch\'s finalists in one call with concept_ids (a shorter card each: '
+      + 'components and main relationships).',
     annotations: READ,
-    inputSchema: fromJsonSchema<{ mapping_project_id: string; concept_id: number | string }>({
+    inputSchema: fromJsonSchema<{ mapping_project_id: string; concept_id?: number | string; concept_ids?: (number | string)[] }>({
       type: 'object',
-      properties: { mapping_project_id: { type: 'string' }, concept_id: { type: 'number' } },
-      required: ['mapping_project_id', 'concept_id'],
+      properties: {
+        mapping_project_id: { type: 'string' },
+        concept_id: { type: 'number', description: 'One concept, in full.' },
+        concept_ids: { type: 'array', items: { type: 'number' }, description: `Up to ${MAX_READ_BATCH} concepts, a shorter card each.` },
+      },
+      required: ['mapping_project_id'],
     }),
-  }, guard(async ({ mapping_project_id, concept_id }) => {
-    const id = Number(concept_id)
-    if (!Number.isInteger(id)) return failure('concept_id must be an integer.')
+  }, guard(async ({ mapping_project_id, concept_id, concept_ids }) => {
+    const ids = (concept_ids?.length ? concept_ids : concept_id !== undefined ? [concept_id] : []).map(Number)
+    if (ids.length === 0) return failure('Give concept_id or concept_ids.')
+    if (ids.some((id) => !Number.isInteger(id))) return failure('Concept ids must be integers.')
+    if (ids.length > MAX_READ_BATCH) return failure(`At most ${MAX_READ_BATCH} concept_ids per call.`)
     const v = await vocabularyOf(await api.getMappingProject(mapping_project_id))
-    const concept = (await conceptsById(v, [id])).get(id)
-    if (!concept) return failure(`Concept ${id} is not in the vocabulary database.`)
-    const lines = [describeConcept(concept)]
-    const section = async (title: string, sql: string, format: (r: Record<string, unknown>) => string, max: number) => {
-      try {
-        const rows = await api.query(v.databaseId, sql)
-        if (rows.length) {
-          lines.push('', `${title}${rows.length > max ? ` (${max} of ${rows.length})` : ''}:`, ...rows.slice(0, max).map(format))
-        }
-      } catch { /* the vocabulary lacks that table */ }
+    const concepts = await conceptsById(v, ids)
+    const full = !concept_ids?.length
+    const cards: string[] = []
+    for (const id of ids) {
+      const concept = concepts.get(id)
+      cards.push(concept ? await conceptCard(v, concept, full) : `Concept ${id} is not in the vocabulary database.`)
     }
-    const asConcept = (r: Record<string, unknown>) => `  ${describeConcept({ ...(r as unknown as VocabConcept), concept_id: Number(r.concept_id) })}`
-    try {
-      const rows = sortRelations(await api.query(v.databaseId, buildConceptRelationsQuery(id, v.table)))
-      if (rows.length) {
-        const counts = new Map<string, number>()
-        for (const r of rows) counts.set(String(r.relationship_id), (counts.get(String(r.relationship_id)) ?? 0) + 1)
-        lines.push('', `Relationships (${[...counts].map(([k, n]) => `${k} ${n}`).join(', ')}):`,
-          ...rows.slice(0, 30).map((r) => `  ${String(r.relationship_id)}: ${asConcept(r).trim()}`))
-        if (rows.length > 30) lines.push(`  … ${rows.length - 30} more`)
-      }
-    } catch { /* no concept_relationship table */ }
-    await section('Synonyms', buildConceptSynonymsQuery(id), (r) =>
-      `  ${String(r.concept_synonym_name)}${r.language_name ? ` (${String(r.language_name)})` : ''}`, 20)
-    await section('Ancestors (nearest first)', buildConceptAncestorsQuery(id, v.table), asConcept, 12)
-    await section('Descendants (nearest first)', buildConceptDescendantsQuery(id, v.table), asConcept, 15)
-    await section('Descendant count', buildConceptDescendantCountQuery(id, v.table), (r) => `  ${String(r.cnt)}`, 1)
-    return text(lines.join('\n'))
+    if (full && !concepts.has(ids[0])) return failure(cards[0])
+    return text(cards.join('\n\n---\n\n'))
   }))
 
   server.registerTool('add_ai_suggestions', {
     description: 'Leave AI suggestions on source concepts: they appear in the app\'s Suggestions panel (category '
       + '"AI"), where a reviewer accepts or rejects them. Writes nothing else. All-or-nothing: if one item is invalid, '
-      + 'nothing is written. An existing suggestion (same source, target and model) is kept, never overwritten.',
+      + 'nothing is written. An existing suggestion (same source, target and model) is kept, never overwritten. '
+      + 'Write only candidates you would defend to the reviewer: fewer than asked is fine, a candidate you advise '
+      + 'against is noise.',
     annotations: WRITE,
-    inputSchema: fromJsonSchema<{ mapping_project_id: string; model: string; suggestions: SuggestionInput[] }>({
+    inputSchema: fromJsonSchema<{ mapping_project_id: string; model?: string; suggestions: SuggestionInput[] }>({
       type: 'object',
       properties: {
         mapping_project_id: { type: 'string' },
-        model: { type: 'string', description: 'Your model name (e.g. "qwen3-235b"); the method becomes ai/<model>.' },
+        model: {
+          type: 'string',
+          description: 'Your exact model identifier; the method becomes ai/<model>. Leave it out when get_mapping_project '
+            + 'says your client sets it. Never guessed: ask the user if you are not sure.',
+        },
         suggestions: {
           type: 'array',
           description: `Up to ${MAX_WRITE}. Several candidates per source concept are allowed (best first, lower scores for weaker ones).`,
@@ -438,10 +534,11 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
           },
         },
       },
-      required: ['mapping_project_id', 'model', 'suggestions'],
+      required: ['mapping_project_id', 'suggestions'],
     }),
   }, guard(async ({ mapping_project_id, model, suggestions }) => {
-    if (!model?.trim()) return failure('model is required.')
+    const signer = signingModel(agentModel(), model)
+    if (typeof signer !== 'string') return failure(signer.error)
     if (!suggestions?.length) return failure('No suggestion given.')
     if (suggestions.length > MAX_WRITE) return failure(`At most ${MAX_WRITE} suggestions per call.`)
     const p = await api.getMappingProject(mapping_project_id)
@@ -463,7 +560,7 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
       }
     }
     const now = new Date().toISOString()
-    const method = methodForModel(model)
+    const method = methodForModel(signer)
     const rows = suggestions.map((s, i) => {
       const source = lookup(String(s.concept_code), s.vocabulary_id)
       if (typeof source === 'string') errors.push(`${label(s, i)}: ${source}.`)
@@ -605,7 +702,11 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
       properties: {
         mapping_project_id: { type: 'string' },
         mapped_by: { type: 'string', enum: ['me', 'model'], description: 'Author: the user (default) or the model.' },
-        model: { type: 'string', description: 'Your model name, required when mapped_by is "model".' },
+        model: {
+          type: 'string',
+          description: 'Your exact model identifier, when mapped_by is "model" and your client does not set it '
+            + '(get_mapping_project says). Never guessed: ask the user if you are not sure.',
+        },
         mappings: {
           type: 'array',
           description: `Up to ${MAX_WRITE}.`,
@@ -629,12 +730,13 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
   }, guard(async ({ mapping_project_id, mapped_by = 'me', model, mappings }) => {
     if (!mappings?.length) return failure('No mapping given.')
     if (mappings.length > MAX_WRITE) return failure(`At most ${MAX_WRITE} mappings per call.`)
-    if (mapped_by === 'model' && !model?.trim()) return failure('model is required when mapped_by is "model".')
+    const signer = mapped_by === 'model' ? signingModel(agentModel(), model) : null
+    if (signer && typeof signer !== 'string') return failure(signer.error)
     const p = await api.getMappingProject(mapping_project_id)
     const src = await sourceOf(p)
     const v = await vocabularyOf(p)
     const me = await api.me()
-    const author = mapped_by === 'model' ? model!.trim() : (`${me.firstName ?? ''} ${me.lastName ?? ''}`.trim() || me.username)
+    const author = typeof signer === 'string' ? signer : (`${me.firstName ?? ''} ${me.lastName ?? ''}`.trim() || me.username)
     const errors: string[] = []
     const label = (m: { concept_code: string; vocabulary_id?: string }, i: number) =>
       `#${i + 1} (${m.vocabulary_id ? `${m.vocabulary_id}/` : ''}${m.concept_code})`

@@ -20,6 +20,7 @@ import { Kbd } from '@/components/ui/kbd'
 import { isTypingTarget } from '@/lib/utils'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { TruncatedText } from '@/components/ui/truncated-text'
+import { CellContextMenu, useCellContextMenu } from '@/components/ui/cell-context-menu'
 import { Badge } from '@/components/ui/badge'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 // Select imports removed — ColumnFilterSelect now uses DropdownMenu
@@ -1043,6 +1044,7 @@ const ReviewActionsCell = memo(function ReviewActionsCell({
 
 export function MappingsTab({ project }: MappingsTabProps) {
   const { t, i18n } = useTranslation()
+  const cellMenu = useCellContextMenu()
   const role = useMyWorkspaceRole()
   const canWrite = role.can('concept-mapping:write')
   const canDelete = role.can('concept-mapping:delete')
@@ -1167,7 +1169,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
         const clauses: string[] = []
         clauses.push(`concept_code = '${escSql(mapping.sourceConceptCode)}'`)
         if (mapping.sourceVocabularyId) clauses.push(`vocabulary_id = '${escSql(mapping.sourceVocabularyId)}'`)
-        const rows = await queryDataSource(dsId, `SELECT * FROM source_concepts WHERE ${clauses.join(' AND ')} LIMIT 1`)
+        const rows = await queryDataSource(dsId, `SELECT * FROM source_concepts WHERE ${clauses.join(' AND ')} LIMIT 1`, { origin: 'Concept mapping · find a mapping’s source concept' })
         if (rows.length > 0) {
           const r = rows[0] as Record<string, unknown>
           detail.counts = { record_count: Number(r.record_count ?? 0), patient_count: Number(r.patient_count ?? 0) }
@@ -1474,10 +1476,10 @@ export function MappingsTab({ project }: MappingsTabProps) {
       return <MultiSelectFilter value={colFilters.targetVocabularyId ?? []} options={filterOptions.targetVocabularyId} placeholder="Vocab" onChange={(v) => updateMultiFilter('targetVocabularyId', v)} />
     }
     if (columnId === 'targetDomainId' && filterOptions.targetDomainId.length > 0) {
-      return <MultiSelectFilter value={colFilters.targetDomainId ?? []} options={filterOptions.targetDomainId} placeholder="Domain" onChange={(v) => updateMultiFilter('targetDomainId', v)} />
+      return <MultiSelectFilter value={colFilters.targetDomainId ?? []} options={filterOptions.targetDomainId} placeholder={t('concept_mapping.col_domain')} onChange={(v) => updateMultiFilter('targetDomainId', v)} />
     }
     if (columnId === 'targetConceptClassId' && filterOptions.targetConceptClassId.length > 0) {
-      return <MultiSelectFilter value={colFilters.targetConceptClassId ?? []} options={filterOptions.targetConceptClassId} placeholder="Class" onChange={(v) => updateMultiFilter('targetConceptClassId', v)} />
+      return <MultiSelectFilter value={colFilters.targetConceptClassId ?? []} options={filterOptions.targetConceptClassId} placeholder={t('concept_mapping.col_class')} onChange={(v) => updateMultiFilter('targetConceptClassId', v)} />
     }
     if (columnId === 'targetStandardConcept' && filterOptions.targetStandardConcept.length > 0) {
       const stdOptions = filterOptions.targetStandardConcept.map((s) => ({
@@ -1823,7 +1825,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
               project.fileSourceData.rawFileBuffer,
             )
           }
-          const rows = await queryDataSource(dsId, 'SELECT concept_id, concept_code, vocabulary_id FROM source_concepts')
+          const rows = await queryDataSource(dsId, 'SELECT concept_id, concept_code, vocabulary_id FROM source_concepts', { origin: 'Concept mapping · source concept ids' })
           for (const r of rows as Record<string, unknown>[]) {
             const k = `${r.vocabulary_id ?? ''}\0${r.concept_code ?? ''}`
             const cid = Number(r.concept_id)
@@ -2082,7 +2084,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
               project.fileSourceData.rawFileBuffer,
             )
           }
-          const rows = await queryDataSource(dsId, 'SELECT concept_id, concept_code, vocabulary_id FROM source_concepts')
+          const rows = await queryDataSource(dsId, 'SELECT concept_id, concept_code, vocabulary_id FROM source_concepts', { origin: 'Concept mapping · source concept ids' })
           validSourceKeys = new Set()
           for (const r of rows as Record<string, unknown>[]) {
             const k = `${r.vocabulary_id ?? ''}\0${r.concept_code ?? ''}`
@@ -3018,6 +3020,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
                 })}
               </TableRow>
             </TableHeader>
+            <CellContextMenu menu={cellMenu}>
             <TableBody>
               {bulkFilteredCandidates.length === 0 ? (
                 <TableRow>
@@ -3034,7 +3037,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
                   {row.getVisibleCells().map((cell) => {
                     const size = cell.column.getSize()
                     return (
-                      <TableCell key={cell.id} className="overflow-hidden" style={{ width: size, maxWidth: size }}>
+                      <TableCell key={cell.id} className="overflow-hidden" style={{ width: size, maxWidth: size }} onContextMenu={cellMenu.on(cell.getValue())}>
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
                     )
@@ -3049,6 +3052,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
                 </TableRow>
               )}
             </TableBody>
+            </CellContextMenu>
           </Table>
         </div>
 
@@ -3252,6 +3256,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
               )}
             </TableRow>
           </TableHeader>
+          <CellContextMenu menu={cellMenu}>
           <TableBody>
             {visibleItems.length === 0 ? (
               <TableRow>
@@ -3270,17 +3275,14 @@ export function MappingsTab({ project }: MappingsTabProps) {
                   onClick={() => onOpenDetail(row.original.id)}
                 >
                   {row.getVisibleCells().map((cell) => {
-                    const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
-                    const raw = cell.getValue()
-                    const title = raw != null ? String(raw) : undefined
                     return (
                       <TableCell
                         key={cell.id}
                         className="overflow-hidden truncate px-2 py-1 text-xs"
                         style={{ maxWidth: cell.column.getSize() }}
-                        title={title}
+                        onContextMenu={cellMenu.on(cell.getValue())}
                       >
-                        {rendered}
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
                     )
                   })}
@@ -3288,6 +3290,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
               ))
             )}
           </TableBody>
+          </CellContextMenu>
         </Table>
       </div>
 

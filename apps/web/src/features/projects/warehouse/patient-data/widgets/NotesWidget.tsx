@@ -321,7 +321,7 @@ export function NotesWidget({
 
     let cancelled = false
     setLoading(true)
-    patientQuery(dataSourceId, sql)
+    patientQuery(dataSourceId, sql, { origin: 'Notes · the patient’s notes' })
       .then((rows) => {
         if (!cancelled) {
           const noteRows = (rows as unknown as NoteRow[]) ?? []

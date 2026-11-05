@@ -62,7 +62,7 @@ export function VersioningPage() {
         <h1 className="text-2xl font-bold text-foreground">{t('versioning.title')}</h1>
       </div>
 
-      <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-6 pb-6">
+      <div className="flex min-h-0 w-full flex-1 flex-col px-6 pb-6">
         <VersioningTabs
           fillHeight
           gitRemote={projectRemote}
@@ -79,14 +79,6 @@ export function VersioningPage() {
           // Reinstalling replaces every child of the project with the repo's, so
           // it is gated on the same permission as deleting it.
           onReinstall={handleReinstall}
-          // No `renderInlinePull`: the project pull is DISABLED. A project bundles
-          // six kinds of children (dashboards, patient boards, scripts, cohorts,
-          // datasets, pipeline) whose remote-vs-local matching proved too unreliable
-          // — it reported phantom changes and overwrote local work. Without a
-          // renderer GitSyncPanel falls back to the `pull_not_implemented` banner:
-          // push works, taking remote changes back does not.
-          // The implementation is kept, unwired, in components/versioning/ProjectPull
-          // + lib/project-pull*.ts — rebind it here once the matching is trustworthy.
         />
       </div>
     </div>

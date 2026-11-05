@@ -9,6 +9,7 @@ import {
   FileSpreadsheet,
   FileText,
   Folder,
+  FolderCheck,
   FolderUp,
   Loader2,
   RotateCcw,
@@ -17,6 +18,7 @@ import {
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { fsBrowse, fsImportRefusalKey, fsScopeKey, type FsEntry, type FsListing, type FsScope } from '@/lib/api/fs-browser'
 import { formatApiError } from '@/lib/api-client'
@@ -78,10 +80,11 @@ function writeLastDir(path: string) {
 
 interface Props {
   open: boolean
-  /** `folder` returns the folder being browsed; `file` returns the selected file.
-   *  Files are listed in both modes — in `folder` they are shown disabled, so a
+  /** `folder` returns the folder being browsed; `file` returns the selected file;
+   *  `files` returns every file ticked in one folder, through `onPickFiles`.
+   *  Files are listed in every mode — in `folder` they are shown disabled, so a
    *  folder can be recognised by what it holds. */
-  mode: 'folder' | 'file'
+  mode: 'folder' | 'file' | 'files'
   scope: FsScope
   /** Display filter for files, e.g. ['.parquet']. Never a security boundary. */
   extensions?: string[]
@@ -91,7 +94,10 @@ interface Props {
   defaultPath?: string
   title?: string
   onClose: () => void
-  onPick: (path: string) => void
+  /** `folder` and `file` modes. */
+  onPick?: (path: string) => void
+  /** `files` mode. */
+  onPickFiles?: (paths: string[]) => void
 }
 
 /** Browses the server filesystem and returns an absolute path. Server mode only:
@@ -106,13 +112,14 @@ export function ServerPathPickerDialog({
   title,
   onClose,
   onPick,
+  onPickFiles,
 }: Props) {
   const { t } = useTranslation()
   const [listing, setListing] = useState<FsListing | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [selectedFile, setSelectedFile] = useState<FsEntry | null>(null)
+  const [selectedFiles, setSelectedFiles] = useState<FsEntry[]>([])
   /** The path bar is editable: `pathDraft` is what the user is typing, `current`
    *  is the folder actually listed. They differ only mid-edit. */
   const [pathDraft, setPathDraft] = useState('')
@@ -128,7 +135,7 @@ export function ServerPathPickerDialog({
       setLoading(true)
       setError(null)
       setSearch('')  // a fresh folder starts unfiltered
-      setSelectedFile(null)  // ...and the previous folder's pick is void
+      setSelectedFiles([])  // ...and the previous folder's pick is void
       try {
         // Every file is listed, `extensions` only decides which are selectable.
         // Filtering server-side made a folder holding no match look empty — the
@@ -209,7 +216,7 @@ export function ServerPathPickerDialog({
       setListing(next)
       setPathDraft(next.path)
       setSearch('')
-      setSelectedFile(null)
+      setSelectedFiles([])
       setError(null)
     } catch (e) {
       const refusal = fsImportRefusalKey(e)
@@ -239,14 +246,35 @@ export function ServerPathPickerDialog({
     })
   }
 
-  const pickingFile = mode === 'file'
-  const chosen = pickingFile ? selectedFile?.path : current
+  const pickingFile = mode !== 'folder'
+  const multiple = mode === 'files'
+  const chosen = pickingFile ? selectedFiles[0]?.path : current
   const confirm = () => {
-    if (chosen) {
-      onPick(chosen)
-      onClose()
-    }
+    if (!chosen) return
+    if (multiple) onPickFiles?.(selectedFiles.map((f) => f.path))
+    else onPick?.(chosen)
+    onClose()
   }
+  // `files` mode: the files that may be ticked — those shown (the search
+  // narrows them), and every one of the folder, for "select this folder".
+  const isPickable = (e: FsEntry) => e.isDir === false && e.readable !== false && matchesExtension(e.name)
+  const shownPickable = multiple ? filteredEntries.filter(isPickable) : []
+  const folderPickable = multiple ? (listing?.entries ?? []).filter(isPickable) : []
+  const shownSelected = shownPickable.filter((e) => selectedFiles.some((f) => f.path === e.path)).length
+  const toggleAllShown = () => setSelectedFiles((prev) => {
+    const shown = new Set(shownPickable.map((e) => e.path))
+    if (shownSelected === shownPickable.length) return prev.filter((f) => !shown.has(f.path))
+    return [...prev.filter((f) => !shown.has(f.path)), ...shownPickable]
+  })
+  const pickFolder = () => {
+    onPickFiles?.(folderPickable.map((f) => f.path))
+    onClose()
+  }
+
+  const select = (entry: FsEntry) => setSelectedFiles((prev) => {
+    if (!multiple) return [entry]
+    return prev.some((f) => f.path === entry.path) ? prev.filter((f) => f.path !== entry.path) : [...prev, entry]
+  })
 
   return (
     <DialogShell
@@ -256,9 +284,11 @@ export function ServerPathPickerDialog({
       // Narrower than a workbench's 5xl: this is one column of file names, and at
       // full width the rows were mostly empty space between a name and its size.
       className="sm:max-w-2xl"
-      title={title ?? t(pickingFile ? 'server_picker.pick_file' : 'project_folders.pick_folder')}
+      title={title ?? t(multiple ? 'server_picker.pick_files' : pickingFile ? 'server_picker.pick_file' : 'project_folders.pick_folder')}
       onConfirm={confirm}
-      confirmLabel={t(pickingFile ? 'server_picker.select_file' : 'project_folders.select_this_folder')}
+      confirmLabel={multiple
+        ? t('server_picker.select_files', { count: selectedFiles.length })
+        : t(pickingFile ? 'server_picker.select_file' : 'project_folders.select_this_folder')}
       confirmDisabled={!chosen}
       // The workbench body scrolls as one block by default; here the path bar and
       // the search stay put and only the listing scrolls, so it becomes a flex
@@ -266,19 +296,39 @@ export function ServerPathPickerDialog({
       // focus ring is drawn outside their border box, and a clipping body cut it
       // off against the dialog's left and right edges.
       contentClassName="flex flex-col gap-3 overflow-visible"
+      // `files` mode has two ways to confirm, so Cancel moves to the left to
+      // leave them side by side.
+      hideCancel={multiple}
       footerExtra={
-        defaultPath ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-1.5 text-muted-foreground"
-            onClick={() => load(defaultPath)}
-          >
-            <RotateCcw size={13} />
-            {t('project_folders.reset_to_default')}
-          </Button>
+        defaultPath || multiple ? (
+          <div className="flex gap-2">
+            {multiple && (
+              <Button variant="outline" size="sm" onClick={onClose}>
+                {t('common.cancel')}
+              </Button>
+            )}
+            {defaultPath && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 text-muted-foreground"
+                onClick={() => load(defaultPath)}
+              >
+                <RotateCcw size={13} />
+                {t('project_folders.reset_to_default')}
+              </Button>
+            )}
+          </div>
         ) : undefined
       }
+      extraActions={multiple ? (
+        // An unzipped download is one folder of files: take them all without
+        // ticking each.
+        <Button size="sm" disabled={folderPickable.length === 0} onClick={pickFolder} className="gap-1.5">
+          <FolderCheck size={13} />
+          {t('server_picker.select_folder_files', { count: folderPickable.length })}
+        </Button>
+      ) : undefined}
     >
       <div className="space-y-2">
         {/* Enter here navigates to the typed path; it must NOT reach the shell's
@@ -363,6 +413,20 @@ export function ServerPathPickerDialog({
                   <span>..</span>
                 </button>
               )}
+              {shownPickable.length > 1 && (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent"
+                  onClick={toggleAllShown}
+                >
+                  <Checkbox
+                    checked={shownSelected === shownPickable.length ? true : shownSelected > 0 ? 'indeterminate' : false}
+                    tabIndex={-1}
+                    className="pointer-events-none"
+                  />
+                  {t('server_picker.select_all_shown', { count: shownPickable.length })}
+                </button>
+              )}
               {filteredEntries.length === 0 && (
                 <p className="px-2 py-3 text-xs text-muted-foreground">
                   {search ? t('server_picker.no_match') : t('server_picker.empty')}
@@ -376,7 +440,7 @@ export function ServerPathPickerDialog({
                 // diagnosable and a folder never looks empty when it is not.
                 const selectable =
                   isDir || (pickingFile && e.readable !== false && matchesExtension(e.name))
-                const isSelected = !isDir && selectedFile?.path === e.path
+                const isSelected = !isDir && selectedFiles.some((f) => f.path === e.path)
                 return (
                   <button
                     key={e.path}
@@ -389,9 +453,12 @@ export function ServerPathPickerDialog({
                     onClick={() => {
                       if (!selectable) return
                       if (isDir) load(e.path)
-                      else setSelectedFile(e)
+                      else select(e)
                     }}
                   >
+                    {multiple && !isDir && (
+                      <Checkbox checked={isSelected} disabled={!selectable} tabIndex={-1} className="pointer-events-none" />
+                    )}
                     {isDir ? (
                       <Folder size={15} className="shrink-0 text-amber-500" />
                     ) : (

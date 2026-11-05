@@ -91,6 +91,9 @@ export interface ConceptCriteriaConfig {
   conceptMatch?: 'any' | 'all'
   /** Human-readable names keyed by concept_id */
   conceptNames: Record<number, string>
+  /** Vocabulary of each concept, keyed by concept_id: with the name, the comment
+   *  after each id in the generated SQL. */
+  conceptVocabularies?: Record<number, string>
   /** Optional value filters (measurements) — multiple conditions ANDed together */
   valueFilters?: ValueFilter[]
   /** Minimum occurrence count */
@@ -135,6 +138,9 @@ export interface TextCriteriaConfig {
   label?: string
   /** Per-field searches, joined by each one's `operator`. */
   searches?: TextFieldSearch[]
+  /** Only notes of these types (the note's `note_type`); none: every note. With
+   *  no search, the criterion keeps who has a note of one of them. */
+  noteTypes?: string[]
   /** Free-text note kept from the descriptive-only version of this criterion. */
   description: string
 }
@@ -272,6 +278,31 @@ export interface CohortDerivation {
   registeredId?: string
   builtAt: string
   patientCount: number
+  /** What names the derivation server-side: its key, its correspondence rows. */
+  derivationId?: string
+  options?: DerivationOptions
+}
+
+/**
+ * What a derivation keeps — data minimisation — and how it pseudonymises: the
+ * settings as chosen, from which the request is rebuilt against the mapping of
+ * the day (see `derivationRequest`).
+ */
+export interface DerivationOptions {
+  /** The individuals kept: the cohort's level, or a wider one. */
+  scope: CohortLevel
+  /** The tables copied (schema null for the default one); absent: every one. */
+  tables?: { schema: string | null; table: string }[]
+  /** Absent: every variable. */
+  variables?: { conceptIds: number[]; conceptNames: Record<number, string>; dictionaryKeys?: string[] }
+  /** Absent: the birth dates as they are. */
+  birthPrecision?: 'year' | 'month' | 'day'
+  pseudonymization?: {
+    method: 'hmac' | 'random'
+    keepKey: boolean
+    reuseKeyOf?: string
+    correspondence?: { dataSourceId: string; schemaName: string; tableName?: string }
+  }
 }
 
 /**
@@ -288,6 +319,10 @@ export interface DerivedFrom {
   target: DerivationTargetKind
   /** Whether the tables with no patient id were copied, so a rebuild does the same. */
   copyPersonless?: boolean
+  /** What it kept and how it pseudonymised, so a rebuild does the same. */
+  options?: DerivationOptions
+  /** Set by the server: what names the derivation, for another one to reuse its key. */
+  derivationId?: string
   /** A declared SQL schema: the schema the derivation created, set by the
    *  server — the only one deleting the database may drop. */
   schemaName?: string
@@ -346,4 +381,7 @@ export interface CohortExecutionResult {
   /** Set when the run used the SQL tab's unsaved text rather than the saved
    *  definition: `customSql` is what ran (null: the criteria). */
   fromDraft?: { customSql: string | null }
+  /** Set when the run searched some concepts only in the tables the concept
+   *  count found them in: when that count was taken (null: unknown). */
+  narrowedBy?: { countedAt: string | null }
 }

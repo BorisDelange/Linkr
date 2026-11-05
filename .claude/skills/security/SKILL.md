@@ -1,6 +1,6 @@
 ---
 name: security
-description: Everything about Linkr's own security in one place — triage dependency advisories on the current branch (npm audit, pip-audit) and Dependabot alerts (TRIAGE-LOG.csv), run or follow up a full security audit (Cloudflare security-audit skill, results kept in the gitignored .security-audits/), fix audit findings, scan Linkr's own MCP server and skills with skillspector before a release, and apply the disclosure policy that keeps vulnerabilities and their fixes local until the release that ships them. Use when the user asks about security, Dependabot or dependency alerts, a security audit, fixing findings, or a vulnerability report.
+description: Everything about Linkr's own security in one place — triage dependency advisories on the current branch (npm audit, pip-audit) and Dependabot alerts (TRIAGE-LOG.csv), run or follow up a full security audit (Cloudflare security-audit skill, results kept outside the repo in ~/.security-audits/), fix audit findings, scan Linkr's own MCP server and skills with skillspector before a release, and apply the disclosure policy that keeps vulnerabilities and their fixes local until the release that ships them. Use when the user asks about security, Dependabot or dependency alerts, a security audit, fixing findings, or a vulnerability report.
 argument-hint: "[dependencies | audit | fix | scan <path> | policy]"
 ---
 
@@ -22,11 +22,11 @@ means trusted with the instance, user-authored SQL is allowed, tokens in
 | This workflow, the disclosure policy | `.claude/skills/security/` | yes |
 | Dependency workflow and its decision log | `DEPENDENCIES.md`, `TRIAGE-LOG.csv` (next to this file) | yes: dependency advisories are public already |
 | Human overview | `docs/security/README.md` | yes |
-| Audit runs, `AUDIT-LOG.md`, branch backups | `.security-audits/` at the root of the **main checkout** (gitignored) | **no** |
+| Audit runs, `AUDIT-LOG.md`, branch backups | `~/.security-audits/` in the user's home, outside every checkout | **no** |
 | Fixes for Linkr's own vulnerabilities | a local branch `security/<topic>`, in its own worktree | **no**, until the release |
 
-`.security-audits/` exists only in the main checkout (`linkr/`): a worktree does not
-get gitignored folders. Always reach it by that absolute path.
+`~/.security-audits/` lives outside the repo on purpose: every worktree reaches it by
+the same path, target code never sees it, and no `git add` can pick it up.
 
 ## 1. Disclosure policy
 
@@ -60,7 +60,7 @@ Propose, the user decides: a release is theirs to call.
 - Merge the development branch into it regularly so it stays mergeable — pulling is
   fine, only pushing is forbidden.
 - A local branch is one copy. After each session:
-  `git bundle create "<main checkout>/.security-audits/security-<topic>.bundle" <dev branch>..security/<topic>`.
+  `git bundle create ~/.security-audits/security-<topic>.bundle <dev branch>..security/<topic>`.
 
 **At the release** (the `release` skill, before its step 4 so every tier tests the
 fixes): merge `security/<topic>` into the release branch, then release as usual. The
@@ -99,14 +99,12 @@ When the user accepts:
 - **Scope** it (whole repo, or e.g. `apps/api` + `packages/linkr-mcp`) and give it the
   threat model above, so it does not rate what the SPE covers or what is accepted by
   design.
-- **Output directory**: `<main checkout>/.security-audits/run-<N>`, `N` the next
-  unused number. The audit skill accepts a directory inside the target only when the
-  user chose it and version control ignores it: this is that choice — confirm with
-  `git check-ignore -v .security-audits/run-<N>` before starting.
+- **Output directory**: `~/.security-audits/run-<N>`, `N` the next unused number —
+  outside the target, so the audit skill needs no exception for it.
 - **Sandbox**: target code runs in Docker (`docker/spe-sim` images) with no network.
   Mount a clean export of the commit (`git archive <sha> | tar -x -C <scratch>`), not
-  the main checkout: target code must never see `.security-audits/`.
-- **Record** it in `.security-audits/AUDIT-LOG.md`: date, commit, scope, profile,
+  the main checkout: target code must never see `~/.security-audits/`.
+- **Record** it in `~/.security-audits/AUDIT-LOG.md`: date, commit, scope, profile,
   counts by severity, output folder. Never in `REVIEW-LOG.md`.
 
 ## 4. Fixing findings

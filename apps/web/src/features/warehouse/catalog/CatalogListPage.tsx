@@ -219,12 +219,12 @@ export function CatalogListPage() {
               <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', ENTITY_COLORS['data-catalog'].bg)}>
                 <BookOpen size={20} className={ENTITY_COLORS['data-catalog'].icon} />
               </div>
-              <TruncatedText text={localized(catalog.name, language)} readOnly className="min-w-0 flex-1 text-sm font-medium" />
+              <TruncatedText text={localized(catalog.name, language)} className="min-w-0 flex-1 text-sm font-medium" />
               <div className="ml-auto shrink-0">{actionsMenu}</div>
             </div>
             <div className="mt-2 h-4">
               {localized(catalog.description, language) && (
-                <TruncatedText text={localized(catalog.description, language)} readOnly className="text-xs text-muted-foreground" />
+                <TruncatedText text={localized(catalog.description, language)} className="text-xs text-muted-foreground" />
               )}
             </div>
             <BadgeStrip badges={catalog.badges ?? []} className="mt-1.5 h-5" />

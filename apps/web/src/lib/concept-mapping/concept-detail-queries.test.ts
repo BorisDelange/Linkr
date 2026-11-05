@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildConceptAncestorCountQuery, buildConceptDescendantCountQuery } from './concept-detail-queries'
+import { buildConceptAncestorCountQuery, buildConceptDescendantCountQuery, buildDrugStrengthQuery } from './concept-detail-queries'
 
 const squash = (sql: string) => sql.replace(/\s+/g, ' ').trim()
 
@@ -16,5 +16,15 @@ describe('hierarchy count queries', () => {
     const sql = squash(buildConceptDescendantCountQuery(21600001, 'vocab_concept'))
     expect(sql).toContain('JOIN vocab_concept c ON c.concept_id = ca.descendant_concept_id')
     expect(sql).toContain('WHERE ca.ancestor_concept_id = 21600001')
+  })
+})
+
+describe('buildDrugStrengthQuery', () => {
+  it('reads the drug\'s valid strengths, naming ingredients and units from the concept table', () => {
+    const sql = squash(buildDrugStrengthQuery(19020053, 'vocab_concept'))
+    expect(sql).toContain('FROM drug_strength ds')
+    expect(sql).toContain('LEFT JOIN vocab_concept i ON i.concept_id = ds.ingredient_concept_id')
+    expect(sql).toContain('nu.concept_code AS numerator_unit')
+    expect(sql).toContain('WHERE ds.drug_concept_id = 19020053 AND ds.invalid_reason IS NULL')
   })
 })

@@ -50,6 +50,9 @@ export interface SeedInternals {
   databaseCohorts?: Record<string, string[]>
   wikiPages?: string[]
   conceptSets?: string[]
+  /** The JSON files under `data-dictionaries/`: the index of the linked
+   *  dictionaries and, when the build cloned them, each one's repository. */
+  dataDictionaries?: string[]
   serviceMappings?: string[]
   sqlCollections?: string[]
   sqlScriptFiles?: Record<string, string>
@@ -287,6 +290,14 @@ export function buildSeedManifest(
   ] as const) {
     const found = filesIn(tree, dir, '.json')
     if (found.length) internals[key] = found
+  }
+
+  // --- data-dictionaries/: only with its index, which is what the loader reads first ---
+  if (tree.read('data-dictionaries/_dictionaries.json') != null) {
+    internals.dataDictionaries = tree
+      .paths()
+      .filter((p) => p.startsWith('data-dictionaries/') && p.endsWith('.json'))
+      .sort()
   }
 
   // --- wiki/: only with its tree index, which is what the loader reads first ---

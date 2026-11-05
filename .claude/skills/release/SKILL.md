@@ -43,7 +43,7 @@ chosen bump stays below it, say so and ask again.
 ## 2. Security fixes and dependency fixes
 
 Pending security fixes first: if `security/*` branches exist (`git branch --list
-'security/*'`) or `.security-audits/AUDIT-LOG.md` lists findings fixed but not
+'security/*'`) or `~/.security-audits/AUDIT-LOG.md` lists findings fixed but not
 released, ask which ones this release ships and merge those branches into START
 now, so step 4 tests them (`security` skill, §1). They become public with this
 release's push, not before.

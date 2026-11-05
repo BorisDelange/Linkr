@@ -1,0 +1,11 @@
+[
+  {
+    "entityId": "indicate-data-dictionary",
+    "name": "INDICATE data dictionary",
+    "createdAt": "2026-01-02T03:04:05.000Z",
+    "git": {
+      "url": "https://github.com/indicate-eu/data-dictionary",
+      "branch": "main"
+    }
+  }
+]

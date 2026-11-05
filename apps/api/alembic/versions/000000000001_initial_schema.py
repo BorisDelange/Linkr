@@ -95,7 +95,7 @@ def upgrade() -> None:
     sa.Column('orcid', sa.String(length=255), nullable=True),
     sa.Column('password_hash', sa.String(length=255), nullable=True),
     sa.Column('role', sa.String(length=50), nullable=False),
-    sa.Column('is_active', sa.Boolean(), server_default=sa.text('1'), nullable=False),
+    sa.Column('is_active', sa.Boolean(), server_default=sa.true(), nullable=False),
     sa.Column('auth_provider', sa.String(length=20), server_default='local', nullable=False),
     sa.Column('external_id', sa.String(length=255), nullable=True),
     sa.Column('last_login', sa.DateTime(timezone=True), nullable=True),

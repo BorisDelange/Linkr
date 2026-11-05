@@ -15,7 +15,7 @@ const model: CohortReportModel = {
   age: [{ label: '60–69', count: n(30) }], sex: [{ label: 'Female', count: n(42) }],
   months: [{ label: '2150-01', count: n(3) }, { label: '2150-04', count: n(12) }],
   source: { databaseName: 'MIMIC-IV Demo', databasePatients: n(100) },
-  eventTables: [], careUnits: [], sql: 'SELECT 1',
+  eventTables: [], careUnits: [], mortality: null, sql: 'SELECT 1',
 }
 
 describe('summarizeReport', () => {

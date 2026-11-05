@@ -15,7 +15,7 @@ by the API.
 import sqlalchemy as sa
 from alembic import op
 
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 revision = "e5f6a7b8c9d0"
 down_revision = "d4e5f6a7b8c9"
@@ -33,7 +33,7 @@ def upgrade() -> None:
             sa.ForeignKey("workspaces.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column("name", JSONB_or_JSON, nullable=True),
+        sa.Column("name", PortableJSON, nullable=True),
         sa.Column("kind", sa.String(40), nullable=False, server_default="local-openai-compatible"),
         sa.Column("base_url", sa.String(500), nullable=False, server_default=""),
         sa.Column("model", sa.String(200), nullable=False, server_default=""),
@@ -41,7 +41,7 @@ def upgrade() -> None:
         # Derived server-side from base_url, never taken from the client.
         sa.Column("is_local", sa.Boolean(), nullable=False, server_default="1"),
         sa.Column("enabled", sa.Boolean(), nullable=False, server_default="1"),
-        sa.Column("surfaces", JSONB_or_JSON, nullable=True),
+        sa.Column("surfaces", PortableJSON, nullable=True),
         sa.Column("acknowledged_by_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=True),
         sa.Column("acknowledged_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("acknowledgement_text", sa.Text(), nullable=True),
@@ -63,14 +63,14 @@ def upgrade() -> None:
         sa.Column("model", sa.String(200), nullable=False),
         sa.Column("mode", sa.String(20), nullable=False, server_default="quick"),
         sa.Column("lang", sa.String(5), nullable=False, server_default="en"),
-        sa.Column("surfaces", JSONB_or_JSON, nullable=True),
+        sa.Column("surfaces", PortableJSON, nullable=True),
         sa.Column("passed", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("total", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("total_ms", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("prompt_tokens", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("completion_tokens", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("tokens_per_second", sa.Float(), nullable=False, server_default="0"),
-        sa.Column("cases", JSONB_or_JSON, nullable=True),
+        sa.Column("cases", PortableJSON, nullable=True),
         sa.Column("ran_by_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=True),
         sa.Column("ran_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )

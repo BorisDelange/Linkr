@@ -1,7 +1,7 @@
 from sqlalchemy import BigInteger, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin
+from app.models.base import PortableJSON, Base, TimestampMixin
 
 
 class MappingProject(Base, TimestampMixin):
@@ -17,31 +17,31 @@ class MappingProject(Base, TimestampMixin):
         ForeignKey("workspaces.id", ondelete="CASCADE")
     )
     entity_id: Mapped[str | None] = mapped_column(String(255))
-    name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
-    description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    name: Mapped[dict] = mapped_column(PortableJSON, default=dict)  # LocalizedString
+    description: Mapped[dict] = mapped_column(PortableJSON, default=dict)
     status: Mapped[str | None] = mapped_column(String(20))
-    badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
-    readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    badges: Mapped[list | None] = mapped_column(PortableJSON)
+    readme: Mapped[dict | None] = mapped_column(PortableJSON)
     # Entity licence: {id, name?, text} — the text is snapshotted at pick time
     # so it travels with the export (LICENSE.md) independently of the picker.
-    license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    license: Mapped[dict | None] = mapped_column(PortableJSON)
     source_type: Mapped[str] = mapped_column(String(20))  # 'database' | 'file'
     data_source_id: Mapped[str | None] = mapped_column(String(36))
     # Portable form of data_source_id ({lineageId?, entityId?, label?}), stamped
     # when the database is picked. data_source_id is a local UUID that addresses
     # nothing on another instance, so this is what the export carries and the
     # import resolves back to a local database.
-    data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    data_source_ref: Mapped[dict | None] = mapped_column(PortableJSON)
     vocabulary_data_source_id: Mapped[str | None] = mapped_column(String(36))
     # Portable form of vocabulary_data_source_id — same rule as data_source_ref.
-    vocabulary_data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    vocabulary_data_source_ref: Mapped[dict | None] = mapped_column(PortableJSON)
     # Parsed-file metadata WITHOUT the raw bytes (columns/columnMapping/parseOptions/
     # totalRowCount/fileName). The bytes are the blob referenced below.
-    file_source_data: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    file_source_data: Mapped[dict | None] = mapped_column(PortableJSON)
     # How far a database project's source-concept extraction has got, so a run
     # interrupted by a reload (or left for three days) resumes where it stopped
     # rather than re-profiling the whole dictionary.
-    source_extraction: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    source_extraction: Mapped[dict | None] = mapped_column(PortableJSON)
     raw_file_sha: Mapped[str | None] = mapped_column(String(64))
     raw_file_name: Mapped[str | None] = mapped_column(String(255))
     # Suggestion-scores parquet (precomputed match scores), same blob pattern as
@@ -50,11 +50,11 @@ class MappingProject(Base, TimestampMixin):
     scores_file_name: Mapped[str | None] = mapped_column(String(255))
     # Methods whose scores travel with the export as similarity-scores/<method>.csv.
     # Portable (it rides in entity.json): the repo says which methods it versions.
-    versioned_score_methods: Mapped[list | None] = mapped_column(JSONB_or_JSON)
-    concept_set_ids: Mapped[list | None] = mapped_column(JSONB_or_JSON)
-    stats: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
-    import_batches: Mapped[list | None] = mapped_column(JSONB_or_JSON)
-    git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    versioned_score_methods: Mapped[list | None] = mapped_column(PortableJSON)
+    concept_set_ids: Mapped[list | None] = mapped_column(PortableJSON)
+    stats: Mapped[dict | None] = mapped_column(PortableJSON)
+    import_batches: Mapped[list | None] = mapped_column(PortableJSON)
+    git_remote_config: Mapped[dict | None] = mapped_column(PortableJSON)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     # User-facing semver, portable across export/import (see Project.version).
     version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")
@@ -62,9 +62,9 @@ class MappingProject(Base, TimestampMixin):
     # created_by_details are the display snapshot kept for cross-instance imports.
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(Text)
-    created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    created_by_details: Mapped[dict | None] = mapped_column(PortableJSON)
     # Frozen provenance snapshot of the origin organization (not a live link).
-    organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    organization: Mapped[dict | None] = mapped_column(PortableJSON)
     # Stable cross-instance identity (separate from the local PK). Preserved across
     # export/import; a fork mints a new lineage_id and points parent_lineage_id at its source.
     lineage_id: Mapped[str | None] = mapped_column(String(36))
@@ -106,15 +106,15 @@ class ConceptMapping(Base, TimestampMixin):
     equivalence: Mapped[str | None] = mapped_column(String(30))
     status: Mapped[str | None] = mapped_column(String(30))
     match_score: Mapped[float | None] = mapped_column()
-    comments: Mapped[list | None] = mapped_column(JSONB_or_JSON)
-    reviews: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    comments: Mapped[list | None] = mapped_column(PortableJSON)
+    reviews: Mapped[list | None] = mapped_column(PortableJSON)
     # Provenance / review
     mapped_by: Mapped[str | None] = mapped_column(Text)
-    mapped_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    mapped_by_details: Mapped[dict | None] = mapped_column(PortableJSON)
     mapped_on: Mapped[str | None] = mapped_column(String(40))
     assigned_reviewer: Mapped[str | None] = mapped_column(Text)
     reviewed_by: Mapped[str | None] = mapped_column(Text)
-    reviewed_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    reviewed_by_details: Mapped[dict | None] = mapped_column(PortableJSON)
     reviewed_on: Mapped[str | None] = mapped_column(String(40))
     review_comment: Mapped[str | None] = mapped_column(Text)
 
@@ -130,4 +130,4 @@ class ServiceMapping(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(255), default="")
     description: Mapped[str] = mapped_column(Text, default="")
-    rules: Mapped[list] = mapped_column(JSONB_or_JSON, default=list)
+    rules: Mapped[list] = mapped_column(PortableJSON, default=list)

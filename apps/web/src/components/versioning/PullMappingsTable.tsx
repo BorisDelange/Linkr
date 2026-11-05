@@ -261,7 +261,6 @@ export function PullMappingsTable({ changes, selected, conflictChoices, viewKey,
             rowKey={(r) => r.key}
             pageSize={PAGE_SIZE}
             viewKey={viewKey}
-            cellTooltips="all"
             onVisibleRowsChange={setVisible}
           />
         </div>

@@ -1,5 +1,6 @@
 import type { GitFileChange, GitScope } from '@/lib/api/git'
 import { isDefaultSelected, isForeignPath } from '@/lib/git-file-classify'
+import { assignToCards } from '@/lib/pull-quick-actions'
 
 /** One changed file an action will commit, with its git change type (A/M/D) so the
  *  UI can badge it — a "deleted" row makes clear the action REMOVES that file. */
@@ -18,8 +19,12 @@ export interface QuickActionFile {
  * exact paths + change badges and disable the action when nothing relevant changed.
  */
 export interface QuickAction {
+  /** Stable id of the card (its key, and which one is running). */
+  id: string
   /** i18n key for the action title (e.g. versioning.quick_sync_all). */
   labelKey: string
+  /** For a subject card: the subject's i18n key, interpolated as {subject}. */
+  subjectKey?: string
   /** i18n key for the short description shown on the action card. */
   descriptionKey: string
   /** i18n key for the commit message, interpolated with { author }. */
@@ -74,18 +79,6 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
       descriptionKey: 'versioning.quick_desc_all_project',
       messageKey: 'versioning.quick_msg_all_project',
       excludeForeign: true,
-    },
-    {
-      labelKey: 'versioning.quick_sync_dashboards',
-      descriptionKey: 'versioning.quick_desc_dashboards',
-      messageKey: 'versioning.quick_msg_dashboards',
-      patterns: [/^dashboards\//],
-    },
-    {
-      labelKey: 'versioning.quick_sync_scripts',
-      descriptionKey: 'versioning.quick_desc_scripts',
-      messageKey: 'versioning.quick_msg_scripts',
-      patterns: [/^scripts\//],
     },
   ],
   'sql-script-collections': [
@@ -193,12 +186,40 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
 /** Resolve the scope's quick actions against the current changed files. Each
  *  action's `files` preserves the order of `changes`. Actions whose patterns
  *  match nothing still appear with an empty `files` (the UI disables them). */
+/**
+ * Scopes whose push cards are its subjects (the pull's cards, lib/pull-quick-actions):
+ * every one but mapping projects, whose `stats` in entity.json is derived from
+ * mappings.json and must not leave without it.
+ */
+const SUBJECT_SCOPES: GitScope[] = [
+  'workspaces', 'projects', 'sql-script-collections', 'etl-pipelines', 'data-catalogs', 'dq-rule-sets', 'schema-presets', 'databases',
+]
+
 export function buildQuickActions(
   scope: GitScope,
   changes: GitFileChange[],
 ): QuickAction[] {
   const defs = DEFS[scope]
   if (!defs) return []
+  const presets = buildPresets(scope, defs, changes)
+  if (!SUBJECT_SCOPES.includes(scope)) return presets
+  // After "Sync all", one card per subject holding at least one changed file.
+  const all = presets[0]
+  const subjects = assignToCards(scope, all?.files ?? [], (f) => f.path)
+    .filter(({ card }) => card.id !== 'other')
+    .map(({ card, items }): QuickAction => ({
+      id: `subject:${card.id}`,
+      labelKey: 'versioning.quick_sync_subject',
+      subjectKey: `versioning.subject_${card.id}`,
+      descriptionKey: 'versioning.quick_sync_subject_desc',
+      messageKey: 'versioning.quick_sync_subject_message',
+      files: items,
+      isSyncAll: false,
+    }))
+  return [...presets, ...subjects]
+}
+
+function buildPresets(scope: GitScope, defs: QuickActionDef[], changes: GitFileChange[]): QuickAction[] {
   return defs.map((def) => {
     let files: QuickActionFile[] = (def.patterns
       ? changes.filter((c) => def.patterns!.some((re) => re.test(c.path)))
@@ -211,6 +232,7 @@ export function buildQuickActions(
       files = files.filter((f) => !def.exclude!.some((re) => re.test(f.path)))
     }
     return {
+      id: def.messageKey,
       labelKey: def.labelKey,
       descriptionKey: def.descriptionKey,
       messageKey: def.messageKey,

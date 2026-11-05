@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, ArrowDownToLine, GitCommitVertical, Info, KeyRound, Loader2, RefreshCw, Settings, UploadCloud } from 'lucide-react'
+import { AlertTriangle, ArrowDownToLine, GitCommitVertical, GitPullRequest, Info, KeyRound, Loader2, RefreshCw, Settings, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -9,27 +9,30 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from '@/components/ui/context-menu'
 import { useGitSyncStore } from '@/stores/git-sync-store'
 import { useAppStore } from '@/stores/app-store'
-import { cn } from '@/lib/utils'
 import { SectionLabel } from '@/components/ui/section-label'
-import { gitFileMeta, groupGitFiles } from '@/lib/git-file-meta'
+import { groupGitFiles } from '@/lib/git-file-meta'
 import { buildQuickActions, type QuickAction } from '@/lib/git-quick-actions'
-import { SYNC_ALL_ACCENT } from '@/lib/versioning-accent'
-import { changeTypeMeta } from './git-change-meta'
-import type { GitFileChange, GitScope } from '@/lib/api/git'
+import type { GitProposal, GitScope } from '@/lib/api/git'
 import { GitDiffDialog } from './GitDiffDialog'
 import { PushMappingsDialog } from './PushMappingsDialog'
 import { MappingProjectPull } from './MappingProjectPull'
-import { ChangeBadge } from './ChangeBadge'
+import { GitProposals } from './GitProposals'
+import { GIT_PROPOSALS_ENABLED } from '@/lib/git-proposals'
+import { ThreeWayPull } from './ThreeWayPull'
+import { REINSTALLABLE } from '@/lib/entity-reinstall'
+import { useWorkspaceStore } from '@/stores/workspace-store'
+
+/** Scopes pulled through the shared 3-way pull (plan §9.2). */
+const THREE_WAY_SCOPES: GitScope[] = [
+  'workspaces', 'projects', 'sql-script-collections', 'etl-pipelines', 'data-catalogs', 'dq-rule-sets', 'schema-presets', 'databases',
+  'user-plugins', 'settings',
+]
+import { GitFileRow } from './GitFileRow'
+import { QuickActionCard } from './QuickActionCard'
 import { GitErrorInline } from './GitErrorInline'
-import { useConfirmDataVersioning } from './ConfirmDataVersioningDialog'
+import { useConfirmDataVersioning, type DataPushAction } from './ConfirmDataVersioningDialog'
 import { dataFilesToPush } from '@/lib/git-file-classify'
 
 interface GitSyncPanelProps {
@@ -73,12 +76,23 @@ interface GitSyncPanelProps {
  */
 export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, renderInlinePull, onAfterPull, onOpenConfig }: GitSyncPanelProps) {
   const { t } = useTranslation()
-  const { status, branches, syncState, selected, loadingStatus: loadingStatusRaw, loadingSyncState, committing, error, statusError, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, commitPushPaths, togglePath, setAllSelected, lfsPaths, toggleLfs } =
+  const { status, branches, syncState, selected, loadingStatus: loadingStatusRaw, loadingSyncState, committing, error, statusError, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, commitPushPaths, propose, togglePath, setAllSelected, lfsPaths, toggleLfs } =
     useGitSyncStore()
+  const [proposed, setProposed] = useState<GitProposal | null>(null)
+  const [proposalsKey, setProposalsKey] = useState(0)
   const authorName = useAppStore((s) => s.getUserDisplayName())
-  // behind/diverged detection: mapping projects (built-in 3-way pull) and any scope
-  // that supplies its own pull dialog (settings uses an upsert dialog).
-  const syncStateSupported = scope === 'mapping-projects' || !!renderPullDialog || !!renderInlinePull
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  // A workspace in review mode takes changes as merge requests only, for itself
+  // and every entity in it: pushing is replaced by proposing. Set aside with
+  // proposals (lib/git-proposals.ts).
+  const reviewPolicy = useWorkspaceStore((s) =>
+    s._workspacesRaw.find((w) => w.id === (scope === 'workspaces' ? id : s.activeWorkspaceId))?.gitPushPolicy === 'review',
+  )
+  const reviewOnly = GIT_PROPOSALS_ENABLED && reviewPolicy && scope !== 'settings'
+  // Every scope pulls through the shared 3-way pull (ThreeWayPull) unless it
+  // brings its own: mapping projects keep the per-mapping one below.
+  const threeWay = THREE_WAY_SCOPES.includes(scope)
+  const syncStateSupported = scope === 'mapping-projects' || threeWay || !!renderPullDialog || !!renderInlinePull
   // A scope with no pull flow can push but cannot take remote changes back. Say so
   // instead of silently omitting the banner: the gap is invisible otherwise, and it
   // reads as "there is nothing to pull" rather than "this is not built yet".
@@ -93,10 +107,10 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   // A scope pulls INLINE (the panel switches direction) as soon as it supplies a
   // renderer; the rest still open their own dialog from the banner until they move
   // to the same shell. Mapping projects keep their built-in renderer below.
-  const inlinePull = (scope === 'mapping-projects' || !!renderInlinePull) && !renderPullDialog
-  // Which quick action is mid-commit (its messageKey), so ONLY that card spins
+  const inlinePull = (scope === 'mapping-projects' || threeWay || !!renderInlinePull) && !renderPullDialog
+  // Which quick action is mid-run and how, so ONLY that card's button spins
   // while the others merely disable — a shared `committing` would spin them all.
-  const [runningQuickAction, setRunningQuickAction] = useState<string | null>(null)
+  const [runningQuickAction, setRunningQuickAction] = useState<{ id: string; action: DataPushAction } | null>(null)
   // Quick actions (simple, one-click) is the default; Details is the full
   // branch/file/message UI for advanced users.
   const [mode, setMode] = useState<'quick' | 'details'>('quick')
@@ -130,6 +144,21 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   }
 
   const files = status?.files ?? []
+
+  // Same selection and checks as a push, onto a branch of its own: the change
+  // reaches `branch` once the forge merges it (plan §6).
+  const handlePropose = () => {
+    if (!message.trim() || committing || selected.size === 0) return
+    const run = async () => {
+      const result = await propose(scope, id, message.trim(), branch)
+      if (result) {
+        setProposed(result)
+        setMessage('')
+        setProposalsKey((k) => k + 1)
+      }
+    }
+    requestPush(dataFilesToPush(files.filter((f) => selected.has(f.path))), () => void run(), 'propose')
+  }
 
   const handleCommit = () => {
     if (!message.trim() || committing || selected.size === 0) return
@@ -170,18 +199,29 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   // files and write a commit message for the common cases. Each action lists
   // the exact paths it will push (from the current changes) in a hover tooltip.
   const quickActions = buildQuickActions(scope, files)
-  const runQuickAction = (qa: QuickAction) => {
+  const runQuickAction = (qa: QuickAction, action: DataPushAction) => {
     if (committing || mustPullFirst || qa.files.length === 0) return
-    requestPush(dataFilesToPush(qa.files), () => void commitQuickAction(qa))
+    requestPush(dataFilesToPush(qa.files), () => void commitQuickAction(qa, action), action)
   }
-  const commitQuickAction = async (qa: QuickAction) => {
+  const commitQuickAction = async (qa: QuickAction, action: DataPushAction) => {
     // commitPushPaths refreshes the status once the push lands, so the cards
     // reflect the new remote state (the pushed files drop off) without a manual
     // refresh — during that recompute the tab shows the computing spinner, not
     // stale clickable buttons.
-    const message = t(qa.messageKey, { author: authorName || t('versioning.quick_unknown_author') })
-    setRunningQuickAction(qa.messageKey)
+    const message = t(qa.messageKey, {
+      author: authorName || t('versioning.quick_unknown_author'),
+      subject: qa.subjectKey ? t(qa.subjectKey) : '',
+    })
+    setRunningQuickAction({ id: qa.id, action })
     try {
+      if (action === 'propose') {
+        const proposal = await propose(scope, id, message, branch, qa.files.map((f) => f.path))
+        if (proposal) {
+          setProposed(proposal)
+          setProposalsKey((k) => k + 1)
+        }
+        return
+      }
       const result = await commitPushPaths(scope, id, qa.files.map((f) => f.path), message, branch)
       if (result?.pushed) {
         setPushed(true)
@@ -338,8 +378,9 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   const pullMode = inlinePull && mustPullFirst
   const afterPull = async () => {
     // The pull wrote straight to the DB, behind whatever in-memory stores the
-    // scope's own views read — only it knows what to reload.
+    // scope's own views read — only it knows what to reload; a reinstall knows too.
     if (onAfterPull) await onAfterPull()
+    else await REINSTALLABLE[scope]?.reload({ id, workspaceId: activeWorkspaceId ?? undefined })
     if (scope === 'mapping-projects') {
       const { useConceptMappingStore } = await import('@/stores/concept-mapping-store')
       const cm = useConceptMappingStore.getState()
@@ -361,6 +402,18 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   const pullBody = (mode: 'quick' | 'details') =>
     renderInlinePull
       ? renderInlinePull({ branch, remoteHead: syncState?.remoteHead ?? null, mode, onPulled: afterPull })
+      : threeWay
+      ? (
+        <ThreeWayPull
+          scope={scope}
+          id={id}
+          workspaceId={scope === 'workspaces' ? id : activeWorkspaceId ?? undefined}
+          branch={branch}
+          remoteHead={syncState?.remoteHead ?? null}
+          mode={mode}
+          onPulled={afterPull}
+        />
+      )
       : (
         <MappingProjectPull
           projectId={id}
@@ -414,35 +467,20 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
           ) : nothingToCommit ? (
             <p className="py-6 text-center text-xs text-muted-foreground">{t('versioning.sync_clean')}</p>
           ) : (
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {quickActions.map((qa, i) => (
-                  <QuickActionCard
-                    key={qa.messageKey}
-                    action={qa}
-                    primary={i === 0}
-                    running={runningQuickAction === qa.messageKey}
-                    // While one action commits, the others disable (but don't spin);
-                    // a pull-first requirement disables all.
-                    disabled={mustPullFirst || (runningQuickAction != null && runningQuickAction !== qa.messageKey)}
-                    onRun={() => runQuickAction(qa)}
-                    onOpenDiff={setDiffPath}
-                    onViewMappings={scope === 'mapping-projects' ? () => setMappingsOpen(true) : undefined}
-                    t={t}
-                  />
-                ))}
-              </div>
-              {/* A scope without the inline pull can still be blocked here, and
-                  then needs telling why. With the inline pull the panel has
-                  already become the pull, so the notice would restate itself. */}
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
+              {/* Above the cards, not under them: two rows fill the height, so
+                  anything below would sit out of sight. A scope without the
+                  inline pull can still be blocked here, and then needs telling
+                  why. With the inline pull the panel has already become the
+                  pull, so the notice would restate itself. */}
               {mustPullFirst && !inlinePull && (
-                <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
+                <div className="flex shrink-0 items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
                   <Info size={14} className="mt-0.5 shrink-0" />
                   <span>{t('versioning.quick_pull_required')}</span>
                 </div>
               )}
               {pushed && (
-                <span className="flex items-center gap-1 text-xs text-primary">
+                <span className="flex shrink-0 items-center gap-1 text-xs text-primary">
                   <GitCommitVertical size={13} />
                   {t('versioning.sync_pushed')}
                 </span>
@@ -450,6 +488,32 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
               {error && !statusError && (
                 <GitErrorInline code={error.code} detail={error.code === 'pull_required' ? t('versioning.sync_push_blocked') : error.raw} />
               )}
+              {/* Container breakpoints, not viewport ones: the same panel sits in
+                  a full-width page and in a 3xl dialog. A row takes its cards'
+                  height, at most half the panel (two rows fit, more scroll, a
+                  long file list scrolls in its card); `content-start` keeps the
+                  rows from stretching. In an unbounded parent the percentage
+                  reads as auto and the cards take their own height. */}
+              <div className="@container min-h-0 flex-1 overflow-y-auto">
+                <div className="grid h-full auto-rows-[fit-content(calc((100%-0.75rem)/2))] content-start grid-cols-1 gap-3 @xl:grid-cols-2 @5xl:grid-cols-3 @7xl:grid-cols-4">
+                  {quickActions.map((qa) => (
+                    <QuickActionCard
+                      key={qa.id}
+                      action={qa}
+                      canPush={!reviewOnly}
+                      canPropose={GIT_PROPOSALS_ENABLED}
+                      running={runningQuickAction?.id === qa.id ? runningQuickAction.action : null}
+                      // While one action runs, the others disable (but don't spin);
+                      // a pull-first requirement disables all.
+                      disabled={mustPullFirst || (runningQuickAction != null && runningQuickAction.id !== qa.id)}
+                      onRun={(action) => runQuickAction(qa, action)}
+                      onOpenDiff={setDiffPath}
+                      onViewMappings={scope === 'mapping-projects' ? () => setMappingsOpen(true) : undefined}
+                      t={t}
+                    />
+                  ))}
+                </div>
+              </div>
             </div>
           )}
         </TabsContent>
@@ -559,15 +623,34 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
         {mustPullFirst && (
           <span className="text-[11px] text-warning-foreground">{t('versioning.sync_pull_first')}</span>
         )}
-        <Button
-          onClick={handleCommit}
+        {proposed && (
+          <a href={proposed.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-primary hover:underline">
+            <GitPullRequest size={13} />
+            {t('versioning.proposal_opened', { number: proposed.forge === 'github' ? `#${proposed.number}` : `!${proposed.number}` })}
+          </a>
+        )}
+        {GIT_PROPOSALS_ENABLED && <Button
+          variant={reviewOnly ? 'default' : 'outline'}
+          onClick={handlePropose}
           disabled={!message.trim() || nothingToCommit || selected.size === 0 || committing || mustPullFirst}
           className="gap-1.5"
+          title={t('versioning.propose_hint')}
         >
-          {committing ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />}
-          {t('versioning.sync_commit_push')}
-        </Button>
+          <GitPullRequest size={14} />
+          {t('versioning.propose')}
+        </Button>}
+        {!reviewOnly && (
+          <Button
+            onClick={handleCommit}
+            disabled={!message.trim() || nothingToCommit || selected.size === 0 || committing || mustPullFirst}
+            className="gap-1.5"
+          >
+            {committing ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />}
+            {t('versioning.sync_commit_push')}
+          </Button>
+        )}
       </div>
+      {GIT_PROPOSALS_ENABLED && <GitProposals scope={scope} id={id} refreshKey={proposalsKey} />}
       </>}
         </TabsContent>
       </Tabs>
@@ -607,176 +690,5 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
       })}
 
     </div>
-  )
-}
-
-/**
- * A half-width "widget" for one quick action: a colored header (the shared accent
- * for the primary "Sync all", so it reads the same on every versioning page), the
- * exact files it will commit — each with an A/M/D change badge so a deletion is
- * unmistakable — and a commit+push button. Disabled when there's nothing to push
- * or a pull is required.
- */
-function QuickActionCard({
-  action, primary, running, disabled, onRun, onOpenDiff, onViewMappings, t,
-}: {
-  action: QuickAction
-  primary: boolean
-  /** THIS action is mid-commit → show its spinner. */
-  running: boolean
-  /** Disabled (another action is running, or a pull is required) — no spinner. */
-  disabled: boolean
-  onRun: () => void
-  /** Open the full-size diff viewer on a file — same as clicking a row in Details. */
-  onOpenDiff: (path: string) => void
-  /** Open the mappings review table. Absent for scopes without a mappings.json. */
-  onViewMappings?: () => void
-  t: (k: string) => string
-}) {
-  const nothing = action.files.length === 0
-  const accent = action.isSyncAll
-  return (
-    <div className={cn('flex flex-col overflow-hidden rounded-lg border bg-card shadow-sm', accent && SYNC_ALL_ACCENT.border)}>
-      <div className={cn('flex items-center gap-2 px-3 py-2', accent ? SYNC_ALL_ACCENT.headerBg : 'bg-muted/40')}>
-        <UploadCloud size={14} className={cn('shrink-0', accent ? SYNC_ALL_ACCENT.icon : 'text-muted-foreground')} />
-        <span className={cn('text-xs font-semibold', accent && SYNC_ALL_ACCENT.icon)}>{t(action.labelKey)}</span>
-      </div>
-      <div className="flex flex-1 flex-col gap-2 p-3">
-        <p className="text-[11px] leading-relaxed text-muted-foreground">{t(action.descriptionKey)}</p>
-        <div className="min-h-0 flex-1">
-          {nothing ? (
-            <p className="text-[11px] italic text-muted-foreground/70">{t('versioning.quick_nothing')}</p>
-          ) : (
-            <>
-              <SectionLabel as="p" className="tracking-wide text-muted-foreground/70">{t('versioning.quick_will_push')}</SectionLabel>
-              {/* Long change lists scroll inside the card so the widgets never
-                  outgrow the dialog. */}
-              <ul className="mt-1 max-h-48 space-y-0.5 overflow-y-auto">
-                {action.files.map((f) => {
-                  const meta = changeTypeMeta(f.changeType)
-                  return (
-                    <li key={f.path} className="flex items-center gap-1.5 text-[11px]">
-                      <span
-                        className={cn('flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm text-[9px] font-bold', meta.badgeClass)}
-                        title={t(meta.labelKey)}
-                      >
-                        {meta.letter}
-                      </span>
-                      {/* Click opens the same full-size diff viewer as a Details row. */}
-                      <button
-                        type="button"
-                        onClick={() => onOpenDiff(f.path)}
-                        className="block min-w-0 flex-1 truncate text-left font-mono text-muted-foreground hover:text-foreground hover:underline"
-                        title={f.path}
-                      >
-                        {f.path}
-                      </button>
-                      {/* A text diff of ~1500 generated JSON objects hides the one
-                          thing being asked here — which mappings move. Mirrors the
-                          pull side's Choose button. */}
-                      {onViewMappings && f.path === 'mappings.json' && (
-                        <button
-                          type="button"
-                          onClick={onViewMappings}
-                          className="shrink-0 rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
-                        >
-                          {t('versioning.push_view_mappings')}
-                        </button>
-                      )}
-                    </li>
-                  )
-                })}
-              </ul>
-            </>
-          )}
-        </div>
-        <Button
-          size="sm"
-          variant={primary ? 'default' : 'outline'}
-          className="mt-1 h-8 w-full gap-1.5 text-xs"
-          onClick={onRun}
-          disabled={running || disabled || nothing}
-        >
-          {running ? <Loader2 size={13} className="animate-spin" /> : <UploadCloud size={13} />}
-          {t(action.labelKey)}
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-interface GitFileRowProps {
-  scope: GitScope
-  file: GitFileChange
-  checked: boolean
-  isLfs: boolean
-  onToggleSelect: () => void
-  onToggleLfs: () => void
-  onOpenDiff: () => void
-  /** Open the mappings review table. Absent for scopes without a mappings.json. */
-  onViewMappings?: () => void
-}
-
-/** One row of the changes list: commit checkbox, change badge, path, an LFS chip
- *  (click to toggle), an info icon (hover = what the file is for), and a
- *  right-click menu to add/remove LFS tracking. */
-function GitFileRow({ scope, file, checked, isLfs, onToggleSelect, onToggleLfs, onOpenDiff, onViewMappings }: GitFileRowProps) {
-  const { t } = useTranslation()
-  const descriptionKey = gitFileMeta(scope, file.path).descriptionKey
-  const description = descriptionKey ? t(descriptionKey) : null
-  return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <li className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50">
-          <Checkbox checked={checked} onCheckedChange={onToggleSelect} className="shrink-0" />
-          <button
-            type="button"
-            onClick={onOpenDiff}
-            className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs"
-          >
-            <ChangeBadge changeType={file.changeType} />
-            <span className="truncate font-mono">{file.path}</span>
-          </button>
-          {/* Mirrors the pull row's Choose: a text diff of a generated JSON hides
-              which mappings actually move. */}
-          {onViewMappings && file.path === 'mappings.json' && (
-            <button
-              type="button"
-              onClick={onViewMappings}
-              className="shrink-0 rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
-            >
-              {t('versioning.push_view_mappings')}
-            </button>
-          )}
-          {isLfs && (
-            <button
-              type="button"
-              onClick={onToggleLfs}
-              title={t('versioning.lfs_remove')}
-              className="shrink-0 rounded-sm bg-violet-500/15 px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-violet-600 hover:bg-violet-500/25 dark:text-violet-400"
-            >
-              LFS
-            </button>
-          )}
-          {description && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="shrink-0 cursor-help text-muted-foreground/60 hover:text-muted-foreground" aria-label={description}>
-                  <Info size={12} />
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="left" className="max-w-xs text-xs">
-                {description}
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </li>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem onClick={onToggleLfs}>
-          {isLfs ? t('versioning.lfs_remove') : t('versioning.lfs_add')}
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
   )
 }

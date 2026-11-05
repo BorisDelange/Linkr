@@ -88,6 +88,18 @@ class Settings(BaseSettings):
     widget_pool_size: int = 2
     widget_max_concurrency: int = 8
 
+    # Web apps started from the IDE (Shiny, Streamlit, Dash…; services/execution/
+    # web_apps.py). Each is a long-lived process listening on 127.0.0.1, reached
+    # only through the API's own proxy, so no port is ever opened to the network.
+    # Counted apart from the kernels: an app must not cost the user a console.
+    enable_web_apps: bool = True
+    app_port_range: str = "8700-8799"
+    max_apps_per_user: int = 2
+    # Measured from the last request the proxy forwarded, not from the last run.
+    app_idle_timeout_minutes: int = 60
+    # R + Shiny can take tens of seconds to boot on a small SPE machine.
+    app_start_timeout_seconds: int = 120
+
     # Managed environments (uv for Python; renv for R lands with step 5). The uv
     # binary and PyPI index stay configurable so a future internal mirror is a
     # config change, not a re-architecture (see ide-environments-plan §1). The
@@ -95,6 +107,14 @@ class Settings(BaseSettings):
     # every project's venv, under data_dir/.cache/uv (uv hardlinks from it).
     uv_bin: str = "uv"
     pip_index_url: str = "https://pypi.org/simple"
+    # Embeddings runtime (services/suggestions/runtime.py), installed on demand.
+    # `auto`: uv picks the torch build for the machine (CUDA with an NVIDIA
+    # driver, CPU otherwise) from download.pytorch.org; empty: torch comes from
+    # pip_index_url like any package (a mirror that only proxies PyPI). Or name
+    # one: `cpu`, `cu126`…
+    embeddings_torch_backend: str = "auto"
+    # Hugging Face Hub mirror models are downloaded from; empty = the Hub itself.
+    hf_endpoint: str = ""
     # R managed environments (renv). Rscript binary + package repo stay configurable
     # (default p3m: public, Docker-independent, ships binaries so Linux servers don't
     # compile from source). renv's cache is pointed at the Linkr-wide store so a
@@ -118,6 +138,9 @@ class Settings(BaseSettings):
     # big ones together can get the container killed. Own queue: never waits on,
     # nor holds up, an env build.
     max_heavy_queries: int = 1
+    # Every query a database is sent is a job (kind "sql_query"): kept this many
+    # hours once finished, then dropped by storage_gc's loop (and at startup).
+    query_log_hours: int = 24
     # Memory one DuckDB instance opened by db_connect._open (a query, a unit, a
     # materialization over a database) may use before spilling to disk, e.g.
     # "3GB". Per instance, not in total: two heavy queries at once may each take
@@ -150,6 +173,17 @@ class Settings(BaseSettings):
     # so anyone with databases:write can make the server connect anywhere; an
     # SPE deployment should set it to the datamart's hosts.
     db_allowed_hosts: str = ""
+
+    # Git hosts a remote may sit on although they resolve to a private or loopback
+    # address (the remote-URL guard refuses those, against SSRF): comma-separated
+    # `host` or `host:port`, e.g. "gitlab.chu.local,localhost:8929". A listed host
+    # may also be reached over plain http://. Empty = none — a hospital's internal
+    # GitLab must be listed here to be usable.
+    git_allowed_hosts: str = ""
+    # Development only: accept a local path or file:// as a git remote, so the
+    # versioning flows can be tried against a bare repository on this machine.
+    # Never in a deployment — the server would clone (and hand back) its own disk.
+    git_allow_local_remotes: bool = False
 
     # Server-side query engine: how long a warm DuckDB connection to a data
     # source is kept alive between queries before it is closed for inactivity.

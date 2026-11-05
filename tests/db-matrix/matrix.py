@@ -5,9 +5,12 @@ data, a larger copy of it, and the same data loaded into every engine.
     python matrix.py upsample <parquet dir> <out dir> --factor N
     python matrix.py load     <parquet dir> <engine> [--target PATH]
 
-Engines for `load`: duckdb, sqlite (a file at --target), postgresql, mysql
-(the server named by the MATRIX_<ENGINE>_* variables, see engines.py).
-Only DuckDB is needed: it reads the Parquet and writes every other engine.
+Engines for `load`: duckdb, sqlite (a file at --target), postgresql, mysql,
+sqlserver, oracle (the server named by the MATRIX_<ENGINE>_* variables, see
+engines.py). Only DuckDB is needed: it reads the Parquet and writes every other
+engine. A server already holding the same data (its `_linkr_matrix_load` row)
+is left as it is: datamart volumes outlive a run, and loading 100,000 patients
+takes far longer than the matrix itself.
 """
 
 from __future__ import annotations
@@ -66,10 +69,16 @@ def facts(data_dir: Path, out: Path) -> None:
     con = connect_reference(data_dir)
     # The patient with the most measurements that also has a stay: every patient
     # query then has rows to compare.
+    # A dataset with no visit_detail (Synthea) takes the stay from visit_occurrence.
     pid, vid = con.execute("""
         SELECT m.person_id, v.visit_occurrence_id
         FROM measurement m JOIN visit_detail v USING (person_id)
         GROUP BY ALL ORDER BY COUNT(*) DESC, 1, 2 LIMIT 1
+    """).fetchone() or con.execute("""
+        SELECT v.person_id, MIN(v.visit_occurrence_id)
+        FROM visit_occurrence v
+        WHERE v.person_id = (SELECT person_id FROM measurement GROUP BY 1 ORDER BY COUNT(*) DESC, 1 LIMIT 1)
+        GROUP BY 1
     """).fetchone()
     vdid = con.execute(
         "SELECT MIN(visit_detail_id) FROM visit_detail WHERE visit_occurrence_id = ?", [vid]
@@ -204,9 +213,175 @@ def _load_sqlite(data_dir: Path, target: Path) -> None:
     out.close()
 
 
+def _fingerprint(data_dir: Path) -> str:
+    """What was loaded: the dataset's folder, its tables and their sizes."""
+    files = sorted(data_dir.glob("*.parquet"))
+    name = data_dir.parent.name if data_dir.name == "data" else data_dir.name
+    return f"{name}:" + ",".join(f"{p.stem}={p.stat().st_size}" for p in files)
+
+
+def _community(con: duckdb.DuckDBPyConnection, ext: str) -> None:
+    try:
+        con.execute(f"LOAD {ext}")
+    except duckdb.Error:
+        con.execute(f"INSTALL {ext} FROM community")
+        con.execute(f"LOAD {ext}")
+
+
+def _mssql_exec(con: duckdb.DuckDBPyConnection, statement: str) -> None:
+    con.execute("SELECT mssql_exec('dst', ?)", [statement]).fetchall()
+
+
+def _sqlserver(con: duckdb.DuckDBPyConnection, data_dir: Path, tables: list[str]) -> None:
+    admin = engines.admin_config("sqlserver")
+    _community(con, "mssql")
+
+    def secret(database: str) -> None:
+        con.execute(f"CREATE OR REPLACE SECRET dst_login (TYPE mssql, HOST '{admin['host']}', PORT {admin['port']}, "
+                    f"DATABASE '{database}', USER '{admin['user']}', PASSWORD '{engines.PASSWORD}', USE_ENCRYPT true)")
+
+    secret("master")
+    deadline = time.monotonic() + 120
+    while True:
+        try:
+            con.execute("ATTACH '' AS dst (TYPE mssql, SECRET dst_login)")
+            break
+        except duckdb.Error:
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(3)
+    db, schema = admin["database"], admin["load_schema"]
+    _mssql_exec(con, f"IF DB_ID('{db}') IS NULL CREATE DATABASE {db}")
+    con.execute("DETACH dst")
+    secret(db)
+    con.execute("ATTACH '' AS dst (TYPE mssql, SECRET dst_login)")
+    if _loaded(con, f"SELECT * FROM mssql_scan('dst', 'SELECT fingerprint FROM {schema}._linkr_matrix_load')", data_dir):
+        return
+    for t in tables:
+        _mssql_exec(con, f"DROP TABLE IF EXISTS {schema}.[{t}]")
+    _mssql_exec(con, f"IF SCHEMA_ID('{schema}') IS NULL EXEC('CREATE SCHEMA {schema}')")
+    _mssql_exec(con, f"DROP TABLE IF EXISTS {schema}._linkr_matrix_load")
+    con.execute("SELECT mssql_refresh_cache('dst')").fetchall()
+    for t in tables:
+        con.execute(f'CREATE TABLE dst.{schema}."{t}" AS SELECT * FROM read_parquet(\'{data_dir / (t + ".parquet")}\')')
+    for statement in engines.read_only_grants("sqlserver"):
+        _mssql_exec(con, statement)
+    _mssql_exec(con, f"CREATE TABLE {schema}._linkr_matrix_load (fingerprint nvarchar(max))")
+    _mssql_exec(con, f"INSERT INTO {schema}._linkr_matrix_load VALUES (N'{_fingerprint(data_dir)}')")
+
+
+# OHDSI's Oracle DDL: ids NUMBER(19), counts INTEGER, measures NUMBER, text
+# VARCHAR2 — or CLOB past Oracle's 4000 bytes.
+def _oracle_type(duck: str, longest: int | None) -> str:
+    if duck == "BIGINT" or duck == "HUGEINT":
+        return "NUMBER(19)"
+    if duck in ("INTEGER", "SMALLINT", "TINYINT", "BOOLEAN"):
+        return "INTEGER"
+    if duck in ("DOUBLE", "FLOAT") or duck.startswith("DECIMAL"):
+        return "NUMBER"
+    if duck == "DATE":
+        return "DATE"
+    if duck.startswith("TIMESTAMP"):
+        return "TIMESTAMP"
+    return "CLOB" if (longest or 0) * 4 > 4000 else "VARCHAR2(4000 BYTE)"
+
+
+# OHDSI's index scheme for an OMOP CDM: every table on its patient, an event
+# table on its concept and its visit, the vocabulary on its keys. An Oracle
+# warehouse has them, and a correlated EXISTS without them rescans the event
+# table once per patient.
+_INDEXED_COLUMNS = ("person_id", "visit_occurrence_id", "concept_id", "ancestor_concept_id", "descendant_concept_id",
+                    "concept_id_1")
+# Part of what was loaded: a load from before the indexes is redone.
+_ORACLE_LOAD_VERSION = "indexed"
+
+
+def _oracle_indexes(cur, owner: str, table: str, columns: list[str]) -> None:
+    main_concept = f"{table.split('_')[0]}_concept_id"
+    for i, column in enumerate(c for c in columns if c in _INDEXED_COLUMNS or c == main_concept):
+        cur.execute(f'CREATE INDEX {owner}."IX_{table.upper()[:24]}_{i}" ON {owner}."{table.upper()}" ({column.upper()})')
+
+
+def _oracle(con: duckdb.DuckDBPyConnection, data_dir: Path, tables: list[str]) -> None:
+    """Through Oracle's own driver: the DuckDB extension for 1.5 issues no DDL,
+    and the engine under test should not load its own data."""
+    import oracledb
+
+    admin = engines.admin_config("oracle")
+    owner, reader = admin["load_schema"], engines.READER.upper()
+    dsn = f"{admin['host']}:{admin['port']}/{admin['service']}"
+    deadline = time.monotonic() + 300
+    while True:
+        try:
+            ora = oracledb.connect(user=admin["user"], password=engines.PASSWORD, dsn=dsn)
+            break
+        except oracledb.Error:
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(5)
+    cur = ora.cursor()
+
+    def run(statement: str, ignore: bool = False) -> None:
+        try:
+            cur.execute(statement)
+        except oracledb.DatabaseError:
+            if not ignore:
+                raise
+
+    try:
+        cur.execute(f"SELECT fingerprint FROM {owner}.linkr_matrix_load")
+        row = cur.fetchone()
+        if row and row[0].read() == f"{_ORACLE_LOAD_VERSION}:{_fingerprint(data_dir)}":
+            print(f"  already loaded: {data_dir.name}")
+            return
+    except oracledb.DatabaseError:
+        pass
+    run(f'CREATE USER {owner} IDENTIFIED BY "{engines.PASSWORD}" QUOTA UNLIMITED ON USERS', ignore=True)
+    run(f'CREATE USER {reader} IDENTIFIED BY "{engines.PASSWORD}"', ignore=True)
+    run(f"GRANT CREATE SESSION TO {reader}")
+    for t in [*tables, "linkr_matrix_load"]:
+        run(f'DROP TABLE {owner}."{t.upper()}" PURGE', ignore=True)
+    for t in tables:
+        src = f"read_parquet('{data_dir / (t + '.parquet')}')"
+        cols = con.execute(f"DESCRIBE SELECT * FROM {src}").fetchall()
+        longest = {c[0]: con.execute(f'SELECT MAX(strlen("{c[0]}")) FROM {src}').fetchone()[0]
+                   for c in cols if c[1] == "VARCHAR"}
+        types = [_oracle_type(c[1], longest.get(c[0])) for c in cols]
+        run(f'CREATE TABLE {owner}."{t.upper()}" ({", ".join(f"{c[0].upper()} {ty}" for c, ty in zip(cols, types))})')
+        cur.setinputsizes(*[oracledb.DB_TYPE_CLOB if ty == "CLOB" else None for ty in types])
+        insert = f'INSERT INTO {owner}."{t.upper()}" VALUES ({", ".join(f":{i + 1}" for i in range(len(cols)))})'
+        rows = con.execute(f"SELECT * FROM {src}")
+        while batch := rows.fetchmany(20_000):
+            cur.executemany(insert, batch)
+        _oracle_indexes(cur, owner, t, [c[0] for c in cols])
+        run(f'GRANT SELECT ON {owner}."{t.upper()}" TO {reader}')
+    # The optimizer's statistics, as a DBA's nightly job keeps them.
+    cur.callproc("DBMS_STATS.GATHER_SCHEMA_STATS", [owner])
+    run(f"CREATE TABLE {owner}.linkr_matrix_load (fingerprint CLOB)")
+    cur.execute(f"INSERT INTO {owner}.linkr_matrix_load VALUES (:1)", [f"{_ORACLE_LOAD_VERSION}:{_fingerprint(data_dir)}"])
+    ora.commit()
+    ora.close()
+
+
+def _loaded(con: duckdb.DuckDBPyConnection, query: str, data_dir: Path) -> bool:
+    try:
+        rows = con.execute(query).fetchall()
+    except duckdb.Error:
+        return False
+    same = bool(rows) and rows[0][0] == _fingerprint(data_dir)
+    if same:
+        print(f"  already loaded: {data_dir.name}")
+    return same
+
+
 def load(data_dir: Path, engine: str, target: Path | None) -> None:
     con = _duckdb()
     tables = tables_of(data_dir)
+    if engine in ("sqlserver", "oracle"):
+        (_sqlserver if engine == "sqlserver" else _oracle)(con, data_dir, tables)
+        con.close()
+        print(f"  load {engine}: {len(tables)} tables")
+        return
     if engine == "sqlite":
         if target is None:
             raise SystemExit("--target is required for sqlite")
@@ -227,8 +402,13 @@ def load(data_dir: Path, engine: str, target: Path | None) -> None:
         _attach_when_ready(con, admin["dsn"], ext)
         schema = admin["load_schema"]
         if engine == "postgresql":
+            if _loaded(con, f"SELECT fingerprint FROM dst.{schema}._linkr_matrix_load", data_dir):
+                con.close()
+                return
             _remote_exec(con, engine, f"DROP SCHEMA IF EXISTS {schema} CASCADE")
             _remote_exec(con, engine, f"CREATE SCHEMA {schema}")
+            # The load check above read the catalogue before the schema existed.
+            con.execute("CALL pg_clear_cache()")
             schema = f"dst.{schema}"
         else:
             _remote_exec(con, engine, f"DROP DATABASE IF EXISTS {schema}")
@@ -239,6 +419,8 @@ def load(data_dir: Path, engine: str, target: Path | None) -> None:
     for t in tables:
         con.execute(f'CREATE TABLE {schema}."{t}" AS SELECT * FROM read_parquet(\'{data_dir / (t + ".parquet")}\')')
     if engine != "duckdb":
+        if engine == "postgresql":
+            con.execute(f"CREATE TABLE {schema}._linkr_matrix_load AS SELECT ? AS fingerprint", [_fingerprint(data_dir)])
         for statement in engines.read_only_grants(engine):
             _remote_exec(con, engine, statement)
     con.close()

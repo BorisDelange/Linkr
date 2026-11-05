@@ -1,6 +1,6 @@
 // Core application types
 export type { SchemaMapping, SchemaPresetId, CustomSchemaPreset, ErdGroup, PatientSpec, RelationSpec, ConceptSpec, EventSpec, DrugSpec, FieldSpec, SchemaOverrides } from './schema-mapping'
-export type { ConceptList, ConceptListItem, ConceptSet, ConceptSetItem, ConceptSetTranslation, ConceptSetImportBatch, ResolvedConcept, MappingProject, MappingProjectSourceType, MappingProjectStatus, MappingProjectStats, FileColumnMapping, FileSourceData, SourceExtraction, ConceptMapping, MappingComment, MappingReview, MappingStatus, EffectiveMappingStatus, MappingEquivalence, MappingType, SourceConceptIdRange, SourceConceptIdEntry, SuggestionScore, ScoresIndex, SuggestionCategory } from './concept-mapping'
+export type { ConceptList, ConceptListItem, ConceptSet, ConceptSetItem, ConceptSetReviewStatus, ConceptSetTranslation, ConceptSetImportBatch, ResolvedConcept, MappingProject, MappingProjectSourceType, MappingProjectStatus, MappingProjectStats, FileColumnMapping, FileSourceData, SourceExtraction, ConceptMapping, MappingComment, MappingReview, MappingStatus, EffectiveMappingStatus, MappingEquivalence, MappingType, SourceConceptIdRange, SourceConceptIdEntry, SuggestionScore, ScoresIndex, SuggestionCategory } from './concept-mapping'
 export type { DataSourceRef, EntityRef, DataDictionary, UnitConversion, RecommendedUnit } from './concept-mapping'
 export { SUGGESTION_CATEGORIES } from './concept-mapping'
 import type { DataSourceRef, EffectiveMappingStatus, EntityRef } from './concept-mapping'
@@ -191,6 +191,8 @@ export interface Workspace extends Seedable, Authored, Lineaged {
   badgeCategories?: BadgeCategory[]
   readme?: LocalizedString
   license?: EntityLicense
+  /** `review`: changes leave as merge requests only (instance setting, not exported). */
+  gitPushPolicy?: 'direct' | 'review' | null
   gitRemoteConfig?: GitRemoteConfig
   /** Default package lists for new projects' environments, per language:
    *  { python: ["pandas", …], r: ["dplyr", …] }. Undefined = built-in defaults. */
@@ -296,8 +298,9 @@ export interface DatabaseConnectionConfig {
    *  rather than Linkr's data folder. Set by the server alone, once, at creation
    *  (it refuses to take it from a client); never exported. */
   managedPath?: string
-  /** Postgres, server mode: the owner lets Linkr create schemas in it (a
-   *  cohort's derivation). Off by default — every connection is read-only. */
+  /** Postgres, SQL Server, Doris or Oracle, server mode: the owner lets Linkr
+   *  write a cohort's derivation into it. Off by default — every connection is
+   *  read-only. */
   allowWrites?: boolean
   /** Server mode: an absolute server path this database points at — a DuckDB /
    *  SQLite file, or a folder of Parquet. The data is read where it lies and
@@ -309,6 +312,10 @@ export interface DatabaseConnectionConfig {
   /** Doris: the frontend's Arrow Flight SQL port (default 8070), which carries
    *  large results. Machine-local like the host: stripped from exports. */
   flightPort?: number
+  /** Doris: its frontend's HTTP port, where a cohort derivation sends its rows (Stream Load). Default 8030. */
+  httpPort?: number
+  /** Doris: Stream Load over https rather than http (the frontend's port then serves TLS). */
+  httpTls?: boolean
   database?: string
   schema?: string
   /** Sent, never stored: in server mode a username + password typed in the
@@ -595,7 +602,7 @@ export interface EntityLicense {
 
 // --- Wiki Types ---
 
-export interface WikiPage extends Authored {
+export interface WikiPage extends Authored, Lineaged {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. Used as folder name in exports/git. */
   entityId?: string
@@ -607,13 +614,16 @@ export interface WikiPage extends Authored {
   content: LocalizedString
   template?: string
   owner?: string
-  verified?: boolean
-  verifiedAt?: string
+  /** Review workflow; absent reads as draft. */
+  status?: WikiPageStatus
+  statusChangedAt?: string
   reviewDueAt?: string
   sortOrder: number
   createdAt: string
   updatedAt: string
 }
+
+export type WikiPageStatus = 'draft' | 'needs_revision' | 'approved'
 
 export interface WikiAttachment {
   id: string
@@ -800,6 +810,9 @@ export interface PatientDashboard extends Seedable, Authored {
   /** Let synced timelines share one window across every tab of the board, rather
    *  than one per tab. Only affects timelines that have sync turned on. */
   syncTimelinesAcrossTabs?: boolean
+  /** How many patients after the one on screen have their widgets' data loaded
+   *  in advance; 0 loads none. Absent: DEFAULT_READ_AHEAD. */
+  readAheadPatients?: number
   /** Manual data collection bound to this board: which dataset receives what the
    *  clinician types, and which of its columns identify the patient. */
   collection?: PatientCollectionConfig
@@ -938,6 +951,7 @@ export type {
   Cohort,
   CohortMaterialization,
   CohortDerivation,
+  DerivationOptions,
   DerivationTargetKind,
   DerivedFrom,
   AttritionStep,

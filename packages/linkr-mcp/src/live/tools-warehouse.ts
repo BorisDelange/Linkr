@@ -448,24 +448,27 @@ export function registerWarehouseTools(server: Server): void {
 async function runCohort(cohort: Cohort, sampleRows: number | undefined): Promise<ToolResult> {
   const dbId = await cohortDatabase(cohort)
   const mapping = await mappingOf(dbId)
-  const countSql = buildCohortCountSql(cohort, mapping)
-  if (!countSql) return failure('The criteria produce no runnable query.')
+  // Rows are patient-level data; aggregates are the default (plan §2: with a
+  // remote model, schema and aggregates only). With rows, their query counts too.
+  const n = Math.min(sampleRows ?? 0, 50)
+  const sql = n > 0 ? buildCohortResultsSql(cohort, mapping, n) : buildCohortCountSql(cohort, mapping)
+  if (!sql) return failure('The criteria produce no runnable query.')
   const started = Date.now()
-  const total = Number((await api.query(dbId, countSql))[0]?.cnt ?? NaN)
+  const rows = await api.query(dbId, sql)
+  const total = n > 0 ? Number(rows[0]?.cohort_total ?? 0) : Number(rows[0]?.cnt ?? NaN)
   if (Number.isNaN(total)) return failure('The count query returned no "cnt" column.')
+  const sample = n > 0 ? rows : []
+  for (const row of sample) delete row.cohort_total
 
   const attrition: AttritionStep[] = []
   let prev = 0
-  for (const step of buildAttritionQueries(cohort, mapping)) {
-    const count = Number((await api.query(dbId, step.sql))[0]?.cnt ?? 0)
+  const steps = buildAttritionQueries(cohort, mapping)
+  for (const [i, step] of steps.entries()) {
+    // The last step keeps every criterion: the cohort itself, counted above.
+    const count = i === steps.length - 1 ? total : Number((await api.query(dbId, step.sql))[0]?.cnt ?? 0)
     attrition.push({ nodeId: step.nodeId, label: step.label, count, excluded: step.nodeId === '__total__' ? 0 : prev - count })
     prev = count
   }
-  // Rows are patient-level data; aggregates are the default (plan §2: with a
-  // remote model, schema and aggregates only).
-  const n = Math.min(sampleRows ?? 0, 50)
-  const sampleSql = n > 0 ? buildCohortResultsSql(cohort, mapping, n, 0) : null
-  const sample = sampleSql ? await api.query(dbId, sampleSql) : []
   await api.updateCohort(cohort.id, { resultCount: total, attrition })
 
   const out = [`"${loc(cohort.name)}": ${total} ${cohort.level}(s) — ${Date.now() - started} ms`]

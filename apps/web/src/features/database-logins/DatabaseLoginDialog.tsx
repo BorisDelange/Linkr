@@ -12,6 +12,7 @@ import { saveMyDatabaseLogin } from '@/lib/api/database-logins'
 import { localized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import type { LoginPurpose } from '@/stores/database-login-prompt'
 import type { DatabaseConnectionConfig } from '@/types'
 
 interface DatabaseLoginDialogProps {
@@ -23,13 +24,15 @@ interface DatabaseLoginDialogProps {
   sessionOnly?: boolean
   /** Pre-fill when changing an existing login. */
   initialUsername?: string
+  /** `write`: the account a cohort derivation writes this database with. */
+  purpose?: LoginPurpose
 }
 
 /** The user's own account for one external database: tested against the
  *  database before it is kept, and never shown again. Mount it with a `key`
  *  per opening — its fields start from the props. */
 export function DatabaseLoginDialog({
-  dataSourceId, open, onOpenChange, onSaved, sessionOnly = false, initialUsername = '',
+  dataSourceId, open, onOpenChange, onSaved, sessionOnly = false, initialUsername = '', purpose = 'read',
 }: DatabaseLoginDialogProps) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
@@ -49,7 +52,7 @@ export function DatabaseLoginDialog({
     setSaving(true)
     setError(null)
     try {
-      await saveMyDatabaseLogin(dataSourceId, username.trim(), password, remember && !sessionOnly)
+      await saveMyDatabaseLogin(dataSourceId, username.trim(), password, remember && !sessionOnly, purpose)
       onSaved()
     } catch (err) {
       setError(errorText(err))
@@ -66,8 +69,8 @@ export function DatabaseLoginDialog({
     <DialogShell
       open={open}
       onOpenChange={onOpenChange}
-      title={t('database_logins.dialog_title', { name })}
-      description={t('database_logins.dialog_description')}
+      title={t(purpose === 'write' ? 'database_logins.write_dialog_title' : 'database_logins.dialog_title', { name })}
+      description={t(purpose === 'write' ? 'database_logins.write_dialog_description' : 'database_logins.dialog_description')}
       onConfirm={handleSave}
       confirmLabel={t('database_logins.test_and_save')}
       confirmDisabled={!username.trim() || !password}

@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ZoomIn, ZoomOut, Maximize2, Minimize2, Expand } from 'lucide-react'
 // vis-network is ~1.4 MB; import it dynamically so it ships in its own chunk and
 // loads only when the hierarchy graph actually renders (not with the whole page).
@@ -39,6 +40,7 @@ function esc(s: string | number) {
 }
 
 export function HierarchyGraph({ self, ancestors, descendants, edgeRows, originId, onNavigate, fullscreen, onFullscreenChange }: HierarchyGraphProps) {
+  const { t } = useTranslation()
   const canvasRef = useRef<HTMLDivElement>(null)
   const networkRef = useRef<Network | null>(null)
   const nodesDataRef = useRef<DataSet<{ id: number; color: unknown; borderWidth: number; font?: unknown }> | null>(null)
@@ -380,10 +382,10 @@ export function HierarchyGraph({ self, ancestors, descendants, edgeRows, originI
     <div className="relative h-full w-full">
       <div ref={canvasRef} className="h-full w-full" />
       <div className="absolute bottom-3 right-3 flex flex-col gap-1">
-        <button type="button" title="Zoom in"   onClick={() => zoom(1.3)}     className="flex h-7 w-7 items-center justify-center rounded border bg-background text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"><ZoomIn size={13} /></button>
-        <button type="button" title="Zoom out"  onClick={() => zoom(1 / 1.3)} className="flex h-7 w-7 items-center justify-center rounded border bg-background text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"><ZoomOut size={13} /></button>
-        <button type="button" title="Fit"       onClick={fit}                  className="flex h-7 w-7 items-center justify-center rounded border bg-background text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"><Expand size={13} /></button>
-        <button type="button" title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'} onClick={() => onFullscreenChange(!fullscreen)} className="flex h-7 w-7 items-center justify-center rounded border bg-background text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground">
+        <button type="button" title={t('common.zoom_in')} onClick={() => zoom(1.3)}     className="flex h-7 w-7 items-center justify-center rounded border bg-background text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"><ZoomIn size={13} /></button>
+        <button type="button" title={t('common.zoom_out')} onClick={() => zoom(1 / 1.3)} className="flex h-7 w-7 items-center justify-center rounded border bg-background text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"><ZoomOut size={13} /></button>
+        <button type="button" title={t('pipeline.fit_view')} onClick={fit}                  className="flex h-7 w-7 items-center justify-center rounded border bg-background text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"><Expand size={13} /></button>
+        <button type="button" title={fullscreen ? t('dashboard.exit_fullscreen') : t('dashboard.enter_fullscreen')} onClick={() => onFullscreenChange(!fullscreen)} className="flex h-7 w-7 items-center justify-center rounded border bg-background text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground">
           {fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
         </button>
       </div>

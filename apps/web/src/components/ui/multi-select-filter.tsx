@@ -1,12 +1,13 @@
-import { useState, useMemo, useCallback, type ReactNode } from 'react'
+import { useState, useMemo, useCallback, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, ChevronDown, Search } from 'lucide-react'
+import { Check, ChevronDown, Loader2, Search } from 'lucide-react'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { BADGE_TRIGGER_INSET, SelectionTriggerLabel } from '@/components/ui/selection-trigger-label'
 import { isSearchEnter, selectMatchesOnEnter } from '@/components/ui/search-enter'
 import { labelMatcher } from '@/lib/fuzzy-search'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
+import { matchFilterTerm, matchFilterValue } from '@/lib/match-filter'
 
 /** Cap the number of option rows rendered at once. With very large option sets
  *  (e.g. ~3700 categories) rendering every row is the dominant cost; users reach
@@ -44,7 +45,16 @@ interface MultiSelectFilterProps {
   /** Show a chevron so the closed control reads as a normal form select rather
    *  than an inline table filter. For selects sitting in a form, not in a header. */
   showChevron?: boolean
+  /** For a column with too many values to load: `options` is then a first page
+   *  only, and the search runs here, on Enter, instead of filtering `options` as
+   *  the user types. A second Enter selects the matches — as a match value (see
+   *  lib/match-filter) when they are more than the page listed. */
+  onSearch?: (term: string) => Promise<{ options: MultiSelectOption[]; total: number }>
 }
+
+type NormalizedOption = { value: string; label: string; group?: string }
+
+const normalize = (o: MultiSelectOption): NormalizedOption => (typeof o === 'string' ? { value: o, label: o } : o)
 
 /**
  * Trigger styling for a multi-select that sits in a FORM rather than a table
@@ -80,15 +90,18 @@ export function MultiSelectFilter({
   renderOption,
   showChevron = false,
   groupOptions = false,
+  onSearch,
 }: MultiSelectFilterProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const remote = !!onSearch
+  // The last search run on the server, with its page of matches.
+  const [searched, setSearched] = useState<{ term: string; options: NormalizedOption[]; total: number; failed?: boolean } | null>(null)
+  const [searching, setSearching] = useState(false)
+  const searchRun = useRef(0)
 
-  const normalized = useMemo(
-    () => options.map((o) => (typeof o === 'string' ? { value: o, label: o } : o)),
-    [options],
-  )
+  const normalized = useMemo(() => options.map(normalize), [options])
 
   // Same rule as a datatable's Name filter (docs/fuzzy-search.md): every word,
   // any order, accents aside, a typo when nothing contains them. Cleared at once
@@ -99,18 +112,60 @@ export function MultiSelectFilter({
     (term: string) => normalized.filter(labelMatcher(normalized, (o) => o.label, term)),
     [normalized],
   )
-  const searchFiltered = useMemo(() => matchOptions(query), [matchOptions, query])
+  const localFiltered = useMemo(() => (remote ? normalized : matchOptions(query)), [remote, normalized, matchOptions, query])
+  const searchFiltered = searched?.options ?? localFiltered
+  // Server-searched: the selected match values head the list, so one is undone
+  // the way it was made.
+  const matchRows = useMemo<NormalizedOption[]>(
+    () => value.flatMap((v) => {
+      const term = matchFilterTerm(v)
+      return term === null ? [] : [{ value: v, label: t('common.filter_matches', { term }) }]
+    }),
+    [value, t],
+  )
 
-  const visible = searchFiltered.length > RENDER_CAP ? searchFiltered.slice(0, RENDER_CAP) : searchFiltered
-  const hiddenCount = searchFiltered.length - visible.length
+  const capped = searchFiltered.length > RENDER_CAP ? searchFiltered.slice(0, RENDER_CAP) : searchFiltered
+  const visible = matchRows.length ? [...matchRows, ...capped] : capped
+  const matchTotal = searched?.total ?? searchFiltered.length
+  const hiddenCount = matchTotal - capped.length
 
   const valueSet = useMemo(() => new Set(value), [value])
   const isActive = value.length > 0
 
   const selectedLabels = useMemo(() => {
     const byValue = new Map(normalized.map((o) => [o.value, o.label]))
+    for (const o of matchRows) byValue.set(o.value, o.label)
     return value.map((v) => byValue.get(v) ?? v)
-  }, [normalized, value])
+  }, [normalized, matchRows, value])
+
+  // Every match of the server search: listed one by one when the page holds
+  // them all, else as the search itself.
+  const searchedMatches = (s: NonNullable<typeof searched>) =>
+    s.total > s.options.length ? [matchFilterValue(s.term)] : s.options.map((o) => o.value)
+
+  const runSearch = async (term: string) => {
+    if (!onSearch) return
+    const run = ++searchRun.current
+    if (!term) { setSearched(null); return }
+    setSearching(true)
+    try {
+      const page = await onSearch(term)
+      if (run === searchRun.current) setSearched({ term, options: page.options.map(normalize), total: page.total })
+    } catch (err) {
+      console.error('Filter option search failed:', err)
+      if (run === searchRun.current) setSearched({ term, options: [], total: 0, failed: true })
+    } finally {
+      if (run === searchRun.current) setSearching(false)
+    }
+  }
+
+  const closePopover = () => {
+    setOpen(false)
+    setSearch('')
+    setSearched(null)
+    searchRun.current++
+    setSearching(false)
+  }
 
   const toggle = (val: string) => {
     if (valueSet.has(val)) onChange(value.filter((v) => v !== val))
@@ -118,9 +173,11 @@ export function MultiSelectFilter({
   }
 
   const selectAll = () => {
-    const pool = selectAllRespectsSearch ? searchFiltered : normalized
+    const pool = searched
+      ? searchedMatches(searched)
+      : (selectAllRespectsSearch ? searchFiltered : normalized).map((o) => o.value)
     const merged = new Set(value)
-    for (const o of pool) merged.add(o.value)
+    for (const v of pool) merged.add(v)
     onChange([...merged])
   }
 
@@ -129,7 +186,7 @@ export function MultiSelectFilter({
   const defaultTriggerClass = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
   return (
-    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch('') }}>
+    <Popover open={open} onOpenChange={(o) => { if (o) setOpen(true); else closePopover() }}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -146,7 +203,7 @@ export function MultiSelectFilter({
           {isActive ? (
             <SelectionTriggerLabel
               labels={selectedLabels}
-              total={normalized.length}
+              total={remote ? Infinity : normalized.length}
               badgeSize={showChevron ? 'default' : 'xs'}
             />
           ) : (
@@ -174,24 +231,45 @@ export function MultiSelectFilter({
               e.stopPropagation()
               if (!isSearchEnter(e)) return
               e.preventDefault()
+              const term = search.trim()
+              // Server-searched: the first Enter searches, the next one — the
+              // matches on screen — selects them.
+              if (remote && (searching || searched?.failed || term !== (searched?.term ?? ''))) {
+                void runSearch(term)
+                return
+              }
               // Every match, not just the rendered slice — on the live search,
               // which an Enter typed before the debounce settles is ahead of.
-              const next = selectMatchesOnEnter(search, value, matchOptions(search).map((o) => o.value))
+              const matches = searched ? searchedMatches(searched) : matchOptions(search).map((o) => o.value)
+              const next = selectMatchesOnEnter(search, value, matches)
               if (!next) return
               if (next !== value) onChange([...next])
-              setOpen(false)
-              setSearch('')
+              closePopover()
             }}
             placeholder={t('common.search')}
-            className="h-7 w-full rounded border bg-transparent pl-7 pr-2 text-[11px] outline-none placeholder:text-muted-foreground focus:border-primary"
+            title={remote ? t('common.filter_on_enter_hint') : undefined}
+            className={cn(
+              'h-7 w-full rounded border bg-transparent pl-7 pr-2 text-xs outline-none placeholder:text-muted-foreground focus:border-primary',
+              remote && 'pr-6',
+            )}
           />
+          {/* Searching waits for Enter here, so the field says so. */}
+          {remote && (searching ? (
+            <Loader2 size={11} className="absolute right-2 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground" />
+          ) : (
+            <kbd aria-hidden className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 rounded border bg-muted px-1 font-sans text-[10px] leading-tight text-muted-foreground">
+              ↵
+            </kbd>
+          ))}
         </div>
         <div className="mb-1.5 flex items-center justify-between">
           <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={selectAll}
-              className="text-[10px] text-muted-foreground hover:text-foreground"
+              // Server-searched, "all" before a search is the whole column — no filter.
+              disabled={remote && (!searched || searched.failed)}
+              className="text-[10px] text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
             >
               {t('common.select_all')}
             </button>
@@ -205,7 +283,7 @@ export function MultiSelectFilter({
             </button>
           </div>
           <span className="text-[10px] text-muted-foreground">
-            {value.length}/{normalized.length}
+            {remote ? t('common.n_selected', { count: value.length }) : `${value.length}/${normalized.length}`}
           </span>
         </div>
         <div
@@ -252,12 +330,16 @@ export function MultiSelectFilter({
               </div>
             )
           })}
-          {searchFiltered.length === 0 && (
+          {searched?.failed ? (
+            <p role="alert" className="py-2 text-center text-[10px] text-destructive">{t('common.filter_search_failed')}</p>
+          ) : searchFiltered.length === 0 && (
             <p className="py-2 text-center text-[10px] text-muted-foreground">{t('common.no_results')}</p>
           )}
-          {hiddenCount > 0 && (
+          {remote && !searched ? (
+            <p className="py-1.5 text-center text-[10px] text-muted-foreground">{t('common.search_all_values_on_enter')}</p>
+          ) : hiddenCount > 0 && (
             <p className="py-1.5 text-center text-[10px] text-muted-foreground">
-              {t('common.refine_search', { shown: visible.length, total: searchFiltered.length, defaultValue: 'Showing {{shown}} of {{total}} — refine your search' })}
+              {t('common.refine_search', { shown: capped.length, total: matchTotal, defaultValue: 'Showing {{shown}} of {{total}} — refine your search' })}
             </p>
           )}
         </div>

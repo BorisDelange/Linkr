@@ -23,7 +23,7 @@ from typing import Any, Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 revision: str = "b7c1d9e3f5a2"
 down_revision: Union[str, None] = "d4f6b8c0e2a3"
@@ -86,10 +86,10 @@ def convert(dimensions: Any, category_column: str | None, subcategory_column: st
 
 def upgrade() -> None:
     with op.batch_alter_table("data_catalogs", schema=None) as batch_op:
-        batch_op.add_column(sa.Column("variables", JSONB_or_JSON, nullable=True))
-        batch_op.add_column(sa.Column("crossings", JSONB_or_JSON, nullable=True))
+        batch_op.add_column(sa.Column("variables", PortableJSON, nullable=True))
+        batch_op.add_column(sa.Column("crossings", PortableJSON, nullable=True))
         batch_op.add_column(sa.Column("computed_steps", sa.Integer(), nullable=True))
-        batch_op.add_column(sa.Column("pages_deployment", JSONB_or_JSON, nullable=True))
+        batch_op.add_column(sa.Column("pages_deployment", PortableJSON, nullable=True))
 
     bind = op.get_bind()
     table = sa.table(
@@ -99,8 +99,8 @@ def upgrade() -> None:
         sa.column("category_column", sa.String),
         sa.column("subcategory_column", sa.String),
         sa.column("period_config", sa.JSON),
-        sa.column("variables", JSONB_or_JSON),
-        sa.column("crossings", JSONB_or_JSON),
+        sa.column("variables", PortableJSON),
+        sa.column("crossings", PortableJSON),
     )
     rows = bind.execute(sa.select(
         table.c.id, table.c.dimensions, table.c.category_column, table.c.subcategory_column, table.c.period_config,

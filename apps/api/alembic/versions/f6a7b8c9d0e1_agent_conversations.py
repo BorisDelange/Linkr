@@ -15,7 +15,7 @@ the assistant's settings, so an empty table is a valid state.
 import sqlalchemy as sa
 from alembic import op
 
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 revision = "f6a7b8c9d0e1"
 down_revision = "e5f6a7b8c9d0"
@@ -43,7 +43,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("title", sa.Text(), nullable=False, server_default=""),
-        sa.Column("messages", JSONB_or_JSON, nullable=True),
+        sa.Column("messages", PortableJSON, nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )

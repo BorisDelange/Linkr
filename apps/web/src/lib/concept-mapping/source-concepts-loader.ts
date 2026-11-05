@@ -42,6 +42,7 @@ export async function loadAllSourceConcepts(project: MappingProject): Promise<So
     const rows = await queryDataSourceAll(
       fileSourceDataSourceId(project.id),
       'SELECT vocabulary_id, concept_code, concept_name FROM source_concepts',
+      { origin: 'Concept mapping · source concepts' },
     )
     const out = rows.map((r) => ({
       vocabularyId: String(r.vocabulary_id ?? localized(project.name, 'en')),

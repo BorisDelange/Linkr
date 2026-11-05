@@ -10,6 +10,7 @@
     "fitToHeight": null,
     "reloadWidgetsOnTabSwitch": null,
     "syncTimelinesAcrossTabs": null,
+    "readAheadPatients": null,
     "displayOrder": 0,
     "createdBy": null,
     "createdByDetails": null,

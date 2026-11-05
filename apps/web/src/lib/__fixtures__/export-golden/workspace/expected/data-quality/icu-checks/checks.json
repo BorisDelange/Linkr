@@ -1,7 +1,5 @@
 [
   {
-    "id": "chk1",
-    "ruleSetId": "dq1",
     "name": {
       "en": "No null person_id",
       "fr": "person_id non nul"
@@ -18,7 +16,6 @@
     "templateKey": "ddl.not_null:person.person_id",
     "tableName": "person",
     "disabled": false,
-    "createdAt": "2026-01-02T03:04:05.000Z",
-    "updatedAt": "2026-06-01T00:00:00.000Z"
+    "createdAt": "2026-01-02T03:04:05.000Z"
   }
 ]

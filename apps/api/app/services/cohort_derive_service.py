@@ -3,10 +3,12 @@ resolving the source and the target, the permissions, and recording what was
 built on the database it produced and on the cohort."""
 
 import asyncio
+import base64
 import concurrent.futures
 import contextlib
 import copy
 import re
+import secrets
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
@@ -14,8 +16,11 @@ from datetime import datetime, timezone
 import duckdb
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import crypto
+from app.core.redact import redact_secrets
 from app.models.cohort import Cohort
 from app.models.data_source import DataSource
+from app.models.pseudonym_key import PseudonymKey
 from app.schemas.data_source import DeriveRequest
 from app.services import data_source_service, database_credential_service
 from app.services.database_credential_service import Login
@@ -40,11 +45,56 @@ async def _source_spec(db: AsyncSession, source: DataSource, user_id: int) -> co
     return cohort_derive.SourceSpec(specs["source"])
 
 
-async def plan(db: AsyncSession, source: DataSource, level: str, user_id: int) -> list[dict]:
+async def plan(db: AsyncSession, source: DataSource, level: str, scope: str | None, user_id: int) -> list[dict]:
     spec = await _source_spec(db, source, user_id)
     connection_pool.invalidate(source.id)
     mapping = cohort_derive.effective_mapping(source.schema_mapping or {}, source.schema_overrides)
-    return await asyncio.to_thread(cohort_derive.plan, spec, mapping, level)
+    return await asyncio.to_thread(cohort_derive.plan, spec, mapping, level, scope)
+
+
+# The engines a derivation writes into with a login of its own (`write`): their
+# read logins are checked read-only at every attach. Postgres writes with the
+# user's own login, on a database whose owner allowed it.
+WRITE_LOGIN_ENGINES = ("sqlserver", "doris", "oracle")
+WRITABLE_ENGINES = ("postgresql", *WRITE_LOGIN_ENGINES)
+
+
+def _engine(source: DataSource) -> str | None:
+    return (source.connection_config or {}).get("engine")
+
+
+def write_purpose(source: DataSource) -> str:
+    """Which of the user's logins a derivation writes `source` with."""
+    if _engine(source) in WRITE_LOGIN_ENGINES:
+        return database_credential_service.WRITE
+    return database_credential_service.READ
+
+
+def takes_write_login(source: DataSource) -> bool:
+    return _engine(source) in WRITE_LOGIN_ENGINES and bool((source.connection_config or {}).get("allowWrites"))
+
+
+async def test_write_login(config: dict, password: str | None) -> tuple[bool, str | None]:
+    """Whether a write login opens the database writable — no read-only check:
+    it is the derivation's, which only ever runs the statements it generates."""
+
+    def probe() -> None:
+        con = cohort_derive._connect()
+        writer = None
+        try:
+            writer = cohort_derive.derive_writers.writer_for(
+                con, cohort_derive.derive_writers.Destination("external", config=config, password=password), "probe",
+            )
+        finally:
+            if writer is not None:
+                writer.close()
+            con.close()
+
+    try:
+        await asyncio.to_thread(probe)
+    except Exception as exc:  # noqa: BLE001 — the driver's message is the diagnosis
+        return False, redact_secrets(str(exc))
+    return True, None
 
 
 def _writable_target(
@@ -56,11 +106,11 @@ def _writable_target(
         if not path.exists():
             raise DeriveError("the target database file is missing")
         return cohort_derive.TargetSpec("file", path=str(path), schema=schema_name, replace_schema=replace)
-    if config.get("engine") == "postgresql":
+    if config.get("engine") in WRITABLE_ENGINES:
         if not config.get("allowWrites"):
             raise DeriveError("this database does not allow Linkr to write into it")
         if login is None:
-            raise database_credential_service.CredentialRequired(target)
+            raise database_credential_service.CredentialRequired(target, write_purpose(target))
         return cohort_derive.TargetSpec(
             "external",
             config=database_credential_service.with_login(config, login),
@@ -68,16 +118,37 @@ def _writable_target(
             schema=schema_name,
             replace_schema=replace,
         )
-    raise DeriveError("a new schema can only be created in a database Linkr owns, or in Postgres")
+    raise DeriveError(
+        "a new schema can only be created in a database Linkr owns, or in a Postgres, SQL Server, Doris or "
+        "Oracle database that allows Linkr to write"
+    )
+
+
+async def write_login(db: AsyncSession, target: DataSource, user_id: int) -> Login | None:
+    """The launcher's login to write `target` with — asked for only once the
+    target is known to be one Linkr may write a schema into."""
+    config = target.connection_config or {}
+    if config.get("engine") not in WRITABLE_ENGINES or not config.get("allowWrites"):
+        return None
+    return await database_credential_service.resolve_login(db, target, user_id, write_purpose(target))
 
 
 async def _target_login(db: AsyncSession, target: DataSource, body: DeriveRequest, user_id: int) -> Login | None:
-    """The launcher's login to the target — asked for only once the target is
-    known to be one Linkr may write a schema into."""
-    config = target.connection_config or {}
-    if body.target.kind != "schema" or config.get("engine") != "postgresql" or not config.get("allowWrites"):
+    if body.target.kind != "schema":
         return None
-    return await database_credential_service.resolve_login(db, target, user_id)
+    return await write_login(db, target, user_id)
+
+
+async def drop_login(db: AsyncSession, source: DataSource, user_id: int) -> Login | None:
+    """The login that drops the SQL schema a derivation created, with the
+    database declared on it: the write login of the database the schema is in,
+    where reading takes a read-only one."""
+    if _engine(source) not in WRITE_LOGIN_ENGINES:
+        return await database_credential_service.resolve_login(db, source, user_id)
+    target = await db.get(DataSource, (source.linkr_created or {}).get("targetId"))
+    if target is None:
+        raise DeriveError("the database this schema was derived into is gone: drop the schema there")
+    return await database_credential_service.resolve_login(db, target, user_id, database_credential_service.WRITE)
 
 
 def _created(source: DataSource) -> dict:
@@ -148,6 +219,127 @@ async def _target_spec(
     raise DeriveError(f"unknown target kind {t.kind!r}")
 
 
+def derivation_id(target: DataSource, body: DeriveRequest) -> str:
+    """What names one derivation: the database written, or `<database>.<schema>`."""
+    t = body.target
+    return target.id if t.kind == "new-database" else f"{target.id}.{t.schema_name}"
+
+
+def _key_context(derivation: str) -> str:
+    return f"pseudonym-key:{derivation}"
+
+
+def _table_key(ref) -> cohort_derive.TableKey:
+    return (ref.schema_name.lower() if ref.schema_name else None, ref.table.lower())
+
+
+def _minimization(body: DeriveRequest) -> cohort_derive.Minimization:
+    dates: dict[cohort_derive.TableKey, dict[str, str]] = {}
+    for d in body.dates:
+        dates.setdefault(_table_key(d), {})[d.column] = d.precision
+    return cohort_derive.Minimization(
+        scope=body.scope,
+        tables=None if body.tables is None else {_table_key(t) for t in body.tables},
+        variables={_table_key(v): (v.columns, v.concept_ids) for v in body.variables},
+        dates=dates,
+    )
+
+
+def _check_options(body: DeriveRequest) -> None:
+    try:
+        cohort_derive.check_scope(body.level, body.scope)
+    except ValueError as exc:
+        raise DeriveError(str(exc)) from exc
+    if any(d.precision not in cohort_derive.DATE_PRECISIONS for d in body.dates):
+        raise DeriveError("a date is kept to the year, to the month, or emptied")
+    p = body.pseudonymization
+    if p is not None and p.method not in ("hmac", "random"):
+        raise DeriveError("pseudonyms are drawn by HMAC or at random")
+    if p is not None and p.method == "random" and p.reuse_key_of:
+        raise DeriveError("only an HMAC pseudonymisation reuses a key")
+
+
+async def _correspondence_target(
+    db: AsyncSession, source: DataSource, target: DataSource, body: DeriveRequest, user_id: int,
+) -> cohort_derive.TargetSpec | None:
+    """Where the correspondence goes: never into the derived database itself —
+    the CNIL referential keeps it apart from the pseudonymised data (5.8)."""
+    p = body.pseudonymization
+    if p is None or p.correspondence is None:
+        return None
+    c = p.correspondence
+    corr = await db.get(DataSource, c.data_source_id)
+    if corr is None or corr.workspace_id != source.workspace_id:
+        raise DeriveError("the correspondence database is not one of this workspace")
+    if _same_database(target, corr):
+        raise DeriveError("the correspondence cannot go into the derived database: keep it apart")
+    if not _SCHEMA_NAME.match(c.schema_name or "") or not _SCHEMA_NAME.match(c.table_name or ""):
+        raise DeriveError("the correspondence schema and table names must be lowercase letters, digits and underscores")
+    if data_source_service.is_managed(corr) and data_source_service.is_managed(source) and _same_database(source, corr):
+        raise DeriveError("the correspondence cannot go into the file the cohort is read from")
+    return _writable_target(corr, c.schema_name, False, await write_login(db, corr, user_id))
+
+
+def _open_key(row: PseudonymKey) -> bytes:
+    raw = crypto.decrypt(row.sealed_key, _key_context(row.id))
+    if raw is None:
+        raise DeriveError("the kept pseudonymisation key cannot be opened on this server")
+    return base64.b64decode(raw)
+
+
+async def _hmac_key(db: AsyncSession, workspace_id: str | None, derivation: str, body: DeriveRequest) -> bytes:
+    """The key to draw with: another derivation's (a cohort followed over time),
+    else this one's own, kept from its last build — which also stands in for a
+    followed derivation deleted since — else a new one."""
+    p = body.pseudonymization
+    own = await db.get(PseudonymKey, derivation) if p.keep_key else None
+    if p.reuse_key_of:
+        row = await db.get(PseudonymKey, p.reuse_key_of)
+        if row is not None and row.workspace_id == workspace_id:
+            return _open_key(row)
+        if own is None:
+            raise DeriveError("no key is kept for the derivation to follow")
+    if own is not None:
+        return _open_key(own)
+    return secrets.token_bytes(32)
+
+
+async def _pseudonyms(
+    db: AsyncSession, source: DataSource, target: DataSource, body: DeriveRequest, user_id: int,
+) -> cohort_derive.Pseudonyms | None:
+    p = body.pseudonymization
+    if p is None:
+        return None
+    derivation = derivation_id(target, body)
+    key = await _hmac_key(db, source.workspace_id, derivation, body) if p.method == "hmac" else None
+    return cohort_derive.Pseudonyms(
+        p.method,
+        key,
+        await _correspondence_target(db, source, target, body, user_id),
+        p.correspondence.table_name if p.correspondence else "linkr_pseudonyms",
+        derivation,
+        job_label(source, target, body, None),
+    )
+
+
+async def _keep_key(
+    db: AsyncSession, source: DataSource, derivation: str, body: DeriveRequest, pseudonyms, user_id: int,
+) -> None:
+    """Kept, sealed, when asked; otherwise no key of an earlier build is left:
+    its pseudonyms are no longer the ones in the database."""
+    row = await db.get(PseudonymKey, derivation)
+    keep = pseudonyms is not None and pseudonyms.method == "hmac" and body.pseudonymization.keep_key
+    if not keep:
+        if row is not None:
+            await db.delete(row)
+        return
+    sealed = crypto.encrypt(base64.b64encode(pseudonyms.key).decode("ascii"), _key_context(derivation))
+    if row is None:
+        db.add(PseudonymKey(id=derivation, workspace_id=source.workspace_id, sealed_key=sealed, created_by=user_id))
+    else:
+        row.sealed_key = sealed
+
+
 # Target id → the job deriving into it (None while that job is being created).
 # In memory: jobs run in this process, and none survives a restart.
 _running: dict[str, str | None] = {}
@@ -194,8 +386,10 @@ async def validate(
     """Every refusal a derivation can meet before it copies anything — so the
     request that starts the job answers 400 (or 428, a missing login) rather than
     queueing a job that fails."""
+    _check_options(body)
     await _source_spec(db, source, user_id)
     await _target_spec(source, target, body, await _target_login(db, target, body, user_id))
+    await _pseudonyms(db, source, target, body, user_id)
 
 
 async def _in_thread(fn, control: cohort_derive.DeriveControl):
@@ -235,12 +429,13 @@ async def derive(
     t = body.target
     target_login = await _target_login(db, target, body, user_id)
     target_spec, config, new_location = await _target_spec(source, target, body, target_login)
+    pseudonyms = await _pseudonyms(db, source, target, body, user_id)
     first_build = t.kind == "new-database" and not _created(target).get("file")
     target_id = target.id  # read now: a rollback expires the instance
     try:
         return await _derive(
             db, source, target, body, cohort, mapping, spec, target_spec, config, new_location, progress,
-            user_id, target_login,
+            user_id, target_login, pseudonyms,
         )
     except BaseException:
         if first_build:
@@ -255,7 +450,7 @@ async def derive(
 
 async def _derive(
     db, source, target, body, cohort, mapping, spec, target_spec, config, new_location, progress,
-    user_id: int, target_login: Login | None,
+    user_id: int, target_login: Login | None, pseudonyms: cohort_derive.Pseudonyms | None,
 ) -> dict:
     t = body.target
     loop = asyncio.get_running_loop()
@@ -271,13 +466,18 @@ async def _derive(
     # to open them again in the same process.
     connection_pool.invalidate(source.id)
     connection_pool.invalidate(target.id)
+    if body.pseudonymization is not None and body.pseudonymization.correspondence is not None:
+        connection_pool.invalidate(body.pseudonymization.correspondence.data_source_id)
 
     try:
         members = await _in_thread(lambda: cohort_derive.compute_members(spec, body.membership_sql), control)
         if progress is not None:
             await progress(5, f"{members.num_rows} rows in the cohort")
         tables = await _in_thread(
-            lambda: cohort_derive.derive(spec, target_spec, members, mapping, body.level, body.copy_personless, control),
+            lambda: cohort_derive.derive(
+                spec, target_spec, members, mapping, body.level, body.copy_personless, control,
+                _minimization(body), pseudonyms,
+            ),
             control,
         )
     finally:
@@ -286,7 +486,11 @@ async def _derive(
         await asyncio.gather(*(asyncio.wrap_future(f) for f in table_reports), return_exceptions=True)
     patient_count = len(set(members.column("patient_id").to_pylist()))
     built_at = datetime.now(timezone.utc).isoformat()
-    derived_from = {**(body.derived_from or {}), "builtAt": built_at, "patientCount": patient_count}
+    derivation = derivation_id(target, body)
+    derived_from = {
+        **(body.derived_from or {}), "builtAt": built_at, "patientCount": patient_count, "derivationId": derivation,
+    }
+    await _keep_key(db, source, derivation, body, pseudonyms, user_id)
 
     produced_id: str | None = None
     # A rebuild of a schema declared before updates that database, rather than
@@ -363,6 +567,9 @@ async def _derive(
             **({"registeredId": produced_id} if produced_id and produced_id != target.id else {}),
             "builtAt": built_at,
             "patientCount": patient_count,
+            "derivationId": derivation,
+            # What it kept, so a rebuild from the dialog keeps the same.
+            **({"options": derived_from["options"]} if derived_from.get("options") else {}),
         }
         kept = [
             d for d in (cohort.derivations or [])
@@ -373,7 +580,9 @@ async def _derive(
     await db.commit()
     for written in {target.id, produced_id} - {None}:
         await data_source_service.invalidate_concept_caches(db, written)
-    if registered_new is not None and target_login is not None:
+    # The launcher's own login comes along — never a write login, which would
+    # read the new database with an account that may write it.
+    if registered_new is not None and target_login is not None and write_purpose(target) == database_credential_service.READ:
         remembered = (await database_credential_service.status_for(db, target, user_id))["remembered"]
         await database_credential_service.save(
             db, registered_new, user_id, target_login.username, target_login.password, remember=remembered,

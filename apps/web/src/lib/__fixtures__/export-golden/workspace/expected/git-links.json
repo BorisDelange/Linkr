@@ -1,10 +1,15 @@
 {
-  "appVersion": "2.4.5",
   "links": [
     {
       "type": "data-catalog",
       "folder": "linked-catalog",
       "url": "https://git.example.org/catalog.git",
+      "branch": "main"
+    },
+    {
+      "type": "data-dictionary",
+      "folder": "indicate-data-dictionary",
+      "url": "https://github.com/indicate-eu/data-dictionary",
       "branch": "main"
     },
     {

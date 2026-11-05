@@ -5,6 +5,7 @@
  * The password is sent once, tested, and never comes back.
  */
 import { apiRequest } from '@/lib/api-client'
+import type { LoginPurpose } from '@/stores/database-login-prompt'
 import type { LocalizedString } from '@/types'
 
 export interface DatabaseLoginStatus {
@@ -15,6 +16,7 @@ export interface DatabaseLoginStatus {
   lastUsedAt: string | null
   /** The database accepts session-only logins alone. */
   sessionOnly: boolean
+  purpose: LoginPurpose
 }
 
 export interface DatabaseLoginEntry {
@@ -22,22 +24,28 @@ export interface DatabaseLoginEntry {
   name: LocalizedString | string
   workspaceId: string | null
   username: string
+  purpose: LoginPurpose
   remembered: boolean
   lastUsedAt: string | null
   sessionOnly: boolean
 }
 
-export const getMyDatabaseLogin = (dataSourceId: string) =>
-  apiRequest<DatabaseLoginStatus>(`/data-sources/${encodeURIComponent(dataSourceId)}/my-login`)
+const loginPath = (dataSourceId: string, purpose: LoginPurpose) =>
+  `/data-sources/${encodeURIComponent(dataSourceId)}/my-login${purpose === 'write' ? '?purpose=write' : ''}`
 
-export const saveMyDatabaseLogin = (dataSourceId: string, username: string, password: string, remember: boolean) =>
-  apiRequest<DatabaseLoginStatus>(`/data-sources/${encodeURIComponent(dataSourceId)}/my-login`, {
+export const getMyDatabaseLogin = (dataSourceId: string, purpose: LoginPurpose = 'read') =>
+  apiRequest<DatabaseLoginStatus>(loginPath(dataSourceId, purpose))
+
+export const saveMyDatabaseLogin = (
+  dataSourceId: string, username: string, password: string, remember: boolean, purpose: LoginPurpose = 'read',
+) =>
+  apiRequest<DatabaseLoginStatus>(loginPath(dataSourceId, purpose), {
     method: 'PUT',
     body: JSON.stringify({ username, password, remember }),
   })
 
-export const forgetMyDatabaseLogin = (dataSourceId: string) =>
-  apiRequest<void>(`/data-sources/${encodeURIComponent(dataSourceId)}/my-login`, { method: 'DELETE' })
+export const forgetMyDatabaseLogin = (dataSourceId: string, purpose: LoginPurpose = 'read') =>
+  apiRequest<void>(loginPath(dataSourceId, purpose), { method: 'DELETE' })
 
 export const listMyDatabaseLogins = () => apiRequest<DatabaseLoginEntry[]>('/auth/database-logins')
 

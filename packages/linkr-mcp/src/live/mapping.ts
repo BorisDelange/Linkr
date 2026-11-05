@@ -38,6 +38,14 @@ export function methodForModel(model: string): string {
   return `ai/${slug || 'unknown'}`
 }
 
+/** The model AI rows are signed with: the one the client configured wins over the
+ *  name the model gave (models misname themselves); a string when there is neither. */
+export function signingModel(configured: string | null, given: string | undefined): string | { error: string } {
+  if (configured) return configured
+  if (given?.trim()) return given.trim()
+  return { error: 'model is required: your exact model identifier. If you are not sure of it, ask the user — do not guess.' }
+}
+
 export function parseInfo(raw: unknown): Record<string, unknown> | null {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>
   if (typeof raw !== 'string' || !raw.trim()) return null
@@ -82,7 +90,7 @@ export function infoSummary(raw: unknown): string {
 /**
  * The metadata, readable, cut to a budget. By default the bulky blocks that
  * rarely decide a target are reduced: no histogram (the percentiles say it),
- * the date range without the per-year breakdown, the top three wards.
+ * the date range without the per-year breakdown, the top three wards, on one line.
  */
 export function describeInfo(raw: unknown, maxChars = 4000, full = false): string {
   const info = parseInfo(raw)
@@ -100,7 +108,8 @@ export function describeInfo(raw: unknown, maxChars = 4000, full = false): strin
       rest.categorical_data = [...rest.categorical_data.slice(0, 15), `… ${rest.categorical_data.length - 15} more`]
     }
   }
-  const body = JSON.stringify(rest, null, 1)
+  // One line unless asked for everything: an agent re-reads it at every turn.
+  const body = JSON.stringify(rest, null, full ? 1 : undefined)
   return clip(body, maxChars)
 }
 
@@ -124,6 +133,58 @@ export function describeConcept(c: VocabConcept): string {
     c.invalid_reason ? `INVALID (${c.invalid_reason})` : null,
   ].filter(Boolean)
   return `${c.concept_id} — ${c.concept_name} [${c.vocabulary_id}${c.concept_code ? ` ${c.concept_code}` : ''}] (${flags.join(', ')})`
+}
+
+/** A `drug_strength` row with its ingredient and unit names. */
+export interface DrugStrengthRow {
+  ingredient_concept_id: number | string
+  ingredient_name?: string | null
+  amount_value?: number | null
+  amount_unit?: string | null
+  numerator_value?: number | null
+  numerator_unit?: string | null
+  denominator_value?: number | null
+  denominator_unit?: string | null
+  box_size?: number | null
+}
+
+const sig = (v: number) => String(Number(v.toPrecision(6)))
+
+/**
+ * One ingredient's strength, normalised so equal doses read equal: an amount
+ * (`500 mg`), a concentration (`5000 [U]/mL`), or a quantity in a volume, given
+ * with its concentration (`10000 [U]/5 mL = 2000 [U]/mL`).
+ */
+export function formatDrugStrength(r: DrugStrengthRow): string {
+  const name = `${r.ingredient_name ?? '?'} (${r.ingredient_concept_id})`
+  let strength = 'no strength recorded'
+  if (r.amount_value != null) {
+    strength = `${sig(Number(r.amount_value))} ${r.amount_unit ?? ''}`.trim()
+  } else if (r.numerator_value != null) {
+    const n = Number(r.numerator_value)
+    const nu = r.numerator_unit ?? ''
+    const du = r.denominator_unit ?? ''
+    const d = r.denominator_value != null ? Number(r.denominator_value) : null
+    strength = d && d !== 1
+      ? `${sig(n)} ${nu}/${sig(d)} ${du} = ${sig(n / d)} ${nu}/${du}`
+      : `${sig(n)} ${nu}/${du}`
+  }
+  return `${name}: ${strength}${r.box_size ? `, box of ${r.box_size}` : ''}`
+}
+
+/** At most `perKind` rows of each relationship, in order, `total` in all. */
+export function capPerRelation<T extends { relationship_id?: unknown }>(rows: T[], perKind: number, total: number): T[] {
+  const seen = new Map<string, number>()
+  const out: T[] = []
+  for (const r of rows) {
+    const kind = String(r.relationship_id)
+    const n = seen.get(kind) ?? 0
+    if (n >= perKind) continue
+    seen.set(kind, n + 1)
+    out.push(r)
+    if (out.length === total) break
+  }
+  return out
 }
 
 /** Concepts by id, from an OMOP vocabulary's concept table. */

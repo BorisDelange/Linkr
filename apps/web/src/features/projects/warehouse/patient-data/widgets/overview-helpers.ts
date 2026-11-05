@@ -97,7 +97,10 @@ export function describeHit(
               : t('patient_data.overview_concepts')
           } · ${events}`
     const lines = [counts]
-    if (hit.row.kind === 'concept' && hit.row.unit) lines.push(hit.row.unit)
+    if (hit.row.kind === 'concept' && hit.row.valueRange) {
+      const [min, max] = hit.row.valueRange.map((v) => v.toLocaleString(undefined, { maximumFractionDigits: 2 }))
+      lines.push(t('patient_data.overview_value_range', { min, max, unit: hit.row.unit ?? '' }).trim())
+    } else if (hit.row.kind === 'concept' && hit.row.unit) lines.push(hit.row.unit)
     // Show the original name only when shortening actually dropped something.
     // Comparing the raw strings would show it for every drug, since reordering
     // "Oral Tablet" into ", oral tablet" changes the text without hiding a word.

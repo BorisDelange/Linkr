@@ -88,7 +88,6 @@ export function NotificationDetailDialog({ notification, onOpenChange, href, onO
         rowKey={(r) => r.key}
         pageSize={100}
         viewKey="notification-detail"
-        cellTooltips="all"
         emptyMessage={t('common.no_results')}
       />
       {(detail.more ?? 0) > 0 && (

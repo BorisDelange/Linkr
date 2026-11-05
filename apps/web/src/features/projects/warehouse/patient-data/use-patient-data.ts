@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { Cohort } from '@/types'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useCohortStore } from '@/stores/cohort-store'
+import { runMaterialization } from '@/lib/cohort-materialization'
+import { cohortRelationNarrowing } from '@/features/projects/warehouse/cohorts/relation-narrowing'
 import { queryDataSource } from '@/lib/duckdb/engine'
-import { patientQuery, releasePrefetch, setPrefetchPatients } from './patient-prefetch'
+import { DEFAULT_READ_AHEAD, patientQuery, releasePrefetch, setPrefetchPatients } from './patient-prefetch'
 import {
   buildPatientListQuery,
   buildPatientCountQuery,
@@ -65,8 +67,9 @@ export function usePatientData(
    */
   fixedCohort?: Cohort,
   /** A paused board (a cohort's, before it has run) loads nothing and acts as
-   *  if no patient were selected, without clearing the stored selection. */
-  { paused = false }: { paused?: boolean } = {},
+   *  if no patient were selected, without clearing the stored selection.
+   *  `readAhead`: how many patients after the one on screen to load ahead. */
+  { paused = false, readAhead = DEFAULT_READ_AHEAD }: { paused?: boolean; readAhead?: number } = {},
 ) {
   const {
     selectedCohortId,
@@ -86,8 +89,18 @@ export function usePatientData(
   const visitId = paused ? null : (selectedVisitId[projectUid] ?? null)
   const visitDetailId = paused ? null : (selectedVisitDetailId[projectUid] ?? null)
 
-  const selectedCohort: Cohort | null = fixedCohort
+  const pickedCohort: Cohort | null = fixedCohort
     ?? (cohortId ? (cohorts.find((c) => c.id === cohortId) ?? null) : null)
+  // A cohort picked in the selector and not frozen lists the members of its last
+  // run in this session, when that run was of its current definition and kept
+  // them all — rather than evaluating its criteria again for every page.
+  const lastRun = useCohortStore((s) => (!fixedCohort && cohortId ? s.executionResults.get(cohortId) : undefined))
+  const selectedCohort = useMemo(() => {
+    if (!pickedCohort || pickedCohort.materialization || !lastRun || lastRun.fromDraft) return pickedCohort
+    if (Date.parse(lastRun.executedAt) < Date.parse(pickedCohort.updatedAt)) return pickedCohort
+    const materialization = runMaterialization(pickedCohort.id, pickedCohort.level, lastRun.rows, lastRun.totalCount)
+    return materialization ? { ...pickedCohort, materialization } : pickedCohort
+  }, [pickedCohort, lastRun])
   // A fixed cohort's membership changes under the same id (each run of the
   // builder): part of what the cached pages are keyed by.
   const membershipKey = `${cohortId ?? 'all'}@${selectedCohort?.materialization?.materializedAt ?? ''}`
@@ -130,20 +143,26 @@ export function usePatientData(
 
       setPatientsLoading(true)
       try {
+        // Each concept searched only in the tables the concept count found it in.
+        const narrowing = selectedCohort && !selectedCohort.materialization
+          ? await cohortRelationNarrowing(dataSourceId, schemaMapping, selectedCohort).catch(() => undefined)
+          : undefined
+        if (signal?.aborted) return
         const listSql = buildPatientListQuery(
           schemaMapping,
           selectedCohort,
           patientPageSize,
           page * patientPageSize,
           patientFilters,
+          narrowing,
         )
-        const countSql = buildPatientCountQuery(schemaMapping, selectedCohort, patientFilters)
+        const countSql = buildPatientCountQuery(schemaMapping, selectedCohort, patientFilters, narrowing)
         // The count is the cohort's and the filters', the same on every page.
         const knownCount = patientCountCacheRef.current.get(listKey)
 
         const [rows, countResult] = await Promise.all([
-          listSql ? queryDataSource(dataSourceId, listSql, { signal }) : [],
-          knownCount != null ? null : countSql ? queryDataSource(dataSourceId, countSql, { signal }) : [],
+          listSql ? queryDataSource(dataSourceId, listSql, { signal, origin: 'Patient list · one page of patients' }) : [],
+          knownCount != null ? null : countSql ? queryDataSource(dataSourceId, countSql, { signal, origin: 'Patient list · patient count' }) : [],
         ])
         if (signal?.aborted) return
 
@@ -166,15 +185,13 @@ export function usePatientData(
     [dataSourceId, schemaMapping, selectedCohort, listKey, patientFilters, paused],
   )
 
-  // The patient after this one on the page, read ahead while this one is shown.
-  const nextPatientId = (() => {
-    const at = patients.findIndex((p) => String(p.patient_id) === patientId)
-    return at >= 0 && at < patients.length - 1 ? String(patients[at + 1].patient_id) : null
-  })()
+  // The patients after this one on the page, read ahead while this one is shown.
+  const at = patients.findIndex((p) => String(p.patient_id) === patientId)
+  const aheadKey = at >= 0 ? patients.slice(at + 1, at + 1 + readAhead).map((p) => String(p.patient_id)).join('\n') : ''
   const [prefetchOwner] = useState(() => ({}))
   useEffect(() => {
-    setPrefetchPatients(prefetchOwner, dataSourceId ?? null, patientId, nextPatientId)
-  }, [prefetchOwner, dataSourceId, patientId, nextPatientId])
+    setPrefetchPatients(prefetchOwner, dataSourceId ?? null, patientId, aheadKey ? aheadKey.split('\n') : [])
+  }, [prefetchOwner, dataSourceId, patientId, aheadKey])
   useEffect(() => () => releasePrefetch(prefetchOwner), [prefetchOwner])
 
   // Load patients when page/cohort/filters change. Paging fast through the list
@@ -236,7 +253,7 @@ export function usePatientData(
       return
     }
 
-    patientQuery(dataSourceId, sql)
+    patientQuery(dataSourceId, sql, { origin: 'Patient data · hospital stays of the patient' })
       .then((rows) => {
         if (!cancelled) {
           // rows come from a dynamic SQL query shaped to match VisitRow
@@ -280,7 +297,7 @@ export function usePatientData(
       return
     }
 
-    patientQuery(dataSourceId, sql)
+    patientQuery(dataSourceId, sql, { origin: 'Patient data · unit stays of the hospital stay' })
       .then((rows) => {
         if (!cancelled) {
           // rows come from a dynamic SQL query shaped to match VisitDetailRow
@@ -316,7 +333,7 @@ export function usePatientData(
       return
     }
 
-    patientQuery(dataSourceId, sql)
+    patientQuery(dataSourceId, sql, { origin: 'Patient data · demographics' })
       .then((rows) => {
         if (!cancelled && rows.length > 0) {
           // row comes from a dynamic SQL query shaped to match PatientDemographics

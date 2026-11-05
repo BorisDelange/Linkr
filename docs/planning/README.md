@@ -27,6 +27,29 @@ run like the catalog (browser-driven units, pause/resume), order below.
 | 🔜 | **[TO TEST]** Statistics tab warns when Parquet tables are not in patient order (server, Parquet folders) | S |
 | 🔜 | User docs (linkr-website): Database › Concepts tab, the unsorted-Parquet warning and how to sort | S |
 
+### Concept profiles — one computation per database — [concept-profiles-plan.md](concept-profiles-plan.md)
+
+The database *Concepts* tab, the mapping extraction and the catalog each count
+concepts on their own. Arbitrated 2026-11-02: one exact profile store per database,
+shared by the workspace, sections added on demand, each reader filtering what it
+needs (thresholds on read). Branch `feature/concept-profiles`.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | **[TO TEST]** Steps 0–7 built (plan §7): percentages, SQL dialog, shared cache, profile store (server + IndexedDB), Concepts tab card, concept panel, mapping extraction reading the store | S |
+| 🤔 | Profiles as server jobs — today browser-driven, a closed tab pauses them (plan §7) | M |
+
+### SQL Server, Oracle, DuckDB 2.0 — [duckdb-2-plan.md](duckdb-2-plan.md)
+
+Built on `feature/oracle-mssql-testdata` (2026-10-30): SQL Server and Oracle through
+DuckDB community extensions, test datasets (`npm run test-data`, Synthea 100k).
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | **[TO TEST]** In the app: add a SQL Server and an Oracle database against the SPE datamarts | S |
+| 🔜 | Oracle, user SQL (editors, notebooks, ETL): fetch each table it reads through `oracle_client` with its columns and simple filters, rather than whole through the extension | M |
+| 💤 | Move the server to DuckDB 2.0 once a 2.0.x patch is out: Oracle with read-only attach + pushdown (plan) | M |
+
 ### Apache Doris + remote compute — [doris-plan.md](doris-plan.md)
 
 Built on `feature/doris` (2026-10-09): `doris` engine (read-only login enforced),
@@ -68,9 +91,9 @@ Built, never exercised by hand. Everything else below is still to build.
 | 🔜 | Patient data: localStorage migration, server round-trip, export → reimport → export stability | both | S |
 | 🔜 | Private catalog: add one with a token (Manage catalogs › Private repository), browse it, install a private entry from it; a second user without a token sees the "private catalog" error | server | S |
 | 🔜 | SPE simulation (`docker/spe-sim/`): smoke test, then terminal, env installs through the mirror, Postgres datamart, `GATEWAY_WEBSOCKETS=off` (README § Test) | server | S |
-| 🔜 | Concept value statistics precomputed (Concepts tab, *Statistics* ticked): on the large Doris — the units are computed by Doris (job panel times, no row stream over MySQL), a paused stats step resumes, a finished count adds its statistics without recounting, a concept's stats panel opens at once with "Precomputed" under its distribution; then *Count again* drops them | server | S |
 | 🔜 | Doris syntax probe: `GROUP_CONCAT … SEPARATOR`, `CHAR(n)` without `USING utf8`, `LOWER()` on accented text, `STDDEV_SAMP`, `CAST(FLOOR) AS BIGINT`, `PERCENTILE_APPROX` — `apps/api/.venv/bin/python scripts/doris-syntax-probe.py` against the test Doris (login allowed to create a temp table; usage at the top of the script). Any FAIL → make that rule `NotPortable` in `remote_sql.py` | server | S |
 | 🔜 | Setup wizard on a *virgin* instance (`LINKR_DATA_DIR=/tmp/…`): install → children cloned → decision recorded → no browser re-seed on a second machine | server | S |
+| 🔜 | Suggestion engines (mapping editor › Manage suggestions): one-click BioLORD setup on a fresh data dir, build its index (Stop, then resume), Compute syntactic + semantic on a project (AI rows kept, *only missing*), a model from a server folder, re-import a vocabulary → index *out of date*; a configuration limited by concept class (drugs at the Clinical Drug level); MCP `semantic_search_vocabulary` with `concept_classes`, `get_vocabulary_concept` on a drug (components: strengths, dose form, brand); Docker image on Linux (torch CPU vs CUDA through `--torch-backend auto`) and through the SPE mirror (`LINKR_EMBEDDINGS_TORCH_BACKEND=`) | server | M |
 
 ## Embedded chat over LibreChat — [embedded-chat-plan.md](embedded-chat-plan.md)
 
@@ -102,24 +125,19 @@ rather than copying them.
 
 ## IDE — web apps — [web-apps-plan.md](web-apps-plan.md)
 
-Run a **long-lived web server** from project code (Shiny, Streamlit, Dash, Gradio, plumber,
-FastAPI/Flask, Panel, Marimo) and show it in an iframe inside Linkr. Server mode only.
-Nothing exists yet; the closest prior art is `pty_kernel.py`. Frameworks are **presets**
-(name, detection rule, argv template with `{port}`) over a raw `$PORT` command. An app is
-its own detached process, never a kernel run, so the R/Python session stays usable.
+*Run as web app* is built (branch `feature/web-apps`, 2026-11-01); the as-built is in
+[architecture.md § Fullstack Storage & Compute](../architecture.md). Verified in a real
+browser: Streamlit, Dash, Shiny for Python in dev (front and API on two origins); Shiny (R)
+and Streamlit in the SPE simulation, packages through the mirror, with the gateway stripping
+or keeping its prefix, and the warning band when it drops WebSockets. Journey:
+`e2e/server/web-apps.spec.ts`.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🤔 | Arbitrate the plan (same-origin iframe + no sharing; `/api/v1/apps/…` prefix; registry owns lifecycle, job row only shadows; dev-only COEP `credentialless`) | S |
-| 🔜 | 1. Extract `runtime_spec()` from `kernel._make()` | S |
-| 🔜 | 2. `web_apps.py`: `AppManager` (detached spawn, port probe, readiness, log tail, killpg teardown, quota, idle sweep) — also fixes the killpg leak and the missing idle sweep in `pty_kernel.py` | M |
-| 🔜 | 3. Presets table + detection + custom `$PORT` command | S |
-| 🔜 | 4. `routes/apps.py`: start / stop / list / logs behind `ide:execute` | S |
-| 🔜 | 5. Job-row shadow (`kind="app"`) + cancel hook | S |
-| 🔜 | 6. Proxy: HTTP streaming + WS pump + `<base>` injection + `Location` rewrite | M |
-| 🔜 | 7. Frontend: `AppTab`, toolbar + logs drawer, `RunButton` entry, apps in `JobsIndicator` | M |
-| 🔜 | 8. nginx `proxy_buffering off`, dev COEP, `docs/architecture.md` | S |
-| 🔜 | 9. **[TO TEST]** Matrix across the frameworks | M |
+| 🧪 | **[TO TEST]** By hand: Gradio, plumber, Panel, FastAPI, Flask presets (only Streamlit, Dash, Shiny R/Python were driven) | S |
+| 🧪 | **[TO TEST]** A long session: idle stop after 60 min with the tab closed, kept alive while it is open | S |
+| 💤 | Marimo preset | S |
+| 🤔 | Share an app / embed it in a dashboard: needs an origin of its own per app (wildcard subdomain) — the same origin today lets an app read its viewer's Linkr token | L |
 
 ## Workspace vocabularies & data dictionaries — [workspace-vocabularies-plan.md](workspace-vocabularies-plan.md)
 
@@ -130,6 +148,17 @@ Built 2026-09-28 (library, dictionaries, resolution, SQL export). Left:
 | 🔜 | Workspace export: **stop embedding the concept sets** — today every set is written in full to `concept-sets/*.json` (client `lib/entity-io.ts` and server `workspace_export_assemble.py`). Write one pointer per dictionary instead (repo URL, ref/commit, name), and on import re-download it from the repo or list it as missing. Same for the vocabulary inventory (`vocabulary_id` + version, never the data) | M |
 | 🤔 | A dictionary with no repo (local import): not exported at all and reported as missing on import — or kept out of the workspace export by design? | S |
 | 🔜 | Mapping-project pull: take the remote `conceptSets` refs (no pull path reads them yet) | S |
+
+## Suggestion engines — as-built in [../architecture.md](../architecture.md) § Suggestion engines
+
+Built 2026-10-27 on `feature/suggestion-embeddings`. Left:
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | Semantic search keeps no model in memory: each `semantic_search_vocabulary` call loads it (a few seconds). A warm worker per configuration, stopped after idling | M |
+| 🔜 | Bring a model in through the browser (zip upload); today: Hugging Face id, or a folder already on the server | S |
+| 🔜 | Website docs: `concept-mapping/suggestions` still describes the terminal scripts — rewrite for the Manage suggestions tabs | S |
+| 🤔 | Embed synonyms too (`concept_synonym`, one vector per synonym, max over a concept's vectors) | M |
 
 ## Reports — [reports-plan.md](reports-plan.md)
 
@@ -182,11 +211,27 @@ and, since 2026-10-05, the dataset import and the IDE upload can take a server f
 
 Pulls exist for projects, databases, ETL pipelines, mapping projects and schema presets.
 
+### Collaborative versioning — [collaborative-versioning-plan.md](collaborative-versioning-plan.md)
+
+Built 2026-10-28 → 10-30 on `feature/collab-versioning` (as-built: `docs/architecture.md`
+§ Versioning): allowed internal git hosts, a 3-way pull over the export tree for every
+scope (projects re-enabled), cards by subject on both sides, merge requests for every
+scope, per-workspace review mode; round trip, matrix and merge-request journeys
+against local repositories and `docker/forge-sim/` (`npm run test:versioning`).
+Then (2026-10-30, merged): plugins and settings on the same pull, inline entities
+added/removed upstream, dictionaries / service mappings / badge ranges, an
+editable result in the pull diff, a wiki page's settings on its text row.
+
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | Pull for the push-only scopes: workspaces, SQL collections, DQ rule sets, data catalogs, plugins, settings | M |
+| 🔜 | **[TO TEST]** In the app: a pull on each kind (workspace, project, SQL, ETL, DQ, catalog, schema, database, plugin, settings), a conflict settled by editing the result | M |
+| 💤 | Merge requests from Linkr (Propose changes) and the workspace review mode — set aside 2026-11-05: UI hidden, review mode not enforced (`lib/git-proposals.ts`, `GIT_PROPOSALS_ENABLED` in `routes/git.py`); routes and their tests kept. Before re-enabling: who sees a proposal in Linkr, who reviews and accepts it there (today only on the forge) | M |
+| 🔜 | `npm run worktree:new`: `node_modules/.bin` links copied as absolute paths to the main checkout — Playwright loads twice, `test:e2e` fails in a worktree | S |
+
+| St | Item | Effort |
+|----|------|--------|
 | 🔜 | Server guard: the commit-push routes still accept `paths=None`, which runs `git add -A` (`git_service.commit_push`) | S |
-| 🔜 | `attachments/` on pull: the project pull carries them; check the other pulls | S |
+| 🔜 | `attachments/` on pull: check workspace wiki attachments and README images through the 3-way pull | S |
 | 💤 | Server-side import (`POST /projects/import`, `/workspaces/import`) — last big client-offload | L |
 
 ## Fullstack backlog

@@ -15,7 +15,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 revision: str = "a1c2e3f4b5d6"
 down_revision: Union[str, None] = "c4d5e6f7a8b9"
@@ -25,7 +25,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     with op.batch_alter_table("data_sources", schema=None) as batch_op:
-        batch_op.add_column(sa.Column("schema_overrides", JSONB_or_JSON, nullable=True))
+        batch_op.add_column(sa.Column("schema_overrides", PortableJSON, nullable=True))
 
 
 def downgrade() -> None:

@@ -26,6 +26,7 @@ export interface IncomingConceptSet {
   subcategory?: string
   provenance?: string
   version?: string
+  reviewStatus?: ConceptSet['reviewStatus']
   translations?: ConceptSet['translations']
 }
 
@@ -36,6 +37,11 @@ export interface DictionaryContent {
   commit: string | null
   /** `config.json` title, to name a new dictionary. */
   title?: string
+}
+
+/** A readable name for a repository URL: its last path segment. */
+export function repoName(url: string): string {
+  return url.trim().replace(/\.git$/, '').replace(/\/+$/, '').split(/[/:]/).pop() || url
 }
 
 /** Is `path` part of what a dictionary sync reads? (Everything else in the repo
@@ -179,6 +185,7 @@ export function readDictionaryTree(files: Readonly<Record<string, string>>, comm
       subcategory: parsed.subcategory,
       provenance: parsed.provenance,
       version: parsed.version,
+      reviewStatus: parsed.reviewStatus,
       translations: parsed.translations,
     })
   }
@@ -199,7 +206,7 @@ export function readDictionaryTree(files: Readonly<Record<string, string>>, comm
 /** The fields a sync writes; anything else (local id, resolution) stays. */
 export const SYNCED_FIELDS = [
   'name', 'description', 'expression', 'sourceUrl', 'uniqueId', 'sourceRepo',
-  'category', 'subcategory', 'provenance', 'version', 'translations',
+  'category', 'subcategory', 'provenance', 'version', 'reviewStatus', 'translations',
 ] as const
 
 export function setKey(set: { uniqueId?: string | null; sourceUrl?: string | null }): string | null {

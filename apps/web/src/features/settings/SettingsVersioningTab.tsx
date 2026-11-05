@@ -8,14 +8,13 @@ import {
   setSettingsGitConfig,
 } from '@/lib/api/settings-versioning'
 import { useOrganizationStore } from '@/stores/organization-store'
-import { SettingsPullDialog } from './SettingsPullDialog'
 
 /**
  * Git versioning for account-level config, identical to workspace/project
  * versioning: GitRepositoryTab (repo + token) wrapping GitSyncPanel (Quick actions
- * / Details, per-file diff + push). When the remote has moved ahead, the panel's
- * "behind" banner opens the settings pull dialog (choose organizations / users /
- * roles). Offline ZIP import/export lives in the Import and Export tabs.
+ * / Details, per-file diff + push, and the shared 3-way pull — one item per
+ * organization, user or role). Offline ZIP import/export lives in the Import and
+ * Export tabs.
  */
 export function SettingsVersioningTab() {
   return <SettingsVersioningInner />
@@ -53,16 +52,7 @@ function SettingsVersioningInner() {
         onSave={saveGitRemote}
         syncScope="settings"
         syncId="account"
-        // The "behind" banner opens the settings pull dialog (upsert, per-family
-        // choice) instead of the mapping-project 3-way merge. onPulled (from the
-        // panel) already refreshes status + sync anchor; also reload the org store.
-        renderPullDialog={({ branch, onClose, onPulled }) => (
-          <SettingsPullDialog
-            branch={branch}
-            onClose={onClose}
-            onApplied={async () => { await reloadOrgs(); await onPulled() }}
-          />
-        )}
+        onAfterPull={reloadOrgs}
       />
     </div>
   )

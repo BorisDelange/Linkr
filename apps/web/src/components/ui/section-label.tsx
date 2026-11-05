@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { FieldInfo } from '@/components/ui/field-info'
 import { cn } from '@/lib/utils'
 
 /**
@@ -7,24 +8,29 @@ import { cn } from '@/lib/utils'
  *
  * `as` keeps the semantics where the label really is a heading: styling it like
  * one is not the same as being one, and screen readers navigate by the tag.
+ * `info` puts what the section is for behind an ⓘ rather than in a paragraph.
  */
 export function SectionLabel({
   children,
   className,
   as: Tag = 'div',
+  info,
 }: {
   children: ReactNode
   className?: string
+  info?: string
   as?: 'div' | 'span' | 'p' | 'h2' | 'h3' | 'h4'
 }) {
   return (
     <Tag
       className={cn(
         'text-[10px] font-medium uppercase tracking-wider text-muted-foreground',
+        info && 'inline-flex items-center gap-1',
         className,
       )}
     >
       {children}
+      {info && <FieldInfo text={info} size={11} />}
     </Tag>
   )
 }

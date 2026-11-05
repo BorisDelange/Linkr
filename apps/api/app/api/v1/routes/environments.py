@@ -373,25 +373,29 @@ async def build_environment(
     await _require_ide(db, project_uid, user, "write")
     _valid_language(language)
     label = f"Build {environments.language_label(language)} environment"
-    job = await jobs.create(db, project_uid, user.id, kind="build", label=label)
+    job = await jobs.create(
+        db, project_uid, user.id, kind="build", label=label,
+        input=environments.build_input(project_uid, language),
+    )
 
     async def body(handle: jobs.JobHandle) -> None:
-        buffer: list[str] = []
-
-        def on_log(line: str) -> None:
-            buffer.append(line)
-
-        try:
-            async with async_session() as job_db:
-                await environments.build(job_db, project_uid, language, on_log=on_log)
-        finally:
-            # Flush the build log even on failure (build() raises on a bad build so
-            # the job is marked 'error') — otherwise the failure reason is lost.
-            if buffer:
-                await handle.log("\n".join(buffer[-200:]))
+        async with jobs.live_log(handle) as on_log, async_session() as job_db:
+            await environments.build(job_db, project_uid, language, on_log=on_log)
 
     jobs.launch(job.id, body)
     return JobResponse.model_validate(job, from_attributes=True)
+
+
+def _detail(job: Job) -> JobResponse:
+    return JobResponse.model_validate(job, from_attributes=True).model_copy(update={
+        "summary": jobs.summary_of(job.log_tail), "cancellable": jobs.is_running(job.id),
+    })
+
+
+def _listed(job: Job) -> JobResponse:
+    """A job as the panel polls it: without its input nor its log, which it
+    reads once the job is opened (`GET /jobs/{id}`)."""
+    return _detail(job).model_copy(update={"input": None, "log_tail": ""})
 
 
 @router.get("/projects/{project_uid}/jobs", response_model=list[JobResponse])
@@ -403,8 +407,7 @@ async def list_jobs(
     """The caller's recent jobs for a project (queued/running/finished), newest
     first — feeds the StatusBar jobs panel. Per-user."""
     await _require_ide(db, project_uid, user, "read")
-    rows = await jobs.list_active(db, project_uid, user.id)
-    return [JobResponse.model_validate(j, from_attributes=True).model_copy(update={"input": None}) for j in rows]
+    return [_listed(j) for j in await jobs.list_active(db, project_uid, user.id)]
 
 
 @router.delete("/projects/{project_uid}/jobs", status_code=status.HTTP_204_NO_CONTENT)
@@ -428,8 +431,7 @@ async def list_workspace_jobs(
     """The caller's recent jobs owned by a workspace (a database's derivations),
     newest first — the StatusBar panel outside a project. Per-user."""
     await check_workspace_permission(db, workspace_id, user, "databases:read")
-    rows = await jobs.list_active(db, None, user.id, workspace_id=workspace_id)
-    return [JobResponse.model_validate(j, from_attributes=True).model_copy(update={"input": None}) for j in rows]
+    return [_listed(j) for j in await jobs.list_active(db, None, user.id, workspace_id=workspace_id)]
 
 
 @router.delete("/workspaces/{workspace_id}/jobs", status_code=status.HTTP_204_NO_CONTENT)
@@ -456,7 +458,7 @@ async def get_job(
     job = await db.get(Job, job_id)
     if job is None or job.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
-    response = JobResponse.model_validate(job, from_attributes=True)
+    response = _detail(job)
     return response if with_input else response.model_copy(update={"input": None})
 
 

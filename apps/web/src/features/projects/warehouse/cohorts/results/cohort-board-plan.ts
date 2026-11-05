@@ -1,0 +1,95 @@
+/**
+ * The tabs a cohort's patient board is generated with, from its criteria: the
+ * patient's summary (light, unlike the data overview), the notes highlighting
+ * what the free-text criteria search for, and each concept criterion's concepts
+ * as a timeline over a data table.
+ */
+import { PATIENT_GRID_COLS, PATIENT_GRID_ROWS } from '@/features/projects/warehouse/patient-data/patient-grid'
+import { classRelation, has } from '@/lib/schema-classes/relations'
+import {
+  DATATABLE_PLUGIN_ID,
+  NOTES_PLUGIN_ID,
+  PATIENT_SUMMARY_PLUGIN_ID,
+  TIMELINE_PLUGIN_ID,
+} from '@/lib/plugins/builtin-widget-plugins'
+import type { Cohort, ConceptCriteriaConfig, CriteriaTreeNode, SchemaMapping, TextCriteriaConfig } from '@/types'
+
+export interface PlannedWidget {
+  pluginId: string
+  name: string
+  config: Record<string, unknown>
+  size: { w: number; h: number }
+}
+
+export interface PlannedTab {
+  name: string
+  widgets: PlannedWidget[]
+}
+
+/** The whole tab of a board fitted to its height. */
+const FULL = { w: PATIENT_GRID_COLS, h: PATIENT_GRID_ROWS }
+const HALF = { w: PATIENT_GRID_COLS, h: PATIENT_GRID_ROWS / 2 }
+/** Longest tab name, past which it ends in an ellipsis. */
+const NAME_LENGTH = 40
+
+type Label = (key: string) => string
+
+/** The enabled criteria of the tree that include (an excluded one names who is NOT in the cohort). */
+function included(node: CriteriaTreeNode): CriteriaTreeNode[] {
+  if (!node.enabled || node.exclude) return []
+  return node.kind === 'group' ? node.children.flatMap(included) : [node]
+}
+
+const shortened = (name: string) => (name.length > NAME_LENGTH ? `${name.slice(0, NAME_LENGTH - 1).trimEnd()}…` : name)
+
+/** A concept criterion's name: its concepts, as many as the tab name holds. */
+function conceptTabName(config: ConceptCriteriaConfig): string {
+  const names = config.conceptIds.map((id) => config.conceptNames?.[id] ?? String(id))
+  return shortened(names.length > 1 ? `${names[0]} +${names.length - 1}` : (names[0] ?? ''))
+}
+
+export function planCohortBoard(cohort: Pick<Cohort, 'criteriaTree' | 'customSql'>, mapping: SchemaMapping | undefined, t: Label): PlannedTab[] {
+  // A hand-written query replaces the criteria: there is nothing to plan from them.
+  const criteria = cohort.customSql?.trim() ? [] : included(cohort.criteriaTree)
+  const tabs: PlannedTab[] = [{
+    name: t('cohorts.board_tab_overview'),
+    widgets: [{ pluginId: PATIENT_SUMMARY_PLUGIN_ID, name: t('cohorts.board_tab_overview'), config: {}, size: FULL }],
+  }]
+
+  if (has(mapping ? classRelation(mapping, 'note') : undefined, 'text')) {
+    // Each free-text criterion's terms, highlighted and kept as the notes shown.
+    const wordSets = criteria.flatMap((c) => {
+      if (c.kind !== 'criterion' || c.type !== 'text') return []
+      const config = c.config as TextCriteriaConfig
+      const words = [...new Set((config.searches ?? []).filter((s) => !s.exclude).flatMap((s) => s.terms.map((w) => w.trim())).filter(Boolean))]
+      return words.length ? [{ id: `criterion-${c.id}`, label: config.label?.trim() || words.join(', '), words }] : []
+    })
+    tabs.push({
+      name: t('cohorts.board_tab_notes'),
+      widgets: [{
+        pluginId: NOTES_PLUGIN_ID,
+        name: t('cohorts.board_tab_notes'),
+        config: wordSets.length
+          ? { wordSets, appliedWordSetIds: wordSets.map((s) => s.id), filterToWordSets: true }
+          : {},
+        size: FULL,
+      }],
+    })
+  }
+
+  for (const c of criteria) {
+    if (c.kind !== 'criterion' || c.type !== 'concept') continue
+    const config = c.config as ConceptCriteriaConfig
+    if (!config.conceptIds?.length) continue
+    const name = conceptTabName(config)
+    tabs.push({
+      name,
+      widgets: [
+        // Synced: the table's columns follow the timeline's window, and back.
+        { pluginId: TIMELINE_PLUGIN_ID, name, config: { conceptIds: [...config.conceptIds], syncTimeRange: true }, size: HALF },
+        { pluginId: DATATABLE_PLUGIN_ID, name, config: { conceptIds: [...config.conceptIds], syncTimeRange: true }, size: HALF },
+      ],
+    })
+  }
+  return tabs
+}

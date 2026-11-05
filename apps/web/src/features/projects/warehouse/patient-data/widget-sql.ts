@@ -6,11 +6,24 @@ import {
   buildPatientVisitSummaryQuery,
 } from '@/lib/duckdb/patient-data-queries'
 import {
+  buildOverviewDeathQuery,
+  buildOverviewInventoryQuery,
+  buildOverviewUnitStaysQuery,
+} from '@/lib/duckdb/patient-overview-queries'
+import {
+  buildDataTableBoundsQuery,
+  buildDataTableDensityQuery,
+  buildDataTableQuery,
+  type DataTableAggregate,
+} from '@/lib/duckdb/patient-datatable-queries'
+import {
+  DATATABLE_PLUGIN_ID,
   PATIENT_SUMMARY_PLUGIN_ID,
+  PATIENT_OVERVIEW_PLUGIN_ID,
   TIMELINE_PLUGIN_ID,
   NOTES_PLUGIN_ID,
 } from '@/lib/plugins/builtin-widget-plugins'
-import type { PatientScope } from '@/lib/duckdb/patient-scope'
+import { NO_SCOPE, type PatientScope } from '@/lib/duckdb/patient-scope'
 
 /**
  * One query a widget runs to fetch its data.
@@ -40,6 +53,8 @@ interface BuildArgs {
   patientId: string | null
   /** The hospitalisation / stay the board is on (`usePatientScope`). */
   scope: PatientScope | null
+  /** For the timeline: which concepts each table holds, and what each concept is. */
+  timeline?: Parameters<typeof buildTimelineQuery>[4]
 }
 
 /**
@@ -52,6 +67,7 @@ export function buildWidgetQueries({
   mapping,
   patientId,
   scope,
+  timeline,
 }: BuildArgs): WidgetQuery[] {
   if (!mapping) {
     return [
@@ -69,7 +85,7 @@ export function buildWidgetQueries({
   switch (pluginId) {
     case TIMELINE_PLUGIN_ID: {
       const conceptIds = (config.conceptIds as number[] | undefined) ?? []
-      const sql = buildTimelineQuery(mapping, conceptIds, pid, scope)
+      const sql = buildTimelineQuery(mapping, conceptIds, pid, scope, timeline)
       return [
         {
           id: 'timeline',
@@ -114,6 +130,61 @@ export function buildWidgetQueries({
           sql: visits,
           missing: visits ? undefined : 'schemaMapping.visit',
         },
+      ]
+    }
+
+    case DATATABLE_PLUGIN_ID: {
+      const conceptIds = ((config.conceptIds as number[] | undefined) ?? []).map(Number)
+      const bounds = buildDataTableBoundsQuery(mapping, conceptIds, pid, scope ?? NO_SCOPE, { held: timeline?.held, label: timeline?.label })
+      // The cells depend on the window the widget shows, which only it knows:
+      // shown over the selected stay, when there is one.
+      const window = scope?.stay ?? scope?.visit
+      const cells = window?.end
+        ? buildDataTableQuery(mapping, conceptIds, pid, scope ?? NO_SCOPE, {
+            from: window.start,
+            to: window.end,
+            columns: Number(config.columns ?? 8) || 8,
+            aggregate: (config.aggregate as DataTableAggregate | undefined) ?? 'mean',
+            held: timeline?.held,
+            label: timeline?.label,
+          })
+        : null
+      const density = window?.end
+        ? buildDataTableDensityQuery(mapping, conceptIds, pid, scope ?? NO_SCOPE, {
+            from: window.start,
+            to: window.end,
+            buckets: 200,
+            held: timeline?.held,
+            label: timeline?.label,
+          })
+        : null
+      return [
+        {
+          id: 'bounds',
+          label: { en: 'The record’s span', fr: 'L’étendue du dossier' },
+          sql: bounds,
+          missing: bounds ? undefined : conceptIds.length === 0 ? 'conceptIds' : 'schemaMapping.events',
+        },
+        ...(cells ? [{ id: 'cells', label: { en: 'Cells, over the selected stay', fr: 'Cellules, sur le séjour choisi' }, sql: cells }] : []),
+        ...(density ? [{ id: 'density', label: { en: 'Density strip, over the selected stay', fr: 'Bande de densité, sur le séjour choisi' }, sql: density }] : []),
+      ]
+    }
+
+    case PATIENT_OVERVIEW_PLUGIN_ID: {
+      // The record the figure is drawn from. The density strip and each row's
+      // events are then asked of the concepts this inventory lists.
+      const inventory = buildOverviewInventoryQuery(mapping, pid, scope ?? NO_SCOPE)
+      const stays = config.showUnitStays !== false ? buildOverviewUnitStaysQuery(mapping, pid, scope?.visitId ?? null) : null
+      const death = config.showDeath !== false ? buildOverviewDeathQuery(mapping, pid) : null
+      return [
+        {
+          id: 'inventory',
+          label: { en: 'Concepts of the record', fr: 'Concepts du dossier' },
+          sql: inventory,
+          missing: inventory ? undefined : 'schemaMapping.events',
+        },
+        ...(stays ? [{ id: 'unit_stays', label: { en: 'Unit stays', fr: 'Séjours en unité' }, sql: stays }] : []),
+        ...(death ? [{ id: 'death', label: { en: 'Death', fr: 'Décès' }, sql: death }] : []),
       ]
     }
 

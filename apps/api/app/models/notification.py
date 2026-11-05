@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, JSONB_or_JSON, LocalizedText, TimestampMixin, UUIDPKMixin
+from app.models.base import Base, PortableJSON, LocalizedText, TimestampMixin, UUIDPKMixin
 
 
 class Notification(Base, UUIDPKMixin, TimestampMixin):
@@ -28,9 +28,9 @@ class Notification(Base, UUIDPKMixin, TimestampMixin):
     label: Mapped[dict] = mapped_column(LocalizedText, default=dict)
     # What changed inside the entity, when not the entity itself:
     # {"part": "widget" | "tab", "action": ..., "name": LocalizedString}.
-    detail: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    detail: Mapped[dict | None] = mapped_column(PortableJSON)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # How to reverse the change: {"kind", "op": delete|restore|recreate, "id",
     # "snapshot"?} (see undo_service). NULL when it cannot be undone.
-    undo: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    undo: Mapped[dict | None] = mapped_column(PortableJSON)
     undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

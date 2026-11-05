@@ -21,6 +21,7 @@ import asyncio
 import io
 import zipfile
 from dataclasses import dataclass
+from datetime import timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,8 +43,14 @@ class SettingsSelection:
 
 def _iso(dt) -> str | None:
     """Creation date as an ISO string for the versioned file (kept as stable
-    provenance). None-safe. updatedAt is deliberately never exported."""
-    return dt.isoformat() if dt else None
+    provenance), in UTC with no offset whatever the database: SQLite hands back a
+    naive UTC value, Postgres an aware one, and both must write the same bytes.
+    None-safe. updatedAt is deliberately never exported."""
+    if not dt:
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt.isoformat()
 
 
 def _org_dict(o: Organization) -> dict:

@@ -8,13 +8,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete as sa_delete, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit
 from app.models.cohort import Cohort
 from app.models.data_source import DataSource, DataSourceFile, alias_key
+from app.models.pseudonym_key import PseudonymKey
 from app.models.user import User
 from app.schemas.data_source import (
     DatabaseConnectionInfo,
@@ -26,6 +27,7 @@ from app.schemas.data_source import (
 from app.services import (
     author_provenance,
     blob_store,
+    concept_profile_service,
     concept_stats_cache_service,
     database_credential_service,
     fs_browser,
@@ -331,10 +333,12 @@ async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataS
 
 async def invalidate_concept_caches(db: AsyncSession, source_id: str) -> None:
     """Drop what the concepts of a database were computed from its data: the
-    concept list and its counting run, and the stats cached per concept. For
-    every write to its data, so the next visitor recomputes against it."""
+    concept list and its counting run, the stats cached per concept and the
+    concept profiles. For every write to its data, so the next visitor
+    recomputes against it."""
     concept_cache_fs.invalidate(source_id)
     await concept_stats_cache_service.delete_for_source(db, source_id)
+    await concept_profile_service.delete_for_source(db, source_id)
 
 
 # The fields a database's data and concept list are read through.
@@ -452,6 +456,17 @@ async def _drop_created_data(source: DataSource, kind: str, login: Login | None)
     await asyncio.to_thread(cohort_derive.drop_schema, target)
 
 
+async def _forget_pseudonym_keys(db: AsyncSession, source: DataSource, dropped_schema: bool) -> None:
+    """The keys of the derivations written into this database, and of the schema
+    it was declared for when that schema is dropped with it: nothing they drew
+    is left."""
+    ids = [PseudonymKey.id == source.id, PseudonymKey.id.like(f"{source.id}.%")]
+    created = source.linkr_created or {}
+    if dropped_schema and created.get("targetId") and created.get("schema"):
+        ids.append(PseudonymKey.id == f"{created['targetId']}.{created['schema']}")
+    await db.execute(sa_delete(PseudonymKey).where(or_(*ids)))
+
+
 async def delete(
     db: AsyncSession, source: DataSource, delete_data: bool = False, login: Login | None = None,
 ) -> None:
@@ -475,6 +490,7 @@ async def delete(
     source_id = source.id
     if created == "schema":
         await _forget_created_schema(db, source)
+    await _forget_pseudonym_keys(db, source, dropped_schema=created == "schema")
     await _forget_derivations_into(db, source_id)
     await database_credential_service.forget_all(db, source_id)
     await db.delete(source)  # cascades to data_source_files via FK
@@ -1295,10 +1311,9 @@ async def _materialize_inputs(
     return config, password, files, known
 
 
-async def start_concept_run(source: DataSource, login: Login | None, manifest: dict, reset: bool) -> None:
+async def start_concept_run(source: DataSource, manifest: dict, reset: bool) -> None:
     """Store the counting run's manifest; `reset` starts it over."""
-    principal = login.principal if login else ""
-    await asyncio.to_thread(concept_cache_fs.write_manifest, source.id, principal, manifest, reset)
+    await asyncio.to_thread(concept_cache_fs.write_manifest, source.id, manifest, reset)
 
 
 async def write_concept_unit(
@@ -1308,8 +1323,7 @@ async def write_concept_unit(
     _audit(source, "concept_cache_unit", select_sql)
     config, password, files, known = await _materialize_inputs(db, source, login)
     await asyncio.to_thread(
-        concept_cache_fs.write_unit, config, password, files, known, select_sql, source.id,
-        login.principal if login else "", key, run_id,
+        concept_cache_fs.write_unit, config, password, files, known, select_sql, source.id, key, run_id,
     )
 
 
@@ -1321,7 +1335,6 @@ async def assemble_concept_cache(
     config, password, files, known = await _materialize_inputs(db, source, login)
     return await asyncio.to_thread(
         concept_cache_fs.assemble, config, password, files, known, select_sql, source.id,
-        login.principal if login else "",
     )
 
 
@@ -1360,9 +1373,9 @@ async def parquet_layout(db: AsyncSession, source: DataSource, checks: list[dict
     return out
 
 
-async def query_concept_cache(source_id: str, principal: str, sql: str) -> list[dict]:
-    """Run a page query against the principal's cached concept Parquet."""
-    return await asyncio.to_thread(concept_cache_fs.query_page, source_id, principal, sql)
+async def query_concept_cache(source_id: str, sql: str) -> list[dict]:
+    """Run a page query against the source's cached concept Parquet."""
+    return await asyncio.to_thread(concept_cache_fs.query_page, source_id, sql)
 
 
 async def introspect(db: AsyncSession, source: DataSource, login: Login | None) -> list[dict]:

@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
-  checkJudgement, checkTarget, describeInfo, describeSourceRow, groupSuggestions, indexKeyToSourceKey, infoSummary, mappingPayload,
-  methodForModel, sourceByCodesSql, sourceKeysInSql, sourceRefCandidates, synonymSearchSql, type VocabConcept,
+  capPerRelation, checkJudgement, checkTarget, describeInfo, describeSourceRow, formatDrugStrength, groupSuggestions, indexKeyToSourceKey, infoSummary, mappingPayload,
+  methodForModel, signingModel, sourceByCodesSql, sourceKeysInSql, sourceRefCandidates, synonymSearchSql, type VocabConcept,
 } from './mapping'
 import type { ScoreRow } from './api'
+
+describe('signingModel', () => {
+  it('prefers the model the client set over the name the model gave', () => {
+    expect(signingModel('qwen3.8-27b', 'claude')).toBe('qwen3.8-27b')
+    expect(signingModel(null, ' gpt-oss-120b ')).toBe('gpt-oss-120b')
+    expect(signingModel(null, ' ')).toEqual({ error: expect.stringMatching(/ask the user/) })
+  })
+})
 
 describe('methodForModel', () => {
   it('slugs the model name under ai/', () => {
@@ -121,7 +129,8 @@ describe('mappingPayload', () => {
 
 describe('describeInfo', () => {
   it('drops the histogram and cuts to the budget', () => {
-    expect(describeInfo({ unit: 'bpm', histogram: [{ x: 1, count: 2 }] })).toBe('{\n "unit": "bpm"\n}')
+    expect(describeInfo({ unit: 'bpm', histogram: [{ x: 1, count: 2 }] })).toBe('{"unit":"bpm"}')
+    expect(describeInfo({ unit: 'bpm' }, 4000, true)).toBe('{\n "unit": "bpm"\n}')
     expect(describeInfo({ a: 'x'.repeat(50) }, 10)).toMatch(/more characters cut/)
     expect(describeInfo(null)).toBe('(none)')
   })
@@ -156,5 +165,42 @@ describe('describeInfo reduction', () => {
     expect(reduced.temporal_distribution).toEqual({ start_date: '2090-01-01', end_date: '2097-09-04' })
     expect(reduced.hospital_units).toEqual(['a', 'b', 'c', '… 2 more'])
     expect(JSON.parse(describeInfo(info, 4000, true)).temporal_distribution.by_year).toHaveLength(1)
+  })
+})
+
+describe('formatDrugStrength', () => {
+  const row = { ingredient_concept_id: 1125315, ingredient_name: 'acetaminophen' }
+
+  it('gives an amount per unit', () => {
+    expect(formatDrugStrength({ ...row, amount_value: 500, amount_unit: 'mg' })).toBe('acetaminophen (1125315): 500 mg')
+  })
+
+  it('gives a concentration, per one unit when the denominator has no value', () => {
+    expect(formatDrugStrength({ ...row, numerator_value: 5000, numerator_unit: '[U]', denominator_unit: 'mL' }))
+      .toBe('acetaminophen (1125315): 5000 [U]/mL')
+  })
+
+  it('reduces a quantity in a volume to its concentration, so equal doses read equal', () => {
+    expect(formatDrugStrength({
+      ...row, numerator_value: 10000, numerator_unit: '[U]', denominator_value: 5, denominator_unit: 'mL', box_size: 10,
+    })).toBe('acetaminophen (1125315): 10000 [U]/5 mL = 2000 [U]/mL, box of 10')
+    expect(formatDrugStrength({ ...row, numerator_value: 1, numerator_unit: 'mg', denominator_value: 3, denominator_unit: 'mL' }))
+      .toBe('acetaminophen (1125315): 1 mg/3 mL = 0.333333 mg/mL')
+  })
+
+  it('says when no strength is recorded', () => {
+    expect(formatDrugStrength(row)).toBe('acetaminophen (1125315): no strength recorded')
+  })
+})
+
+describe('capPerRelation', () => {
+  it('keeps a few rows of each relationship, in order, up to a total', () => {
+    const rows = [
+      ...Array.from({ length: 8 }, (_, i) => ({ relationship_id: 'Mapped from', i })),
+      { relationship_id: 'RxNorm has dose form', i: 8 },
+    ]
+    const kept = capPerRelation(rows, 5, 30)
+    expect(kept.map((r) => r.relationship_id)).toEqual([...Array(5).fill('Mapped from'), 'RxNorm has dose form'])
+    expect(capPerRelation(rows, 5, 3)).toHaveLength(3)
   })
 })

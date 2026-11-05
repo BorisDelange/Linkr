@@ -1,55 +1,63 @@
 import { useTranslation } from 'react-i18next'
-import { Users, BarChart3, Table2, Download, Loader2, AlertCircle, Contact, Database, Terminal, FolderTree, Square, Play } from 'lucide-react'
+import { Users, BarChart3, Table2, Download, Loader2, AlertCircle, Contact, Database, Terminal, FolderTree, Play, PieChart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Badge } from '@/components/ui/badge'
 import { ResultsTable } from './ResultsTable'
 import { AttritionChart } from './AttritionChart'
 import { CUSTOM_SQL_NO_ID } from '@/lib/duckdb/cohort-query'
-import { formatDuration } from '@/lib/format-helpers'
-import type { CohortExecutionResult, CustomSqlOutput } from '@/types'
+import { formatDateTimeLocale, formatDuration } from '@/lib/format-helpers'
+import type { CohortExecutionResult, CohortLevel, CustomSqlOutput } from '@/types'
 import { useState, type ReactNode } from 'react'
 
 interface ResultsPanelProps {
   result: CohortExecutionResult | null
+  /** What one row of the cohort is, to name its count. */
+  level: CohortLevel
   loading: boolean
   /** Message from the last failed run, if any. */
   error?: string | null
   /** The hand-written query's own rows, from the last run. */
   output?: CustomSqlOutput | null
   onExecute: () => void
-  /** Stops the run in progress, while there is one to stop. */
-  onCancel?: () => void
   onExportCsv: () => void
   /** A tab reviewing the result's patients, where the host has a board to
    *  show them through (a database's cohorts). Rendered only while it is open;
    *  with no result too (null), so its widgets can be removed without a run. */
   renderPatients?: (result: CohortExecutionResult | null) => ReactNode
+  /** The cohort described (counts, deaths, age, sex, admissions), in place of
+   *  the members' table — which stays where the host has no figures to show. */
+  renderStatistics?: () => ReactNode
   /** A tab browsing every table of the database, filtered on the cohort. */
   renderTables?: () => ReactNode
   /** A tab browsing the database's schema, unfiltered. */
   renderSchema?: () => ReactNode
+  /** What each attrition step's label leaves out, by node id. */
+  attritionDetails?: Record<string, string[]>
 }
 
-type ResultsTab = 'results' | 'attrition' | 'patients' | 'tables' | 'output' | 'schema'
+type ResultsTab = 'statistics' | 'results' | 'attrition' | 'patients' | 'tables' | 'output' | 'schema'
 
 /** The tabs that read the cohort's members, and so show its error. */
-const MEMBER_TABS: ResultsTab[] = ['results', 'attrition', 'patients', 'tables']
+const MEMBER_TABS: ResultsTab[] = ['statistics', 'results', 'attrition', 'patients', 'tables']
 
 export function ResultsPanel({
-  result, loading, error, output, onExecute, onCancel, onExportCsv, renderPatients, renderTables, renderSchema,
+  result, level, loading, error, output, onExecute, onExportCsv, renderStatistics, renderPatients, renderTables, renderSchema, attritionDetails,
 }: ResultsPanelProps) {
-  const { t } = useTranslation()
-  const [activeTab, setActiveTab] = useState<ResultsTab>('results')
+  const { t, i18n } = useTranslation()
+  const firstTab: ResultsTab = renderStatistics ? 'statistics' : 'results'
+  const [activeTab, setActiveTab] = useState<ResultsTab>(firstTab)
   const tabs: { id: ResultsTab; label: string; icon: typeof Users }[] = [
-    { id: 'results', label: t('cohorts.results_table'), icon: Table2 },
+    renderStatistics
+      ? { id: 'statistics', label: t('cohorts.results_statistics'), icon: PieChart }
+      : { id: 'results', label: t('cohorts.results_table'), icon: Table2 },
     { id: 'attrition', label: t('cohorts.results_attrition'), icon: BarChart3 },
     ...(renderPatients ? [{ id: 'patients' as const, label: t('cohorts.results_patients'), icon: Contact }] : []),
-    ...(renderTables ? [{ id: 'tables' as const, label: t('cohorts.results_tables'), icon: Database }] : []),
     { id: 'output', label: t('cohorts.results_output'), icon: Terminal },
     ...(renderSchema ? [{ id: 'schema' as const, label: t('cohorts.results_schema'), icon: FolderTree }] : []),
+    ...(renderTables ? [{ id: 'tables' as const, label: t('cohorts.results_tables'), icon: Database }] : []),
   ]
-  const tab = tabs.some((x) => x.id === activeTab) ? activeTab : 'results'
+  const tab = tabs.some((x) => x.id === activeTab) ? activeTab : firstTab
   // Kept mounted once opened: going back to it must not reload the database's tables.
   const [schemaOpened, setSchemaOpened] = useState(false)
   if (tab === 'schema' && !schemaOpened) setSchemaOpened(true)
@@ -90,11 +98,11 @@ export function ResultsPanel({
           <p className="max-w-md break-words text-xs">{errorText}</p>
           <div className="flex gap-2">
             {output && !output.error && (
-              <Button size="sm" variant="outline" onClick={() => setActiveTab('output')}>
+              <Button size="sm" variant="outline" className="h-6 text-xs" onClick={() => setActiveTab('output')}>
                 {t('cohorts.results_see_output')}
               </Button>
             )}
-            <Button size="sm" className="gap-1.5" onClick={onExecute}><Play size={14} />{t('cohorts.execute')}</Button>
+            <Button size="sm" className="h-6 gap-1 text-xs" onClick={onExecute}><Play size={12} />{t('cohorts.execute')}</Button>
           </div>
         </CenteredState>
       )
@@ -104,7 +112,7 @@ export function ResultsPanel({
         <CenteredState>
           <Users size={32} className="opacity-30" />
           <p className="text-sm">{t(error === 'CANCELLED' ? 'cohorts.results_cancelled' : 'cohorts.results_empty')}</p>
-          <Button size="sm" className="gap-1.5" onClick={onExecute}><Play size={14} />{t('cohorts.execute')}</Button>
+          <Button size="sm" className="h-6 gap-1 text-xs" onClick={onExecute}><Play size={12} />{t('cohorts.execute')}</Button>
         </CenteredState>
       )
     }
@@ -145,7 +153,7 @@ export function ResultsPanel({
             <span className="min-w-0 flex-1 truncate" title={errorText ?? undefined}>
               {loading ? t('cohorts.executing') : errorText ? t('cohorts.results_failed') : t('cohorts.patients_not_run')}
             </span>
-            {!loading && <Button size="xs" className="gap-1" onClick={onExecute}><Play size={12} />{t('cohorts.execute')}</Button>}
+            {!loading && <Button size="sm" className="h-6 gap-1 text-xs" onClick={onExecute}><Play size={12} />{t('cohorts.execute')}</Button>}
           </div>
           <div className="min-h-0 flex-1 overflow-hidden">{renderPatients(null)}</div>
         </div>
@@ -153,12 +161,13 @@ export function ResultsPanel({
     }
     const state = membersState()
     if (state || !result) return state
+    if (tab === 'statistics' && renderStatistics) return renderStatistics()
     if (tab === 'tables' && renderTables) return renderTables()
     if (tab === 'patients' && renderPatients) return renderPatients(result)
     if (tab === 'attrition') {
       return (
         <div className="h-full overflow-auto">
-          <AttritionChart attrition={result.attrition} />
+          <AttritionChart attrition={result.attrition} details={attritionDetails} />
         </div>
       )
     }
@@ -191,13 +200,6 @@ export function ResultsPanel({
                 <Loader2 size={14} className="animate-spin" />
                 {t('cohorts.executing')}
               </div>
-              <div className="flex-1" />
-              {onCancel && (
-                <Button variant="destructive" size="sm" onClick={onCancel} className="h-6 gap-1 text-xs">
-                  <Square size={12} />
-                  {t('cohorts.stop')}
-                </Button>
-              )}
             </>
           ) : result ? (
             <>
@@ -207,13 +209,20 @@ export function ResultsPanel({
                 </div>
                 <div>
                   <p className="text-lg font-bold leading-none">{result.totalCount.toLocaleString()}</p>
-                  <p className="text-[10px] text-muted-foreground">{t('cohorts.results_count')}</p>
+                  <p className="text-[10px] text-muted-foreground">{t(`cohorts.results_count_${level}`, { count: result.totalCount })}</p>
                 </div>
               </div>
               {result.fromDraft && (
                 <Badge variant="outline" className="border-warning/50 text-warning-foreground" title={t('cohorts.results_from_draft_hint')}>
                   {t('cohorts.results_from_draft')}
                 </Badge>
+              )}
+              {result.narrowedBy && (
+                <span className="text-xs text-muted-foreground" title={t('cohorts.results_narrowed_hint')}>
+                  {result.narrowedBy.countedAt
+                    ? t('cohorts.results_narrowed', { date: formatDateTimeLocale(result.narrowedBy.countedAt, i18n.language) })
+                    : t('cohorts.results_narrowed_unknown')}
+                </span>
               )}
               <div className="flex-1" />
               <span className="text-[10px] text-muted-foreground">{formatDuration(result.durationMs)}</span>

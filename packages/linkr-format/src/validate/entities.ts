@@ -182,6 +182,74 @@ export function checkMinAppVersion(tree: EntityTree, kind: LayoutKind, bag: Issu
   }
 }
 
+const DERIVE_LEVELS = new Set(['patient', 'visit', 'visit_detail'])
+const BIRTH_PRECISIONS = new Set(['year', 'month', 'day'])
+const PSEUDONYM_METHODS = new Set(['hmac', 'random'])
+
+/** `derivedFrom.options` (DerivationOptions): what a rebuild keeps and how it
+ *  pseudonymises — a misread one rebuilds a wider or unpseudonymised copy. */
+function checkDerivationOptions(bag: IssueBag, path: string, options: unknown): void {
+  const at = '/derivedFrom/options'
+  if (!isObject(options)) {
+    bag.error(path, at, 'wrong-type', '`derivedFrom.options` must be an object.')
+    return
+  }
+  if (typeof options.scope !== 'string' || !DERIVE_LEVELS.has(options.scope)) {
+    bag.error(path, `${at}/scope`, 'wrong-type', '`scope` is `patient`, `visit` or `visit_detail`.')
+  }
+  if (options.tables != null) {
+    if (!Array.isArray(options.tables)) {
+      bag.error(path, `${at}/tables`, 'wrong-type', '`tables` lists the tables copied, as { schema, table }.')
+    } else {
+      for (const [i, t] of options.tables.entries()) {
+        if (!isObject(t) || typeof t.table !== 'string' || !(t.schema === null || typeof t.schema === 'string')) {
+          bag.error(path, `${at}/tables/${i}`, 'wrong-type', 'A table is { schema: string | null, table: string }.')
+        }
+      }
+    }
+  }
+  const variables = options.variables
+  if (variables != null) {
+    if (!isObject(variables) || !Array.isArray(variables.conceptIds)
+      || !variables.conceptIds.every((id) => Number.isInteger(id))) {
+      bag.error(path, `${at}/variables`, 'wrong-type', '`variables.conceptIds` lists the concept ids kept, as integers.')
+    } else {
+      if (variables.conceptNames != null && !isObject(variables.conceptNames)) {
+        bag.error(path, `${at}/variables/conceptNames`, 'wrong-type', '`conceptNames` maps a concept id to its name.')
+      }
+      if (variables.dictionaryKeys != null
+        && !(Array.isArray(variables.dictionaryKeys) && variables.dictionaryKeys.every((k) => typeof k === 'string'))) {
+        bag.error(path, `${at}/variables/dictionaryKeys`, 'wrong-type', '`dictionaryKeys` lists concept-set keys.')
+      }
+    }
+  }
+  if (options.birthPrecision != null
+    && !(typeof options.birthPrecision === 'string' && BIRTH_PRECISIONS.has(options.birthPrecision))) {
+    bag.error(path, `${at}/birthPrecision`, 'wrong-type', '`birthPrecision` is `year`, `month` or `day`.')
+  }
+  const pseudo = options.pseudonymization
+  if (pseudo == null) return
+  if (!isObject(pseudo)) {
+    bag.error(path, `${at}/pseudonymization`, 'wrong-type', '`pseudonymization` must be an object.')
+    return
+  }
+  if (typeof pseudo.method !== 'string' || !PSEUDONYM_METHODS.has(pseudo.method)) {
+    bag.error(path, `${at}/pseudonymization/method`, 'wrong-type', '`method` is `hmac` or `random`.')
+  }
+  if (typeof pseudo.keepKey !== 'boolean') {
+    bag.error(path, `${at}/pseudonymization/keepKey`, 'wrong-type', '`keepKey` must be a boolean.')
+  }
+  if (pseudo.reuseKeyOf != null && typeof pseudo.reuseKeyOf !== 'string') {
+    bag.error(path, `${at}/pseudonymization/reuseKeyOf`, 'wrong-type', '`reuseKeyOf` names a derivation.')
+  }
+  const corr = pseudo.correspondence
+  if (corr != null && !(isObject(corr) && typeof corr.dataSourceId === 'string' && typeof corr.schemaName === 'string'
+    && (corr.tableName == null || typeof corr.tableName === 'string'))) {
+    bag.error(path, `${at}/pseudonymization/correspondence`, 'wrong-type',
+      '`correspondence` is { dataSourceId, schemaName, tableName? }.')
+  }
+}
+
 export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {
   const bag = new IssueBag()
   checkLegacyLayout(tree, kind, bag)
@@ -389,6 +457,7 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
         bag.warn(path, '/derivedFrom/criteriaTree', 'missing-field',
           'No `criteriaTree`: the derived database no longer says which criteria built it.')
       }
+      if (derived.options != null) checkDerivationOptions(bag, path, derived.options)
     }
   }
 

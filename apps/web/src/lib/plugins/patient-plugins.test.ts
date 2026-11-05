@@ -16,6 +16,7 @@ const BUILTIN_IDS = [
   'linkr-widget-patient-summary',
   'linkr-widget-timeline',
   'linkr-widget-notes',
+  'linkr-widget-datatable',
 ]
 
 describe('built-in patient-data plugins', () => {

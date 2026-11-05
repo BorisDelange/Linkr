@@ -115,7 +115,8 @@ function describeLeaf(
     case 'text': {
       const c = config as TextCriteriaConfig
       const terms = (c.searches ?? []).flatMap((s) => s.terms).filter(Boolean)
-      return t(`${K}text`, { terms: c.label || terms.join(', ') || c.description || '—' })
+      const text = t(`${K}text`, { terms: c.label || terms.join(', ') || c.description || '—' })
+      return c.noteTypes?.length ? `${text} ${t(`${K}text_note_types`, { types: c.noteTypes.join(', ') })}` : text
     }
     case 'id_list': {
       const c = config as IdListCriteriaConfig

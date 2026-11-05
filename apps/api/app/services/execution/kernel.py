@@ -26,6 +26,7 @@ import os
 import signal
 import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from typing import TYPE_CHECKING, Awaitable, Callable
@@ -484,8 +485,7 @@ while True:
 #     for dates, and a literal "NA" cell is indistinguishable from a string that
 #     happens to say NA. An htmlwidget is not a data.frame, so a DT::datatable
 #     takes the html branch above and never produces both.
-_R_KERNEL_LOOP = r'''
-tryCatch({
+R_LIB_SETUP = r'''
 local({
   .lib <- Sys.getenv("LINKR_R_LIB")
   if (nzchar(.lib)) {
@@ -505,7 +505,11 @@ local({
   .repo <- Sys.getenv("LINKR_R_REPOS")
   if (nzchar(.repo)) options(repos = c(CRAN = .repo))
 })
-suppressMessages({
+'''
+
+_R_KERNEL_LOOP = r'''
+tryCatch({
+'''+R_LIB_SETUP.lstrip("\n")+r'''suppressMessages({
   .has_svglite <- requireNamespace("svglite", quietly = TRUE)
   library(jsonlite); library(base64enc)
 })
@@ -1321,85 +1325,114 @@ class KernelManager:
         environment: "Environment | None" = None,
         token: str | None = None,
     ) -> Kernel:
-        # The kernel runs in the IDE working dir (RStudio/Jupyter model), so what the
-        # terminal sees matches the IDE sidebar. The datasets dir is reachable via
-        # $LINKR_DATASETS (it may be a different, re-pointable server folder).
         from app.services import project_fs
 
-        cwd = str(project_fs.ide_dir(project_uid))
-        env = project_fs.runtime_env(project_uid, token)
-        # A project environment isolates the interpreter (Python venv) or library path
-        # (R). `environment is None` is the APP INTERPRETER — the shared server Python /
-        # Rscript that runs built-in dashboard component renders; it is deliberately
-        # NOT isolated (it uses the app's own packages). A project env, even empty, IS
-        # isolated (see the R branch).
-        has_env = environment is not None
-        interpreter_path = environment.interpreter_path if has_env else None
+        spec = runtime_spec(language, project_uid, environment, token)
         stamp = _env_stamp(environment)
         if language == "python":
-            import sys
-
-            # Python isolation comes from the built venv; an empty/unbuilt env has none,
-            # so it falls back to the app interpreter. (R isolates without a build via a
-            # possibly-empty library — Python has no lib-only equivalent.)
-            python = interpreter_path or sys.executable
-            # `import linkr` must work in every project, including one whose venv was
-            # never built, so the client package is put on the path rather than
-            # installed into each env. PREPENDED, so it wins over an unrelated
-            # same-named package the interpreter might already see.
-            client_src = _client_py_source()
-            if client_src is not None:
-                existing = env.get("PYTHONPATH") or os.environ.get("PYTHONPATH", "")
-                env = {
-                    **env,
-                    "PYTHONPATH": (
-                        f"{client_src}{os.pathsep}{existing}" if existing else str(client_src)
-                    ),
-                }
+            env = spec.env
             jedi_site = _jedi_site()
             if jedi_site is not None:
                 env = {**env, "LINKR_JEDI_PATH": jedi_site}
-            return Kernel([python, "-c", _PY_KERNEL_LOOP], cwd=cwd, env=env, env_stamp=stamp)
-        if language == "r":
-            # renv keeps a shared Rscript; a project env is isolated by its private
-            # library. LINKR_R_REPOS gives a CRAN mirror for a manual install.packages()
-            # (--vanilla skips the site Rprofile). STRICT isolation for a project env
-            # (see _R_KERNEL_LOOP): the kernel pins .libPaths() to [project lib, shared
-            # kernel-infra lib, base R] and drops the site/user library, so a global
-            # package (plotly not in the project's renv.lock) never resolves. This
-            # applies even to an empty/unbuilt env — its project lib is just empty, so
-            # library() of an undeclared package fails cleanly (reproducible renv model)
-            # instead of leaking a server-global package. The shared kernel lib
-            # (jsonlite/base64enc/svglite) keeps the kernel itself working there. The app
-            # interpreter (environment is None) keeps the default paths.
-            # The kernel-infra library and the client library are passed in BOTH cases.
-            # An isolated env pins .libPaths() to them; the app interpreter prepends the
-            # kernel lib to the default paths, so `library(linkr)` finds the client this
-            # server ships rather than an unrelated same-named package in the site
-            # library (LinkR v1 is itself an R package called `linkr`).
+            return Kernel([spec.interpreter, "-c", _PY_KERNEL_LOOP], cwd=spec.cwd, env=env, env_stamp=stamp)
+        # Run the loop from a file, not `-e`: `-e` silently truncates a long
+        # program, and the loop is close enough to that limit that a few added
+        # lines would make the kernel hang at boot with no usable error.
+        loop_path = project_fs.kernel_r_script(_R_KERNEL_LOOP)
+        return Kernel([spec.interpreter, "--vanilla", str(loop_path)], cwd=spec.cwd, env=spec.env, env_stamp=stamp)
+
+
+@dataclass(frozen=True)
+class RuntimeSpec:
+    """Which interpreter, in which directory, with which environment: everything a
+    process of the project's language needs but its argv. Kernels and web apps
+    (web_apps.py) both start from it, so an app sees the same packages, the same
+    `linkr` client and the same LINKR_* bridge as the console it was written in."""
+
+    interpreter: str
+    cwd: str
+    env: dict[str, str]
+
+
+def runtime_spec(
+    language: str,
+    project_uid: str,
+    environment: "Environment | None" = None,
+    token: str | None = None,
+) -> RuntimeSpec:
+    """The R spec's isolation is enforced by the process itself: it must run
+    R_LIB_SETUP first (the kernel loop does), or .libPaths() stays the server's."""
+    # The kernel runs in the IDE working dir (RStudio/Jupyter model), so what the
+    # terminal sees matches the IDE sidebar. The datasets dir is reachable via
+    # $LINKR_DATASETS (it may be a different, re-pointable server folder).
+    from app.services import project_fs
+
+    cwd = str(project_fs.ide_dir(project_uid))
+    env = project_fs.runtime_env(project_uid, token)
+    # A project environment isolates the interpreter (Python venv) or library path
+    # (R). `environment is None` is the APP INTERPRETER — the shared server Python /
+    # Rscript that runs built-in dashboard component renders; it is deliberately
+    # NOT isolated (it uses the app's own packages). A project env, even empty, IS
+    # isolated (see the R branch).
+    has_env = environment is not None
+    interpreter_path = environment.interpreter_path if has_env else None
+    if language == "python":
+        import sys
+
+        # Python isolation comes from the built venv; an empty/unbuilt env has none,
+        # so it falls back to the app interpreter. (R isolates without a build via a
+        # possibly-empty library — Python has no lib-only equivalent.)
+        python = interpreter_path or sys.executable
+        # `import linkr` must work in every project, including one whose venv was
+        # never built, so the client package is put on the path rather than
+        # installed into each env. PREPENDED, so it wins over an unrelated
+        # same-named package the interpreter might already see.
+        client_src = _client_py_source()
+        if client_src is not None:
+            existing = env.get("PYTHONPATH") or os.environ.get("PYTHONPATH", "")
             env = {
                 **env,
-                "LINKR_R_REPOS": settings.r_repos,
-                "LINKR_R_KERNEL_LIB": str(project_fs.kernel_r_lib()),
-                "LINKR_CLIENT_R_LIB": str(project_fs.client_r_lib()),
+                "PYTHONPATH": (
+                    f"{client_src}{os.pathsep}{existing}" if existing else str(client_src)
+                ),
             }
-            if has_env:
-                from app.services.execution import renv_provisioner
+        return RuntimeSpec(python, cwd, env)
+    if language == "r":
+        # renv keeps a shared Rscript; a project env is isolated by its private
+        # library. LINKR_R_REPOS gives a CRAN mirror for a manual install.packages()
+        # (--vanilla skips the site Rprofile). STRICT isolation for a project env
+        # (see R_LIB_SETUP): the kernel pins .libPaths() to [project lib, shared
+        # kernel-infra lib, base R] and drops the site/user library, so a global
+        # package (plotly not in the project's renv.lock) never resolves. This
+        # applies even to an empty/unbuilt env — its project lib is just empty, so
+        # library() of an undeclared package fails cleanly (reproducible renv model)
+        # instead of leaking a server-global package. The shared kernel lib
+        # (jsonlite/base64enc/svglite) keeps the kernel itself working there. The app
+        # interpreter (environment is None) keeps the default paths.
+        # The kernel-infra library and the client library are passed in BOTH cases.
+        # An isolated env pins .libPaths() to them; the app interpreter prepends the
+        # kernel lib to the default paths, so `library(linkr)` finds the client this
+        # server ships rather than an unrelated same-named package in the site
+        # library (LinkR v1 is itself an R package called `linkr`).
+        env = {
+            **env,
+            "LINKR_R_REPOS": settings.r_repos,
+            "LINKR_R_KERNEL_LIB": str(project_fs.kernel_r_lib()),
+            "LINKR_CLIENT_R_LIB": str(project_fs.client_r_lib()),
+        }
+        if has_env:
+            from app.services.execution import renv_provisioner
 
-                # The shared sandbox + kernel-infra library are provisioned by
-                # _prepare_r_shared() BEFORE the manager lock (they shell out to
-                # Rscript); _make must stay non-blocking.
-                env = {
-                    **env,
-                    "LINKR_R_LIB": interpreter_path or str(renv_provisioner.library_path(project_uid)),
-                    "LINKR_R_SANDBOX": str(project_fs.r_sandbox()),
-                }
-            # Run the loop from a file, not `-e`: `-e` silently truncates a long
-            # program, and the loop is close enough to that limit that a few added
-            # lines would make the kernel hang at boot with no usable error.
-            loop_path = project_fs.kernel_r_script(_R_KERNEL_LOOP)
-            return Kernel(["Rscript", "--vanilla", str(loop_path)], cwd=cwd, env=env, env_stamp=stamp)
-        raise ExecutionError(f"No persistent kernel for language: {language}")
+            # The shared sandbox + kernel-infra library are provisioned by
+            # _prepare_r_shared() BEFORE the manager lock (they shell out to
+            # Rscript); this must stay non-blocking.
+            env = {
+                **env,
+                "LINKR_R_LIB": interpreter_path or str(renv_provisioner.library_path(project_uid)),
+                "LINKR_R_SANDBOX": str(project_fs.r_sandbox()),
+            }
+        return RuntimeSpec("Rscript", cwd, env)
+    raise ExecutionError(f"No runtime for language: {language}")
 
 
 def _interpreter_key(language: str, project_uid: str, environment: "Environment | None") -> str:

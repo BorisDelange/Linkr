@@ -133,6 +133,12 @@ interface PatientChartState {
 
   // Tab CRUD
   addTab: (dashboardId: string) => void
+  /** Tabs named and filled at once, after the board's own; the first is shown. */
+  /** Replaces every tab of the board, and their widgets, by these. */
+  replaceTabsWithWidgets: (
+    dashboardId: string,
+    tabs: { name: string; widgets: { pluginId: string; name: string; config: Record<string, unknown>; size: { w: number; h: number } }[] }[],
+  ) => Promise<void>
   removeTab: (tabId: string) => void
   renameTab: (tabId: string, name: string) => void
   reorderTabs: (dashboardId: string, orderedIds: string[]) => void
@@ -187,6 +193,7 @@ const defaultWidgetLayouts: Record<string, { w: number; h: number }> = {
   'linkr-widget-patient-summary': { w: 48, h: 24 },
   'linkr-widget-timeline': { w: 48, h: 14 },
   'linkr-widget-notes': { w: 48, h: 20 },
+  'linkr-widget-datatable': { w: 48, h: 16 },
 }
 
 const uid = () => crypto.randomUUID()
@@ -734,6 +741,67 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
         activeTabId: { ...s.activeTabId, [dashboardId]: id },
       }
     })
+  },
+
+  replaceTabsWithWidgets: async (dashboardId, planned) => {
+    if (planned.length === 0) return
+    const s = get()
+    const oldTabIds = new Set(s.tabs.filter((t) => t.patientDashboardId === dashboardId).map((t) => t.id))
+    const oldWidgetIds = s.widgets.filter((w) => oldTabIds.has(w.tabId)).map((w) => w.id)
+    const tabs: PatientDashboardTab[] = []
+    const widgets: PatientDashboardWidget[] = []
+    planned.forEach((p, i) => {
+      const tab: PatientDashboardTab = {
+        id: uid(),
+        patientDashboardId: dashboardId,
+        name: toLocalized(p.name),
+        displayOrder: i,
+      }
+      tabs.push(tab)
+      let y = 0
+      for (const w of p.widgets) {
+        widgets.push({
+          id: uid(),
+          tabId: tab.id,
+          name: toLocalized(w.name),
+          layout: { x: 0, y, ...w.size },
+          pluginId: w.pluginId,
+          config: w.config,
+        })
+        y += w.size.h
+      }
+    })
+    set((cur) => ({
+      tabs: [...cur.tabs.filter((t) => !oldTabIds.has(t.id)), ...tabs],
+      widgets: [...cur.widgets.filter((w) => !oldTabIds.has(w.tabId)), ...widgets],
+      activeTabId: { ...cur.activeTabId, [dashboardId]: tabs[0].id },
+    }))
+    // Old widgets before their tabs, each new tab before its widgets: a widget names its tab.
+    const storage = getStorage()
+    try {
+      for (const id of oldWidgetIds) await storage.patientDashboardWidgets.delete(id)
+      for (const id of oldTabIds) await storage.patientDashboardTabs.delete(id)
+      for (const tab of tabs) await storage.patientDashboardTabs.create(tab)
+      for (const widget of widgets) await storage.patientDashboardWidgets.create(widget)
+    } catch (e) {
+      warn('replaceTabsWithWidgets')(e)
+      // Half written: show the board as it was saved, not as it was planned.
+      const board = get().dashboards.find((d) => d.id === dashboardId)
+      if (!board) return
+      const saved = await loadBoardContents([board]).catch(() => null)
+      if (!saved) return
+      const savedTabIds = new Set(saved.tabs.map((t) => t.id))
+      set((cur) => {
+        const boardTabIds = new Set(cur.tabs.filter((t) => t.patientDashboardId === dashboardId).map((t) => t.id))
+        const { [dashboardId]: active, ...activeTabId } = cur.activeTabId
+        const keep = active && savedTabIds.has(active) ? active : saved.tabs[0]?.id
+        return {
+          tabs: [...cur.tabs.filter((t) => !boardTabIds.has(t.id)), ...saved.tabs],
+          widgets: [...cur.widgets.filter((w) => !boardTabIds.has(w.tabId)), ...saved.widgets],
+          activeTabId: keep ? { ...activeTabId, [dashboardId]: keep } : activeTabId,
+        }
+      })
+    }
   },
 
   removeTab: (tabId) =>

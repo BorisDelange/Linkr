@@ -15,12 +15,15 @@ WORKDIR /app
 # git + git-lfs power server-side project/mapping versioning: git for
 # clone/commit/push, git-lfs so large data files (similarity-scores.parquet,
 # big CSVs) are stored as LFS objects rather than bloating the repo.
+# libuv1: the binary `fs` package links it, and Shiny depends on `fs` — without
+# it a project cannot install Shiny (the SPE has no apt to fix it afterwards).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-venv \
     python3-pip \
     git \
     git-lfs \
+    libuv1 \
     && git lfs install --system \
     && rm -rf /var/lib/apt/lists/*
 
@@ -84,9 +87,11 @@ ENV LINKR_CLIENT_PY_SOURCE=/app/client/linkr-py/src
 # needs to reach the network on first use. They install under
 # <dir>/v<ver>/<platform>/; the entrypoint seeds the runtime data volume's
 # extension dir from here. The list lives in app/duckdb_extensions.py, which a
-# manual offline install runs too (npm run duckdb:extensions).
+# manual offline install runs too (npm run duckdb:extensions). `--community`
+# adds the SQL Server and Oracle connectors (community extensions: mssql,
+# oracle_scanner — neither needs a vendor driver).
 ENV LINKR_DUCKDB_EXT_BUNDLE=/opt/duckdb_ext
-RUN python3 -m app.duckdb_extensions --dir "$LINKR_DUCKDB_EXT_BUNDLE"
+RUN python3 -m app.duckdb_extensions --dir "$LINKR_DUCKDB_EXT_BUNDLE" --community
 
 COPY docker/api-entrypoint.sh /usr/local/bin/api-entrypoint.sh
 RUN chmod +x /usr/local/bin/api-entrypoint.sh

@@ -13,6 +13,7 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { paths } from '@/lib/paths'
 import { getStorage } from '@/lib/storage'
 import { findLibrary, vocabularyDataSourceIdFor } from '@/lib/vocabulary-library/resolve'
+import { cn } from '@/lib/utils'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import type { DatabaseConnectionConfig } from '@/types'
 import { VocabularyBrowser } from '@/features/warehouse/concept-mapping/components/VocabularyBrowser'
@@ -111,8 +112,10 @@ function VocabularySection({ workspaceId, section }: { workspaceId: string; sect
           <TabsTrigger value="library">{ohdsi ? t('vocabularies.tab_library') : t('vocabularies.tab_dictionaries')}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="browse" className="min-h-0 flex-1 overflow-auto pb-6">
-          <div className="mx-auto max-w-5xl pt-2">
+        {/* The OHDSI browser fills the tab and scrolls inside its table; the
+            concept sets list scrolls with the tab. */}
+        <TabsContent value="browse" className={cn('min-h-0 flex-1 pb-6', ohdsi && vocabularyId ? 'overflow-hidden' : 'overflow-auto')}>
+          <div className={cn('mx-auto max-w-5xl pt-2', ohdsi && vocabularyId && 'h-full')}>
             {!ohdsi ? (
               <ConceptSetsBrowser workspaceId={workspaceId} />
             ) : vocabularyId ? (

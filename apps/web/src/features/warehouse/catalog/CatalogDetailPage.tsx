@@ -187,8 +187,8 @@ export function CatalogDetailPage({ catalogId }: Props) {
           <CatalogLicenseTab catalog={catalog} />
         </TabsContent>
 
-        <TabsContent value="versioning" className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5">
-          <div className="mx-auto w-full max-w-3xl">
+        <TabsContent value="versioning" className="m-0 flex min-h-0 flex-1 flex-col px-6 pb-1.5">
+          <div className="flex h-full min-h-0 w-full flex-col">
             {/* Git link + push-only sync panel. Export is a menu action here,
                 so no export UI in this tab. */}
             <GitRepositoryTab

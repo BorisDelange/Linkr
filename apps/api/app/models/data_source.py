@@ -3,7 +3,7 @@ import re
 from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, validates
 
-from app.models.base import JSONB_or_JSON, Base, LocalizedText, TimestampMixin, UUIDPKMixin
+from app.models.base import PortableJSON, Base, LocalizedText, TimestampMixin, UUIDPKMixin
 
 
 def alias_key(alias: str) -> str:
@@ -38,60 +38,60 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
     alias: Mapped[str] = mapped_column(String(255))
     # Derived from `alias` on every assignment (see `_sync_alias_key`); never set directly.
     alias_key: Mapped[str] = mapped_column(String(255))
-    # LocalizedString. LocalizedText (not JSONB_or_JSON) because these columns
+    # LocalizedString. LocalizedText (not PortableJSON) because these columns
     # already hold plain strings from before databases were multilingual: it
     # reads a legacy "Demo Hospital" back unchanged instead of failing to decode.
     name: Mapped[dict] = mapped_column(LocalizedText, default=dict)
     description: Mapped[dict | None] = mapped_column(LocalizedText)
     source_type: Mapped[str] = mapped_column(String(20))  # 'database' | 'fhir'
-    connection_config: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    connection_config: Mapped[dict] = mapped_column(PortableJSON, default=dict)
     # External databases only: users' passwords live in memory for their session
     # alone, never in database_credentials (for logins that are a hospital
     # directory password). See database_credential_service.
     require_session_only: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="0"
     )
-    schema_mapping: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    schema_mapping: Mapped[dict | None] = mapped_column(PortableJSON)
     # Which published schema the copied mapping came from: {lineageId, label, version}.
     # A database COPIES its mapping rather than referencing a preset, so without this
     # nothing records where it came from — and the UI cannot name the schema on an
     # instance where that preset is not installed.
-    schema_source: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    schema_source: Mapped[dict | None] = mapped_column(PortableJSON)
     # What this database changes on top of its preset's mapping (parameter
     # values, relations replaced): {params, relations, baseAtOverride}. The
     # client applies it; the server stores and exports it.
-    schema_overrides: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    schema_overrides: Mapped[dict | None] = mapped_column(PortableJSON)
     # Set on a database derived from a cohort: the parent database (portable
     # ref), the cohort (key + name), its level, a snapshot of its criteria, when
     # it was built and on how many patients. Not `parent_lineage_id`: that means
     # "a copy of the same work", and a subset is a new one.
-    derived_from: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    derived_from: Mapped[dict | None] = mapped_column(PortableJSON)
     # What a derivation created on THIS instance, and so what Linkr may later
     # replace or drop: `file` (this managed file is a derived build), `schemas`
     # (the SQL schemas derived into this database), `schema` + `server` (the
     # schema a database declared on a derivation points at, and where). Written
     # by cohort_derive_service only — never accepted from a client nor exported:
     # `derived_from` is provenance for display, and travels with imports.
-    linkr_created: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    linkr_created: Mapped[dict | None] = mapped_column(PortableJSON)
     status: Mapped[str] = mapped_column(String(20), default="configuring")
-    stats: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    stats: Mapped[dict | None] = mapped_column(PortableJSON)
     error_message: Mapped[str | None] = mapped_column(Text)
     is_vocabulary_reference: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="0"
     )
-    badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
-    readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    badges: Mapped[list | None] = mapped_column(PortableJSON)
+    readme: Mapped[dict | None] = mapped_column(PortableJSON)
     # Entity licence: {id, name?, text} — the text is snapshotted at pick time
     # so it travels with the export (LICENSE.md) independently of the picker.
-    license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    license: Mapped[dict | None] = mapped_column(PortableJSON)
     # Git repo this database is linked to. The repo carries documentation and
     # metadata only: the export strips connection_config down to `engine` and
     # writes no rows, so the app is never the path by which data leaves.
-    git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    git_remote_config: Mapped[dict | None] = mapped_column(PortableJSON)
     # User-facing semver, portable across export/import (see Project.version).
     version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")
     # Frozen provenance snapshot of the origin organization (not a live link).
-    organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    organization: Mapped[dict | None] = mapped_column(PortableJSON)
     # Stable cross-instance identity (separate from the local PK). Preserved across
     # export/import; a fork mints a new lineage_id and points parent_lineage_id at its source.
     lineage_id: Mapped[str | None] = mapped_column(String(36))
@@ -103,7 +103,7 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
     # kept for cross-instance imports where the id has no local meaning.
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(String(255))
-    created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    created_by_details: Mapped[dict | None] = mapped_column(PortableJSON)
 
     @validates("alias")
     def _sync_alias_key(self, _key: str, value: str) -> str:

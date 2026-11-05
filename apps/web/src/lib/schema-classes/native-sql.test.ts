@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import { buildCohortCriteriaSql, buildCohortNativeSql } from '@/lib/duckdb/cohort-query'
+import { subquerySql } from '@/lib/duckdb/sql-layout'
 import { eavMapping } from './__fixtures__/drug-acceptance'
 import { toNativeSql } from './native-sql'
 import type { Cohort, CohortLevel, SchemaMapping } from '@/types'
@@ -58,6 +59,20 @@ describe('column resolution', () => {
     expect(sql).toMatch(/FROM hosp\.labevents e[\s\S]*e\.valuenum > 2[\s\S]*FROM icu\.chartevents e[\s\S]*e\.value_num > 100/)
   })
 
+  it('resolves one alias to each table it names, per branch of a UNION', () => {
+    const sql = toNativeSql(
+      'SELECT SUM(n) FROM (\n'
+      + '  SELECT COUNT(*) AS n FROM linkr_event_labs e WHERE e.value_number > 2\n'
+      + '  UNION ALL\n'
+      + '  SELECT COUNT(*) AS n FROM linkr_event_vitals e WHERE e.value_number > 100\n'
+      + ') t',
+      mimic,
+    )!
+    noRelation(sql)
+    expect(sql).toContain('FROM hosp.labevents e WHERE e.valuenum > 2')
+    expect(sql).toContain('FROM icu.chartevents e WHERE e.value_num > 100')
+  })
+
   it('leaves string literals and comments alone', () => {
     const sql = buildCohortNativeSql(cohort('patient', [crit('id_list', { idLevel: 'patient', ids: ['linkr_patient.patient_id'] })]), mimic)!
     expect(sql).toContain("IN ('linkr_patient.patient_id')")
@@ -95,7 +110,9 @@ describe('a relation that is more than one table', () => {
   it('stands as its own SELECT, of the columns the query reads only', () => {
     const sql = buildCohortNativeSql(cohort('visit', [crit('period', { startDate: '2024-01-01' })]), withJoin)!
     noRelation(sql)
-    expect(sql).toContain('LEFT JOIN "eav"."units" u ON s."unit" = u."code"\n) visit')
+    // Indented under its `(`, the `)` back at the FROM's indentation.
+    expect(sql).toContain('FROM\n  (\n    SELECT\n')
+    expect(sql).toContain('    LEFT JOIN "eav"."units" u ON s."unit" = u."code"\n  ) visit')
     expect(sql).toContain("visit.start_datetime >= '2024-01-01'")
     expect(sql).not.toContain('care_site_name')
   })
@@ -103,7 +120,7 @@ describe('a relation that is more than one table', () => {
   it('inserts hand-written SQL as written when it returns the columns read', () => {
     const sql = buildCohortNativeSql(cohort('patient', [crit('concept', { eventTableLabels: ['Administrations'], conceptIds: [42], conceptNames: {} })]), eavMapping)!
     noRelation(sql)
-    expect(sql).toContain(`(\n${eavMapping.drugs![0].customSql}\n) e`)
+    expect(sql).toContain(`${subquerySql(eavMapping.drugs![0].customSql!, '    ')} e`)
   })
 
   it('projects it when a column needs the relation\'s fallback', () => {
@@ -134,14 +151,13 @@ describe('an event keyed by (terminology, code)', () => {
     },
   } as never)
 
-  it('filters on the dictionary id, looked up through the source tables', () => {
+  it('matches its (terminology, code) pairs of the ids, with no id lookup of every row', () => {
     const sql = buildCohortNativeSql(cohort('patient', [
       crit('concept', { eventTableLabels: ['Data'], conceptIds: [42], conceptNames: {} }),
     ]), thesaurus)!
     noRelation(sql)
-    expect(sql).toContain('_dict.concept_id AS concept_id')
-    expect(sql).not.toContain('REPLACE')
-    expect(sql).toMatch(/LEFT JOIN \(\s*SELECT concept_terminology, concept_code, min\(concept_id\) AS concept_id\s*FROM \(\s*SELECT[\s\S]*d\."id" AS concept_id[\s\S]*FROM "thesaurus" d\s*\)\s*GROUP BY concept_terminology, concept_code\s*\) _dict ON _ev\.concept_terminology = _dict\.concept_terminology AND _ev\.concept_code = _dict\.concept_code/)
+    expect(sql).not.toContain('_dict')
+    expect(sql).toMatch(/FROM facts e\s+WHERE EXISTS \(\s*SELECT 1\s+FROM thesaurus c\s+WHERE c\.id IN \(\s*42\s*\)\s+AND c\.terminology = e\.terminology\s+AND c\.code = e\.code/)
   })
 })
 

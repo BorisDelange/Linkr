@@ -1,7 +1,7 @@
 import { apiRequest } from '@/lib/api-client'
 import type { Job } from '@/lib/api/environments'
 import type { QueryJobItem } from '@/lib/api/query-jobs'
-import type { ConceptCountManifest, StatsRange } from '@/features/projects/warehouse/concepts/concept-count-plan'
+import type { ConceptCountManifest } from '@/features/projects/warehouse/concepts/concept-count-plan'
 
 /** The last counting run of a source's concept list, as the server keeps it. */
 export interface ConceptRunStatus {
@@ -66,20 +66,6 @@ export async function queryConceptCache(
   return res.rows
 }
 
-/** The id ranges of the run's `stats` units, about `maxRows` values each,
- *  packed by the server from the row counts of its record units. */
-export async function planConceptStats(
-  sourceId: string,
-  dicts: readonly { dictKey: string; relations: string[] }[],
-  maxRows: number,
-): Promise<StatsRange[]> {
-  const res = await apiRequest<{ ranges: StatsRange[] }>(`${base(sourceId)}/stats-plan`, {
-    method: 'POST',
-    body: JSON.stringify({ dicts, maxRows }),
-  })
-  return res.ranges
-}
-
 /** An event relation the last counting run counted the records of. */
 export interface CountedRelation {
   relation: string
@@ -87,6 +73,8 @@ export interface CountedRelation {
   signature: string | null
   /** Whether it holds any of the concepts asked about. */
   holds: boolean
+  /** Which of them it holds. */
+  held?: string[]
 }
 
 /** The relations the last counting run counted, and which hold any of `conceptIds`. */
@@ -98,26 +86,25 @@ export async function getCountedRelations(sourceId: string, conceptIds: readonly
   return res.relations
 }
 
-/** Detail-panel stats for one concept — precomputed by the counting run, or
- *  shared by a click — undefined if neither exists. */
-/** What the counting run's `stats` step holds for one concept, and the unit that
- *  should have described it (concept_cache_fs.diagnose_stats). */
-export function diagnoseConceptStats(sourceId: string, conceptId: number, dictKey?: string): Promise<Record<string, unknown>> {
-  const query = dictKey ? `?dictKey=${encodeURIComponent(dictKey)}` : ''
-  return apiRequest<Record<string, unknown>>(
-    `/data-sources/${encodeURIComponent(sourceId)}/concept-stats/${conceptId}/diagnose${query}`,
-  )
+/** The records of each concept in one event relation, from the last counting
+ *  run; null when it did not count that relation under this signature. */
+export async function getRelationRecords(
+  sourceId: string,
+  relation: string,
+  signature: string,
+): Promise<{ conceptId: string; recordCount: number }[] | null> {
+  const res = await apiRequest<{ counts: { conceptId: string; recordCount: number }[] | null }>(`${base(sourceId)}/relation-records`, {
+    method: 'POST',
+    body: JSON.stringify({ relation, signature }),
+  })
+  return res.counts
 }
 
-export async function getConceptStats<T>(
-  sourceId: string,
-  conceptId: number,
-  dictKey?: string,
-): Promise<T | undefined> {
+/** Detail-panel stats for one concept, shared by a click; undefined until they are. */
+export async function getConceptStats<T>(sourceId: string, conceptId: number): Promise<T | undefined> {
   try {
-    const query = dictKey ? `?dictKey=${encodeURIComponent(dictKey)}` : ''
     const res = await apiRequest<{ stats: T }>(
-      `/data-sources/${encodeURIComponent(sourceId)}/concept-stats/${conceptId}${query}`,
+      `/data-sources/${encodeURIComponent(sourceId)}/concept-stats/${conceptId}`,
     )
     return res.stats
   } catch {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { usePortalTarget } from '@/lib/portal-container'
 import { copyText } from '@/lib/clipboard'
 import type { OverviewConceptRow, OverviewRow } from './overview-layout'
 import { rowLabel } from './overview-row-label'
@@ -20,13 +21,14 @@ export interface TipContent {
  * Hover tooltip, in the prototype's layout: the name on top, the value large
  * beneath it, then the timing in muted text.
  *
- * Rendered through a portal to document.body. Each react-grid item is a
+ * Rendered through a portal to the page (the fullscreen element in fullscreen). Each react-grid item is a
  * transformed stacking context, and a `fixed` element inside a CSS transform is
  * positioned relative to THAT ancestor rather than the viewport — so a tooltip
  * left in place drifts by the widget's own screen offset, which is why it moved
  * when the sidebar was collapsed.
  */
 export function HoverTip({ tip }: { tip: TipContent }) {
+  const portalTarget = usePortalTarget()
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: tip.x + 14, top: tip.y + 16 })
 
@@ -61,7 +63,7 @@ export function HoverTip({ tip }: { tip: TipContent }) {
         </div>
       ))}
     </div>,
-    document.body,
+    portalTarget,
   )
 }
 
@@ -87,6 +89,7 @@ export function CategoryMenu({
   onChanged: () => void
   t: (k: string, o?: Record<string, unknown>) => string
 }) {
+  const portalTarget = usePortalTarget()
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: x, top: y })
 
@@ -236,7 +239,7 @@ export function CategoryMenu({
         ),
       )}
     </div>,
-    document.body,
+    portalTarget,
   )
 }
 
@@ -303,6 +306,7 @@ export function ConceptCopyMenu({
   onClose: () => void
   t: (k: string, o?: Record<string, unknown>) => string
 }) {
+  const portalTarget = usePortalTarget()
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: x, top: y })
   const [copied, setCopied] = useState<string | null>(null)
@@ -374,6 +378,6 @@ export function ConceptCopyMenu({
         </button>
       ))}
     </div>,
-    document.body,
+    portalTarget,
   )
 }

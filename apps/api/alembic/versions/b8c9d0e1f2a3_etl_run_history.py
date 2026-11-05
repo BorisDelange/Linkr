@@ -16,7 +16,7 @@ pipeline", ordered by started_at.
 import sqlalchemy as sa
 from alembic import op
 
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 revision = "b8c9d0e1f2a3"
 down_revision = "a7b8c9d0e1f2"
@@ -32,7 +32,7 @@ def upgrade() -> None:
         sa.Column("started_at", sa.String(length=40), nullable=False),
         sa.Column("completed_at", sa.String(length=40), nullable=True),
         sa.Column("status", sa.String(length=20), nullable=False),
-        sa.Column("scripts", JSONB_or_JSON, nullable=True),
+        sa.Column("scripts", PortableJSON, nullable=True),
         sa.Column("created_by_id", sa.Integer(), nullable=True),
         sa.ForeignKeyConstraint(
             ["pipeline_id"],

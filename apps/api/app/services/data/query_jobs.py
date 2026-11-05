@@ -20,6 +20,7 @@ Results live under `data_dir/job-results/<job id>/<key>.json`, the same body
 """
 
 import asyncio
+import contextlib
 import json
 import re
 import shutil
@@ -131,11 +132,16 @@ async def start(
     queries: list[JobQuery],
     runner: Runner,
     keep_going: bool = False,
+    share_lane: bool = False,
 ):
     """Create the job and launch it; returns the queued Job row.
 
     A failing query ends the job, unless `keep_going`: its error is then kept by
-    its key and the next one runs (a rule set's checks, each judged alone)."""
+    its key and the next one runs (a rule set's checks, each judged alone).
+
+    `share_lane`: the job takes the heavy-query lane for each query, not for its
+    whole run — a long run (a database's concept profiles, for hours) lets the
+    heavy queries asked meanwhile through between two of its own."""
     job = await jobs.create(
         db, None, user_id, kind="query", label=label, workspace_id=workspace_id,
         input="\n\n".join(f"-- {q.key}\n{q.sql.strip()};" for q in queries),
@@ -159,30 +165,34 @@ async def start(
 
         for i, q in enumerate(queries):
             key = q.key
-            started = time.monotonic()
-
             async def reading(pct: float, i: int = i, key: str = key) -> None:
                 await handle.set_result(progress(current=key, reading=int(pct)))
                 await handle.progress(int(100 * (i + pct / 100) / len(queries)))
 
-            run = asyncio.create_task(_run_one(job_id, source_id, runner, q, tag, launched_by))
-            watch = asyncio.create_task(_watch_progress(tag, reading))
-            rows = None
-            try:
+            async with jobs.lane_slot("heavy_query") if share_lane else contextlib.nullcontext():
+                # Queued while it waits for its first slot, not running.
+                if share_lane and i == 0:
+                    await jobs.mark_running(job_id)
+                # From its slot: the wait for it is not the query's time.
+                started = time.monotonic()
+                run = asyncio.create_task(_run_one(job_id, source_id, runner, q, tag, launched_by))
+                watch = asyncio.create_task(_watch_progress(tag, reading))
+                rows = None
                 try:
-                    rows = await run
-                finally:
-                    # Waited for, so a late report cannot land over what follows,
-                    # the error included.
-                    watch.cancel()
-                    await asyncio.gather(watch, return_exceptions=True)
-            except Exception as e:
-                # The log keeps it too, but a DuckDB error spans lines: the client
-                # shows this one whole.
-                if not keep_going:
-                    await handle.set_result(progress(error=str(e)))
-                    raise
-                errors[key] = str(e)
+                    try:
+                        rows = await run
+                    finally:
+                        # Waited for, so a late report cannot land over what follows,
+                        # the error included.
+                        watch.cancel()
+                        await asyncio.gather(watch, return_exceptions=True)
+                except Exception as e:
+                    # The log keeps it too, but a DuckDB error spans lines: the client
+                    # shows this one whole.
+                    if not keep_going:
+                        await handle.set_result(progress(error=str(e)))
+                        raise
+                    errors[key] = str(e)
             elapsed = time.monotonic() - started
             if rows is not None:
                 await asyncio.to_thread(write_result, result_path(job_id, key), rows)
@@ -194,7 +204,7 @@ async def start(
             outcome = "failed" if key in errors else "" if rows is None else f"{len(rows)} rows"
             await handle.log(f"{i + 1}/{len(queries)} {key}{': ' + outcome if outcome else ''} in {elapsed:.1f} s")
 
-    jobs.launch(job_id, body, lane="heavy_query")
+    jobs.launch(job_id, body, lane=None if share_lane else "heavy_query", running=not share_lane)
     return job
 
 

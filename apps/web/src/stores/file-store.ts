@@ -14,6 +14,7 @@ import { scriptsNodePath } from '@/lib/versioning-marks'
 import { rekeyVersioningMarks } from '@/stores/rekey-versioning-marks'
 import { useAppStore } from '@/stores/app-store'
 import { disposeLiveTerminal } from '@/lib/terminal-sessions'
+import { stopWebApp } from '@/lib/api/web-apps'
 
 export type FileNode = IdeFile
 
@@ -31,11 +32,14 @@ export interface OutputTab {
 }
 
 /** A terminal opened as a full-width editor tab (JupyterLab-style), not a bottom
- * panel. Kept in its own registry so it never touches the file tab logic. */
+ * panel. Kept in its own registry so it never touches the file tab logic. A web
+ * app started from the IDE (`kind: 'app'`) lives here too: a tab that is no file. */
 export interface TerminalTab {
   id: string
-  kind: 'bash' | 'python' | 'r'
+  kind: 'bash' | 'python' | 'r' | 'app'
   label: string
+  /** The running app a `kind: 'app'` tab shows. */
+  appId?: string
 }
 
 export type ExecLanguage = 'python' | 'r' | 'sql'
@@ -177,6 +181,10 @@ interface FileState {
    * so the unified tab bar treats it like any active tab. */
   terminalTabs: TerminalTab[]
   openTerminalTab: (kind: 'bash' | 'python' | 'r') => void
+  /** Show a web app in its tab, opening one unless the app already has it. */
+  openAppTab: (appId: string, label: string) => void
+  /** Point an app tab at the app that replaced its own (a restart). */
+  retargetAppTab: (id: string, appId: string) => void
   closeTerminalTab: (id: string) => void
   /** Make a terminal tab active WITHOUT adding it to openFileIds (it is not a
    * file). Selecting it via selectFile would pollute the file-tab list. */
@@ -1585,10 +1593,33 @@ export const useFileStore = create<FileState>((set, get) => ({
       }
     }),
 
+  openAppTab: (appId, label) =>
+    set((s) => {
+      const open = s.terminalTabs.find((t) => t.appId === appId)
+      if (open) return activateEditorTab(s, open.id)
+      // Beside the code, with the run's other results.
+      const id = `term:app:${appId}`
+      return {
+        terminalTabs: [...s.terminalTabs, { id, kind: 'app' as const, label, appId }],
+        editorTabsInOutputGroup: [...s.editorTabsInOutputGroup, id],
+        outputGroupEditorTab: id,
+        focusedGroup: 'right' as const,
+        outputVisible: true,
+      }
+    }),
+
+  retargetAppTab: (id, appId) =>
+    set((s) => ({ terminalTabs: s.terminalTabs.map((t) => (t.id === id ? { ...t, appId } : t)) })),
+
   selectTerminalTab: (id) => set((s) => activateEditorTab(s, id)),
 
   closeTerminalTab: (id) => {
     disposeLiveTerminal(id)
+    // An app's tab is its only handle in the IDE: closing it stops the app and its job.
+    const app = get().terminalTabs.find((t) => t.id === id)
+    if (app?.kind === 'app' && app.appId) {
+      stopWebApp(app.appId).catch((err) => console.error('[file-store] Failed to stop web app:', app.appId, err))
+    }
     set((s) => {
       const remaining = s.terminalTabs.filter((t) => t.id !== id)
       // If the closed terminal was active, fall back to the last open file (or

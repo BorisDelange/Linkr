@@ -50,7 +50,7 @@ export function resolutionSql(items: readonly ConceptSetItem[], tables: Readonly
 export async function resolveConceptSet(set: ConceptSet, vocabularyDataSourceId: string, tables: ReadonlySet<string>): Promise<number[]> {
   const sql = resolutionSql(set.expression.items, tables)
   if (!sql) return []
-  const rows = await queryDataSourceAll(vocabularyDataSourceId, sql)
+  const rows = await queryDataSourceAll(vocabularyDataSourceId, sql, { origin: 'Concept set · resolve concepts' })
   return rows.map((r) => Number(r.concept_id)).filter(Number.isFinite)
 }
 
@@ -65,7 +65,8 @@ export async function resolvedConceptDetails(set: ConceptSet, ids: readonly numb
     const chunk = standard.slice(i, i + 1000)
     const rows = await queryDataSourceAll(vocabularyDataSourceId,
       'SELECT concept_id, concept_name, vocabulary_id, domain_id, concept_class_id, concept_code, standard_concept '
-      + `FROM concept WHERE concept_id IN (${chunk.join(', ')})`)
+      + `FROM concept WHERE concept_id IN (${chunk.join(', ')})`,
+      { origin: 'Concept set · concept details' })
     for (const r of rows) {
       byId.set(Number(r.concept_id), {
         conceptId: Number(r.concept_id),

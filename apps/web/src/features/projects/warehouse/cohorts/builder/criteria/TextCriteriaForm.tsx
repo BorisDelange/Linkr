@@ -1,5 +1,7 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { MultiSelectFilter, type MultiSelectOption } from '@/components/ui/multi-select-filter'
+import { queryDataSource } from '@/lib/duckdb/engine'
 import { classRelation, has } from '@/lib/schema-classes/relations'
 import { Info, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -22,6 +24,32 @@ interface TextCriteriaFormProps {
   config: TextCriteriaConfig
   onChange: (config: TextCriteriaConfig) => void
   schemaMapping?: SchemaMapping
+  /** The database whose note types are offered. */
+  dataSourceId?: string
+}
+
+/** The note types of the database, most frequent first, with their counts. */
+function useNoteTypes(dataSourceId: string | undefined, mapping: SchemaMapping | undefined): MultiSelectOption[] {
+  const [options, setOptions] = useState<MultiSelectOption[]>([])
+  const note = mapping ? classRelation(mapping, 'note') : undefined
+  const relation = has(note, 'note_type') ? note!.name : null
+  useEffect(() => {
+    if (!dataSourceId || !relation) return
+    let cancelled = false
+    queryDataSource(dataSourceId, `SELECT CAST(note_type AS VARCHAR) AS note_type, COUNT(*) AS n
+FROM ${relation}
+WHERE note_type IS NOT NULL
+GROUP BY 1
+ORDER BY 2 DESC
+LIMIT 500`, { origin: 'Cohort builder · note types to filter on' })
+      .then((rows) => {
+        if (cancelled) return
+        setOptions(rows.map((r) => ({ value: String(r.note_type), label: `${String(r.note_type)} (${Number(r.n).toLocaleString()})` })))
+      })
+      .catch(() => { if (!cancelled) setOptions([]) })
+    return () => { cancelled = true }
+  }, [dataSourceId, relation])
+  return options
 }
 
 const MATCH_MODES: TextMatchMode[] = ['contains', 'word', 'regex']
@@ -74,12 +102,18 @@ function HintToggle({ pressed, onToggle, hint, className, children }: {
   )
 }
 
-export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriteriaFormProps) {
+export function TextCriteriaForm({ config, onChange, schemaMapping, dataSourceId }: TextCriteriaFormProps) {
   const { t } = useTranslation()
   const searches = config.searches ?? []
   const note = schemaMapping ? classRelation(schemaMapping, 'note') : undefined
   const hasTitle = has(note, 'title')
   const hasNotes = has(note, 'text')
+  const noteTypes = useNoteTypes(dataSourceId, schemaMapping)
+  // A saved type the database no longer lists stays visible, to be removed.
+  const typeOptions: MultiSelectOption[] = [
+    ...noteTypes,
+    ...(config.noteTypes ?? []).filter((v) => !noteTypes.some((o) => typeof o !== 'string' && o.value === v)),
+  ]
 
   const update = (patch: Partial<TextCriteriaConfig>) => onChange({ ...config, ...patch })
 
@@ -95,21 +129,35 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
 
   return (
     <div className="space-y-3">
-      <FormField label={t('cohorts.text_label')}>
+      <FormField label={t('cohorts.text_label')} hint={t('cohorts.text_label_hint')} hintInTooltip>
         {() => (
-          <>
-            {/* Debounced: this writes through to the cohort tree, so a raw onChange
-                persisted the whole cohort on every keystroke. */}
-            <DebouncedInput
-              value={config.label ?? ''}
-              onChange={(label) => update({ label })}
-              placeholder={t('cohorts.text_label_placeholder')}
-              className={INPUT_CLASS}
-            />
-            <p className="text-[10px] text-muted-foreground">{t('cohorts.text_label_hint')}</p>
-          </>
+          // Debounced: this writes through to the cohort tree, so a raw onChange
+          // persisted the whole cohort on every keystroke.
+          <DebouncedInput
+            value={config.label ?? ''}
+            onChange={(label) => update({ label })}
+            placeholder={t('cohorts.text_label_placeholder')}
+            className={INPUT_CLASS}
+          />
         )}
       </FormField>
+
+      {has(note, 'note_type') && (
+        <FormField label={t('cohorts.text_note_types')} hint={t('cohorts.text_note_types_hint')} hintInTooltip>
+          {() => (
+            <MultiSelectFilter
+              value={config.noteTypes ?? []}
+              options={typeOptions}
+              placeholder={t('cohorts.text_note_types_placeholder')}
+              onChange={(noteTypes) => update({ noteTypes })}
+              popoverWidthClass="w-72"
+              selectAllRespectsSearch
+              showChevron
+              triggerClass="h-8 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
+            />
+          )}
+        </FormField>
+      )}
 
       {!hasNotes && (
         <p className="rounded-md border border-dashed px-2 py-1.5 text-[10px] text-muted-foreground">
@@ -190,21 +238,22 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
 
             {/* Case and accents ignored by default: a clinical note spells a word
                 every way it can. */}
-            <HintToggle
-              pressed={!!search.caseSensitive}
-              onToggle={() => updateSearch(index, { caseSensitive: !search.caseSensitive })}
-              hint={t(search.caseSensitive ? 'cohorts.text_case_sensitive_on' : 'cohorts.text_case_sensitive_off')}
-              className="font-mono"
-            >
-              Aa
-            </HintToggle>
-            <HintToggle
-              pressed={search.ignoreAccents !== false}
-              onToggle={() => updateSearch(index, { ignoreAccents: search.ignoreAccents === false })}
-              hint={t(search.ignoreAccents !== false ? 'cohorts.text_ignore_accents_on' : 'cohorts.text_ignore_accents_off')}
-            >
-              é=e
-            </HintToggle>
+            <div className="ml-2 flex items-center gap-0.5">
+              <HintToggle
+                pressed={!search.caseSensitive}
+                onToggle={() => updateSearch(index, { caseSensitive: !search.caseSensitive })}
+                hint={t(search.caseSensitive ? 'cohorts.text_ignore_case_off' : 'cohorts.text_ignore_case_on')}
+              >
+                A=a
+              </HintToggle>
+              <HintToggle
+                pressed={search.ignoreAccents !== false}
+                onToggle={() => updateSearch(index, { ignoreAccents: search.ignoreAccents === false })}
+                hint={t(search.ignoreAccents !== false ? 'cohorts.text_ignore_accents_on' : 'cohorts.text_ignore_accents_off')}
+              >
+                é=e
+              </HintToggle>
+            </div>
 
             <button
               type="button"
@@ -226,6 +275,9 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
             )}
             className={`${INPUT_CLASS} font-mono`}
           />
+          {search.mode !== 'regex' && search.terms.length <= 1 && (
+            <p className="text-[10px] text-muted-foreground">{t('cohorts.text_terms_hint')}</p>
+          )}
 
           {search.terms.length > 1 && (
             <Select

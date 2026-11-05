@@ -113,7 +113,7 @@ const source = () => {
 const CONCEPTS = [1, 2, 3, 4, 5, 6, 7, 8, 99].map((conceptId) => ({ conceptId, conceptName: `c${conceptId}` }))
 
 describe('batched profiles on DuckDB', () => {
-  it.each(['iqr', 'percentile', 'none'] as const)('give the per-concept JSON (outliers: %s)', async (outlierMethod) => {
+  it.each(['iqr', 'mad', 'percentile', 'none'] as const)('give the per-concept JSON (outliers: %s)', async (outlierMethod) => {
     const options: ProfileOptions = { ...DEFAULT_PROFILE_OPTIONS, outlierMethod, minCategoryCount: 5 }
     const batched = await buildConceptProfiles(OMOP, source(), CONCEPTS, options, query)
     for (const concept of CONCEPTS) {

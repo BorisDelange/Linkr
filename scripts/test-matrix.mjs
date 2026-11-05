@@ -9,40 +9,34 @@
  *   npm run test:matrix -- --spe --machine tiny --scale 50
  *   npm run test:matrix -- --engines parquet,postgresql --spe --keep
  *
- * --engines   comma list (parquet, duckdb, sqlite, postgresql, mysql, doris, oracle, sqlserver)
+ * --engines   comma list (parquet, duckdb, sqlite, postgresql, mysql, doris, sqlserver, oracle); a
+ *             server engine keeps its load in its datamart volume and is reloaded only
+ *             when the dataset changes
  * --spe       run inside docker/spe-sim, capped by --machine (default laptop), with the datamarts
  * --machine   a profile of docker/spe-sim/machines/ (tiny, laptop, small-server, unlimited)
- * --scale N   N copies of every patient (tests/db-matrix/matrix.py upsample), cached under .cache/;
+ * --dataset   a test dataset of scripts/test-data.mjs (default mimic-iv-demo-omop), built on first use
+ *             into the test data folder (config.local.json `testData.dir`)
+ * --scale N   N copies of every patient (tests/db-matrix/matrix.py upsample), kept next to the dataset;
  *             above 1, MySQL is left out unless --engines names it
- * --data DIR  a Parquet OMOP folder, instead of the MIMIC-IV demo (LINKR_TEST_OMOP_DIR works too)
+ * --data DIR  any Parquet OMOP folder instead of a named dataset (LINKR_TEST_OMOP_DIR works too)
  * --keep      leave the datamarts running after an --spe run
  *
  * Exits non-zero when an engine answers a query differently or refuses it.
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-
-/** The builder built into the current Docker context (it bears the context's
- *  name: `default`, `desktop-linux`…). A docker-container builder selected with
- *  `docker buildx use` would ship every image back to Docker as a tarball. */
-function dockerBuilder() {
-  try {
-    return execFileSync('docker', ['context', 'show'], { encoding: 'utf8' }).trim() || 'default'
-  } catch {
-    return 'default'
-  }
-}
+import { dockerEnv } from './docker-env.mjs'
+import { dataset, tablesOf, testDataDir } from './test-data.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const DEMO_REPO = 'https://framagit.org/interhop/linkr/linkr-public-content/databases/mimic-iv-demo-omop.git'
 const python = join(root, 'apps/api/.venv/bin/python')
 const compose = ['compose', '-f', join(root, 'docker/spe-sim/docker-compose.yml')]
 
 function parseArgs(argv) {
-  const a = { engines: null, spe: false, machine: 'laptop', scale: 1, data: process.env.LINKR_TEST_OMOP_DIR ?? null, keep: false }
+  const a = { engines: null, spe: false, machine: 'laptop', scale: 1, dataset: 'mimic-iv-demo-omop', data: process.env.LINKR_TEST_OMOP_DIR ?? null, keep: false }
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i]
     if (k === '--spe') a.spe = true
@@ -50,6 +44,7 @@ function parseArgs(argv) {
     else if (k === '--engines') a.engines = argv[++i]
     else if (k === '--machine') a.machine = argv[++i]
     else if (k === '--scale') a.scale = Number(argv[++i])
+    else if (k === '--dataset') a.dataset = argv[++i]
     else if (k === '--data') a.data = resolve(argv[++i])
     else { console.error(`unknown option ${k}`); process.exit(2) }
   }
@@ -62,18 +57,6 @@ function parseArgs(argv) {
 
 const run = (cmd, args, opts = {}) => execFileSync(cmd, args, { stdio: 'inherit', cwd: root, ...opts })
 
-/** The demo database: a shallow clone of its public repo, Parquet through git LFS. */
-function demoData() {
-  const dir = join(root, '.cache/test-data/mimic-iv-demo-omop')
-  if (!existsSync(join(dir, 'data/person.parquet'))) {
-    console.log(`▶ cloning the MIMIC-IV demo OMOP database (public, ~12 MB)`)
-    mkdirSync(dirname(dir), { recursive: true })
-    run('git', ['clone', '--depth', '1', DEMO_REPO, dir])
-    run('git', ['lfs', 'pull'], { cwd: dir })
-  }
-  return dir
-}
-
 function main() {
   const a = parseArgs(process.argv.slice(2))
   if (!existsSync(python)) {
@@ -81,18 +64,21 @@ function main() {
     process.exit(2)
   }
   const engines = a.engines.split(',')
-  const base = a.data ? resolve(a.data) : demoData()
-  const mapping = existsSync(join(base, 'mapping.json')) ? join(base, 'mapping.json') : join(demoData(), 'mapping.json')
-  let data = existsSync(join(base, 'data')) ? join(base, 'data') : base
+  const base = a.data ? resolve(a.data) : dataset(a.dataset)
+  // The demo's mapping is OMOP CDM 5.4's; the other datasets are shaped like it.
+  const mapping = existsSync(join(base, 'mapping.json')) ? join(base, 'mapping.json') : join(dataset('mimic-iv-demo-omop'), 'mapping.json')
+  let data = tablesOf(base)
 
   if (a.scale > 1) {
-    const scaled = join(root, `.cache/test-data/${base.split('/').pop()}-x${a.scale}`)
+    const scaled = join(testDataDir(), `${base.split('/').pop()}-x${a.scale}`)
     if (!existsSync(join(scaled, 'person.parquet'))) run(python, ['tests/db-matrix/matrix.py', 'upsample', data, scaled, '--factor', String(a.scale)])
     data = scaled
   }
 
-  const work = join(root, `.cache/db-matrix/${a.spe ? a.machine : 'host'}-x${a.scale}`)
+  const work = join(root, `.cache/db-matrix/${a.spe ? a.machine : 'host'}-${a.data ? 'data' : a.dataset}-x${a.scale}`)
   mkdirSync(work, { recursive: true })
+  // A run that fails before pytest must not print the previous run's report.
+  rmSync(join(work, 'report.json'), { force: true })
   console.log(`▶ corpus: the app's SQL for this mapping`)
   run(python, ['tests/db-matrix/matrix.py', 'facts', data, join(work, 'facts.json')])
   run('npx', ['tsx', '--tsconfig', 'tests/db-matrix/tsconfig.json', 'tests/db-matrix/build-corpus.ts', mapping, join(work, 'facts.json'), join(work, 'corpus.json')])
@@ -122,11 +108,10 @@ function runInSpe(a, engines, data, work, env) {
   const services = ['mirror']
   if (engines.includes('postgresql')) { profiles.push('--profile', 'datamart'); services.push('datamart-postgres') }
   if (engines.includes('mysql')) { profiles.push('--profile', 'mysql'); services.push('datamart-mysql') }
+  if (engines.includes('sqlserver')) { profiles.push('--profile', 'sqlserver'); services.push('datamart-sqlserver') }
+  if (engines.includes('oracle')) { profiles.push('--profile', 'oracle'); services.push('datamart-oracle') }
   const speEnv = {
-    // Docker's own builder: a docker-container builder (buildx) would ship the
-    // 2 GB API image back to Docker as a tarball, minutes per build.
-    BUILDX_BUILDER: dockerBuilder(),
-    ...env,
+    ...dockerEnv(env),
     // The API service refuses to start without one; the matrix never starts it.
     LINKR_SECRET_KEY: process.env.LINKR_SECRET_KEY ?? 'unused-by-the-matrix',
     MATRIX_DATA_DIR: data, MATRIX_WORK_DIR: work,
@@ -147,18 +132,24 @@ function summarize(reportPath, mdPath, a) {
   const report = JSON.parse(readFileSync(reportPath, 'utf8'))
   const engines = [...new Set(report.map((r) => r.engine))]
   const lines = [`# Database matrix — ${a.spe ? `SPE, machine ${a.machine}` : 'this machine'}, scale ×${a.scale}`, '',
-    '| Engine | Same | Different | Error | Capped | Skipped | Total ms | Slowest |', '|---|---:|---:|---:|---:|---:|---:|---|']
+    '| Engine | Same | Different | Error | Capped | Skipped | Computed by the database | Total ms | Slowest |', '|---|---:|---:|---:|---:|---:|---:|---:|---|']
   for (const e of engines) {
     const rows = report.filter((r) => r.engine === e)
     const n = (s) => rows.filter((r) => r.status === s).length
     const timed = rows.filter((r) => r.ms != null).sort((x, y) => y.ms - x.ms)
     const total = Math.round(timed.reduce((s, r) => s + r.ms, 0))
-    lines.push(`| ${e} | ${n('same')} | ${n('different')} | ${n('error')} | ${n('capped')} | ${n('skipped')} | ${total} | ${timed[0] ? `${timed[0].key} (${Math.round(timed[0].ms)} ms)` : ''} |`)
+    const pushed = rows.some((r) => r.computedBy) ? `${rows.filter((r) => r.computedBy === 'database').length}` : '—'
+    lines.push(`| ${e} | ${n('same')} | ${n('different')} | ${n('error')} | ${n('capped')} | ${n('skipped')} | ${pushed} | ${total} | ${timed[0] ? `${timed[0].key} (${Math.round(timed[0].ms)} ms)` : ''} |`)
   }
   const problems = report.filter((r) => r.status === 'error' || r.status === 'different')
   if (problems.length) {
     lines.push('', '## Problems', '')
     for (const p of problems) lines.push(`- **${p.engine}** \`${p.key}\` (${p.source}): ${p.error ?? `answers differently — ${JSON.stringify(p.first_difference)}`}`.replace(/\s+/g, " ").slice(0, 600))
+  }
+  const local = report.filter((r) => r.notPushedBecause)
+  if (local.length) {
+    lines.push('', '## Computed by Linkr rather than the database', '')
+    for (const r of local) lines.push(`- **${r.engine}** \`${r.key}\`: ${r.notPushedBecause}`.slice(0, 300))
   }
   const skipped = [...new Set(report.filter((r) => r.status === 'skipped').map((r) => `${r.engine}: ${r.reason}`))]
   if (skipped.length) lines.push('', '## Skipped', '', ...skipped.map((s) => `- ${s}`))

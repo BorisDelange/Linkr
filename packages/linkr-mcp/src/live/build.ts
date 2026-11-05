@@ -20,6 +20,7 @@ import { registerUserPluginTools } from './tools-lab-plugins.js'
 import { registerLabTools } from './tools-lab.js'
 import { registerMappingExtraTools } from './tools-mapping-extra.js'
 import { registerMappingTools } from './tools-mapping.js'
+import { registerMappingEngineTools } from './tools-mapping-engines.js'
 import { registerRuntimeTools } from './tools-runtime.js'
 import { registerWarehouseTools } from './tools-warehouse.js'
 import { registerWikiTools } from './tools-wiki.js'
@@ -37,7 +38,7 @@ export const TOOLSETS: Record<string, Register[]> = {
     registerUserPluginTools,
   ],
   ide: [registerIdeTools, registerRuntimeTools],
-  mapping: [registerMappingTools, registerMappingExtraTools],
+  mapping: [registerMappingTools, registerMappingExtraTools, registerMappingEngineTools],
   etl: [registerEtlTools],
   wiki: [registerWikiTools],
   git: [registerGitTools],

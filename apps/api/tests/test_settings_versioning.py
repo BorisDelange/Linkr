@@ -4,6 +4,7 @@ stable identity, and hash-less users land disabled."""
 import io
 import json
 import zipfile
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 
@@ -73,6 +74,15 @@ async def test_export_keeps_createdat_drops_updatedat(db):
         assert "updatedAt" not in row, f"{path} leaked updatedAt"
 
 
+# The file's date, as exported: UTC with no offset.
+FILE_DATE = datetime(2020, 3, 4, 5, 6, 7, tzinfo=timezone.utc)
+
+
+def _utc(dt: datetime) -> datetime:
+    """The instant a stored date stands for: SQLite hands back naive UTC, Postgres aware."""
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
 async def test_import_preserves_createdat_on_new_records(db):
     """A created org/user/role takes its createdAt from the file (round-trip stable),
     not a fresh now()."""
@@ -87,9 +97,7 @@ async def test_import_preserves_createdat_on_new_records(db):
     org = await db.get(Organization, "org-9")
     carol = await db.scalar(select(User).where(User.username == "carol"))
     role = await db.scalar(select(Role).where(Role.name == "auditor"))
-    assert org.created_at.isoformat() == "2020-03-04T05:06:07"
-    assert carol.created_at.isoformat() == "2020-03-04T05:06:07"
-    assert role.created_at.isoformat() == "2020-03-04T05:06:07"
+    assert _utc(org.created_at) == _utc(carol.created_at) == _utc(role.created_at) == FILE_DATE
 
 
 async def test_import_takes_file_createdat_for_seeded_system_roles(db):
@@ -99,9 +107,7 @@ async def test_import_takes_file_createdat_for_seeded_system_roles(db):
     db.add(Role(name="admin", label={"en": "Admin"}, scope="workspace", is_system=True, permissions=[]))
     db.add(Role(name="curator", label={"en": "Curator"}, scope="workspace", is_system=False, permissions=[]))
     await db.commit()
-    local_curator_date = (
-        await db.scalar(select(Role).where(Role.name == "curator"))
-    ).created_at.isoformat()
+    local_curator_date = _utc((await db.scalar(select(Role).where(Role.name == "curator"))).created_at)
 
     await settings_import_service.import_settings_tree(
         db,
@@ -112,10 +118,10 @@ async def test_import_takes_file_createdat_for_seeded_system_roles(db):
     )
 
     admin = await db.scalar(select(Role).where(Role.name == "admin"))
-    assert admin.created_at.isoformat() == "2020-03-04T05:06:07"
+    assert _utc(admin.created_at) == FILE_DATE
     # A role a human made on THIS instance keeps its own date, like orgs/users.
     curator = await db.scalar(select(Role).where(Role.name == "curator"))
-    assert curator.created_at.isoformat() == local_curator_date
+    assert _utc(curator.created_at) == local_curator_date
 
 
 async def test_export_keys_follow_authored_order(db):

@@ -11,6 +11,9 @@ import { columnLabel } from '@/lib/format-helpers'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
 import { ConceptStatsPanel } from './ConceptStatsPanel'
 import { ConceptStatsSqlDialog } from './ConceptStatsSqlDialog'
+import type { StatsSqlQuery } from './use-concept-stats-sql'
+import { ConceptProfileView } from './ConceptProfileView'
+import type { StoredProfile } from '@/lib/concept-profiles/profile-store'
 import type { ConceptStats } from './use-concepts'
 import { conceptColumnLabel, type ColumnDescriptor } from './concept-queries'
 
@@ -23,19 +26,19 @@ interface ConceptDetailProps {
   statsError?: string | null
   /** Why the selected concept could not be read: shown in place of "select a concept". */
   error?: string | null
-  /** When the precomputed statistics hold no value: read them from the source, or ask why. */
-  onComputeStatsLive?: () => void
   /** The stats are not known without a query on the source, and this computes them. */
   statsDeferred?: boolean
   onLoadStats?: () => void
-  onDiagnoseStats?: () => Promise<Record<string, unknown>>
   hasValueColumn: boolean
   excludeOutliers: boolean
   statsEnabled: boolean
   /** The statements behind the stats panel, in execution order. */
-  statsSql?: { titleKey: string; sql: string }[]
+  statsSql?: StatsSqlQuery[]
   /** Shows a close button in the header, for hosts that hide the pane when nothing is selected. */
   onClose?: () => void
+  /** The database's stored profile of the concept: shown in place of the
+   *  statistics computed on demand, which it holds and more. */
+  profile?: StoredProfile | null
 }
 
 function MetaRow({ label, value }: { label: string; value: string | null | undefined }) {
@@ -55,15 +58,14 @@ export function ConceptDetail({
   statsLoading,
   statsError,
   error,
-  onComputeStatsLive,
   statsDeferred,
   onLoadStats,
-  onDiagnoseStats,
   hasValueColumn,
   excludeOutliers,
   statsEnabled,
   statsSql = [],
   onClose,
+  profile,
 }: ConceptDetailProps) {
   const { t } = useTranslation()
   const [sqlOpen, setSqlOpen] = useState(false)
@@ -201,21 +203,19 @@ export function ConceptDetail({
         <Separator />
 
         {/* Stats */}
-        <ConceptStatsPanel
+        {profile ? <ConceptProfileView profile={profile} /> : <ConceptStatsPanel
           hasValueColumn={hasValueColumn}
           stats={stats}
           isLoading={statsLoading}
           error={statsError}
-          onComputeLive={onComputeStatsLive}
           deferred={statsDeferred}
           onLoad={onLoadStats}
-          onDiagnose={onDiagnoseStats}
           excludeOutliers={excludeOutliers}
           statsEnabled={statsEnabled}
           patientCount={
             typeof concept.patient_count === 'number' ? concept.patient_count : undefined
           }
-        />
+        />}
       </div>
 
       <ConceptStatsSqlDialog open={sqlOpen} onOpenChange={setSqlOpen} queries={statsSql} />

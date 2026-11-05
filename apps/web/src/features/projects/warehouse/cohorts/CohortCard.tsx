@@ -89,7 +89,7 @@ export function CohortCard({
           <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', ENTITY_COLORS.cohorts.bg)}>
             <UsersRound size={20} className={ENTITY_COLORS.cohorts.icon} />
           </div>
-          <TruncatedText text={localized(cohort.name, i18n.language)} readOnly className="min-w-0 flex-1 text-sm font-medium" />
+          <TruncatedText text={localized(cohort.name, i18n.language)} className="min-w-0 flex-1 text-sm font-medium" />
           <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${LEVEL_BADGE}`}>
             {levelLabel}
           </span>

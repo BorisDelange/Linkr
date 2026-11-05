@@ -33,6 +33,7 @@ import { DebouncedInput } from '@/components/ui/debounced-input'
 import { ColumnResizeHandle, FILTER_INPUT_CLASS, FILTER_INPUT_CLASS_DENSE, SortIndicator } from '@/components/ui/table-primitives'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { TruncatedText } from '@/components/ui/truncated-text'
+import { CellContextMenu, useCellContextMenu } from '@/components/ui/cell-context-menu'
 import {
   Table,
   TableBody,
@@ -91,8 +92,40 @@ export function nextSelection(
 
 type Sorting = { columnId: string; desc: boolean } | null
 
-/** Kind of inline column filter to render under a column header. */
-export type DataTableColumnFilter = 'text' | 'number' | 'select' | 'none'
+/**
+ * Kind of inline column filter to render under a column header. `number` finds
+ * an id by its digits; `range` compares a quantity (see `numericFilter`).
+ */
+export type DataTableColumnFilter = 'text' | 'number' | 'range' | 'select' | 'none'
+
+const NUM = String.raw`-?\d+(?:[.,]\d+)?`
+const COMPARISON = new RegExp(String.raw`^(>=|<=|≥|≤|>|<|=)?\s*(${NUM})$`)
+const BETWEEN = new RegExp(String.raw`^(${NUM})\s*(?:-|\.\.)\s*(${NUM})$`)
+const toNumber = (s: string) => Number(s.replace(',', '.'))
+
+/**
+ * The test a `range` filter's text stands for: `>= 1`, `<5`, `=0` or a bare
+ * `3`, and `2-10` (or `2..10`) for an inclusive range. Null for text that is
+ * none of these, which then filters nothing — it is most often half-typed.
+ */
+export function numericFilter(text: string): ((n: number) => boolean) | null {
+  const s = text.trim()
+  const between = BETWEEN.exec(s)
+  if (between) {
+    const [lo, hi] = [toNumber(between[1]), toNumber(between[2])].sort((a, b) => a - b)
+    return (n) => n >= lo && n <= hi
+  }
+  const m = COMPARISON.exec(s)
+  if (!m) return null
+  const v = toNumber(m[2])
+  switch (m[1]) {
+    case '>': return (n) => n > v
+    case '>=': case '≥': return (n) => n >= v
+    case '<': return (n) => n < v
+    case '<=': case '≤': return (n) => n <= v
+    default: return (n) => n === v
+  }
+}
 
 export interface DataTableColumn<T> {
   id: string
@@ -129,12 +162,27 @@ export interface DataTableColumn<T> {
    */
   filterCell?: () => ReactNode
   /**
+   * A text filter applied on Enter rather than as the user types — for a
+   * query too heavy to rerun on every keystroke. The field shows the key.
+   */
+  filterOnEnter?: boolean
+  /**
+   * Asked before a text filter is applied, with the other active filters;
+   * false keeps the previous value. Lets a caller warn before a costly query
+   * (a search with nothing else narrowing it).
+   */
+  confirmFilter?: (value: string, others: Record<string, string | string[]>) => boolean | Promise<boolean>
+  /**
    * Disable sorting on this column (e.g. an actions/links column). Default true,
    * except for a `headerCell` column, whose header is a control and not a label.
    */
   sortable?: boolean
   /** For a 'select' filter: map a raw option value to a display label (e.g. translate/capitalize). */
   selectOptionLabel?: (value: string) => string
+  /** For a 'select' filter: render an option in the dropdown (e.g. as the badge the cell shows). */
+  selectOptionRender?: (option: { value: string; label: string }) => ReactNode
+  /** For a 'select' filter: the order of its options (default: alphabetical). */
+  selectOptionOrder?: (a: string, b: string) => number
   size?: number
   minSize?: number
   /**
@@ -219,21 +267,6 @@ interface DataTableProps<T> {
    */
   rowClassName?: (row: T) => string | undefined
   /**
-   * How much a cell's hover tooltip offers.
-   *
-   * `truncated` (default) reveals a cell only when its text is actually cut,
-   * and the tooltip is hoverable so the value can be selected or copied out of
-   * a narrow column.
-   * `all` shows it even when the text fits, for tables whose values are
-   * routinely copied elsewhere — concept ids, source codes.
-   * `readOnly` drops the copy button and stops the tooltip swallowing the
-   * pointer, for dense pick-a-row tables where a panel floating over the next
-   * rows gets in the way.
-   *
-   * Neither mode mounts a tooltip per cell: they are built on first hover.
-   */
-  cellTooltips?: 'truncated' | 'all' | 'readOnly'
-  /**
    * Rows per page. Omit to render every row, which is right for the short lists
    * most callers pass; set it when the data can run to thousands, where a row per
    * DOM node makes sorting and resizing visibly slow.
@@ -245,6 +278,12 @@ interface DataTableProps<T> {
    * matters when the interesting rows are the big ones.
    */
   initialSorting?: { columnId: string; desc: boolean }
+  /**
+   * Filters set on first render, by column id: the text of a text/number
+   * filter, the picked values of a 'select' one. A view restored from
+   * `viewKey` takes precedence.
+   */
+  initialFilters?: Record<string, string | string[]>
   /**
    * Let the user drag column headers into a different order. Off by default:
    * it adds a grip to every header, which is noise on a table of three columns.
@@ -374,7 +413,7 @@ function SortableHead<T>({
  * filters (text / number / multi-select), column-visibility menu and a results
  * count. Generalized from RelationsTable so concept lists read the same everywhere.
  */
-export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, rowClassName, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey, cellTooltips = 'truncated', stickyHeader, density = 'default', striped, server, pinnedRows }: DataTableProps<T>) {
+export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, rowClassName, pageSize, initialSorting, initialFilters, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey, stickyHeader, density = 'default', striped, server, pinnedRows }: DataTableProps<T>) {
   const dense = density === 'compact'
   const serverMode = !!server
   const cellPad = dense ? 'px-2 py-0.5' : 'px-2 py-1'
@@ -392,7 +431,7 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
   const restored = cached?.signature === signature ? cached : undefined
   const [sorting, setSorting] = useState<Sorting>(restored?.sorting ?? initialSorting ?? null)
   const [filters, setFilters] = useState<Record<string, string | Set<string> | undefined>>(
-    () => (restored ? fromStoredFilters(restored.filters) : {}),
+    () => fromStoredFilters(restored?.filters ?? initialFilters ?? {}),
   )
   const [page, setPage] = useState(0)
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>(restored?.columnSizing ?? {})
@@ -446,7 +485,7 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
     for (const c of cols) {
       if (c.filter !== 'select') continue
       const shownOf = (r: T) => (c.display ? c.display(r) : String(c.accessor(r) ?? ''))
-      out[c.id] = [...new Set(data.map(shownOf).filter(Boolean))].sort()
+      out[c.id] = [...new Set(data.map(shownOf).filter(Boolean))].sort(c.selectOptionOrder)
     }
     return out
   }, [cols, data, serverMode, serverOptions])
@@ -458,7 +497,17 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
       const f = filters[c.id]
       if (f == null) continue
       if (f instanceof Set) {
-        if (f.size) rows = rows.filter((r) => f.has(c.display ? c.display(r) : String(c.accessor(r) ?? '')))
+        // Only the values this data holds count, as the control shows them: a
+        // filter naming none of them (set up front, or restored over other rows)
+        // filters nothing, rather than emptying the table behind a blank control.
+        const live = new Set((selectOptions[c.id] ?? []).filter((v) => f.has(v)))
+        if (live.size) rows = rows.filter((r) => live.has(c.display ? c.display(r) : String(c.accessor(r) ?? '')))
+      } else if (f && c.filter === 'range') {
+        const test = numericFilter(f)
+        if (test) rows = rows.filter((r) => {
+          const v = c.accessor(r)
+          return v != null && v !== '' && test(Number(v))
+        })
       } else if (f) {
         // Every word, in any order, accents and case aside. No typo fallback:
         // a text column may hold codes or ids.
@@ -481,7 +530,7 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
       }
     }
     return rows
-  }, [data, cols, filters, sorting, colById, serverMode])
+  }, [data, cols, filters, sorting, colById, serverMode, selectOptions])
 
   // Server mode: a new sort or filter starts over from page 1, since the page the
   // user was on belongs to another result set. Kept as "page for this query"
@@ -561,11 +610,14 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
         ? rawOpts.map((v) => ({ value: v, label: col.selectOptionLabel!(v) }))
         : rawOpts
       const current = filters[columnId]
-      const value = current instanceof Set ? [...current] : []
+      // A filter set up front (`initialFilters`) can name values this data does
+      // not hold; they match no row, so the control does not count them.
+      const value = current instanceof Set ? rawOpts.filter((v) => current.has(v)) : []
       return (
         <MultiSelectFilter
           value={value}
           options={opts}
+          renderOption={col.selectOptionRender}
           placeholder={col.header}
           onChange={(v) => setFilters((f) => ({ ...f, [columnId]: v.length ? new Set(v) : undefined }))}
         />
@@ -573,30 +625,48 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
     }
     const current = filters[columnId]
     const value = typeof current === 'string' ? current : ''
-    const isNum = col.filter === 'number'
+    const isNum = col.filter === 'number' || col.filter === 'range'
     return (
       <DebouncedInput
         className={cn(dense ? FILTER_INPUT_CLASS_DENSE : FILTER_INPUT_CLASS, isNum && 'font-mono')}
-        placeholder={isNum ? 'ID...' : '...'}
+        placeholder={col.filter === 'number' ? 'ID...' : col.filter === 'range' ? t('common.range_filter_placeholder') : '...'}
+        title={col.filter === 'range' ? t('common.range_filter_hint') : undefined}
         value={value}
-        onChange={(v) => setFilters((f) => ({ ...f, [columnId]: v || undefined }))}
+        commitOnEnter={col.filterOnEnter}
+        onChange={async (v) => {
+          if (v && col.confirmFilter) {
+            const others: Record<string, string | string[]> = {}
+            for (const [id, f] of Object.entries(filters)) {
+              if (id === columnId || f == null) continue
+              if (f instanceof Set) { if (f.size) others[id] = [...f] } else if (f) others[id] = f
+            }
+            if (!(await col.confirmFilter(v, others))) return false
+          }
+          setFilters((f) => ({ ...f, [columnId]: v || undefined }))
+        }}
       />
     )
   }
 
   // One renderer for body and pinned rows, so a pinned row truncates and
   // shows its tooltip like any other.
+  // `display` wins over the raw value everywhere it is shown — and copied.
+  const shownText = (c: DataTableColumn<T>, row: T): string =>
+    c.display ? c.display(row) : String(c.accessor(row) ?? '')
+
   const renderCell = (c: DataTableColumn<T>, row: T): ReactNode => {
     const raw = c.accessor(row)
-    // `display` wins over the raw value everywhere it is shown.
-    const shown = c.display ? c.display(row) : String(raw ?? '')
-    const tooltipProps = { alwaysShow: cellTooltips === 'all', readOnly: cellTooltips === 'readOnly' }
     if (c.tooltip && raw != null && String(raw) !== '') {
-      return <TruncatedText text={shown} className={typeof c.tooltip === 'string' ? c.tooltip : undefined} {...tooltipProps} />
+      return <TruncatedText text={shownText(c, row)} className={typeof c.tooltip === 'string' ? c.tooltip : undefined} />
     }
     if (c.cell) return c.cell(row)
-    return <TruncatedText text={shown} className="text-xs" {...tooltipProps} />
+    return <TruncatedText text={shownText(c, row)} className="text-xs" />
   }
+
+  const cellMenu = useCellContextMenu()
+  // An unlabelled column is a control (actions, row checkbox): nothing to copy.
+  const onCellContextMenu = (c: DataTableColumn<T> | undefined, row: T) =>
+    c && c.header !== '' ? cellMenu.on(shownText(c, row)) : undefined
 
   const columns = useMemo<ColumnDef<T>[]>(() => cols.map((c) => ({
     id: c.id,
@@ -653,7 +723,10 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
   const body = (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex-1 overflow-auto">
-        <Table className="w-full" style={{ tableLayout: 'fixed' }}>
+        {/* An explicit width, not just w-full: with a fixed layout Chrome keeps the
+            old column widths when a column is shown, clipping the last one with
+            no scrollbar until the container itself is resized. */}
+        <Table style={{ tableLayout: 'fixed', width: table.getTotalSize(), minWidth: '100%' }}>
           <TableHeader className={cn(stickyHeader && 'sticky top-0 z-20 bg-muted')}>
             <TableRow>
               {table.getHeaderGroups().map((hg) =>
@@ -738,6 +811,7 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
             </TableRow>
             )}
           </TableHeader>
+          <CellContextMenu menu={cellMenu}>
           <TableBody>
             {pinnedRows?.map((row) => (
               // Opaque on every cell, not just the pinned ones: a translucent
@@ -761,6 +835,7 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
                         maxWidth: column.getSize(),
                         ...(col?.pinned ? { left: pinnedOffset(column.id) } : {}),
                       }}
+                      onContextMenu={onCellContextMenu(col, row)}
                     >
                       {col && renderCell(col, row)}
                     </TableCell>
@@ -823,6 +898,7 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
                           maxWidth: cell.column.getSize(),
                           ...(col?.pinned ? { left: pinnedOffset(cell.column.id) } : {}),
                         }}
+                        onContextMenu={onCellContextMenu(col, row.original)}
                       >
                         {col && renderCell(col, row.original)}
                       </TableCell>
@@ -833,6 +909,7 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
               })
             )}
           </TableBody>
+          </CellContextMenu>
         </Table>
       </div>
 

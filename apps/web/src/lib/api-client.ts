@@ -118,7 +118,7 @@ export async function apiFetch(
   // database that stays as it was until they open it.
   if (res.status === 428 && promptLogin && !path.includes('/my-login')) {
     const detail = credentialRequiredDetail(await res.clone().json().catch(() => null))
-    if (detail && await requestDatabaseLogin(detail.dataSourceId, detail.sessionOnly)) {
+    if (detail && await requestDatabaseLogin(detail.dataSourceId, detail.sessionOnly, detail.purpose)) {
       const retryHeaders = new Headers(options.headers)
       const current = getStoredToken()
       if (current) retryHeaders.set('Authorization', `Bearer ${current}`)

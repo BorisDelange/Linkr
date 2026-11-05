@@ -8,6 +8,11 @@ import { Badge } from '@/components/ui/badge'
 import { PluginNameBadge } from '@/components/PluginNameBadge'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { CodeEditor } from '@/components/editor/CodeEditor'
+import { CodeViewer } from '@/components/editor/CodeViewer'
+import { SqlFormSelect, type SqlForm } from '@/components/editor/SqlFormSelect'
+import { OutputPaneToggle } from '@/components/editor/OutputPaneToggle'
+import { useOutputPane } from '@/components/editor/use-output-pane'
+import { toNativeSql } from '@/lib/schema-classes/native-sql'
 import { CustomSqlDot } from '@/components/ui/custom-sql-dot'
 import {
   AlertDialog,
@@ -35,10 +40,11 @@ import { cn } from '@/lib/utils'
 import type { PatientDashboardWidget } from '@/types'
 import type { PluginConfigField } from '@/types/plugin'
 import { copyText } from '@/lib/clipboard'
-import { TIMELINE_PLUGIN_ID } from '@/lib/plugins/builtin-widget-plugins'
+import { DATATABLE_PLUGIN_ID, TIMELINE_PLUGIN_ID } from '@/lib/plugins/builtin-widget-plugins'
 import { eventRelations } from '@/lib/schema-classes/relations'
 import { formatDateTimeLocale } from '@/lib/format-helpers'
-import { relationsCountedAt, timelineRelationsWithout } from './timeline-relations'
+import { relationsCountedAt, relationsHoldingConcepts, relationsWithoutConcepts } from './timeline-relations'
+import { conceptLabelOf, fetchConceptLabels } from '@/features/projects/warehouse/cohorts/concept-labels'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 interface PatientWidgetEditorSheetProps {
@@ -111,6 +117,7 @@ function EditorContent({
   const [draftSql, setDraftSql] = useState<string | null>(widget.customSql ?? null)
   const [conceptPickerOpen, setConceptPickerOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<'config' | 'code'>('config')
+  const [outputVisible, setOutputVisible] = useOutputPane('patient-widget')
   const [justSaved, setJustSaved] = useState(false)
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -193,6 +200,27 @@ function EditorContent({
   }, [])
 
   // --- SQL ---
+  // The timeline's SQL as it runs: each table searched for the concepts the
+  // concept count found there, each concept named after its id.
+  const timelineIds = widget.pluginId === TIMELINE_PLUGIN_ID || widget.pluginId === DATATABLE_PLUGIN_ID
+    ? ((draftConfig.conceptIds as number[] | undefined) ?? [])
+    : []
+  const timelineKey = timelineIds.join(',')
+  const [timelineRead, setTimelineRead] = useState<{ key: string; opts: Parameters<typeof buildWidgetQueries>[0]['timeline'] } | null>(null)
+  useEffect(() => {
+    if (!timelineKey || !dataSourceId || !schemaMapping) return
+    let cancelled = false
+    const ids = timelineKey.split(',').map(Number)
+    void Promise.all([
+      relationsHoldingConcepts(dataSourceId, schemaMapping, ids).catch(() => undefined),
+      fetchConceptLabels(dataSourceId, schemaMapping, ids).catch(() => new Map()),
+    ]).then(([held, labels]) => {
+      if (!cancelled) setTimelineRead({ key: timelineKey, opts: { held, label: conceptLabelOf(labels) } })
+    })
+    return () => { cancelled = true }
+  }, [timelineKey, dataSourceId, schemaMapping])
+  const timeline = timelineRead?.key === timelineKey ? timelineRead.opts : undefined
+
   const queries = useMemo(
     () =>
       buildWidgetQueries({
@@ -201,8 +229,9 @@ function EditorContent({
         mapping: schemaMapping,
         patientId,
         scope,
+        timeline,
       }),
-    [widget.pluginId, draftConfig, schemaMapping, patientId, scope],
+    [widget.pluginId, draftConfig, schemaMapping, patientId, scope, timeline],
   )
   const editable = supportsCustomSql(widget.pluginId)
   const generatedSql = queries[0]?.sql ?? ''
@@ -309,12 +338,13 @@ function EditorContent({
             {t('cohorts.sql_reset')}
           </Button>
         )}
+        <OutputPaneToggle visible={outputVisible} onToggle={() => setOutputVisible(!outputVisible)} />
       </div>
 
       <div className="min-h-0 flex-1">
         <Allotment>
           <Allotment.Pane preferredSize="45%" minSize={320}>
-            <div className="h-full overflow-auto p-3">
+            <div className={cn('h-full p-3', activeTab === 'config' ? 'overflow-auto' : 'overflow-hidden')}>
               {activeTab === 'config' ? (
                 hasConfig ? (
                   <GenericConfigPanel
@@ -338,6 +368,7 @@ function EditorContent({
                   onChange={(v) => setDraftSql(v)}
                   onSave={handleSave}
                   lang={lang}
+                  mapping={schemaMapping}
                   note={widget.pluginId === TIMELINE_PLUGIN_ID && draftSql == null && dataSourceId && schemaMapping && (
                     <SkippedRelationsNote sourceId={dataSourceId} mapping={schemaMapping} conceptIds={conceptIds} />
                   )}
@@ -346,7 +377,7 @@ function EditorContent({
             </div>
           </Allotment.Pane>
 
-          <Allotment.Pane minSize={320}>
+          <Allotment.Pane minSize={outputVisible ? 320 : 0} visible={outputVisible}>
             <div className="h-full overflow-hidden border-l">
               <SizedPatientWidgetPreview
                 layout={widget.layout}
@@ -403,7 +434,8 @@ function EditorContent({
   )
 }
 
-/** The Code tab: the generated SQL, editable for the widgets that support it. */
+/** The Code tab: the generated SQL, editable for the widgets that support it —
+ *  on the Linkr relations as written, or read only on the database's own tables. */
 function SqlTab({
   queries,
   editable,
@@ -411,6 +443,7 @@ function SqlTab({
   onChange,
   onSave,
   lang,
+  mapping,
   note,
 }: {
   queries: ReturnType<typeof buildWidgetQueries>
@@ -421,11 +454,19 @@ function SqlTab({
    *  the editor has focus — it has to be wired through the editor's own command. */
   onSave: () => void
   lang: string
+  mapping?: SchemaMapping
   /** Under the editor: how the query runs differently from what it shows. */
   note?: ReactNode
 }) {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
+  const [form, setForm] = useState<SqlForm>('linkr')
+  const [queryId, setQueryId] = useState<string | null>(null)
+  const native = form === 'native' && mapping
+  const shown = (sql: string) =>
+    native ? toNativeSql(sql, mapping) ?? `-- ${t('common.sql_form_no_native')}` : sql
+
+  const formSelect = mapping && <SqlFormSelect value={form} onChange={setForm} />
 
   const copy = (sql: string) => {
     void copyText(sql).then((ok) => {
@@ -444,45 +485,57 @@ function SqlTab({
     if (!q.sql && q.missing) return <MissingMapping missing={q.missing} />
     return (
       <div className="flex h-full flex-col gap-2">
+        {formSelect}
         <div className="min-h-0 flex-1">
-          <CodeEditor
-            value={value}
-            onChange={(v) => onChange(v ?? '')}
-            onSave={onSave}
-            language="sql"
-            height="100%"
-          />
+          {native ? (
+            <CodeViewer value={shown(value)} language="sql" height="100%" />
+          ) : (
+            <CodeEditor
+              value={value}
+              onChange={(v) => onChange(v ?? '')}
+              onSave={onSave}
+              language="sql"
+              height="100%"
+            />
+          )}
         </div>
         {note}
       </div>
     )
   }
 
-  // Read-only: one block per query, so a multi-query widget stays legible.
+  // Read-only: one query at a time, picked by its name, filling the pane.
+  const q = queries.find((x) => x.id === queryId) ?? queries[0]
   return (
-    <div className="space-y-3">
-      {queries.map((q) => (
-        <div key={q.id} className="space-y-1">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-medium">
-              {q.label[lang as 'en' | 'fr'] ?? q.label.en}
-            </span>
-            <div className="flex-1" />
-            {q.sql && (
-              <Button variant="ghost" size="icon-xs" onClick={() => copy(q.sql!)}>
-                {copied ? <Check size={12} /> : <Copy size={12} />}
-              </Button>
-            )}
-          </div>
-          {q.sql ? (
-            <pre className="overflow-x-auto rounded-md border bg-muted/40 p-2 text-[10px] leading-relaxed">
-              {q.sql}
-            </pre>
-          ) : (
-            <MissingMapping missing={q.missing ?? ''} />
-          )}
+    <div className="flex h-full flex-col gap-2">
+      {formSelect}
+      <div className="flex shrink-0 items-center gap-1">
+        {queries.length > 1 ? queries.map((x) => (
+          <Button
+            key={x.id}
+            variant={x.id === q.id ? 'secondary' : 'ghost'}
+            size="xs"
+            onClick={() => setQueryId(x.id)}
+          >
+            {x.label[lang as 'en' | 'fr'] ?? x.label.en}
+          </Button>
+        )) : (
+          <span className="text-xs font-medium">{q.label[lang as 'en' | 'fr'] ?? q.label.en}</span>
+        )}
+        <div className="flex-1" />
+        {q.sql && (
+          <Button variant="ghost" size="icon-xs" onClick={() => copy(shown(q.sql!))} aria-label={t('cohorts.sql_copy')}>
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+          </Button>
+        )}
+      </div>
+      {q.sql ? (
+        <div className="min-h-0 flex-1 overflow-hidden rounded-md border">
+          <CodeViewer value={shown(q.sql)} language="sql" height="100%" />
         </div>
-      ))}
+      ) : (
+        <MissingMapping missing={q.missing ?? ''} />
+      )}
     </div>
   )
 }
@@ -513,7 +566,7 @@ function SkippedRelationsNote({ sourceId, mapping, conceptIds }: { sourceId: str
   useEffect(() => {
     let cancelled = false
     void Promise.all([
-      timelineRelationsWithout(sourceId, mapping, conceptIds),
+      relationsWithoutConcepts(sourceId, mapping, conceptIds),
       relationsCountedAt(sourceId),
     ]).then(([without, countedAt]) => {
       if (cancelled) return

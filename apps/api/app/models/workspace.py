@@ -1,37 +1,41 @@
 from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin, UUIDPKMixin
+from app.models.base import PortableJSON, Base, TimestampMixin, UUIDPKMixin
 
 
 class Workspace(Base, UUIDPKMixin, TimestampMixin):
     __tablename__ = "workspaces"
 
-    name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
-    description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    name: Mapped[dict] = mapped_column(PortableJSON, default=dict)  # LocalizedString
+    description: Mapped[dict] = mapped_column(PortableJSON, default=dict)
     organization_id: Mapped[str | None] = mapped_column(String(36))
-    badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    badges: Mapped[list | None] = mapped_column(PortableJSON)
     # Badge categories this workspace declares (GitLab-style scoped labels):
     # [{id, name: LocalizedString, color, exclusive}]. The category name also
     # lives inside each badge's own label ("Source::MIMIC"), which is what makes
     # deleting a category harmless — no badge is rewritten.
-    badge_categories: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    badge_categories: Mapped[list | None] = mapped_column(PortableJSON)
     # LocalizedString ({"en": ..., "fr": ...}); JSON, not Text.
-    readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    readme: Mapped[dict | None] = mapped_column(PortableJSON)
     # Entity licence: {id, name?, text} — the text is snapshotted at pick time
     # so it travels with the export (LICENSE.md) independently of the picker.
-    license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
-    git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    license: Mapped[dict | None] = mapped_column(PortableJSON)
+    git_remote_config: Mapped[dict | None] = mapped_column(PortableJSON)
+    # "direct" (null too) or "review": in review, changes leave as merge requests
+    # only, for the workspace and every entity in it. An instance setting, never
+    # exported; the forge's branch protection is what actually enforces it.
+    git_push_policy: Mapped[str | None] = mapped_column(String(20))
     # Default package lists for a new project's environments, per language:
     # {"python": ["pandas", "numpy==1.26", …], "r": ["dplyr", …]}. Applied when a
     # project is created in this workspace (see project creation). NULL = built-in
     # data-science defaults.
-    default_env_packages: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    default_env_packages: Mapped[dict | None] = mapped_column(PortableJSON)
     # Default install options for new projects' environments, e.g.
     # {"python": {"indexUrl": "...", "trustedHost": "..."},
     #  "r": {"repos": "...", "method": "curl"}}. Inherited by a project's env unless
     # the env overrides them (per-env options.json). NULL = server defaults.
-    default_env_options: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    default_env_options: Mapped[dict | None] = mapped_column(PortableJSON)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     # Creator provenance. created_by_id is the stable identity (name resolved live
@@ -39,7 +43,7 @@ class Workspace(Base, UUIDPKMixin, TimestampMixin):
     # kept for cross-instance imports where the id has no local meaning.
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(Text)
-    created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    created_by_details: Mapped[dict | None] = mapped_column(PortableJSON)
     # Stable cross-instance identity (separate from the local PK). Preserved across
     # export/import; a fork mints a new lineage_id and points parent_lineage_id at its source.
     lineage_id: Mapped[str | None] = mapped_column(String(36))

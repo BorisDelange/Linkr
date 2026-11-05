@@ -16,7 +16,7 @@ free (an absent file is simply skipped).
 """
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,9 +66,12 @@ def _created_at_kwarg(row: dict) -> dict:
     if not raw:
         return {}
     try:
-        return {"created_at": datetime.fromisoformat(raw)}
+        created = datetime.fromisoformat(raw)
     except (ValueError, TypeError):
         return {}
+    # The files write UTC with no offset (`_iso` in settings_export_assemble): a
+    # Postgres driver would otherwise read it in the server's local time.
+    return {"created_at": created if created.tzinfo else created.replace(tzinfo=timezone.utc)}
 
 
 async def _import_orgs(db: AsyncSession, rows: list[dict], report: SettingsImportReport) -> None:

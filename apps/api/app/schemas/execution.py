@@ -173,7 +173,14 @@ class JobResponse(CamelModel):
     label: str
     status: str  # queued | running | done | error | cancelled
     progress: int
-    log_tail: str
+    # Only on `GET /jobs/{id}` and the responses that start a job: the lists the
+    # panel polls carry `summary` instead.
+    log_tail: str = ""
+    # The log's first line ("3 rows"): what the panel's row shows.
+    summary: str | None = None
+    # Whether the panel's Stop reaches it: a job seen but not stoppable (a
+    # connection test, a job left by a restart) is not.
+    cancellable: bool = False
     # Only on `GET /jobs/{id}`: the lists the panel polls leave it out.
     input: str | None = None
     # A 'run' job's collected artifacts: {"figures": [...], "table": {...}, "html"}.
@@ -182,3 +189,5 @@ class JobResponse(CamelModel):
     created_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    group_key: str | None = None
+    group_label: str | None = None

@@ -1,7 +1,7 @@
 from sqlalchemy import String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin, UUIDPKMixin
+from app.models.base import PortableJSON, Base, TimestampMixin, UUIDPKMixin
 
 
 class StatsCache(Base, UUIDPKMixin, TimestampMixin):
@@ -22,4 +22,4 @@ class StatsCache(Base, UUIDPKMixin, TimestampMixin):
     scope: Mapped[str] = mapped_column(String(30))
     cache_key: Mapped[str] = mapped_column(String(64))
     computed_at: Mapped[str] = mapped_column(String(40))
-    payload: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    payload: Mapped[dict] = mapped_column(PortableJSON, default=dict)

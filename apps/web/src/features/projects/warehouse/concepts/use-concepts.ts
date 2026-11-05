@@ -4,12 +4,10 @@ import { conceptRelations } from '@/lib/schema-classes/relations'
 import { isServerMode } from '@/lib/api-client'
 import {
   queryConceptCache,
-  diagnoseConceptStats,
   getConceptStats,
   saveConceptStats,
 } from '@/lib/api/concept-cache'
 import { useConceptCount } from './use-concept-count'
-import { PRECOMPUTED_STATS_VARIANT } from './concept-count-plan'
 import { tableListHas } from '@/lib/schema-helpers'
 import type { SchemaMapping } from '@/types'
 import {
@@ -27,9 +25,10 @@ import {
   buildCacheFilterOptionsQuery,
   buildCacheDetailQuery,
   EMPTY_FILTERS,
+  FILTER_OPTIONS_LIMIT,
   NULL_FILTER_VALUE,
 } from './concept-queries'
-import type { ConceptFilters, ConceptFilterValue, ConceptSorting } from './concept-queries'
+import type { ConceptFilters, ConceptFilterValue, ConceptSorting, FilterOptionsSearch } from './concept-queries'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -90,7 +89,7 @@ export const HISTOGRAM_VARIANT = 'p1p99-union-q'
  * without a matching tag: nothing was ever computed for it, so nothing is stale.
  */
 export function isFreshCachedStats(stats: ConceptStats): boolean {
-  if (stats.histogramVariant === HISTOGRAM_VARIANT || stats.histogramVariant === PRECOMPUTED_STATS_VARIANT) return true
+  if (stats.histogramVariant === HISTOGRAM_VARIANT) return true
   return !stats.histogram?.length && !stats.distribution
 }
 
@@ -125,6 +124,7 @@ interface CachedState {
   pageSize: number
   selectedConceptId: number | null
   filterOptions: Record<string, string[]>
+  searchedFilterColumns: string[]
 }
 
 const stateCache = new Map<string, CachedState>()
@@ -171,7 +171,7 @@ const statsInFlight = new Map<string, Promise<ConceptStats | null>>()
 
 const statsKey = (dictKey: string, conceptId: number) => `${dictKey}::${conceptId}`
 
-/** A load of these stats already running (computed or live), if any. */
+/** A load of these stats already running, if any. */
 function pendingConceptStats(
   dataSourceId: string,
   conceptId: number,
@@ -179,14 +179,13 @@ function pendingConceptStats(
   excludeOutliers: boolean,
 ): Promise<ConceptStats | null> | undefined {
   const flightKey = `${dataSourceId}::${excludeOutliers ? 'clip' : 'raw'}::${statsKey(dictKey, conceptId)}`
-  return statsInFlight.get(flightKey) ?? statsInFlight.get(`${flightKey}::live`)
+  return statsInFlight.get(flightKey)
 }
 
 /**
  * One concept's stats when they cost no query on the source: this session's
- * copy, or (server mode, clipped form) the server's — precomputed by the
- * counting run or cached by an earlier load. Undefined when they would have to
- * be computed.
+ * copy, or (server mode, clipped form) the server's, cached by an earlier load.
+ * Undefined when they would have to be computed.
  */
 export async function peekConceptStats(
   dataSourceId: string,
@@ -198,7 +197,7 @@ export async function peekConceptStats(
   const cached = statsCache.get(statsKey(dictKey, conceptId))
   if (cached) return cached
   if (!isServerMode() || !excludeOutliers) return undefined
-  const shared = await getConceptStats<ConceptStats>(dataSourceId, conceptId, dictKey).catch(() => undefined)
+  const shared = await getConceptStats<ConceptStats>(dataSourceId, conceptId).catch(() => undefined)
   if (!shared || !isFreshCachedStats(shared)) return undefined
   statsCache.set(statsKey(dictKey, conceptId), shared)
   return shared
@@ -207,9 +206,8 @@ export async function peekConceptStats(
 /**
  * One concept's stats as every view shows them — the detail panel and the row
  * popover alike: this session's copy, else (server mode, clipped form) the
- * server's — precomputed by the counting run or cached by an earlier click —
- * else computed on the source and shared. Concurrent asks for the same concept
- * share one load. `live`: straight from the source, past what the server holds.
+ * server's, cached by an earlier click — else computed on the source and
+ * shared. Concurrent asks for the same concept share one load.
  */
 export function fetchConceptStats(
   dataSourceId: string,
@@ -217,27 +215,24 @@ export function fetchConceptStats(
   conceptId: number,
   dictKey: string,
   excludeOutliers: boolean,
-  { live = false }: { live?: boolean } = {},
 ): Promise<ConceptStats | null> {
   const cacheKey = `${dataSourceId}::${excludeOutliers ? 'clip' : 'raw'}`
   const statsCache = cacheFor(statsCaches, cacheKey)
-  const cached = live ? undefined : statsCache.get(statsKey(dictKey, conceptId))
+  const cached = statsCache.get(statsKey(dictKey, conceptId))
   if (cached) return Promise.resolve(cached)
-  const flightKey = `${cacheKey}::${statsKey(dictKey, conceptId)}${live ? '::live' : ''}`
+  const flightKey = `${cacheKey}::${statsKey(dictKey, conceptId)}`
   const pending = statsInFlight.get(flightKey)
   if (pending) return pending
 
   const load = async (): Promise<ConceptStats | null> => {
-    // Server mode: another user, or the counting run, may have computed these
-    // already. On a hit, render without touching the source.
-    if (!live) {
-      const known = await peekConceptStats(dataSourceId, conceptId, dictKey, excludeOutliers)
-      if (known) return known
-    }
+    // Server mode: another user may have computed these already. On a hit,
+    // render without touching the source.
+    const known = await peekConceptStats(dataSourceId, conceptId, dictKey, excludeOutliers)
+    if (known) return known
 
     const countSql = buildDomainCountQuery(schemaMapping, dictKey, conceptId)
     if (!countSql) return null
-    const countResult = await queryDataSource(dataSourceId, countSql)
+    const countResult = await queryDataSource(dataSourceId, countSql, { origin: `Concepts · count records of ${conceptId}` })
     const rowCount = Number(countResult[0]?.cnt ?? 0)
 
     let distribution: MeasurementDistribution | undefined
@@ -248,8 +243,8 @@ export function fetchConceptStats(
         const histSql = buildValueHistogramQuery(schemaMapping, dictKey, conceptId, 20, excludeOutliers)
         if (distSql && histSql) {
           const [distRows, histRows] = await Promise.all([
-            queryDataSource(dataSourceId, distSql),
-            queryDataSource(dataSourceId, histSql),
+            queryDataSource(dataSourceId, distSql, { origin: `Concepts · value distribution of ${conceptId}` }),
+            queryDataSource(dataSourceId, histSql, { origin: `Concepts · value histogram of ${conceptId}` }),
           ])
           if (distRows.length > 0) distribution = distRows[0] as unknown as MeasurementDistribution
           histogram = histRows as unknown as HistogramBin[]
@@ -313,6 +308,9 @@ export function useConcepts(
   const [isLoading, setIsLoading] = useState(true)
 
   const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>(cached?.filterOptions ?? {})
+  // Columns with more distinct values than a dropdown lists: `filterOptions`
+  // holds their first page only, and their dropdown searches the source.
+  const [searchedFilterColumns, setSearchedFilterColumns] = useState<string[]>(cached?.searchedFilterColumns ?? [])
 
   const [selectedConceptId, setSelectedConceptId] = useState<number | null>(cached?.selectedConceptId ?? null)
   const [selectedConcept, setSelectedConcept] = useState<Record<string, unknown> | null>(null)
@@ -362,8 +360,8 @@ export function useConcepts(
   const activeStatsConceptId = useRef<number | null>(null)
 
   // Refs to track latest values for the unmount cleanup
-  const latestRef = useRef({ filters, sorting, page, pageSize, selectedConceptId, filterOptions, totalCount })
-  latestRef.current = { filters, sorting, page, pageSize, selectedConceptId, filterOptions, totalCount }
+  const latestRef = useRef({ filters, sorting, page, pageSize, selectedConceptId, filterOptions, searchedFilterColumns, totalCount })
+  latestRef.current = { filters, sorting, page, pageSize, selectedConceptId, filterOptions, searchedFilterColumns, totalCount }
 
   // Save state to module-level cache on unmount
   useEffect(() => {
@@ -377,6 +375,7 @@ export function useConcepts(
           pageSize: s.pageSize,
           selectedConceptId: s.selectedConceptId,
           filterOptions: s.filterOptions,
+          searchedFilterColumns: s.searchedFilterColumns,
         })
       }
     }
@@ -399,6 +398,7 @@ export function useConcepts(
     setPage(next?.page ?? 0)
     setPageSize(next?.pageSize ?? 50)
     setFilterOptions(next?.filterOptions ?? {})
+    setSearchedFilterColumns(next?.searchedFilterColumns ?? [])
     setSelectedConceptId(next?.selectedConceptId ?? null)
     // Derived from the selection; leaving them would keep the old concept's name
     // and numbers on screen until the new query lands.
@@ -489,6 +489,19 @@ export function useConcepts(
   // Load filter options (distinct values for filterable columns)
   // ---------------------------------------------------------------------------
 
+  // A page of a column's options (see FILTER_OPTIONS_LIMIT): the server mode
+  // reads the concept cache, the front-only mode the source.
+  const loadFilterOptions = useCallback(async (columnId: string, term?: string) => {
+    if (!dataSourceId || !schemaMapping) return null
+    const server = isServerMode()
+    const sql = server
+      ? buildCacheFilterOptionsQuery(columnId, term)
+      : buildFilterOptionsQuery(schemaMapping, columnId, term)
+    if (!sql) return null
+    const rows = server ? await queryConceptCache(dataSourceId, sql) : await queryDataSource(dataSourceId, sql, { origin: `Concepts · filter options (${columnId})` })
+    return { values: rows.map((r) => String(r.val)), total: Number(rows[0]?.total ?? 0) }
+  }, [dataSourceId, schemaMapping])
+
   useEffect(() => {
     if (!dataSourceId || !schemaMapping || hasConceptTable !== true) return
     const server = isServerMode()
@@ -502,17 +515,14 @@ export function useConcepts(
           (c) => c.filterable && c.source !== 'dict' && c.source !== 'conceptSet',
         )
         const results: Record<string, string[]> = {}
+        const searched: string[] = []
 
         await Promise.all(
           filterableCols.map(async (col) => {
-            const sql = server
-              ? buildCacheFilterOptionsQuery(col.id)
-              : buildFilterOptionsQuery(schemaMapping, col.id)
-            if (!sql) return
-            const rows = server
-              ? await queryConceptCache(dataSourceId, sql)
-              : await queryDataSource(dataSourceId, sql)
-            const values = rows.map((r) => String(r.val))
+            const page = await loadFilterOptions(col.id)
+            if (!page) return
+            const { values, total } = page
+            if (total > FILTER_OPTIONS_LIMIT) searched.push(col.id)
             // OMOP stores NULL for non-standard concepts, and the DISTINCT query
             // drops NULLs — add the sentinel so "NS" stays filterable.
             if (col.id === 'standard_concept') values.push(NULL_FILTER_VALUE)
@@ -526,12 +536,21 @@ export function useConcepts(
         }
 
         setFilterOptions(results)
+        setSearchedFilterColumns(searched)
       } catch (err) {
         console.error('Failed to load filter options:', err)
       }
     }
     loadOptions()
-  }, [dataSourceId, schemaMapping, hasConceptTable, cacheReady, listVersion, availableColumns, dicts])
+  }, [dataSourceId, schemaMapping, hasConceptTable, cacheReady, listVersion, availableColumns, dicts, loadFilterOptions])
+
+  const filterOptionSearch = useMemo<Record<string, FilterOptionsSearch>>(
+    () => Object.fromEntries(searchedFilterColumns.map((id) => [
+      id,
+      async (term: string) => (await loadFilterOptions(id, term)) ?? { values: [], total: 0 },
+    ])),
+    [searchedFilterColumns, loadFilterOptions],
+  )
 
   // ---------------------------------------------------------------------------
   // Load concepts when filters or page change
@@ -584,7 +603,7 @@ export function useConcepts(
     }
 
     const run = (sql: string) =>
-      server ? queryConceptCache(dataSourceId, sql) : queryDataSource(dataSourceId, sql)
+      server ? queryConceptCache(dataSourceId, sql) : queryDataSource(dataSourceId, sql, { origin: 'Concepts · list page' })
 
     let cancelled = false
     const load = async () => {
@@ -641,7 +660,7 @@ export function useConcepts(
         }
         const sql = buildConceptFullQuery(schemaMapping, selectedConceptId, dictKey)
         if (!sql) return
-        const rows = await queryDataSource(dataSourceId, sql)
+        const rows = await queryDataSource(dataSourceId, sql, { origin: `Concepts · details of ${selectedConceptId}` })
         if (rows.length > 0) {
           setSelectedConcept(rows[0] as Record<string, unknown>)
         }
@@ -749,29 +768,6 @@ export function useConcepts(
     if (selectedConceptId !== null && dictKey) loadConceptStats(selectedConceptId, dictKey, true)
   }
 
-  // When the precomputed statistics hold no value for the selected concept: read
-  // them from the source instead, or ask the server why.
-  const computeStatsLive = async () => {
-    const dictKey = selectedRowDictKey
-    if (!dataSourceId || !schemaMapping || selectedConceptId === null || !dictKey) return
-    const conceptId = selectedConceptId
-    activeStatsConceptId.current = conceptId
-    setConceptStatsLoading(true)
-    setConceptStatsError(null)
-    try {
-      const stats = await fetchConceptStats(dataSourceId, schemaMapping, conceptId, dictKey, excludeOutliers, { live: true })
-      if (activeStatsConceptId.current === conceptId) setConceptStats(stats)
-    } catch (err) {
-      if (activeStatsConceptId.current === conceptId) setConceptStatsError(err instanceof Error ? err.message : String(err))
-    } finally {
-      if (activeStatsConceptId.current === conceptId) setConceptStatsLoading(false)
-    }
-  }
-  const diagnoseStats = () => {
-    if (!dataSourceId || selectedConceptId === null) return Promise.resolve({})
-    return diagnoseConceptStats(dataSourceId, selectedConceptId, selectedRowDictKey)
-  }
-
   const updateFilter = useCallback((key: string, value: ConceptFilterValue) => {
     setFilters((prev) => ({ ...prev, [key]: value }))
     // Text search fields reset page via debounce, others reset immediately
@@ -811,6 +807,7 @@ export function useConcepts(
     totalPages,
     isLoading,
     filterOptions,
+    filterOptionSearch,
     selectedConceptId,
     setSelectedConceptId,
     selectedConcept: shownConcept as Record<string, unknown> | null,
@@ -820,8 +817,6 @@ export function useConcepts(
     conceptStatsError,
     conceptStatsDeferred,
     loadSelectedStats,
-    computeStatsLive: isServerMode() ? computeStatsLive : undefined,
-    diagnoseStats: isServerMode() ? diagnoseStats : undefined,
     refresh,
     count,
     statsEnabled,

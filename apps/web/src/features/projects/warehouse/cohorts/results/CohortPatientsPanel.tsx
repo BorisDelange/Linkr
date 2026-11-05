@@ -1,14 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { cohortIdColumn } from '@/lib/duckdb/cohort-query'
 import { useTranslation } from 'react-i18next'
 import { Allotment, LayoutPriority } from 'allotment'
 import 'allotment/dist/style.css'
-import { LayoutGrid, Loader2, Lock, Pencil, Plus, Settings2 } from 'lucide-react'
+import { LayoutGrid, Loader2, Lock, Pencil, Plus, Settings2, Wand2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { planCohortBoard } from './cohort-board-plan'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useContextRoleStore } from '@/stores/context-role-store'
 import { isServerMode } from '@/lib/api-client'
-import { deterministicId } from '@/lib/deterministic-id'
+import { runMaterialization } from '@/lib/cohort-materialization'
 import { cohortBoardKey, usePatientChartStore } from '@/stores/patient-chart-store'
 import { PatientChartContext } from '@/features/projects/warehouse/patient-data/PatientChartContext'
 import { PatientChartTabBar } from '@/features/projects/warehouse/patient-data/PatientChartTabBar'
@@ -31,6 +42,8 @@ interface CohortPatientsPanelProps {
    *  beside it below patient level); null before any — the board is then shown
    *  with its widgets paused, to rearrange or remove them without running them. */
   rows: Record<string, unknown>[] | null
+  /** The cohort's size in that execution: more than its rows when they were capped. */
+  total?: number
 }
 
 /**
@@ -39,7 +52,7 @@ interface CohortPatientsPanelProps {
  * among the project's Patient data boards. Reviewing a result needs no
  * materialised cohort: the list is the last execution's rows.
  */
-export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows }: CohortPatientsPanelProps) {
+export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows, total }: CohortPatientsPanelProps) {
   const { t } = useTranslation()
   const { level, projectUid } = cohort
   const inProject = !!projectUid
@@ -69,6 +82,8 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
   const [editMode, setEditMode] = useState(false)
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [generateOpen, setGenerateOpen] = useState(false)
+  const replaceTabsWithWidgets = usePatientChartStore((s) => s.replaceTabsWithWidgets)
   const { ref: fullscreenRef, isFullscreen, toggle: toggleFullscreen, portalContainer: fullscreenContainer } = useFullscreen()
 
   useEffect(() => {
@@ -77,35 +92,36 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
 
   // The last execution's patients, handed to the sidebar as a frozen membership:
   // what is listed is what ran, whatever the criteria have become since — and
-  // whatever the cohort is written in (custom SQL, a unit-stay level).
+  // whatever the cohort is written in (custom SQL, a unit-stay level). A run
+  // that kept only its first rows lists from the criteria, every member.
   const listedCohort = useMemo<Cohort>(() => {
-    const idColumn = level === 'event' ? 'patient_id' : cohortIdColumn(level)
-    const ids = (rows ?? []).map((r) => String(r[idColumn]))
-    const patientIds = [...new Set((rows ?? []).map((r) => String(r.patient_id)))]
-    return {
-      ...cohort,
-      materialization: {
-        level,
-        ids,
-        patientIds,
-        count: ids.length,
-        // Stands for this run: the sidebar re-reads its pages when it changes,
-        // so it must change whenever any member does.
-        materializedAt: deterministicId(cohort.id, ids.join('\n')),
-      },
-    }
-  }, [cohort, rows, level])
+    const materialization = runMaterialization(cohort.id, level, rows ?? [], total ?? rows?.length ?? 0)
+    return materialization ? { ...cohort, materialization } : cohort
+  }, [cohort, rows, total, level])
 
   const boardTabs = useMemo(
     () => tabs.filter((tab) => tab.patientDashboardId === board?.id).sort((a, b) => a.displayOrder - b.displayOrder),
     [board?.id, tabs],
   )
   const currentTabId = activeTabId ?? boardTabs[0]?.id
+  // A board holding nothing yet (its first tab, empty) is replaced without asking.
+  const boardHasWidgets = useMemo(() => {
+    const ids = new Set(boardTabs.map((tab) => tab.id))
+    return widgets.some((w) => ids.has(w.tabId))
+  }, [boardTabs, widgets])
 
   const startConfiguring = async () => {
     await ensureCohortBoard({ dataSourceId, projectUid }, cohort.id)
     setEditMode(true)
     setAddWidgetOpen(true)
+  }
+
+  // The tabs the criteria call for, in place of whatever the board has.
+  const plan = useMemo(() => planCohortBoard(cohort, schemaMapping, t), [cohort, schemaMapping, t])
+  const generateTabs = async () => {
+    setGenerateOpen(false)
+    const id = board?.id ?? await ensureCohortBoard({ dataSourceId, projectUid }, cohort.id)
+    await replaceTabsWithWidgets(id, plan)
   }
 
   const boardId = board?.id
@@ -137,10 +153,16 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
         title={t('cohorts.patients_board_empty_title')}
         description={t('cohorts.patients_board_empty_description')}
         action={
-          <Button size="sm" className="gap-1.5" disabled={!canWrite} onClick={() => void startConfiguring()}>
-            <Plus size={14} />
-            {t('dashboard.add_widget')}
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" className="gap-1.5" disabled={!canWrite} onClick={() => void generateTabs()}>
+              <Wand2 size={14} />
+              {t('cohorts.board_generate')}
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5" disabled={!canWrite} onClick={() => void startConfiguring()}>
+              <Plus size={14} />
+              {t('dashboard.add_widget')}
+            </Button>
+          </div>
         }
       />
     </div>
@@ -165,6 +187,21 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
                       {t('dashboard.add_widget')}
                     </Button>
                   )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        className="gap-1"
+                        disabled={!canWrite}
+                        onClick={() => (boardHasWidgets ? setGenerateOpen(true) : void generateTabs())}
+                      >
+                        <Wand2 size={13} />
+                        {t('cohorts.board_generate')}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-72">{t('cohorts.board_generate_hint')}</TooltipContent>
+                  </Tooltip>
                   <Button
                     variant="ghost"
                     size="xs"
@@ -209,6 +246,23 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
           <PatientDataSidebar cohort={listedCohort} />
         </Allotment.Pane>
       </Allotment>
+
+      <AlertDialog open={generateOpen} onOpenChange={setGenerateOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('cohorts.board_generate_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('cohorts.board_generate_description', { count: plan.length, tabs: plan.map((p) => p.name).join(', ') })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={() => void generateTabs()}>
+              {t('cohorts.board_generate_replace')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {board && (
         <>

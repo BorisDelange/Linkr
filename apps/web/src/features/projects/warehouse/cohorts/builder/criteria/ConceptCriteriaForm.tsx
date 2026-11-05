@@ -203,7 +203,7 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
               value={config.conceptMatch ?? 'any'}
               onValueChange={(v) => onChange({ ...config, conceptMatch: v as 'any' | 'all' })}
             >
-              <SelectTrigger className="h-7 w-auto text-xs">
+              <SelectTrigger size="xs" className="w-auto text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

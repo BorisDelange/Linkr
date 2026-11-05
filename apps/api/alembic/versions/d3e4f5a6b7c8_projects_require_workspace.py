@@ -16,7 +16,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 revision: str = "d3e4f5a6b7c8"
 down_revision: Union[str, None] = "c2d3e4f5a6b7"
@@ -33,8 +33,8 @@ _users = sa.table("users", sa.column("id", sa.Integer), sa.column("username", sa
 _workspaces = sa.table(
     "workspaces",
     sa.column("id", sa.String),
-    sa.column("name", JSONB_or_JSON),
-    sa.column("description", JSONB_or_JSON),
+    sa.column("name", PortableJSON),
+    sa.column("description", PortableJSON),
     sa.column("owner_id", sa.Integer),
     sa.column("origin", sa.String),
 )

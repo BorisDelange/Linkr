@@ -6,8 +6,10 @@ import { materializationFromRows } from '@/lib/cohort-materialization'
 import { deleteCohortBoard } from '@/lib/cohort-board-storage'
 import { stampAuthored } from '@/stores/app-store'
 import { copyName } from '@/lib/copy-name'
-import { toLocalized } from '@/lib/localized'
-import { buildCohortCountSql, buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql, buildCustomSqlOutputSql, cohortRunError } from '@/lib/duckdb/cohort-query'
+import { localized, toLocalized } from '@/lib/localized'
+import { buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql, buildCustomSqlOutputSql, cohortIdColumn, cohortRunError } from '@/lib/duckdb/cohort-query'
+import { cohortRelationNarrowing } from '@/features/projects/warehouse/cohorts/relation-narrowing'
+import { relationsCountedAt } from '@/features/projects/warehouse/patient-data/timeline-relations'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import * as engine from '@/lib/duckdb/engine'
 import type {
@@ -22,6 +24,7 @@ import type {
   DataSourceRef,
   LocalizedString,
 } from '@/types'
+import { cohortOrigin } from '@/lib/duckdb/query-log'
 
 // ---------------------------------------------------------------------------
 // Migration: v1 flat criteria → v2 criteria tree
@@ -419,7 +422,9 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     get().executionAborts.get(id)?.abort()
     const controller = new AbortController()
     const { signal } = controller
-    const query = (sql: string) => engine.queryDataSource(dataSourceId, sql, { signal, heavy: true })
+    const named = cohortOrigin(localized(cohort.name, 'en'))
+    const query = (sql: string, what: string) =>
+      engine.queryDataSource(dataSourceId, sql, { signal, heavy: true, origin: named(what) })
     const isCurrent = () => get().executionAborts.get(id) === controller
     const setIfCurrent = (fn: (s: CohortState) => Partial<CohortState>) =>
       set((s) => (s.executionAborts.get(id) === controller ? fn(s) : {}))
@@ -447,7 +452,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
         const start = Date.now()
         let output: CustomSqlOutput
         try {
-          const rows = await query(outputSql)
+          const rows = await query(outputSql, 'its SQL as written, for SQL output')
           output = { rows, truncated: rows.length >= MAX_RESULT_ROWS, durationMs: Date.now() - start }
         } catch (err) {
           if (signal.aborted) throw err
@@ -457,21 +462,39 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       }
 
       // A hand-written query stands in for the criteria inside every builder.
-      const countSql = buildCohortCountSql(cohort, schemaMapping)
+      const narrowing = await cohortRelationNarrowing(dataSourceId, schemaMapping, cohort)
+      // Fetch up to the server's own cap rather than a token 50: the results
+      // table paginates client-side, so a 50-row fetch showed "50 / 50" on a
+      // cohort of 1500. The same query counts the cohort.
+      const resultsSql = buildCohortResultsSql(cohort, schemaMapping, MAX_RESULT_ROWS, narrowing)
+      const narrowed = !!narrowing && resultsSql !== buildCohortResultsSql(cohort, schemaMapping, MAX_RESULT_ROWS)
+      const narrowedBy = narrowed ? { countedAt: await relationsCountedAt(dataSourceId).catch(() => null) } : undefined
       // No SQL means the criteria tree produced nothing runnable (an empty group,
       // a criterion missing its concepts). Returning silently here left the panel
       // spinning, then back on "run the query" as if nothing had happened.
-      if (!countSql) throw new Error('EMPTY_QUERY')
-
-      // Execute count
-      const countResults = await query(countSql)
-      const totalCount = Number(countResults[0]?.cnt ?? 0)
+      if (!resultsSql) throw new Error('EMPTY_QUERY')
+      const resultsStart = Date.now()
+      const rows = await query(resultsSql, 'members and count')
+      const totalCount = Number(rows[0]?.cohort_total ?? 0)
+      for (const row of rows) delete row.cohort_total
+      // The generated query's output is the members' ids, just read: running it
+      // again would evaluate the criteria a second time.
+      if (!outputSql && cohort.level !== 'event') {
+        const column = cohortIdColumn(cohort.level)
+        const output: CustomSqlOutput = {
+          rows: rows.map((row) => ({ [column]: row[column] })),
+          truncated: totalCount > rows.length,
+          durationMs: Date.now() - resultsStart,
+        }
+        setIfCurrent((s) => ({ customSqlOutputs: new Map(s.customSqlOutputs).set(id, output) }))
+      }
 
       const attrition: AttritionStep[] = []
       let prevCount = 0
-      for (const aq of buildAttritionQueries(cohort, schemaMapping)) {
-        const res = await query(aq.sql)
-        const count = Number(res[0]?.cnt ?? 0)
+      const steps = buildAttritionQueries(cohort, schemaMapping, { narrowing })
+      for (const [i, aq] of steps.entries()) {
+        // The last step keeps every criterion: the cohort itself, counted above.
+        const count = i === steps.length - 1 ? totalCount : Number((await query(aq.sql, `attrition step ${i + 1}/${steps.length}: ${aq.label}`))[0]?.cnt ?? 0)
         attrition.push({
           nodeId: aq.nodeId,
           label: aq.label,
@@ -481,23 +504,16 @@ export const useCohortStore = create<CohortState>((set, get) => ({
         prevCount = count
       }
 
-      // Fetch up to the server's own cap rather than a token 50: the results
-      // table paginates client-side, so a 50-row fetch showed "50 / 50" on a
-      // cohort of 1500. Cost is flat in the row count (measured on a real
-      // MIMIC build: 50 rows and 100k rows both ~200ms — the scan dominates),
-      // so the small limit bought nothing.
-      const resultsSql = buildCohortResultsSql(cohort, schemaMapping, MAX_RESULT_ROWS, 0)
-      const rows = resultsSql ? await query(resultsSql) : []
-
       const durationMs = Date.now() - startTime
       const result: CohortExecutionResult = {
         totalCount,
         attrition,
         rows,
-        sql: countSql,
+        sql: resultsSql,
         executedAt: new Date().toISOString(),
         durationMs,
         ...(draft ? { fromDraft: { customSql: customSqlDraft ?? null } } : {}),
+        ...(narrowedBy ? { narrowedBy } : {}),
       }
 
       if (!isCurrent()) return totalCount
@@ -578,6 +594,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     }))
 
     try {
+      // Never narrowed by the concept count: a frozen membership must be exact.
       const sql = buildCohortMembershipSql(cohort, schemaMapping)
       // Returning here without clearing the spinner left the button turning for
       // ever with nothing to explain it — surface it as the failure it is.

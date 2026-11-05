@@ -64,5 +64,6 @@
   "license": {
     "id": "MIT"
   },
-  "appVersion": "2.4.5"
+  "appVersion": "2.4.5",
+  "minAppVersion": "2.4.5"
 }

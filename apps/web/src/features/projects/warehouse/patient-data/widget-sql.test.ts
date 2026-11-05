@@ -207,3 +207,16 @@ describe('which config changes regenerate the SQL', () => {
     expect(a).not.toBe(b)
   })
 })
+
+describe('data overview SQL', () => {
+  const OVERVIEW = 'linkr-widget-patient-overview'
+  const ids = (config: Record<string, unknown>) =>
+    buildWidgetQueries({ pluginId: OVERVIEW, config, mapping: fullMapping, patientId: 'p1', scope: null }).map((q) => q.id)
+
+  it('shows the record’s inventory, and the death lane’s query while it is shown', () => {
+    const queries = buildWidgetQueries({ pluginId: OVERVIEW, config: {}, mapping: fullMapping, patientId: 'p1', scope: null })
+    expect(queries[0]).toMatchObject({ id: 'inventory' })
+    expect(queries[0].sql).toContain("'p1'")
+    expect(ids({ showDeath: false })).not.toContain('death')
+  })
+})

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -188,7 +188,48 @@ interface MarkdownRendererProps {
   extraComponents?: Record<string, any>
 }
 
-export function MarkdownRenderer({
+// Module-level so every render hands ReactMarkdown the same component types:
+// fresh closures per render made React remount the whole tree, re-running each
+// mermaid diagram, whenever anything above the renderer re-rendered.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const rendererComponents: Record<string, any> = {
+  // Callouts, images and off-site links come from the shared
+  // `markdownComponents`, so they behave the same in every markdown view.
+  ...markdownComponents,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  code: ({ node: _node, className: codeClassName, children, ...props }: any) => {
+    const match = /language-(\w+)/.exec(codeClassName || '')
+    if (match?.[1] === 'mermaid') {
+      return <MermaidBlock code={String(children).trim()} />
+    }
+    if (match) {
+      return (
+        <code className={codeClassName} {...props}>
+          {children}
+        </code>
+      )
+    }
+    return <code {...props}>{children}</code>
+  },
+  // Heading ids are the targets of the [[toc]] links.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  h1: ({ children, ...props }: any) => {
+    const id = getHeadingId(children)
+    return <h1 id={id} {...props}>{children}</h1>
+  },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  h2: ({ children, ...props }: any) => {
+    const id = getHeadingId(children)
+    return <h2 id={id} {...props}>{children}</h2>
+  },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  h3: ({ children, ...props }: any) => {
+    const id = getHeadingId(children)
+    return <h3 id={id} {...props}>{children}</h3>
+  },
+}
+
+export const MarkdownRenderer = memo(function MarkdownRenderer({
   content,
   className,
   resolveWikilink,
@@ -200,45 +241,6 @@ export function MarkdownRenderer({
   processed = processWikilinks(processed, resolveWikilink)
   processed = processToc(processed)
 
-  // Custom component overrides for ReactMarkdown
-  const components = useCallback(() => ({
-    // Callouts come from the shared `markdownComponents` (spread below), so a
-    // `> [!WARNING]` renders the same here and on every raw-ReactMarkdown page.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    code: ({ node: _node, className: codeClassName, children, ...props }: any) => {
-      const match = /language-(\w+)/.exec(codeClassName || '')
-      if (match?.[1] === 'mermaid') {
-        return <MermaidBlock code={String(children).trim()} />
-      }
-      if (match) {
-        return (
-          <code className={codeClassName} {...props}>
-            {children}
-          </code>
-        )
-      }
-      return <code {...props}>{children}</code>
-    },
-    // Images and off-site links come from the shared `markdownComponents`
-    // (spread below), so they behave the same in every markdown view.
-    // Add IDs to headings for TOC linking
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    h1: ({ children, ...props }: any) => {
-      const id = getHeadingId(children)
-      return <h1 id={id} {...props}>{children}</h1>
-    },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    h2: ({ children, ...props }: any) => {
-      const id = getHeadingId(children)
-      return <h2 id={id} {...props}>{children}</h2>
-    },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    h3: ({ children, ...props }: any) => {
-      const id = getHeadingId(children)
-      return <h3 id={id} {...props}>{children}</h3>
-    },
-  }), [])
-
   // `prose-a:` rather than a class on the anchor: Tailwind Typography styles
   // links as `.prose a`, which outranks a plain utility class.
   return (
@@ -247,13 +249,13 @@ export function MarkdownRenderer({
         remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}
         urlTransform={urlTransform}
-        components={{ ...markdownComponents, ...components(), ...extraComponents }}
+        components={extraComponents ? { ...rendererComponents, ...extraComponents } : rendererComponents}
       >
         {processed}
       </ReactMarkdown>
     </div>
   )
-}
+})
 
 function getHeadingId(children: React.ReactNode): string {
   const text = typeof children === 'string'

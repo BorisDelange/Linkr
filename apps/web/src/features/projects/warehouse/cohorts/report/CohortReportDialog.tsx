@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, RefreshCw } from 'lucide-react'
+import { Loader2, RefreshCw, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { DialogShell } from '@/components/ui/dialog-shell'
@@ -9,14 +9,14 @@ import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import * as engine from '@/lib/duckdb/engine'
 import { downloadBlob } from '@/lib/entity-io'
 import { localized } from '@/lib/localized'
 import { printHtml, rasterizeSvg, reportFileName } from '@/lib/cohort-report/export'
-import { buildCohortReportModel, CohortReportUnavailable, type CohortReportModel } from '@/lib/cohort-report/model'
+import { CohortReportUnavailable, shapeCohortReportModel } from '@/lib/cohort-report/model'
 import { renderReportHtml } from '@/lib/cohort-report/render-html'
 import { DEFAULT_SUPPRESSION_THRESHOLD } from '@/lib/cohort-report/suppress'
 import type { Cohort, DataSource } from '@/types'
+import { useCohortFigures } from './cohort-figures'
 
 type ReportFormat = 'html' | 'pdf' | 'docx'
 
@@ -35,35 +35,37 @@ function unavailableReason(cohort: Cohort): string | null {
 }
 
 export function CohortReportDialog(props: CohortReportDialogProps) {
-  // Mounted per opening: each one computes the report fresh.
   return props.open ? <ReportPreview {...props} /> : null
 }
 
-/** A built report, or why it could not be, for the threshold it was built with. */
-type Built = { threshold: number; model: CohortReportModel } | { threshold: number; error: string }
+/** The threshold last applied to each cohort's report, kept while the page is:
+ *  it shapes the figures, so reopening the report shows them as they were. */
+const appliedThresholds = new Map<string, number>()
 
-function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialogProps) {
+function ReportPreview({ open, onOpenChange, cohort: openedCohort, source }: CohortReportDialogProps) {
   const { t, i18n } = useTranslation()
+  // The cohort as it was when the dialog opened: editing it behind the dialog
+  // must not re-run the report mid-read.
+  const [cohort] = useState(openedCohort)
+  const [initialThreshold] = useState(() => appliedThresholds.get(cohort.id) ?? DEFAULT_SUPPRESSION_THRESHOLD)
   const [format, setFormat] = useState<ReportFormat>('html')
-  const [threshold, setThreshold] = useState(String(DEFAULT_SUPPRESSION_THRESHOLD))
-  const [applied, setApplied] = useState(DEFAULT_SUPPRESSION_THRESHOLD)
+  const [threshold, setThreshold] = useState(String(initialThreshold))
+  const [applied, setApplied] = useState(initialThreshold)
   const [includeSql, setIncludeSql] = useState(true)
-  const [built, setBuilt] = useState<Built | null>(null)
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
 
   const blocked = unavailableReason(cohort)
   const thresholdValue = Number.parseInt(threshold, 10)
   const thresholdValid = Number.isFinite(thresholdValue) && thresholdValue >= 1 && thresholdValue <= 1000
-  const loading = !blocked && !!source?.schemaMapping && (!built || built.threshold !== applied)
-
-  // The suppression is applied in the model, so a new threshold is a new run —
-  // asked for with the Recompute button.
-  useEffect(() => {
-    if (blocked || !source?.schemaMapping) return
-    let cancelled = false
-    const mapping = source.schemaMapping
-    buildCohortReportModel({
+  // Computed once for the definition — by the Statistics tab, or here — then
+  // shaped in the language and under the threshold asked for.
+  const figures = useCohortFigures(cohort, source, { withFlow: true, enabled: !blocked })
+  const { state } = figures
+  const mapping = source?.schemaMapping
+  const model = useMemo(() => {
+    if (!figures.data?.flow || !source || !mapping) return null
+    return shapeCohortReportModel(figures.data, {
       cohort,
       mapping,
       databaseName: localized(source.name, i18n.language),
@@ -71,30 +73,27 @@ function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialo
       schemaLabel: localized(source.schemaSource?.label, i18n.language)
         || localized(mapping.presetLabel, i18n.language)
         || undefined,
-      run: (sql) => engine.queryDataSource(source.id, sql, { heavy: true }),
       t,
       locale: i18n.language,
       threshold: applied,
     })
-      .then((model) => { if (!cancelled) setBuilt({ threshold: applied, model }) })
-      .catch((err) => {
-        if (cancelled) return
-        setBuilt({
-          threshold: applied,
-          error: err instanceof CohortReportUnavailable
-            ? t(`cohort_report.unavailable_${err.reason}`)
-            : t('cohort_report.error', { message: err instanceof Error ? err.message : String(err) }),
-        })
-      })
-    return () => { cancelled = true }
-    // The cohort as it was when the dialog opened: editing it behind the dialog
-    // must not re-run the report mid-read.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applied, source?.id])
+  }, [figures.data, source, mapping, cohort, t, i18n.language, applied])
 
-  const model = built && 'model' in built && built.threshold === applied ? built.model : null
+  const loading = !blocked && !!mapping && !model && state?.status !== 'error' && state?.status !== 'stopped'
   const html = useMemo(() => (model ? renderReportHtml(model, t, { includeSql }) : null), [model, t, includeSql])
-  const buildError = built && 'error' in built && built.threshold === applied ? built.error : null
+  const err = state?.status === 'error' ? state.error : null
+  const buildError = state?.status === 'stopped' ? t('cohort_report.stopped')
+    : err == null ? null
+      : err instanceof CohortReportUnavailable ? t(`cohort_report.unavailable_${err.reason}`)
+        : t('cohort_report.error', { message: err instanceof Error ? err.message : String(err) })
+
+  // A new threshold reshapes the figures; the same one reads them again.
+  const recompute = () => {
+    if (thresholdValue !== applied) {
+      appliedThresholds.set(cohort.id, thresholdValue)
+      setApplied(thresholdValue)
+    } else figures.recompute()
+  }
 
   const exportReport = async () => {
     if (!model || !html) return
@@ -140,18 +139,23 @@ function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialo
       noEnterSubmit
       footerExtra={
         <div className="flex items-center gap-2 sm:mr-auto">
-          {/* The threshold is applied in the model, so a new one is a new run —
-              asked for here, not on every keystroke (some thirty queries). */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            disabled={!thresholdValid || thresholdValue === applied || loading || !!message}
-            onClick={() => setApplied(thresholdValue)}
-          >
-            <RefreshCw size={14} />
-            {t('cohort_report.recompute')}
-          </Button>
+          {loading ? (
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={figures.stop}>
+              <Square size={14} />
+              {t('cohort_report.stop')}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={!thresholdValid || !!message}
+              onClick={recompute}
+            >
+              <RefreshCw size={14} />
+              {t('cohort_report.recompute')}
+            </Button>
+          )}
           <FieldError message={exportError} />
         </div>
       }
@@ -184,7 +188,7 @@ function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialo
                   max={1000}
                   value={threshold}
                   onChange={(e) => setThreshold(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && thresholdValid) setApplied(thresholdValue) }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && thresholdValid && !loading) recompute() }}
                 />
               )}
             </FormField>
@@ -200,9 +204,12 @@ function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialo
               <iframe title={t('cohort_report.title')} srcDoc={html} sandbox="" className="h-full w-full border-0" />
             )}
             {loading && (
-              <div className="absolute inset-0 flex items-center justify-center gap-2 bg-background/60 text-xs text-muted-foreground">
-                <Loader2 size={14} className="animate-spin" />
-                {t('cohort_report.generating')}
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-background/60 text-xs text-muted-foreground">
+                <span className="flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin" />
+                  {t('cohort_report.generating')}
+                </span>
+                <span className="text-[10px]">{t('cohort_report.generating_hint')}</span>
               </div>
             )}
             {buildError && (

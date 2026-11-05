@@ -87,8 +87,9 @@ async function reloadProjectStores(): Promise<void> {
  * is (`INLINE_PULLS` / `AFTER_PULLS` in entity-actions-menu): reinstalling is a
  * property of the entity kind, and most kinds are reached from a list page, a
  * detail page AND the header badge. A scope absent from this table gets no
- * Reinstall button — that is how `workspaces`, `user-plugins` and `settings`
- * stay out, having no `applyClonedEntity` branch to rebuild them.
+ * Reinstall button — that is how `user-plugins` and `settings` stay out, having
+ * no `applyClonedEntity` branch to rebuild them. `workspaces` is not here
+ * either: a workspace is a container, rebuilt by lib/workspace-reinstall.ts.
  */
 /**
  * The `onReinstall` handler for a scope, or undefined when that scope has none

@@ -34,8 +34,10 @@ import {
 import { Button } from '@/components/ui/button'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
 import { ColumnResizeHandle, FILTER_INPUT_CLASS, SortIndicator } from '@/components/ui/table-primitives'
+import { DebouncedInput } from '@/components/ui/debounced-input'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { Skeleton } from '@/components/ui/skeleton'
+import { CellContextMenu, useCellContextMenu } from '@/components/ui/cell-context-menu'
 import {
   Select,
   SelectContent,
@@ -61,13 +63,15 @@ import {
 import { columnLabel } from '@/lib/format-helpers'
 import { isTypingTarget } from '@/lib/utils'
 import { resolveRowSelection } from './row-selection'
+import { unpackSetNames } from './concept-set-names'
 import type { ConceptRow } from './use-concepts'
-import { conceptColumnLabel } from './concept-queries'
+import { conceptColumnLabel, filterText } from './concept-queries'
 import type {
   ConceptFilters,
   ConceptFilterValue,
   ConceptSorting,
   ColumnDescriptor,
+  FilterOptionsSearch,
 } from './concept-queries'
 
 /** Picker affordances, not data: no sort, no filter, no drag, no hiding. */
@@ -94,6 +98,8 @@ interface ConceptTableProps {
   availableColumns: ColumnDescriptor[]
   filters: ConceptFilters
   filterOptions: Record<string, string[]>
+  /** Columns whose `filterOptions` are a first page only, searched on Enter. */
+  filterOptionSearch?: Record<string, FilterOptionsSearch>
   sorting: ConceptSorting | null
   columnVisibility: VisibilityState
   onColumnVisibilityChange: (v: VisibilityState) => void
@@ -122,6 +128,8 @@ interface ConceptTableProps {
   onEnter?: () => void
   /** Empty-state message. Defaults to the Concepts page's own wording. */
   emptyMessage?: string
+  /** Row entries added under "Copy value" in a cell's right-click menu. */
+  cellMenuItems?: (row: ConceptRow) => ReactNode
 }
 
 // ---------------------------------------------------------------------------
@@ -148,16 +156,22 @@ function ColumnFilterMulti({
   placeholder,
   onChange,
   optionLabel,
+  search,
 }: {
   values: string[]
   options: string[]
   placeholder: string
   onChange: (next: string[]) => void
   optionLabel?: (value: string) => string
+  search?: FilterOptionsSearch
 }) {
   const opts = optionLabel
     ? options.map((v) => ({ value: v, label: optionLabel(v) }))
     : options
+  const onSearch = useMemo(() => search && (async (term: string) => {
+    const { values: found, total } = await search(term)
+    return { options: optionLabel ? found.map((v) => ({ value: v, label: optionLabel(v) })) : found, total }
+  }), [search, optionLabel])
   return (
     <MultiSelectFilter
       value={values}
@@ -166,6 +180,7 @@ function ColumnFilterMulti({
       onChange={onChange}
       triggerClass={FILTER_INPUT_CLASS}
       popoverWidthClass="w-[300px]"
+      onSearch={onSearch}
     />
   )
 }
@@ -240,6 +255,7 @@ export function ConceptTable({
   availableColumns,
   filters,
   filterOptions,
+  filterOptionSearch,
   sorting,
   columnVisibility,
   onColumnVisibilityChange,
@@ -256,8 +272,10 @@ export function ConceptTable({
   rowAction,
   onEnter,
   emptyMessage,
+  cellMenuItems,
 }: ConceptTableProps) {
   const { t } = useTranslation()
+  const cellMenu = useCellContextMenu()
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>([])
 
   // Sorting is done by SQL, so the data-dictionary columns (joined in the
@@ -598,31 +616,40 @@ export function ConceptTable({
     // Text search inputs for core searchable columns
     if (columnId === 'concept_id') {
       return (
-        <input
+        <DebouncedInput
           className={`${FILTER_INPUT_CLASS} font-mono`}
           placeholder={t('concepts.search_id_placeholder')}
-          value={typeof filters._searchId === 'string' ? filters._searchId : ''}
-          onChange={(e) => onFilterChange('_searchId', e.target.value || null)}
+          commitOnEnter
+          value={filterText(filters._searchId) ?? ''}
+          onChange={(v) => onFilterChange('_searchId', v || null)}
         />
       )
     }
     if (columnId === 'concept_name') {
+      // The ranked fuzzy search over every concept, run on Enter like the id and
+      // code filters: as the user types it would rescan the whole dictionary
+      // per character.
       return (
-        <input
+        <DebouncedInput
           className={FILTER_INPUT_CLASS}
           placeholder={t('concepts.search_placeholder')}
-          value={typeof filters._searchText === 'string' ? filters._searchText : ''}
-          onChange={(e) => onFilterChange('_searchText', e.target.value || null)}
+          commitOnEnter
+          value={filterText(filters._searchFuzzy) ?? filterText(filters._searchText) ?? ''}
+          onChange={(v) => {
+            if (filters._searchText) onFilterChange('_searchText', null)
+            onFilterChange('_searchFuzzy', v || null)
+          }}
         />
       )
     }
     if (columnId === 'concept_code') {
       return (
-        <input
+        <DebouncedInput
           className={`${FILTER_INPUT_CLASS} font-mono`}
           placeholder={t('concepts.search_code_placeholder')}
-          value={typeof filters._searchCode === 'string' ? filters._searchCode : ''}
-          onChange={(e) => onFilterChange('_searchCode', e.target.value || null)}
+          commitOnEnter
+          value={filterText(filters._searchCode) ?? ''}
+          onChange={(v) => onFilterChange('_searchCode', v || null)}
         />
       )
     }
@@ -638,6 +665,7 @@ export function ConceptTable({
           options={filterOptions[columnId]}
           placeholder={conceptColumnLabel(col, t)}
           onChange={(next) => onFilterChange(columnId, next.length ? next : null)}
+          search={filterOptionSearch?.[columnId]}
           optionLabel={
             columnId === 'standard_concept'
               ? (v) => standardConceptLabel(v, t)
@@ -721,6 +749,7 @@ export function ConceptTable({
                 )}
               </TableRow>
             </TableHeader>
+            <CellContextMenu menu={cellMenu}>
             <TableBody>
               {isLoading ? (
                 Array.from({ length: 10 }).map((_, i) => (
@@ -771,6 +800,14 @@ export function ConceptTable({
                           key={cell.id}
                           className="overflow-hidden truncate px-2 py-1 text-xs"
                           style={{ maxWidth: cell.column.getSize() }}
+                          onContextMenu={
+                            AFFORDANCE_COLUMNS.has(cell.column.id)
+                              ? undefined
+                              : cellMenu.on(
+                                  cell.column.id === 'concept_set_name' && typeof raw === 'string' ? unpackSetNames(raw) : raw,
+                                  cellMenuItems && (() => cellMenuItems(row.original)),
+                                )
+                          }
                         >
                           {rendered}
                         </TableCell>
@@ -780,6 +817,7 @@ export function ConceptTable({
                 ))
               )}
             </TableBody>
+            </CellContextMenu>
           </Table>
         </DndContext>
       </div>

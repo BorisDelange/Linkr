@@ -9,9 +9,10 @@ export function DatabaseLoginPromptHost() {
   if (!pending) return null
   return (
     <DatabaseLoginDialog
-      key={pending.dataSourceId}
+      key={`${pending.dataSourceId}:${pending.purpose}`}
       dataSourceId={pending.dataSourceId}
       sessionOnly={pending.sessionOnly}
+      purpose={pending.purpose}
       open
       onOpenChange={(open) => { if (!open) settle(false) }}
       onSaved={() => settle(true)}

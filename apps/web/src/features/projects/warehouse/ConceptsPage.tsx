@@ -35,6 +35,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { ContextMenuItem } from '@/components/ui/context-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
@@ -42,7 +43,7 @@ import { useConceptListStore } from '@/stores/concept-list-store'
 import { ConceptListModal } from './concepts/ConceptListModal'
 import { ConceptListEditDialog } from './concepts/ConceptListEditDialog'
 import { ConceptsSettingsDialog } from './concepts/ConceptsSettingsDialog'
-import { useCanDiagnoseConceptStats } from './concepts/use-can-diagnose-stats'
+import { useStoredProfile } from './concepts/use-stored-profile'
 import type { ConceptRow } from './concepts/use-concepts'
 import type { ConceptList, ConceptListItem, DataDictionary } from '@/types'
 import { useConcepts } from './concepts/use-concepts'
@@ -76,7 +77,6 @@ export function ConceptsPage() {
   const navigate = useNavigate()
   const [chosenDatabaseId, chooseDatabase] = useConceptsDatabase(uid)
   const mappedSource = useProjectSource(uid, chosenDatabaseId)
-  const canDiagnoseStats = useCanDiagnoseConceptStats(mappedSource?.id)
 
   const {
     hasConceptTable,
@@ -94,6 +94,7 @@ export function ConceptsPage() {
     totalPages,
     isLoading,
     filterOptions,
+    filterOptionSearch,
     selectedConceptId,
     setSelectedConceptId,
     selectedConcept,
@@ -103,8 +104,6 @@ export function ConceptsPage() {
     conceptStatsDeferred,
     loadSelectedStats,
     detailError,
-    computeStatsLive,
-    diagnoseStats,
     refresh,
     count,
     statsEnabled,
@@ -119,6 +118,8 @@ export function ConceptsPage() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [editingList, setEditingList] = useState<ConceptList | null>(null)
   const [editOpen, setEditOpen] = useState(false)
+  // Concepts a right-click "add" seeds a new list with; null = the pending ones.
+  const [dialogSeed, setDialogSeed] = useState<ConceptRow[] | null>(null)
   const [deletingList, setDeletingList] = useState<ConceptList | null>(null)
   const [openSetName, setOpenSetName] = useState<string | null>(null)
   const [selectedConceptIds, setSelectedConceptIds] = useState<Set<number>>(new Set())
@@ -181,11 +182,11 @@ export function ConceptsPage() {
     dictKey: c._dict_key,
   })
 
-  /** Add the pending concepts to a list, de-duplicated by concept id. */
-  const addToList = async (list: ConceptList) => {
-    if (pendingAdditions.length === 0) return
+  /** Add concepts (by default the pending ones) to a list, de-duplicated by concept id. */
+  const addToList = async (list: ConceptList, rows: ConceptRow[] = pendingAdditions) => {
+    if (rows.length === 0) return
     const seen = new Set(list.items.map((i) => i.conceptId))
-    const additions = pendingAdditions.filter((c) => !seen.has(c.concept_id)).map(toItem)
+    const additions = rows.filter((c) => !seen.has(c.concept_id)).map(toItem)
     if (additions.length > 0) {
       await updateConceptList(list.id, { items: [...list.items, ...additions] })
     }
@@ -214,15 +215,39 @@ export function ConceptsPage() {
     await createConceptList(list)
   }
 
-  const addSelectedToList = async () => {
-    if (pendingAdditions.length === 0) return
-    // No list yet → the edit dialog opens and the pending concepts seed it.
+  const addRowsToList = async (rows: ConceptRow[]) => {
+    if (rows.length === 0) return
+    // No list yet → the edit dialog opens and these concepts seed it.
     if (!activeList) {
+      setDialogSeed(rows)
       setEditingList(null)
       setEditOpen(true)
       return
     }
-    await addToList(activeList)
+    await addToList(activeList, rows)
+  }
+
+  const addSelectedToList = () => addRowsToList(pendingAdditions)
+
+  /** Right-click on a row: the multi-selection when the row is part of it, else that row alone. */
+  const rowMenuItems = (row: ConceptRow) => {
+    const rows = selectedConceptIds.has(row.concept_id) ? pendingAdditions : [row]
+    const label = !activeList
+      ? t('concepts.add_concept_to_new_list')
+      : rows.length > 1
+        ? t('concepts.add_to_named_list', {
+            name: localized(activeList.name, i18n.language) || t('concepts.list_untitled'),
+            count: rows.length,
+          })
+        : t('concepts.add_concept_to_named_list', {
+            name: localized(activeList.name, i18n.language) || t('concepts.list_untitled'),
+          })
+    return (
+      <ContextMenuItem onClick={() => { void addRowsToList(rows) }}>
+        <Plus size={14} />
+        {label}
+      </ContextMenuItem>
+    )
   }
 
   // Data dictionaries (concept sets) indexed by (vocabulary_id, concept_code),
@@ -349,8 +374,13 @@ export function ConceptsPage() {
 
   }, [sourceId])
 
+  const profile = useStoredProfile(
+    mappedSource?.id,
+    ((selectedConcept as Record<string, unknown> | null)?._dict_key as string | undefined) ?? mappedSource?.schemaMapping?.concepts?.[0]?.key,
+    selectedConceptId,
+  )
   const { hasValueColumn: hasValueCol, statsSql } = useConceptStatsSql(
-    mappedSource?.schemaMapping, concepts, selectedConceptId, excludeOutliers,
+    mappedSource?.id, mappedSource?.schemaMapping, concepts, selectedConceptId, excludeOutliers,
   )
 
   // No data source
@@ -404,12 +434,8 @@ export function ConceptsPage() {
       {/* Slim action bar. No title/description: the sidebar already names the
           page, so they only cost vertical space. */}
       <ConceptPickerToolbar
-        availableColumns={availableColumns}
-        filters={filters}
-        filterOptions={allFilterOptions}
-        onFilterChange={updateFilter}
-        // Which database the page reads, ahead of the filters: it decides what
-        // they even have to filter.
+        // Which database the page reads: it decides what the table's filters
+        // even have to filter.
         leading={
           <DatabaseSelect
             workspaceId={wsUid}
@@ -640,7 +666,10 @@ export function ConceptsPage() {
 
       <ConceptListEditDialog
         open={editOpen}
-        onOpenChange={setEditOpen}
+        onOpenChange={(o) => {
+          setEditOpen(o)
+          if (!o) setDialogSeed(null)
+        }}
         list={editingList}
         onSave={(values) => {
           if (editingList) {
@@ -652,7 +681,7 @@ export function ConceptsPage() {
             return
           }
           // Creating from the "+" seeds the new list with what was selected.
-          createListWith(values, pendingAdditions.map(toItem))
+          createListWith(values, (dialogSeed ?? pendingAdditions).map(toItem))
           setSelectedConceptIds(new Set())
         }}
       />
@@ -693,6 +722,7 @@ export function ConceptsPage() {
               availableColumns={availableColumns}
               filters={filters}
               filterOptions={allFilterOptions}
+              filterOptionSearch={filterOptionSearch}
               sorting={sorting}
               columnVisibility={columnVisibility}
               onColumnVisibilityChange={setColumnVisibility}
@@ -702,6 +732,7 @@ export function ConceptsPage() {
               selectedConceptIds={selectedConceptIds}
               onSelectedConceptIdsChange={setSelectedConceptIds}
               onEnter={() => { void addSelectedToList() }}
+              cellMenuItems={rowMenuItems}
               onOpenConceptSet={setOpenSetName}
               onPageChange={setPage}
               onPageSizeChange={(size) => {
@@ -741,14 +772,13 @@ export function ConceptsPage() {
               statsLoading={conceptStatsLoading}
               statsError={conceptStatsError}
               error={detailError}
-              onComputeStatsLive={computeStatsLive}
               statsDeferred={conceptStatsDeferred}
               onLoadStats={loadSelectedStats}
-              onDiagnoseStats={canDiagnoseStats ? diagnoseStats : undefined}
               hasValueColumn={hasValueCol}
               excludeOutliers={excludeOutliers}
               statsEnabled={statsEnabled}
               statsSql={statsSql}
+              profile={profile}
             />
             )}
           </Allotment.Pane>

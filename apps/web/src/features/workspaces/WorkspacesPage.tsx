@@ -332,7 +332,7 @@ export function WorkspacesPage() {
   const runImport = useCallback(async (parsed: ParsedWorkspaceZip, duplicate: boolean) => {
     setImportProgress({ phaseKey: 'workspaces.import_phase_workspace' })
     try {
-      const { targetWsId, idMap, skippedOrgName, aliasRenames } = await doImport(parsed, duplicate)
+      const { targetWsId, idMap, skippedOrgName, aliasRenames, unsyncedDictionaries } = await doImport(parsed, duplicate)
       let gitLinkedShown = false
       // Git-linked entities carry only metadata in the workspace ZIP — their full
       // content lives in their repos. Auto-clone each and load it now (server mode),
@@ -410,6 +410,10 @@ export function WorkspacesPage() {
         ...aliasRenames.map((renamed) => ({
           title: t('databases.import_alias_renamed_title'),
           notice: { summary: t('databases.import_alias_renamed', renamed), detail: null },
+        })),
+        ...unsyncedDictionaries.map(({ name, reason }) => ({
+          title: t('workspaces.import_dictionary_unsynced_title'),
+          notice: { summary: t('workspaces.import_dictionary_unsynced_body', { name }), detail: reason },
         })),
       ]
       if (gitLinkedShown) setPendingWarnings(warnings)
@@ -587,7 +591,7 @@ export function WorkspacesPage() {
                     </div>
                     <div className="mt-2 h-4">
                       {ws.description && (
-                        <TruncatedText text={ws.description} readOnly className="text-xs text-muted-foreground" />
+                        <TruncatedText text={ws.description} className="text-xs text-muted-foreground" />
                       )}
                     </div>
                     <BadgeStrip badges={badges} className="mt-1.5 h-5" />

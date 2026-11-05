@@ -1,9 +1,9 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, JSONB_or_JSON, TimestampMixin, UUIDPKMixin
+from app.models.base import Base, PortableJSON, TimestampMixin, UUIDPKMixin
 
 
 class Job(Base, UUIDPKMixin, TimestampMixin):
@@ -17,6 +17,11 @@ class Job(Base, UUIDPKMixin, TimestampMixin):
     """
 
     __tablename__ = "jobs"
+    # The panel's list and the query log's prune: one user's jobs of one owner, by date.
+    __table_args__ = (
+        Index("ix_jobs_workspace_user_created", "workspace_id", "user_id", "created_at"),
+        Index("ix_jobs_project_user_created", "project_uid", "user_id", "created_at"),
+    )
 
     # Exactly one owner: a project (environment builds, batch runs) or a
     # workspace (a database's cohort derivation). Enforced by `jobs.create`.
@@ -41,7 +46,11 @@ class Job(Base, UUIDPKMixin, TimestampMixin):
     input: Mapped[str | None] = mapped_column(Text, nullable=True)
     # For a 'run' job: the batch run's artifacts collected at the end —
     # {"figures": [...], "table": {...}|None, "html": ...}. NULL for other kinds.
-    result: Mapped[dict | None] = mapped_column(JSONB_or_JSON, nullable=True)
+    result: Mapped[dict | None] = mapped_column(PortableJSON, nullable=True)
     # When it left the queue and when it ended: how long it ran, for the panel.
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The action it is one of ("patient 123 opened"): the panel shows a group's
+    # jobs under one row, labelled `group_label`. NULL: a job of its own.
+    group_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    group_label: Mapped[str | None] = mapped_column(String(255), nullable=True)

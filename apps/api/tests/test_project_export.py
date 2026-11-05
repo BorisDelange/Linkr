@@ -295,6 +295,30 @@ def test_two_cohorts_sharing_a_name_both_survive():
     assert json.loads(tree["cohorts/adults#2.json"])["level"] == "visit"
 
 
+def test_analyses_sharing_a_name_or_unnamed_each_get_their_own_file():
+    # Twin of analysisFileKeys (entity-io-analysis-keys.test.ts): same names.
+    data = json.loads((_GOLDEN / "input.json").read_text())
+    df = next(f for f in data["datasetFiles"] if f["id"] == "cohort.csv")
+    analyses = [
+        {"id": "z", "name": "", "type": "t", "config": {}, "createdAt": "2026-01-01T00:00:00.000Z"},
+        {"id": "b", "name": "Age", "type": "t", "config": {}, "createdAt": "2026-01-03T00:00:00.000Z"},
+        {"id": "a", "name": "", "type": "t", "config": {}, "createdAt": "2026-01-02T00:00:00.000Z"},
+        {"id": "c", "name": "Age", "type": "t", "config": {}, "createdAt": "2026-01-01T00:00:00.000Z"},
+    ]
+    tree = build_project_tree(
+        project=data["project"], organization=None, ide_files=[], pipelines=[], cohorts=[], connections=[],
+        dashboards=[], dataset_files=[df], dataset_analyses={df["id"]: analyses}, dataset_data={},
+        dataset_raw_files={}, attachments=[], attachment_blobs={}, versioned_data_files=set(),
+    )
+    files = sorted(p for p in tree if p.startswith("datasets/cohort/") and p.endswith(".json") and "/_" not in p)
+    assert files == [
+        "datasets/cohort/age-2.json", "datasets/cohort/age.json",
+        "datasets/cohort/analysis-2.json", "datasets/cohort/analysis.json",
+    ]
+    assert json.loads(tree["datasets/cohort/analysis.json"])["createdAt"].startswith("2026-01-01")
+    assert json.loads(tree["datasets/cohort/age-2.json"])["createdAt"].startswith("2026-01-03")
+
+
 def test_computed_dataset_reconstructs_csv_when_no_raw_file():
     # No raw file but rows present (a computed dataset) → reconstructed CSV via
     # datasetToCsv (header uses column NAMES, cells keyed by column ids).

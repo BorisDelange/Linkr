@@ -3,12 +3,6 @@ import { useTranslation } from 'react-i18next'
 import { Trash2, Pencil, Copy, Download, GitBranch, MoreHorizontal } from 'lucide-react'
 import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
 import { type DocsTab } from '@/components/ui/entity-docs-dialog'
-import { EtlPipelinePull } from '@/components/versioning/EtlPipelinePull'
-import { SchemaPresetPull } from '@/components/versioning/SchemaPresetPull'
-import { DatabasePull } from '@/components/versioning/DatabasePull'
-import { useEtlStore } from '@/stores/etl-store'
-import { useSchemaPresetStore } from '@/stores/schema-preset-store'
-import { useDataSourceStore } from '@/stores/data-source-store'
 import type { GitScope } from '@/lib/api/git'
 import { makeReinstall } from '@/lib/entity-reinstall'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -36,47 +30,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-
-// ---------------------------------------------------------------------------
-// Per-scope pull wiring
-// ---------------------------------------------------------------------------
-
-type InlinePullProps = React.ComponentProps<typeof EntityVersioningDialog>
-type InlinePullRenderer = NonNullable<InlinePullProps['renderInlinePull']>
-
-/** The inline pull UI each scope brings, by entity id. A scope with no entry
- *  pushes only — GitSyncPanel then says the pull is not built rather than
- *  silently omitting the banner. */
-const INLINE_PULLS: Partial<Record<GitScope, (id: string) => InlinePullRenderer>> = {
-  'etl-pipelines': (id) => ({ branch, remoteHead, mode, onPulled }) => (
-    <EtlPipelinePull pipelineId={id} branch={branch} remoteHead={remoteHead} mode={mode} onPulled={onPulled} />
-  ),
-  'schema-presets': (id) => ({ branch, remoteHead, mode, onPulled }) => (
-    <SchemaPresetPull presetId={id} branch={branch} remoteHead={remoteHead} mode={mode} onPulled={onPulled} />
-  ),
-  // No `mode`: a database is taken whole, so quick and details would render the
-  // same single decision.
-  databases: (id) => ({ branch, remoteHead, onPulled }) => (
-    <DatabasePull sourceId={id} branch={branch} remoteHead={remoteHead} onPulled={onPulled} />
-  ),
-}
-
-/** A pull writes straight to storage, behind the stores the views read — each
- *  scope reloads its own. */
-const AFTER_PULLS: Partial<Record<GitScope, (item: { id: string }) => () => Promise<void>>> = {
-  'etl-pipelines': (item) => async () => {
-    await useEtlStore.getState().loadEtlPipelines()
-    await useEtlStore.getState().loadPipelineFiles(item.id)
-  },
-  // Reloaded in the SAME scope the page uses (per workspace) — an unscoped reload
-  // would swap the list for every workspace's presets.
-  'schema-presets': (item) => async () => {
-    await useSchemaPresetStore.getState().loadPresets((item as { workspaceId?: string }).workspaceId)
-  },
-  databases: () => async () => {
-    await useDataSourceStore.getState().loadDataSources()
-  },
-}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -334,8 +287,6 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
             // Chosen from the scope rather than passed in by each caller: the pull
             // flow is a property of the entity kind, and an ETL pipeline is reached
             // from both the list page and the header menu.
-            renderInlinePull={syncScope ? INLINE_PULLS[syncScope]?.(versioning.item.id) : undefined}
-            onAfterPull={syncScope ? AFTER_PULLS[syncScope]?.(versioning.item) : undefined}
             // Same reasoning as the pull above: reinstalling is a property of the
             // entity kind, so it comes from the scope rather than from each caller.
             onReinstall={syncScope && canDelete ? makeReinstall(syncScope, versioning.item, activeWorkspaceId) : undefined}

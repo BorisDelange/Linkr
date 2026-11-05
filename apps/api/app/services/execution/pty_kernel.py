@@ -24,6 +24,7 @@ datasets/ are reachable by readable relative paths.
 
 import asyncio
 import os
+import signal
 import struct
 
 from app.services import project_fs
@@ -127,9 +128,11 @@ class PtyShell:
 
     def shutdown(self) -> None:
         if self._proc is not None and self._proc.returncode is None:
+            # The whole group (start_new_session): a bare kill() reaches bash and
+            # leaves what it started — a `python -m http.server &` — running.
             try:
-                self._proc.kill()
-            except ProcessLookupError:
+                os.killpg(self._proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
                 pass
         self._proc = None
         if self._master_fd is not None:

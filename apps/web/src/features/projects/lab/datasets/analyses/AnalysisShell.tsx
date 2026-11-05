@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Play, RotateCcw, Settings, Code2, Eye, EyeOff, Save, BookOpen } from 'lucide-react'
+import { Play, RotateCcw, Settings, Code2, Save, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -22,6 +22,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
+import { OutputPaneToggle } from '@/components/editor/OutputPaneToggle'
+import { useOutputPane } from '@/components/editor/use-output-pane'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useAppStore } from '@/stores/app-store'
 import { isServerMode } from '@/lib/api-client'
@@ -60,10 +62,11 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
   const [installedDeps, setInstalledDeps] = useState<string[]>([])
   const [result, setResult] = useState<RuntimeOutput | null>(null)
   const [overwriteConfirmOpen, setOverwriteConfirmOpen] = useState(false)
-  const [rightVisible, setRightVisible] = useState(true)
+  const [outputShown, setRightVisible] = useOutputPane('dataset-analysis')
   const pendingConfigChange = useRef<Record<string, unknown> | null>(null)
   const hasAutoRun = useRef(false)
   const leftVisible = activeTab !== null
+  const rightVisible = outputShown || !leftVisible
 
   const config = analysis.config
   const isCustomized = (config.isCodeCustomized as boolean) ?? false
@@ -150,7 +153,7 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
       setIsExecuting(false)
       setStatusMessage(null)
     }
-  }, [currentCode, analysis.type, analysis.datasetFileId, columns, getFileRows, language, activeProjectUid])
+  }, [currentCode, analysis.type, analysis.datasetFileId, columns, getFileRows, language, activeProjectUid, setRightVisible])
 
   // Auto-run on mount (once)
   useEffect(() => {
@@ -322,20 +325,7 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
               <TooltipContent side="bottom">{t('datasets.analysis_auto_run_tooltip')}</TooltipContent>
             </Tooltip>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={rightVisible ? 'secondary' : 'ghost'}
-                  size="icon-xs"
-                  onClick={() => {
-                    if (!rightVisible || leftVisible) setRightVisible(!rightVisible)
-                  }}
-                >
-                  {rightVisible ? <Eye size={14} /> : <EyeOff size={14} />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{t('datasets.analysis_toggle_output')}</TooltipContent>
-            </Tooltip>
+            <OutputPaneToggle visible={rightVisible} disabled={!leftVisible} onToggle={() => setRightVisible(!rightVisible)} />
           </div>
         </div>
 

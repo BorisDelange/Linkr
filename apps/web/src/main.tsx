@@ -14,10 +14,13 @@ import { executePendingReset, purgeStaleLocalDataForServerMode } from '@/lib/ver
 import { registerDefaultPlugins, registerUserPlugins } from '@/lib/plugins/default-plugins'
 import { isServerMode } from '@/lib/api-client'
 import { initStorage } from '@/lib/storage'
+import { preventSashTextSelection } from '@/lib/split-sash'
 import { createIDBStorage } from '@/lib/storage/idb-storage'
 import { createAPIStorage } from '@/lib/storage/api-storage'
 
 async function boot() {
+  preventSashTextSelection()
+
   // In server mode the COI service worker (SharedArrayBuffer for webR) is not
   // just unused — it intercepts fetches and corrupts API upload POSTs (retries
   // a request whose body was already consumed). New builds don't register it

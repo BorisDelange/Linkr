@@ -235,11 +235,16 @@ export function PatientChartGrid({
     ? patientRowHeight(viewportHeight, MARGIN[1])
     : SCROLL_ROW_HEIGHT
 
-  // Trim a board that arrives taller than the grid — one saved while the mode was
-  // off, or before this ran. Shrink-only, so a board that fits is left alone.
+  // Trim a tab taller than the grid — one saved while the mode was off, a widget
+  // added, duplicated or moved here (it lands below the lowest one), or a resize
+  // past the bottom. Shrink-only, so a tab that fits is left alone and this
+  // cannot loop. After the render, never in the same one as the change: the grid
+  // re-reads its layout only when it differs from the last one it was given, so
+  // a resize trimmed back to the layout it started from would stay stretched.
+  const layoutKey = widgets.map((w) => `${w.id}:${w.layout.x},${w.layout.y},${w.layout.w},${w.layout.h}`).join(' ')
   useEffect(() => {
     if (fitToHeight && tabId) fitTabToHeight(tabId, PATIENT_GRID_ROWS, 'shrink-only')
-  }, [fitToHeight, tabId, fitTabToHeight])
+  }, [fitToHeight, tabId, layoutKey, fitTabToHeight])
 
   const layout: LayoutItem[] = useMemo(
     () =>
@@ -274,12 +279,8 @@ export function PatientChartGrid({
           })
         }
       }
-      // Fit-to-height promises no scrolling, so a resize that pushes the stack
-      // past the bottom trims the others to make room — the dashboards grid does
-      // the same. Shrink-only: a change that still fits reflows nothing.
-      if (fitToHeight && tabId) fitTabToHeight(tabId, PATIENT_GRID_ROWS, 'shrink-only')
     },
-    [widgets, updateWidgetLayout, fitToHeight, tabId, fitTabToHeight],
+    [widgets, updateWidgetLayout],
   )
 
   // Same edit-mode backdrop as the dashboards grid, computed from THIS grid's geometry: patient

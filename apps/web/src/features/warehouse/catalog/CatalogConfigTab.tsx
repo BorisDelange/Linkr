@@ -104,7 +104,7 @@ export function CatalogConfigTab({ catalog }: Props) {
   const enabled = useMemo(() => enabledVariables(variables).sort((a, b) => CARD_ORDER.indexOf(a) - CARD_ORDER.indexOf(b)), [variables])
   const query = useCallback(async (sql: string, signal?: AbortSignal) => {
     await ensureMounted(catalog.dataSourceId)
-    return queryDataSource(catalog.dataSourceId, sql, { signal, allRows: true, heavy: true })
+    return queryDataSource(catalog.dataSourceId, sql, { signal, allRows: true, heavy: true, origin: 'Catalog · compute' })
   }, [catalog.dataSourceId, ensureMounted])
 
   // --- Config writers ---
@@ -215,7 +215,7 @@ export function CatalogConfigTab({ catalog }: Props) {
       mapping,
       ensureMounted: () => ensureMounted(catalog.dataSourceId).then(() => {}),
       tables: () => sourceTables(catalog.dataSourceId),
-      query: (sql, signal) => queryDataSource(catalog.dataSourceId, sql, { signal, allRows: true, heavy: true }),
+      query: (sql, signal) => queryDataSource(catalog.dataSourceId, sql, { signal, allRows: true, heavy: true, origin: 'Catalog · estimate size' }),
       executor: isServerMode()
         ? jobExecutor(catalog.dataSourceId, (phase) => t(`data_catalog.job_${phase}`, { name: localized(catalog.name, i18n.language) }))
         : undefined,

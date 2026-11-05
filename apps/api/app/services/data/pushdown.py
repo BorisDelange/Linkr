@@ -16,7 +16,13 @@ from collections.abc import Callable
 
 import duckdb
 
-from app.services.data import db_connect, flight, query_cancel, remote_sql
+from app.services.data import (
+    db_connect,
+    flight,
+    oracle_client,
+    query_cancel,
+    remote_sql,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,11 +45,14 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 execution: contextvars.ContextVar[dict | None] = contextvars.ContextVar("pushdown_execution", default=None)
 
 
-def _record(computed_by: str, reason: str | None = None) -> None:
+def _record(computed_by: str, reason: str | None = None, sent: str | None = None) -> None:
+    """`sent`: the statement the database itself ran, for the query's job."""
     holder = execution.get()
     if holder is not None:
         holder.clear()
         holder.update(computedBy=computed_by, reason=reason)
+        if sent:
+            holder["sent"] = sent
 
 
 class RemoteQueryFailed(RuntimeError):
@@ -79,12 +88,17 @@ def _remote_tables(con: duckdb.DuckDBPyConnection, config: dict) -> dict[tuple[s
     spec = db_connect._engine_spec(config)
     key = (
         config.get("engine"), config.get("host"), config.get("port"), config.get("database"),
-        config.get("username"),
+        config.get("username"), config.get("schema"),
     )
     with _remote_columns_lock:
         hit = _remote_columns_cache.get(key)
     if hit and time.monotonic() - hit[0] < _REMOTE_COLUMNS_TTL:
         return hit[1]
+    if config.get("engine") == "oracle":
+        tables = _oracle_tables(con, config)
+        with _remote_columns_lock:
+            _remote_columns_cache[key] = (time.monotonic(), tables)
+        return tables
     inner = (
         "SELECT table_schema, table_name, column_name, data_type FROM information_schema.columns "
         f"WHERE table_schema NOT IN ({db_connect._SYSTEM_SCHEMAS_NESTED})"
@@ -101,6 +115,23 @@ def _remote_tables(con: duckdb.DuckDBPyConnection, config: dict) -> dict[tuple[s
         tables[ref].columns[str(column).lower()] = _remote_type(data_type)
     with _remote_columns_lock:
         _remote_columns_cache[key] = (time.monotonic(), tables)
+    return tables
+
+
+def _oracle_tables(con: duckdb.DuckDBPyConnection, config: dict) -> dict[tuple[str, str], remote_sql.RemoteTable]:
+    """Oracle's tables as the attach's views type them (community_engines: integers
+    and floats already cast back from text), under the schema Oracle spells: the
+    one read, else the login's — upper case, as Oracle folds an unquoted name."""
+    owner = (config.get("schema") or config.get("username") or "").upper()
+    tables: dict[tuple[str, str], remote_sql.RemoteTable] = {}
+    for table, column, data_type in con.execute(
+        "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_catalog = ?",
+        [db_connect._ATTACH_ALIAS],
+    ).fetchall():
+        ref = (db_connect._scope(config), str(table).lower())
+        if ref not in tables:
+            tables[ref] = remote_sql.RemoteTable(owner, str(table).upper(), {})
+        tables[ref].columns[str(column).lower()] = _remote_type(data_type)
     return tables
 
 
@@ -242,10 +273,12 @@ def _with_pushdown(
     if remote is None:
         return run(sql)
     logger.info("pushed down to %s: %s", config.get("host"), remote.sql[:_LOGGED_SQL_MAX])
+    if config.get("engine") == "oracle":
+        return _run_on_oracle(con, config, password, sql, remote, run)
     if bulk and flight.port(config) is not None and flight.problem(config, password, _flight_probe(con, config)) is None:
         try:
             result = _run_over_flight(con, config, password, remote, run)
-            _record("database")
+            _record("database", sent=remote.sql)
             return result
         except flight.Unreachable as exc:
             flight.record(config, (exc.status, str(exc)[:300]))
@@ -258,8 +291,65 @@ def _with_pushdown(
         logger.warning("pushed-down query refused by the database, ran it locally: %s", reason)
         _record("linkr", f"refused by the database: {reason.splitlines()[0]}")
         return run(sql)
-    _record("database")
+    _record("database", sent=remote.sql)
     return result
+
+
+def _run_on_oracle(
+    con: duckdb.DuckDBPyConnection, config: dict, password: str | None, sql: str,
+    remote: remote_sql.RemoteQuery, run: Callable[[str], object],
+):
+    """`run` over what Oracle answered to `remote`, fetched by its own driver as
+    Arrow and registered as a view of `con`, each column cast back to the type
+    DuckDB gives it. A statement Oracle cannot compile runs locally (the attach's
+    views): nothing ran there yet. One that failed while running is not retried."""
+    stop: list[Callable[[], None]] = []
+    try:
+        with query_cancel.on_cancel(lambda: stop and stop[0]()), query_cancel.tracking(con):
+            table = oracle_client.fetch_arrow(config, password, remote.sql, on_cancel=stop.append)
+    except oracle_client.OracleCancelled as exc:
+        raise duckdb.InterruptException("query cancelled") from exc
+    except oracle_client.OracleQueryFailed as exc:
+        if not exc.refused:
+            raise RemoteQueryFailed(str(exc)) from exc
+        logger.warning("pushed-down query refused by Oracle, ran it locally: %s", exc)
+        _record("linkr", f"refused by the database: {exc}")
+        return run(sql)
+    view = f"_oracle_{uuid.uuid4().hex}"
+    con.register(view, table)
+    try:
+        renamed = _renamed(f'"{view}"', remote)
+        columns = ", ".join(
+            f'CAST("{n}" AS {t}) AS "{n}"' if t else f'"{n}"'
+            for n, t in zip((c.replace('"', '""') for c in remote.columns), remote.types or [None] * len(remote.columns))
+        )
+        result = run(f"SELECT {columns} FROM ({renamed})")
+    finally:
+        con.unregister(view)
+    _record("database", sent=remote.sql)
+    return result
+
+
+def _run_native_oracle(
+    con: duckdb.DuckDBPyConnection, config: dict, password: str | None, statement: str,
+    run: Callable[[str], object], max_rows: int | None,
+):
+    stop: list[Callable[[], None]] = []
+    try:
+        with query_cancel.on_cancel(lambda: stop and stop[0]()), query_cancel.tracking(con):
+            table = oracle_client.fetch_arrow(
+                config, password, statement, on_cancel=stop.append, max_rows=max_rows, exact=True)
+    except oracle_client.OracleCancelled as exc:
+        raise duckdb.InterruptException("query cancelled") from exc
+    except oracle_client.OracleQueryFailed as exc:
+        raise RemoteQueryFailed(str(exc)) from exc
+    view = f"_oracle_{uuid.uuid4().hex}"
+    con.register(view, table)
+    _record("database")
+    try:
+        return run(f'SELECT * FROM "{view}"')
+    finally:
+        con.unregister(view)
 
 
 def plan(con, config: dict, sql: str) -> None:
@@ -430,15 +520,110 @@ def _native_statement(sql: str) -> str:
     return statement
 
 
+# Oracle packages and types that reach past the database (network, files,
+# scheduler, Java, dynamic SQL, URIs), whatever the login was granted: PUBLIC
+# holds several of them on a default install. DBMS_LOB and DBMS_RANDOM only read
+# or compute.
+_ORACLE_OUTWARD = re.compile(
+    r"\b(UTL_\w+|DBMS_(?!LOB\b|RANDOM\b)\w+|OWA_\w+|HTP|HTF|HTTPURITYPE|DBURITYPE|XDBURITYPE|URIFACTORY"
+    r"|BFILENAME|XMLQUERY|XMLTABLE|XMLEXISTS)\b",
+    re.IGNORECASE,
+)
+
+
+def _oracle_code(sql: str) -> str:
+    """`sql` as Oracle lexes it, with every string literal emptied (doubled
+    quotes, `q'[…]'` quoting) and every comment blanked, hints included (they
+    only steer the optimizer). A quoted name keeps its quotes and letters,
+    every other character as `_`: `"UTL_HTTP"` still names the package, and
+    `"into"` is no keyword."""
+    out: list[str] = []
+    i, n = 0, len(sql)
+    while i < n:
+        c = sql[i]
+        quoted = re.match(r"[nN]?[qQ]'(.)", sql[i:i + 4])
+        if quoted and (i == 0 or not (sql[i - 1].isalnum() or sql[i - 1] == "_")):
+            close = {"[": "]", "{": "}", "(": ")", "<": ">"}.get(quoted.group(1), quoted.group(1))
+            end = sql.find(close + "'", i + quoted.end())
+            if end < 0:
+                raise NativeRefused("native SQL: unterminated quote")
+            out.append("''")
+            i = end + 2
+        elif c == "'":
+            j = i + 1
+            while True:
+                if j >= n:
+                    raise NativeRefused("native SQL: unterminated quote")
+                if sql[j] == "'":
+                    if j + 1 < n and sql[j + 1] == "'":
+                        j += 2
+                        continue
+                    break
+                j += 1
+            out.append("''")
+            i = j + 1
+        elif c == '"':
+            end = sql.find('"', i + 1)
+            if end < 0:
+                raise NativeRefused("native SQL: unterminated quote")
+            out.append('"' + re.sub(r"\W", "_", sql[i + 1:end]) + '"')
+            i = end + 1
+        elif sql.startswith("--", i):
+            end = sql.find("\n", i)
+            i = n if end < 0 else end
+            out.append(" ")
+        elif sql.startswith("/*", i):
+            end = sql.find("*/", i + 2)
+            if end < 0:
+                raise NativeRefused("native SQL: unterminated comment")
+            out.append(" ")
+            i = end + 2
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def _native_oracle_statement(sql: str) -> str:
+    """`sql` without its trailing `;`, when it is one SELECT (or WITH … SELECT)
+    that reads this database only: no second statement or inline PL/SQL, no
+    database link (`@`), no INTO or FOR UPDATE, no package that reaches outside
+    (`_ORACLE_OUTWARD`)."""
+    statement = sql.strip()
+    while statement.endswith(";"):
+        statement = statement[:-1].rstrip()
+    code = _oracle_code(statement)
+    if not _NATIVE_START.match(code):
+        raise NativeRefused("native SQL must be a single SELECT")
+    if ";" in code or re.search(r'(?<!")\bwith\s+(function|procedure)\b(?!")', code, re.IGNORECASE):
+        raise NativeRefused("native SQL must be a single statement, without PL/SQL")
+    if "@" in code:
+        raise NativeRefused("native SQL cannot read through a database link (@)")
+    if re.search(r'(?<!")\binto\b(?!")', code, re.IGNORECASE):
+        raise NativeRefused("native SQL cannot write: INTO is refused")
+    if re.search(r'(?<!")\bfor\s+update\b(?!")', code, re.IGNORECASE):
+        raise NativeRefused("native SQL cannot lock rows: FOR UPDATE is refused")
+    found = _ORACLE_OUTWARD.search(code)
+    if found:
+        raise NativeRefused(f"native SQL cannot reach outside the database: {found.group(1).upper()}")
+    return statement
+
+
 def run_native(
     con: duckdb.DuckDBPyConnection, config: dict, password: str | None, sql: str,
-    run: Callable[[str], object],
+    run: Callable[[str], object], max_rows: int | None = None,
 ):
     """`sql` in the database's own dialect, sent as written — the SQL console's
     native mode, for what DuckDB cannot spell (Doris' `MATCH_ANY` on an inverted
-    index). The login is read-only (db_connect._require_read_only_doris_login);
-    on top of that only one plain SELECT is sent (`_native_statement`). An error
-    is the database's own."""
+    index, an Oracle query tuned by hand). The login is read-only
+    (db_connect._require_read_only_doris_login, community_engines for Oracle);
+    on top of that only one plain SELECT is sent (`_native_statement`,
+    `_native_oracle_statement`), Oracle's in a READ ONLY transaction. An error is
+    the database's own. `max_rows`: what the caller keeps; Oracle sends no more."""
+    if config.get("engine") == "oracle":
+        statement = _native_oracle_statement(sql)
+        logger.info("native query on %s: %s", config.get("host"), sql[:_LOGGED_SQL_MAX])
+        return _run_native_oracle(con, config, password, statement, run, max_rows)
     statement = _native_statement(sql)
     literal = statement.replace("'", "''")
     passthrough = f"SELECT * FROM {db_connect._engine_spec(config)['query_fn']}('{db_connect._ATTACH_ALIAS}', '{literal}')"

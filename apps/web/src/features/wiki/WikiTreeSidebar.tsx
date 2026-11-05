@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as LucideIcons from 'lucide-react'
 import {
@@ -6,7 +6,6 @@ import {
   Plus,
   FileText,
   FolderOpen,
-  Search,
   Pencil,
   Trash2,
   FilePlus,
@@ -31,10 +30,15 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import { SidebarSearchField, SidebarSearchToggle } from '@/components/SidebarSearch'
 import { useWikiStore } from '@/stores/wiki-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
+import { isServerMode } from '@/lib/api-client'
+import { searchWikiPages } from '@/lib/api/wiki-pages'
+import { cn } from '@/lib/utils'
+import { WIKI_STATUS_DOT } from './wiki-status'
 import type { WikiPage } from '@/types'
 
 interface WikiTreeNode {
@@ -50,56 +54,41 @@ function resolveIcon(name: string): LucideIcons.LucideIcon {
 
 interface WikiTreeSidebarProps {
   workspaceId: string
+  search: { open: boolean; query: string; setQuery: (q: string) => void; toggle: () => void }
   onCreatePage: (parentId: string | null) => void
-  onSearch: () => void
   onChangeIcon: (pageId: string) => void
 }
 
-export function WikiTreeSidebar({ workspaceId: _workspaceId, onCreatePage, onSearch, onChangeIcon }: WikiTreeSidebarProps) {
+export function WikiTreeSidebar({ workspaceId, search, onCreatePage, onChangeIcon }: WikiTreeSidebarProps) {
   const { t } = useTranslation()
   const { getTree, activePageId, setActivePage } = useWikiStore()
   const canEdit = useMyWorkspaceRole().atLeast('editor')
   const tree = getTree()
+  const visibleIds = useWikiSearchMatches(workspaceId, search.query)
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
-        <span className="text-xs font-semibold uppercase text-muted-foreground">
-          {t('wiki.pages')}
-        </span>
-        <div className="flex items-center gap-0.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-                onClick={onSearch}
-              >
-                <Search size={14} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent sideOffset={4}>{t('wiki.search')}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={!canEdit}
-                className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-                onClick={() => onCreatePage(null)}
-              >
-                <Plus size={14} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent sideOffset={4}>{t('wiki.new_page')}</TooltipContent>
-          </Tooltip>
-        </div>
+      <div className="flex shrink-0 items-center justify-end gap-0.5 border-b px-3 py-1.5">
+        <SidebarSearchToggle open={search.open} onToggle={search.toggle} label={t('wiki.search')} />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon-xs" disabled={!canEdit} onClick={() => onCreatePage(null)}>
+              <Plus size={14} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t('wiki.new_page')}</TooltipContent>
+        </Tooltip>
       </div>
 
-      {/* Tree */}
+      {search.open && (
+        <SidebarSearchField
+          value={search.query}
+          onChange={search.setQuery}
+          onClose={search.toggle}
+          placeholder={t('wiki.search_placeholder')}
+        />
+      )}
+
       <div className="flex-1 overflow-auto py-1">
         {tree.length === 0 ? (
           <div className="flex flex-col items-center px-4 py-8 text-center">
@@ -118,13 +107,16 @@ export function WikiTreeSidebar({ workspaceId: _workspaceId, onCreatePage, onSea
               {t('wiki.create_first_page')}
             </Button>
           </div>
+        ) : visibleIds?.size === 0 ? (
+          <p className="px-4 py-6 text-center text-xs text-muted-foreground">{t('wiki.no_results')}</p>
         ) : (
-          tree.map((node) => (
+          tree.filter((node) => !visibleIds || visibleIds.has(node.page.id)).map((node) => (
             <TreeItem
               key={node.page.id}
               node={node}
               depth={0}
               activePageId={activePageId}
+              visibleIds={visibleIds}
               onSelect={setActivePage}
               onCreateChild={onCreatePage}
               onChangeIcon={onChangeIcon}
@@ -136,26 +128,76 @@ export function WikiTreeSidebar({ workspaceId: _workspaceId, onCreatePage, onSea
   )
 }
 
+/**
+ * Pages to show while searching — those whose title or content matches, plus
+ * the pages on their path so a deep match stays reachable — or null when the
+ * query is empty. In server mode the content is not in the browser, so content
+ * matches come from the search endpoint and join the title matches when it answers.
+ */
+function useWikiSearchMatches(workspaceId: string, query: string): Set<string> | null {
+  const { pages, searchPages } = useWikiStore()
+  const language = useAppStore((s) => s.language)
+  const q = query.trim()
+  const serverMode = isServerMode()
+  const [serverHits, setServerHits] = useState<{ query: string; ids: string[] }>({ query: '', ids: [] })
+
+  useEffect(() => {
+    if (!serverMode || !q) return
+    let cancelled = false
+    const handle = setTimeout(() => {
+      searchWikiPages(workspaceId, q)
+        .then((res) => { if (!cancelled) setServerHits({ query: q, ids: res.map((r) => r.id) }) })
+        .catch(() => { if (!cancelled) setServerHits({ query: q, ids: [] }) })
+    }, 200)
+    return () => { cancelled = true; clearTimeout(handle) }
+  }, [serverMode, workspaceId, q])
+
+  return useMemo(() => {
+    if (!q) return null
+    const lower = q.toLowerCase()
+    const hits = serverMode
+      ? pages.filter((p) => localized(p.title, language).toLowerCase().includes(lower)).map((p) => p.id)
+      : searchPages(q).map((p) => p.id)
+    if (serverMode && serverHits.query === q) hits.push(...serverHits.ids)
+
+    const byId = new Map(pages.map((p) => [p.id, p]))
+    const keep = new Set<string>()
+    for (const id of hits) {
+      let current = byId.get(id)
+      while (current && !keep.has(current.id)) {
+        keep.add(current.id)
+        current = current.parentId ? byId.get(current.parentId) : undefined
+      }
+    }
+    return keep
+  }, [q, serverMode, pages, searchPages, language, serverHits])
+}
+
 // --- Tree Item ---
 
 interface TreeItemProps {
   node: WikiTreeNode
   depth: number
   activePageId: string | null
+  /** Pages kept by the search; null when not searching. */
+  visibleIds: Set<string> | null
   onSelect: (id: string) => void
   onCreateChild: (parentId: string | null) => void
   onChangeIcon: (pageId: string) => void
 }
 
-function TreeItem({ node, depth, activePageId, onSelect, onCreateChild, onChangeIcon }: TreeItemProps) {
+function TreeItem({ node, depth, activePageId, visibleIds, onSelect, onCreateChild, onChangeIcon }: TreeItemProps) {
   const { t } = useTranslation()
   const { updatePage, deletePage } = useWikiStore()
   const language = useAppStore((s) => s.language)
   const [isRenaming, setIsRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState(() => localized(node.page.title, language))
   const renameRef = useRef<HTMLInputElement>(null)
-  const hasChildren = node.children.length > 0
+  const [expanded, setExpanded] = useState(true)
+  const children = visibleIds ? node.children.filter((c) => visibleIds.has(c.page.id)) : node.children
+  const hasChildren = children.length > 0
   const isActive = node.page.id === activePageId
+  const status = node.page.status ?? 'draft'
 
   const handleRename = useCallback(async () => {
     if (renameValue.trim() && renameValue !== localized(node.page.title, language)) {
@@ -227,7 +269,19 @@ function TreeItem({ node, depth, activePageId, onSelect, onCreateChild, onChange
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
-        <span className="min-w-0 flex-1 truncate text-xs">{localized(node.page.title, language)}</span>
+        <span className={cn('min-w-0 flex-1 truncate text-xs', status === 'draft' && 'text-muted-foreground')}>
+          {localized(node.page.title, language)}
+        </span>
+      )}
+      {status !== 'approved' && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="-my-1 mr-0.5 flex shrink-0 items-center self-stretch px-0.5">
+              <span className={cn('size-1.5 rounded-full', WIKI_STATUS_DOT[status])} />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{t(`wiki.status_${status}`)}</TooltipContent>
+        </Tooltip>
       )}
     </div>
   )
@@ -258,15 +312,17 @@ function TreeItem({ node, depth, activePageId, onSelect, onCreateChild, onChange
 
   if (hasChildren) {
     return (
-      <Collapsible defaultOpen className="group/tree">
+      // Forced open while searching: a match inside a collapsed folder is one the user cannot see.
+      <Collapsible open={expanded || !!visibleIds} onOpenChange={setExpanded} className="group/tree">
         {wrappedRow}
         <CollapsibleContent>
-          {node.children.map((child) => (
+          {children.map((child) => (
             <TreeItem
               key={child.page.id}
               node={child}
               depth={depth + 1}
               activePageId={activePageId}
+              visibleIds={visibleIds}
               onSelect={onSelect}
               onCreateChild={onCreateChild}
               onChangeIcon={onChangeIcon}

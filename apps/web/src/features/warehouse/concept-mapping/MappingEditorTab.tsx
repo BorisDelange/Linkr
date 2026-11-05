@@ -22,7 +22,6 @@ import { localized } from '@/lib/localized'
 import { SourceConceptTable, type MappingStatusFilter } from './components/SourceConceptTable'
 import { TargetConceptPanel } from './components/TargetConceptPanel'
 import { ConceptDetailView } from './components/ConceptDetailView'
-import { ClipboardListModal } from './components/ClipboardListModal'
 import type { MappingProject, SuggestionCategory } from '@/types'
 
 export interface SourceConceptRow {
@@ -160,9 +159,6 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
 
   // Multi-selection (Ctrl/Cmd/Shift click) + a persistent "copy list" the user
   // builds up to copy source concepts as SQL/R/Python IN-lists.
-  const [selectedConceptIds, setSelectedConceptIds] = useState<Set<number>>(new Set())
-  const [clipboardList, setClipboardList] = useState<SourceConceptRow[]>([])
-  const [clipboardModalOpen, setClipboardModalOpen] = useState(false)
 
   // Suggestion scores index: drives the source-side "filter by suggestion" control.
   const scoresIndex = useSuggestionScoresStore((s) => s.index)
@@ -286,7 +282,7 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
       // First: get actual columns in the table to avoid querying non-existent columns
       let availableCols: Set<string> = new Set()
       try {
-        const colRows = await queryDataSource(dsId, `DESCRIBE source_concepts`)
+        const colRows = await queryDataSource(dsId, `DESCRIBE source_concepts`, { origin: 'Concept mapping · source columns' })
         availableCols = new Set(colRows.map((r: Record<string, unknown>) => String(r.column_name ?? '')))
         fileSourceColsRef.current = availableCols
       } catch {
@@ -297,7 +293,7 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
         if (!availableCols.has(col)) continue
         try {
           const sql = buildFileSourceFilterOptionsQuery(col)
-          const result = await queryDataSource(dsId, sql)
+          const result = await queryDataSource(dsId, sql, { origin: 'Concept mapping · source column values' })
           const values = result.map((r: Record<string, unknown>) => String(r.val ?? ''))
           if (values.length > 0) opts[col] = values
         } catch {
@@ -330,7 +326,7 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
         // Skip columns absent from source_concepts — querying one throws a DuckDB Binder Error.
         if (!fileSourceColsRef.current.has(col)) continue
         try {
-          const result = await queryDataSource(dsId, buildFileSourceFilterOptionsQuery(col, vocabScope))
+          const result = await queryDataSource(dsId, buildFileSourceFilterOptionsQuery(col, vocabScope), { origin: `Concept mapping · filter options (${col})` })
           next[col] = result.map((r: Record<string, unknown>) => String(r.val ?? '')).filter(Boolean)
         } catch {
           // column may not exist
@@ -428,7 +424,7 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
       // its end: fall back to the last one.
       let targetPage = pageToLoad
       if (pageToLoad === 0 || recount) {
-        const [countResult] = await queryDataSource(dsId, buildFileSourceConceptsCountQuery(filtersWithStatus))
+        const [countResult] = await queryDataSource(dsId, buildFileSourceConceptsCountQuery(filtersWithStatus), { origin: 'Concept mapping · count source concepts' })
         if (isStale()) return
         const total = Number(countResult?.total ?? 0)
         setTotalCount(total)
@@ -437,7 +433,7 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
       }
 
       const dataSql = buildFileSourceConceptsQuery(filtersWithStatus, sorting, PAGE_SIZE, targetPage * PAGE_SIZE)
-      const result = await queryDataSource(dsId, dataSql)
+      const result = await queryDataSource(dsId, dataSql, { origin: 'Concept mapping · source concepts page' })
       if (isStale()) return
 
       const parsedRows: SourceConceptRow[] = (result as unknown as SourceConceptRow[]).map((row) => {
@@ -599,23 +595,7 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
 
   const selectedRow = rows.find((r) => r.concept_id === selectedSourceConceptId)
 
-  // When more than one source concept is selected, the right-hand mapping panel
-  // is meaningless (there's no single source to map) — hand it `null` so it shows
-  // its empty prompt, effectively disabling the Exact/Broad mapping buttons.
-  const isMultiSelect = selectedConceptIds.size > 1
-  const panelSourceConcept = isMultiSelect ? null : (selectedRow ?? null)
-
-  // Add the current multi-selection to the copy list, de-duplicated by concept_id,
-  // preserving list order. Resolves each id against the loaded rows. Plain fn (not a
-  // hook) so it can live after the validation early-returns above.
-  const addSelectionToList = () => {
-    setClipboardList((prev) => {
-      const existing = new Set(prev.map((r) => r.concept_id))
-      const additions = rows.filter((r) => selectedConceptIds.has(r.concept_id) && !existing.has(r.concept_id))
-      return additions.length ? [...prev, ...additions] : prev
-    })
-    setSelectedConceptIds(new Set())
-  }
+  const panelSourceConcept = selectedRow ?? null
 
   // Check if any row has info_json (for showing the chart icon column)
   const hasInfoJson = !!fileSourceData.columnMapping.infoJsonColumn
@@ -647,11 +627,6 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
             hasNativeOmopConceptId={hasNativeOmopConceptId(project)}
             mappingStatusFilter={mappingStatusFilter}
             selectedConceptId={selectedSourceConceptId}
-            selectedConceptIds={selectedConceptIds}
-            onSelectedConceptIdsChange={setSelectedConceptIds}
-            onAddSelectionToList={addSelectionToList}
-            onOpenList={() => setClipboardModalOpen(true)}
-            listCount={clipboardList.length}
             hasRecordCount={!!fileSourceData.columnMapping.recordCountColumn}
             hasPatientCount={!!fileSourceData.columnMapping.patientCountColumn}
             hasInfoJson={hasInfoJson}
@@ -684,13 +659,6 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
           />
         </Allotment.Pane>
       </Allotment>
-      <ClipboardListModal
-        open={clipboardModalOpen}
-        onOpenChange={setClipboardModalOpen}
-        items={clipboardList}
-        onRemove={(id) => setClipboardList((prev) => prev.filter((r) => r.concept_id !== id))}
-        onClear={() => setClipboardList([])}
-      />
     </div>
   )
 }

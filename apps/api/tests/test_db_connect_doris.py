@@ -207,7 +207,8 @@ def execution():
 
 def test_who_computed_the_query_is_recorded(pushed, execution):
     pushdown._with_pushdown(_IdCon(), DORIS, None, "LOCAL", lambda q: "rows")
-    assert execution == {"computedBy": "database", "reason": None}
+    # With the statement the database was sent, for the query's job.
+    assert execution == {"computedBy": "database", "reason": None, "sent": "REMOTE"}
 
     def refused(q: str):
         if q == "REMOTE":

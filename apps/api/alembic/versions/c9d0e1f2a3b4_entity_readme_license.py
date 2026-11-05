@@ -33,7 +33,7 @@ import json
 import sqlalchemy as sa
 from alembic import op
 
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 revision = "c9d0e1f2a3b4"
 down_revision = "b8c9d0e1f2a3"
@@ -92,9 +92,9 @@ def _hoist_tree_readmes(bind) -> None:
 
 def upgrade() -> None:
     for table in _READMEABLE:
-        op.add_column(table, sa.Column("readme", JSONB_or_JSON, nullable=True))
+        op.add_column(table, sa.Column("readme", PortableJSON, nullable=True))
     for table in _READMEABLE + _LICENSE_ONLY:
-        op.add_column(table, sa.Column("license", JSONB_or_JSON, nullable=True))
+        op.add_column(table, sa.Column("license", PortableJSON, nullable=True))
 
     op.add_column(
         "readme_attachments",

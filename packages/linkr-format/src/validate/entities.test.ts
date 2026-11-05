@@ -343,6 +343,40 @@ describe('database', () => {
     expect(at('p').some((i) => i.severity === 'error')).toBe(true)
   })
 
+  it('checks the options a derived database is rebuilt with', () => {
+    const at = (options: unknown) => validateEntity(new MemoryTree({
+      'entity.json': JSON.stringify({
+        type: 'database', id: 'sub', alias: 'sub', name: { en: 'Sub' }, inMemory: true,
+        schemaSource: { lineageId: 'l1', label: { en: 'OMOP' } },
+        derivedFrom: {
+          database: { lineageId: 'p', label: { en: 'Parent' } }, cohort: { key: 'adults', name: { en: 'Adults' } },
+          level: 'visit', criteriaTree: { id: 'root', type: 'group', operator: 'AND', children: [] }, target: 'schema', options,
+        },
+      }),
+      'mapping.json': JSON.stringify({}),
+    }), 'database').filter((i) => i.pointer?.startsWith('/derivedFrom/options')).map((i) => i.pointer)
+    expect(at({
+      scope: 'patient', tables: [{ schema: null, table: 'person' }, { schema: 'icu', table: 'stays' }],
+      variables: { conceptIds: [3004249], conceptNames: { 3004249: 'SBP' }, dictionaryKeys: ['vitals'] },
+      birthPrecision: 'month',
+      pseudonymization: { method: 'hmac', keepKey: true, correspondence: { dataSourceId: 'k', schemaName: 'pseudo' } },
+    })).toEqual([])
+    expect(at({ scope: 'patient' })).toEqual([])
+    expect(at('all')).toEqual(['/derivedFrom/options'])
+    expect(at({
+      scope: 'ward', tables: [{ table: 3 }], variables: { conceptIds: ['x'] }, birthPrecision: 'hour',
+      pseudonymization: { method: 'sha1', keepKey: 'yes', correspondence: { schemaName: 'p' } },
+    }).sort()).toEqual([
+      '/derivedFrom/options/birthPrecision',
+      '/derivedFrom/options/pseudonymization/correspondence',
+      '/derivedFrom/options/pseudonymization/keepKey',
+      '/derivedFrom/options/pseudonymization/method',
+      '/derivedFrom/options/scope',
+      '/derivedFrom/options/tables/0',
+      '/derivedFrom/options/variables',
+    ])
+  })
+
   it('validates its own cohorts as a project does', () => {
     const issues = validateEntity(database({
       'cohorts/adults.json': JSON.stringify({ name: { en: 'Adults' }, level: 'ward' }),

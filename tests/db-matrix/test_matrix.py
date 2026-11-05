@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 import engines
-from app.services.data import db_connect
+from app.services.data import db_connect, pushdown
 
 CORPUS = os.environ.get("MATRIX_CORPUS")
 DATA = Path(os.environ.get("MATRIX_DATA", ""))
@@ -51,15 +51,15 @@ def _runner(engine: str):
         if not path.exists():
             pytest.skip(f"{path} was not loaded")
         return lambda sql: db_connect.query_file(engine, str(path), sql)
-    if engine in ("postgresql", "mysql", "doris"):
+    if engine in ("postgresql", "mysql", "doris", "sqlserver", "oracle"):
         reach = engines.linkr_config(engine)
         if reach is None:
             pytest.skip(f"{engine}: no server configured (MATRIX_{engine.upper()}_HOST)")
         config, password = reach
-        if engine == "doris":
+        if engine in ("doris", "oracle"):
             return lambda sql: db_connect.query_external(config, password, sql, pushdown=True)
         return lambda sql: db_connect.query_external(config, password, sql)
-    pytest.skip(engines.NOT_SUPPORTED.get(engine, f"unknown engine {engine}"))
+    pytest.skip(f"unknown engine {engine}")
 
 
 def _value(v):
@@ -86,10 +86,20 @@ def _normal(rows: list[dict], ordered: bool) -> list[list]:
     return out if ordered else sorted(out, key=lambda r: json.dumps(r, default=str))
 
 
-def _run(engine: str, sql: str) -> tuple[list[dict], float]:
+def _run(engine: str, sql: str, entry: dict | None = None) -> tuple[list[dict], float]:
     run = _runner(engine)
+    holder: dict = {}
+    token = pushdown.execution.set(holder)
     t0 = time.perf_counter()
-    rows = run(sql)
+    try:
+        rows = run(sql)
+    finally:
+        pushdown.execution.reset(token)
+    if entry is not None and holder:
+        # Who computed it, for an engine that pushes queries down: the database or Linkr (and why).
+        entry["computedBy"] = holder.get("computedBy")
+        if holder.get("reason"):
+            entry["notPushedBecause"] = holder["reason"]
     return rows, (time.perf_counter() - t0) * 1000
 
 
@@ -107,7 +117,7 @@ def test_engine_answers_like_the_reference(engine: str, query: dict):
     entry = {"engine": engine, "key": query["key"], "source": query["source"]}
     _report.append(entry)
     try:
-        rows, ms = _run(engine, query["sql"])
+        rows, ms = _run(engine, query["sql"], entry)
     except pytest.skip.Exception as e:
         entry["status"] = "skipped"
         entry["reason"] = str(e)

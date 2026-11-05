@@ -183,6 +183,19 @@ class QueryRequest(CamelModel):
     # Do not run it: answer only who would compute it (`execution`), so a widget
     # can ask before a query that would read the database's tables whole.
     plan: bool = False
+    # Where the app sent it from ("Cohort · Example cohort"): the label of the
+    # query's job. Cut to the column's 255, never refused: a long cohort name
+    # must not cost the query.
+    origin: str | None = None
+    # The action the query is one of ("patient:<db>:<id>"), and its name
+    # ("Patient 123"): the panel folds a group's jobs into one row.
+    group_key: str | None = Field(default=None, max_length=128)
+    group_label: str | None = None
+
+    @field_validator("origin", "group_label")
+    @classmethod
+    def _fit_label(cls, v: str | None) -> str | None:
+        return v.strip()[:255] if v is not None else None
 
 
 class QueryJobItem(CamelModel):
@@ -202,6 +215,9 @@ class QueryJobRequest(CamelModel):
     pushdown: bool = False
     # A failing query does not end the job: its error is kept by its key.
     keep_going: bool = False
+    # Take the heavy-query lane for each query, not for the whole job: a run of
+    # hours lets the heavy queries asked meanwhile through (query_jobs.start).
+    share_lane: bool = False
 
 
 class QueryCancelRequest(CamelModel):
@@ -475,6 +491,48 @@ class DeriveTarget(CamelModel):
     register_alias: str | None = None
 
 
+class DeriveTableRef(CamelModel):
+    """A source table as the derivation plan names it: no schema for the default one."""
+
+    schema_name: str | None = None
+    table: str
+
+
+class DeriveVariables(DeriveTableRef):
+    """An event table keeps the rows whose concept columns hold one of `concept_ids`
+    — none: the table is created empty."""
+
+    columns: list[str]
+    concept_ids: list[int]
+
+
+class DeriveDate(DeriveTableRef):
+    column: str
+    # year | month (truncated to its start) | null (emptied)
+    precision: str
+
+
+class DeriveCorrespondence(CamelModel):
+    """Where the pseudonym ↔ id table goes: a writable database other than the
+    derived one, in `schema_name`."""
+
+    data_source_id: str
+    schema_name: str
+    table_name: str = "linkr_pseudonyms"
+
+
+class DerivePseudonymization(CamelModel):
+    # hmac (keyed SHA-256: a rebuild with the kept key draws the same pseudonyms)
+    # | random (drawn anew at each build)
+    method: str
+    # HMAC: keep the key, sealed, in Linkr.
+    keep_key: bool = True
+    # HMAC: draw with the key of another derivation (`derivationId`), so one
+    # patient has one pseudonym in both — a cohort followed over time.
+    reuse_key_of: str | None = None
+    correspondence: DeriveCorrespondence | None = None
+
+
 class DeriveRequest(CamelModel):
     # The cohort's membership query (`id`, `patient_id`), as the criteria builder
     # writes it. Runs READ_ONLY against the source, alone — see cohort_derive.
@@ -485,10 +543,19 @@ class DeriveRequest(CamelModel):
     # Recorded on what the derivation produces, and on the cohort.
     cohort_id: str | None = None
     derived_from: dict | None = None
+    # What is kept (see cohort_derive.Minimization): the scope (the cohort's level
+    # or a wider one), the tables copied (absent: all, `copy_personless` deciding
+    # the ones with no patient), the variables of each event table, birth dates.
+    scope: str | None = None
+    tables: list[DeriveTableRef] | None = None
+    variables: list[DeriveVariables] = []
+    dates: list[DeriveDate] = []
+    pseudonymization: DerivePseudonymization | None = None
 
 
 class DerivePlanRequest(CamelModel):
     level: str
+    scope: str | None = None
 
 
 
@@ -509,6 +576,7 @@ class DatabaseLoginStatus(CamelModel):
     remembered: bool = False
     last_used_at: datetime | None = None
     session_only: bool = False
+    purpose: str = "read"
 
 
 class DatabaseLoginEntry(CamelModel):
@@ -516,6 +584,7 @@ class DatabaseLoginEntry(CamelModel):
     name: dict | str
     workspace_id: str | None = None
     username: str
+    purpose: str = "read"
     remembered: bool
     last_used_at: datetime | None = None
     session_only: bool = False

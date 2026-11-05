@@ -1,6 +1,7 @@
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { conceptIdentity, type ConceptIdentity } from '@/lib/schema-classes/spec'
 import { escSql as esc } from '@/lib/format-helpers'
+import { escapeLikeTerm, escPatternLiteral } from '@/lib/duckdb/cohort-query'
 import { hashedConceptId } from './hashed-concept-id'
 import { buildFuzzySearchSql, buildLabelFilterSql } from '@/lib/fuzzy-search'
 import { conceptRelation, has, type ClassRelation } from '@/lib/schema-classes/relations'
@@ -110,6 +111,8 @@ export interface SourceConceptFilters {
    *  as `suggestionCategoryKeys` (`vocab\0code`), computed from the scores index. */
   hasSuggestionCategoryFilter?: boolean
   suggestionCategoryKeys?: string[]
+  /** Leave out these source concepts (`vocab\0code`), e.g. those an agent already suggested for. */
+  excludedKeys?: string[]
 }
 
 /** The shared `buildFuzzySearchSql` over a source-concepts query: name, code
@@ -178,6 +181,16 @@ function tupleInClause(keys: string[]): string | null {
   return `(vocabulary_id, concept_code) IN (${tuples.join(',')})`
 }
 
+/** A LIKE matching `term` literally (its `%` and `_` are not wildcards), as a
+ *  prefix or anywhere, case aside for `contains`. */
+function likeClause(expr: string, term: string, mode: 'prefix' | 'contains'): string {
+  const escaped = escapeLikeTerm(term)
+  const pattern = mode === 'prefix' ? `${escaped}%` : `%${escaped}%`
+  return mode === 'prefix'
+    ? `${expr} LIKE '${escPatternLiteral(pattern)}' ESCAPE '\\'`
+    : `LOWER(${expr}) LIKE LOWER('${escPatternLiteral(pattern)}') ESCAPE '\\'`
+}
+
 function buildWhereClause(filters: SourceConceptFilters): string {
   const conditions: string[] = []
   const name = buildLabelFilterSql(filters.searchText ?? '', 'concept_name', 'source_concepts')
@@ -187,13 +200,9 @@ function buildWhereClause(filters: SourceConceptFilters): string {
     // means no row, never "ignore the filter".
     conditions.push(tupleInClause(filters.registryIdKeys) ?? 'FALSE')
   } else if (filters.searchId) {
-    const term = esc(filters.searchId)
-    conditions.push(`CAST(concept_id AS VARCHAR) LIKE '${term}%'`)
+    conditions.push(likeClause('CAST(concept_id AS VARCHAR)', filters.searchId, 'prefix'))
   }
-  if (filters.searchCode) {
-    const term = esc(filters.searchCode)
-    conditions.push(`LOWER(concept_code) LIKE LOWER('%${term}%')`)
-  }
+  if (filters.searchCode) conditions.push(likeClause('concept_code', filters.searchCode, 'contains'))
   if (filters.searchTextFuzzy) {
     const fuzzy = fuzzySearchClauses(filters.searchTextFuzzy)
     if (fuzzy) conditions.push(fuzzy.where)
@@ -241,6 +250,8 @@ function buildWhereClause(filters: SourceConceptFilters): string {
     const clause = tupleInClause(filters.suggestionCategoryKeys ?? [])
     conditions.push(clause ?? '1=0')
   }
+  const excluded = tupleInClause(filters.excludedKeys ?? [])
+  if (excluded) conditions.push(`NOT ${excluded}`)
   if (conditions.length > 0) return ` WHERE ${conditions.join(' AND ')}`
   return ''
 }
@@ -318,6 +329,10 @@ export function buildFileSourceFilterOptionsQuery(
 // Standard concept search (target selection)
 // ---------------------------------------------------------------------------
 
+/** Sentinel option standing for SQL NULL — OMOP leaves standard_concept NULL on
+ *  non-standard concepts, so "NS" has to be selectable like any other value. */
+export const NULL_FILTER_VALUE = '__null__'
+
 /** Filters for the standard concept search query. */
 export interface StandardConceptSearchFilters {
   domainIds?: string[]
@@ -327,6 +342,17 @@ export interface StandardConceptSearchFilters {
   validConcept?: string
   /** Restrict to these concept ids (e.g. a concept set's resolved concepts). */
   conceptIds?: number[]
+  /** Concept ids starting with these digits. */
+  conceptIdPrefix?: string
+  /** Concept codes containing this text, case aside. */
+  conceptCode?: string
+}
+
+/** Which page of a standard concept search, and in what order. A sort column
+ *  outside the table's own (or absent) keeps the default: rank, then id. */
+export interface StandardConceptSearchPage {
+  offset?: number
+  sort?: { columnId: string; desc: boolean } | null
 }
 
 /**
@@ -344,6 +370,7 @@ export function buildStandardConceptSearchQuery(
   searchTerm: string,
   filters?: StandardConceptSearchFilters,
   limit = 1000,
+  page?: StandardConceptSearchPage,
 ): string {
   const source = dictSources(mapping)[0]
   if (!source) return ''
@@ -351,11 +378,14 @@ export function buildStandardConceptSearchQuery(
   const { selectCols, filterConds, from } = search
 
   const term = searchTerm.trim()
+  const offset = page?.offset ? ` OFFSET ${Math.max(0, Math.floor(page.offset))}` : ''
+  const sortExpr = page?.sort ? search.sortColumns[page.sort.columnId] : undefined
+  const sorted = sortExpr ? `${sortExpr} ${page!.sort!.desc ? 'DESC' : 'ASC'} NULLS LAST, ` : ''
 
   // Empty search term: return first N rows matching filters only
   if (!term) {
     const wherePart = filterConds.length > 0 ? ` WHERE ${filterConds.join(' AND ')}` : ''
-    return `SELECT ${selectCols} FROM ${from}${wherePart} ORDER BY d.concept_id LIMIT ${limit}`
+    return `SELECT ${selectCols} FROM ${from}${wherePart} ORDER BY ${sorted}d.concept_id LIMIT ${limit}${offset}`
   }
 
   // Delegate to the shared fuzzy-search helper (see CLAUDE.md → Fuzzy Search).
@@ -364,7 +394,7 @@ export function buildStandardConceptSearchQuery(
   const fuzzy = buildFuzzySearchSql(term, search.fuzzyColumns)
   if (!fuzzy) {
     const wherePart = filterConds.length > 0 ? ` WHERE ${filterConds.join(' AND ')}` : ''
-    return `SELECT ${selectCols} FROM ${from}${wherePart} LIMIT ${limit}`
+    return `SELECT ${selectCols} FROM ${from}${wherePart} ORDER BY ${sorted}d.concept_id LIMIT ${limit}${offset}`
   }
 
   // Paging a ranked search needs a total order: `_rank` alone leaves ties in
@@ -374,8 +404,27 @@ export function buildStandardConceptSearchQuery(
   return `SELECT ${selectCols}, ${fuzzy.rankExpr} AS _rank
   FROM ${from}
   WHERE ${fuzzy.where}${filterClause}
-  ORDER BY _rank, d.concept_id
-  LIMIT ${limit}`
+  ORDER BY ${sorted}_rank, d.concept_id
+  LIMIT ${limit}${offset}`
+}
+
+/**
+ * The values each filterable column of a standard concept search holds, over
+ * the whole vocabulary: column id → `SELECT DISTINCT … AS v` query. Only the
+ * columns the dictionary has.
+ */
+export function buildStandardConceptFilterOptionsQueries(mapping: SchemaMapping): Record<string, string> {
+  const source = dictSources(mapping)[0]
+  if (!source) return {}
+  const { sortColumns, from } = standardSearchParts(source)
+  const out: Record<string, string> = {}
+  for (const id of ['vocabulary_id', 'domain_id', 'concept_class_id']) {
+    const expr = sortColumns[id]
+    if (expr) out[id] = `SELECT DISTINCT ${expr} AS v FROM ${from} WHERE ${expr} IS NOT NULL ORDER BY v`
+  }
+  const std = sortColumns.standard_concept
+  if (std) out.standard_concept = `SELECT DISTINCT COALESCE(NULLIF(${std}, ''), '${NULL_FILTER_VALUE}') AS v FROM ${from} ORDER BY v`
+  return out
 }
 
 /** The columns and filter predicates both standard-concept searches share, so
@@ -397,12 +446,23 @@ function standardSearchParts(source: DictSource, filters?: StandardConceptSearch
   }
   if (filters?.domainIds?.length && domainCol) filterConds.push(`d.${domainCol} IN (${inList(filters.domainIds)})`)
   if (filters?.conceptClassIds?.length && classCol) filterConds.push(`d.${classCol} IN (${inList(filters.conceptClassIds)})`)
-  if (filters?.standardConcepts?.length && stdCol) filterConds.push(`d.${stdCol} IN (${inList(filters.standardConcepts)})`)
+  if (filters?.standardConcepts?.length && stdCol) {
+    // A non-standard concept has no flag: NULL, or an empty string once an
+    // ATHENA CSV has been through a Parquet import.
+    const flags = filters.standardConcepts.filter((v) => v !== NULL_FILTER_VALUE)
+    const parts = flags.length ? [`d.${stdCol} IN (${inList(flags)})`] : []
+    if (flags.length < filters.standardConcepts.length) parts.push(`NULLIF(d.${stdCol}, '') IS NULL`)
+    filterConds.push(parts.length > 1 ? `(${parts.join(' OR ')})` : parts[0])
+  }
   if (filters?.validConcept === 'valid' && validEndCol) filterConds.push(`d.${validEndCol} > CURRENT_DATE`)
   if (filters?.conceptIds) {
     const ids = filters.conceptIds.filter((id) => Number.isInteger(id))
     filterConds.push(ids.length ? `d.concept_id IN (${ids.join(',')})` : 'FALSE')
   }
+  const idPrefix = filters?.conceptIdPrefix?.trim()
+  if (idPrefix) filterConds.push(likeClause('CAST(d.concept_id AS VARCHAR)', idPrefix, 'prefix'))
+  const code = filters?.conceptCode?.trim()
+  if (code) filterConds.push(likeClause('d.concept_code', code, 'contains'))
 
   const selectCols = [
     'd.concept_id AS concept_id',
@@ -419,6 +479,17 @@ function standardSearchParts(source: DictSource, filters?: StandardConceptSearch
     selectCols,
     filterConds,
     from: `${rel.name} d`,
+    // Column id (as the table names it) → what ORDER BY sorts on.
+    sortColumns: Object.fromEntries(Object.entries({
+      concept_id: 'd.concept_id',
+      concept_name: 'd.concept_name',
+      concept_code: 'd.concept_code',
+      vocabulary_id: vocabCol && `d.${vocabCol}`,
+      domain_id: domainCol && `d.${domainCol}`,
+      concept_class_id: classCol && `d.${classCol}`,
+      standard_concept: stdCol && `d.${stdCol}`,
+      valid: invalidCol && `d.${invalidCol}`,
+    }).filter(([, v]) => v)) as Record<string, string>,
     fuzzyColumns: { nameColumn: 'concept_name', codeColumn: 'concept_code', idColumn: 'concept_id', alias: 'd' },
   }
 }

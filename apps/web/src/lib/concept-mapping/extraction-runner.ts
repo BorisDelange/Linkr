@@ -17,6 +17,8 @@
  */
 
 import type { SchemaMapping } from '@/types/schema-mapping'
+import type { ClassRelation } from '@/lib/schema-classes/relations'
+import { QUERY_JOB_MAX_QUERIES, planRunQueries, profileQueryKey, type ProfileJobs } from './profile-jobs'
 import type { SourceExtraction } from '@/types'
 import {
   availableSections,
@@ -40,6 +42,7 @@ import {
   planConceptWalk,
   sortNeedsCounts,
   walkKey,
+  type BatchProfileStore,
   type ConceptCounts,
   type ExtractionSort,
 } from './source-extraction'
@@ -274,6 +277,28 @@ export interface StartRunInput {
    * cannot be read. Lets a ranked resume continue over a changed ranking.
    */
   readWritten?: () => Promise<number[] | null>
+  /**
+   * The database's profile store, opened once the run has counted (it measures
+   * the data it reads): concepts it holds are read from it rather than
+   * profiled, the others added to it.
+   */
+  store?: () => Promise<BatchProfileStore | undefined>
+  /**
+   * The records of each concept in one event table, as the database's concept
+   * count already has them (null when it does not): read instead of scanning
+   * the table to rank the concepts. They carry no patients, so a sort by
+   * patients still scans.
+   */
+  countedRecords?: (source: ProfileSource, event: ClassRelation) => Promise<ConceptCounts[] | null>
+  /**
+   * Server mode: the run's profile queries go to the server as one job, which
+   * goes on when the tab is closed (`profile-jobs.ts`). Used once the concepts
+   * are ranked by their records; otherwise each query is sent as it comes.
+   */
+  jobs?: ProfileJobs
+  /** The jobs of the run this one replaces or resumes (`SourceExtraction.jobIds`):
+   *  cancelled, and on a resume read for what they finished. */
+  previousJobIds?: string[]
 }
 
 /**
@@ -383,7 +408,8 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
         const perTable: ConceptCounts[][] = []
         for (const event of source.events) {
           if (controller.signal.aborted) return
-          perTable.push(await queryAggregate(buildConceptCountsQuery(source, event)) as unknown as ConceptCounts[])
+          const counted = sort.key === 'patients' ? null : await input.countedRecords?.(source, event).catch(() => null)
+          perTable.push(counted ?? await queryAggregate(buildConceptCountsQuery(source, event)) as unknown as ConceptCounts[])
         }
         const ids = await queryAll(buildDictionaryIdsQuery(source, sort))
         const merged = mergeTableCounts(perTable)
@@ -430,6 +456,8 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
     }
 
     let runTotal = sum(sizes)
+    const store = await input.store?.()
+    if (signal.aborted) return
 
     // A fresh run writes the header and replaces the file; a resume appends to
     // what is already stored. The rows themselves are never held here — only the
@@ -437,14 +465,104 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
     let firstWrite = offset === 0
     const keys = sources.map((s) => s.dictionary.key)
 
+    // Server mode, ranked: every profile query the pages below will send is
+    // known, and runs on the server as jobs of at most `maxQueries`, each
+    // started when the pages reach its first query (one at a time, in order).
+    // Each query is then answered from its job; one the plan missed (a concept
+    // gone since the ranking) from the database.
+    let profileQuery = queryAggregate
+    let jobIds: string[] = []
+    let walkedIndex = -1
+    let walked = EMPTY_WALK
+    const { jobs } = input
+    const previous = input.previousJobIds ?? []
+    for (const id of previous) await jobs?.cancel(id)
+    const plannable = metadata && rankings.every((r) => r) && recordTotals.every((t) => t)
+    if (jobs && plannable && offset < runTotal) {
+      const planned = await planRunQueries({
+        mapping, sources, options, offset, pageSize: SAVE_EVERY, store,
+        rankings: rankings as number[][], sizes, homes, recordTotals: recordTotals as Map<number, number>[],
+      })
+      if (signal.aborted) return
+      const wanted = new Map(planned.map((sql) => [profileQueryKey(sql), sql]))
+      // What the jobs of the paused run finished, the tab closed or not.
+      const answered = new Map<string, string>()
+      if (input.resumeFrom) {
+        for (const id of previous) {
+          for (const key of (await jobs.done(id).catch(() => null)) ?? []) if (wanted.has(key)) answered.set(key, id)
+        }
+      }
+      const missing = [...wanted].filter(([key]) => !answered.has(key)).map(([key, sql]) => ({ key, sql }))
+      const cap = Math.max(1, jobs.maxQueries ?? QUERY_JOB_MAX_QUERIES)
+      const chunks: { key: string; sql: string }[][] = []
+      for (let i = 0; i < missing.length; i += cap) chunks.push(missing.slice(i, i + cap))
+      const chunkOf = new Map<string, number>()
+      chunks.forEach((chunk, i) => { for (const { key } of chunk) chunkOf.set(key, i) })
+      const starting = new Map<number, Promise<string>>()
+      const startChunk = (i: number): Promise<string> => {
+        let started = starting.get(i)
+        if (!started) {
+          started = jobs.start(chunks[i]).then((id) => {
+            for (const { key } of chunks[i]) { answered.set(key, id); chunkOf.delete(key) }
+            if (!jobIds.includes(id)) jobIds.push(id)
+            return id
+          })
+          starting.set(i, started)
+        }
+        return started
+      }
+      if (chunks.length > 0) await startChunk(0)
+      jobIds = [...new Set(answered.values())]
+      // A pause stops the server's work too; closing the tab does not.
+      signal.addEventListener('abort', () => { for (const id of jobIds) void jobs.cancel(id) })
+      // A later job, recorded once started: a resume must find it, not start a
+      // second one beside it.
+      const recordJobs = async () => {
+        const at = locate(Math.min(offset, runTotal - 1), sizes)
+        await persist(
+          {
+            dictionaryKeys: keys, extracted: offset, total: runTotal, sizes: [...sizes],
+            options: { ...options, sections: effectiveSections(options.sections, availableSections(mapping, sources[at.index])) },
+            sort, onlyWithRecords, jobIds: [...jobIds],
+            ...(walkedIndex === at.index ? { walked: walkKey(walked) } : input.resumeFrom?.walked ? { walked: input.resumeFrom.walked } : {}),
+            updatedAt: new Date().toISOString(),
+          },
+          '', offset, false,
+        )
+      }
+      profileQuery = async (sql) => {
+        const key = profileQueryKey(sql)
+        let id = answered.get(key)
+        const later = chunkOf.get(key)
+        if (!id && later !== undefined && !signal.aborted) {
+          const fresh = !starting.has(later)
+          id = await startChunk(later)
+          if (fresh && !signal.aborted) await recordJobs()
+        }
+        return (id ? await jobs.rows(id, key, signal) : null) ?? queryAggregate(sql)
+      }
+      // Recorded at once: a tab closed before the first page is written must
+      // still find its job on resume, not start a second one beside it.
+      const at = locate(offset, sizes)
+      await persist(
+        {
+          dictionaryKeys: keys, extracted: offset, total: runTotal, sizes: [...sizes],
+          options: { ...options, sections: effectiveSections(options.sections, availableSections(mapping, sources[at.index])) },
+          sort, onlyWithRecords, jobIds,
+          ...(input.resumeFrom?.walked ? { walked: input.resumeFrom.walked } : {}),
+          updatedAt: new Date().toISOString(),
+        },
+        firstWrite ? extractionCsvHeader() : '', offset, firstWrite,
+      )
+      firstWrite = false
+    }
+
     emit(projectId, { phase: 'extracting', extracted: offset, total: runTotal })
 
     // Runs until paused or finished. Concepts are the unit of progress — the
     // offset counts them, and a resume picks up at the next one — so the batch
     // below is only how often the CSV is written back, never something the run
     // stops on.
-    let walkedIndex = -1
-    let walked = EMPTY_WALK
     while (!controller.signal.aborted && offset < runTotal) {
       const { index, local } = locate(offset, sizes)
       if (index >= sources.length) break
@@ -464,7 +582,7 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
         Math.min(SAVE_EVERY, sizes[index] - local),
         runTotal, query, controller.signal,
         (n, _total, concept) => emit(projectId, { extracted: base + n, current: concept }),
-        sort, ranking, homes[index], recordTotals[index], queryAggregate,
+        sort, ranking, homes[index], recordTotals[index], profileQuery, store,
       )
       if (ranking && batch.gone) {
         const gone = new Set(batch.gone)
@@ -507,6 +625,8 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
           dictionaryKeys: keys, extracted: offset, total: runTotal, sizes: [...sizes],
           options: { ...options, sections }, sort, onlyWithRecords,
           ...(ranking ? { walked: walkKey(walked) } : {}),
+          // Kept while there is work left for them: a pause cancels them.
+          ...(jobIds.length > 0 && offset < runTotal && !signal.aborted ? { jobIds } : {}),
           updatedAt: new Date().toISOString(),
         },
         chunk, offset, firstWrite,
@@ -515,6 +635,22 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
       // Past the throttle: a save point is a real checkpoint, and letting the
       // bar sit short of it until the next tick would misreport what is stored.
       emitNow(projectId, { extracted: offset })
+      if (signal.aborted) jobIds = []
+    }
+    // Paused before a page was saved: the stored run still names the jobs the
+    // pause cancelled, and would read as going on on the server.
+    if (signal.aborted && jobIds.length > 0) {
+      const at = locate(Math.min(offset, runTotal - 1), sizes)
+      await persist(
+        {
+          dictionaryKeys: keys, extracted: offset, total: runTotal, sizes: [...sizes],
+          options: { ...options, sections: effectiveSections(options.sections, availableSections(mapping, sources[at.index])) },
+          sort, onlyWithRecords,
+          ...(walkedIndex === at.index ? { walked: walkKey(walked) } : input.resumeFrom?.walked ? { walked: input.resumeFrom.walked } : {}),
+          updatedAt: new Date().toISOString(),
+        },
+        '', offset, false,
+      )
     }
   } catch (err) {
     // A pause that cut a query short is not a failure.

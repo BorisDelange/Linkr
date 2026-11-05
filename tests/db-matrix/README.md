@@ -24,8 +24,9 @@ Overview and commands: [docs/testing.md § Database matrix](../../docs/testing.m
   engine `admin_config` + `read_only_grants`), its load in `matrix.py`, its
   container in `docker/spe-sim/docker-compose.yml`, its wait in
   `run-in-container.sh`.
-- **Other data**: `--data <folder>` takes any OMOP Parquet folder; `facts`
-  expects the OMOP tables it names (`EVENT_TABLES`).
+- **Other data**: `--dataset <name>` takes a dataset of `npm run test-data`
+  ([tests/test-data](../test-data/README.md)), `--data <folder>` any OMOP Parquet
+  folder; `facts` expects the OMOP tables it names (`EVENT_TABLES`).
 
 ## Reading a difference
 

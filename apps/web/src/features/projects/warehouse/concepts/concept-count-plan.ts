@@ -11,11 +11,9 @@
  * - `patients`: one unit per slice of the patients, every table at once —
  *   a patient seen for a concept in two tables counts once, which per-table
  *   units could not ensure. Slices hold disjoint patients, so they add up.
- * - `stats`: optional, the value statistics of the detail panel for every
- *   concept at once. A quantile does not add up across patient slices, so its
- *   units cut the concepts instead: ranges of ids holding about
- *   `STATS_UNIT_ROWS` values each, packed by the server from the row counts of
- *   the `records` step — so it comes after it, and is planned when it starts.
+ *
+ * The value statistics are not here: they are the concept profiles
+ * (`lib/concept-profiles`), computed after the counts.
  *
  * Each unit's rows are kept server-side as one file
  * (`concept_cache_fs.write_unit`); a resume skips the units already there.
@@ -43,30 +41,7 @@ export const CONCEPT_COUNT_VERSION = 3
  */
 export const CONCEPT_SLICE_ROWS = 50_000_000
 
-/**
- * Values per unit of the `stats` step, packed from the row counts. Each unit
- * re-reads the value tables, filtered on its id range; its grouping holds a
- * fixed-size sketch per concept (approximate quantiles), so the bound is on its
- * time, not its memory. A concept with more values gets a unit of its own.
- */
-export const STATS_UNIT_ROWS = 50_000_000
-
-/** Bins of the precomputed histogram, as the detail panel draws them. */
-const STATS_BINS = 20
-
-/** Tags the precomputed stats (concept_cache_fs.precomputed_stats): approximate
- *  quantiles, P1–P99 histogram, every value-bearing table. */
-export const PRECOMPUTED_STATS_VARIANT = 'p1p99-union-approx'
-
-export type ConceptCountStep = 'records' | 'patients' | 'stats'
-
-/** A unit of the `stats` step: the concepts of one dictionary whose id lies in
- *  `[lo, hi]`, either bound open when null. */
-export interface StatsRange {
-  dictKey: string
-  lo: number | null
-  hi: number | null
-}
+export type ConceptCountStep = 'records' | 'patients'
 
 export interface ConceptCountUnit {
   key: string
@@ -83,14 +58,9 @@ export interface ConceptCountManifest {
   signature: string
   slices: SerializedRange[]
   units: { key: string; step: ConceptCountStep }[]
-  /** The `stats` step's units, once planned — not in `signature`: they derive
-   *  from the counts, not from the mapping alone. */
-  statsRanges?: StatsRange[]
   startedAt: string
   /** When the rows and the patients were all counted. */
   finishedAt?: string
-  /** When the `stats` step finished. */
-  statsFinishedAt?: string
 }
 
 const dictKeyLit = (dict: ClassRelation) => `'${esc(dict.key ?? '')}'`
@@ -175,97 +145,13 @@ FROM (
 GROUP BY dict_key, cid`
 }
 
-/** Event relations of a dictionary that record a numeric value. */
-function valuedEventsOf(mapping: SchemaMapping, dict: ClassRelation): ClassRelation[] {
-  return eventRelations(mapping).filter((e) => e.dictionary === dict.name && has(e, 'value_number'))
-}
-
-/** The dictionaries with values to describe, each with its value-bearing event
- *  relations — what the server packs the `stats` ranges from. */
-export function statsDictionaries(mapping: SchemaMapping): { dictKey: string; relations: string[] }[] {
-  return conceptRelations(mapping).flatMap((dict) => {
-    const relations = valuedEventsOf(mapping, dict).map((e) => e.name)
-    return dict.key && relations.length ? [{ dictKey: dict.key, relations }] : []
-  })
-}
-
-const idRange = (column: string, range: StatsRange) => [
-  range.lo != null ? ` AND ${column} >= ${Number(range.lo)}` : '',
-  range.hi != null ? ` AND ${column} <= ${Number(range.hi)}` : '',
-].join('')
-
-/**
- * The detail panel's value statistics (buildValueDistributionQuery,
- * buildValueHistogramQuery) for every concept of a range at once: one row per
- * (concept, bin) carrying the concept's figures, bin -1 holding the values
- * outside P1–P99. A row names a concept by its standard or its source column,
- * once when both are the same — as `concept_id = X OR source_concept_id = X`.
- *
- * Approximate quantiles: an exact one keeps every value of its group, which a
- * concept of a few hundred million values does not fit in.
- */
-export function buildStatsUnitSql(mapping: SchemaMapping, range: StatsRange): string | null {
-  const dict = conceptRelations(mapping).find((d) => d.key === range.dictKey)
-  const events = dict ? valuedEventsOf(mapping, dict) : []
-  const parts: string[] = []
-  for (const e of events) {
-    const value = `CAST(e.value_number AS DOUBLE) AS v FROM ${e.name} e WHERE e.value_number IS NOT NULL`
-    if (dict && countsByCode(e)) {
-      // Joined to the ids of the range alone, not through the whole dictionary
-      // as the relation itself would (countsByCode).
-      const ids = `(SELECT concept_terminology, concept_code, concept_id FROM ${idByCode(dict)} _ids WHERE concept_id IS NOT NULL${idRange('concept_id', range)})`
-      parts.push(`SELECT d.concept_id AS cid, CAST(e.value_number AS DOUBLE) AS v FROM ${codesRelation(e.name)} e INNER JOIN ${ids} d ON e.concept_terminology = d.concept_terminology AND e.concept_code = d.concept_code WHERE e.value_number IS NOT NULL`)
-    } else {
-      parts.push(`SELECT e.concept_id AS cid, ${value} AND e.concept_id IS NOT NULL${idRange('e.concept_id', range)}`)
-    }
-    if (has(e, 'source_concept_id')) {
-      parts.push(`SELECT e.source_concept_id AS cid, ${value} AND e.source_concept_id IS NOT NULL AND e.source_concept_id IS DISTINCT FROM e.concept_id${idRange('e.source_concept_id', range)}`)
-    }
-  }
-  if (!dict || parts.length === 0) return null
-  const q = (p: number) => `APPROX_QUANTILE(v, ${p})`
-  return `WITH vals AS (
-  ${parts.join('\n  UNION ALL\n  ')}
-), agg AS (
-  SELECT cid, COUNT(*) AS value_count, MIN(v) AS min_val, MAX(v) AS max_val, AVG(v) AS mean_val, STDDEV_SAMP(v) AS std_val,
-    ${q(0.01)} AS p01, ${q(0.25)} AS q1_val, ${q(0.5)} AS median_val, ${q(0.75)} AS q3_val, ${q(0.99)} AS p99
-  FROM vals
-  GROUP BY cid
-), binned AS (
-  SELECT vals.cid AS cid,
-    CASE WHEN vals.v < agg.p01 OR vals.v > agg.p99 THEN -1
-      ELSE CAST(FLOOR((vals.v - agg.p01) / NULLIF((agg.p99 - agg.p01) / ${STATS_BINS}.0, 0)) AS BIGINT) END AS bin
-  FROM vals
-  INNER JOIN agg ON vals.cid = agg.cid
-), hist AS (
-  SELECT cid, bin, COUNT(*) AS bin_count
-  FROM binned
-  GROUP BY cid, bin
-)
-SELECT ${dictKeyLit(dict)} AS dict_key, agg.cid AS concept_id, hist.bin AS bin, hist.bin_count AS bin_count,
-  agg.value_count AS value_count, agg.min_val AS min_val, agg.max_val AS max_val, agg.mean_val AS mean_val,
-  agg.std_val AS std_val, agg.p01 AS p01, agg.q1_val AS q1_val, agg.median_val AS median_val, agg.q3_val AS q3_val,
-  agg.p99 AS p99
-FROM agg
-INNER JOIN hist ON agg.cid = hist.cid`
-}
-
-/** The `stats` step's units over the ranges the server packed. */
-export function planStatsUnits(mapping: SchemaMapping, ranges: readonly StatsRange[]): ConceptCountUnit[] {
-  return ranges.flatMap((range, i) => {
-    const sql = buildStatsUnitSql(mapping, range)
-    return sql ? [{ key: `stats-${i + 1}-of-${ranges.length}`, step: 'stats' as const, sql }] : []
-  })
-}
-
 /** The steps a run has units for: rows and patients unless every dictionary
- *  holds that count, statistics when some event records a value. */
+ *  holds that count. */
 export function countableSteps(mapping: SchemaMapping | undefined): Record<ConceptCountStep, boolean> {
-  if (!mapping) return { records: false, patients: false, stats: false }
+  if (!mapping) return { records: false, patients: false }
   return {
     records: countedEvents(mapping, 'record_count').length > 0,
     patients: countedEvents(mapping, 'patient_count').length > 0,
-    stats: statsDictionaries(mapping).length > 0,
   }
 }
 
@@ -401,6 +287,33 @@ export function conceptCountSignature(units: readonly ConceptCountUnit[], mappin
   return deterministicId(`concept-counts-v${CONCEPT_COUNT_VERSION}`, body)
 }
 
+/**
+ * The stored run's units if it can be resumed, re-planned over its own slices.
+ * A finished run still can: the patients may be asked for after the rows.
+ * Counting it again is a restart.
+ */
+export function resumable(manifest: Partial<ConceptCountManifest> | undefined, mapping: SchemaMapping, tables: readonly string[] | null): ConceptCountUnit[] | null {
+  if (!manifest || !manifest.runId || manifest.version !== CONCEPT_COUNT_VERSION || !Array.isArray(manifest.slices)) return null
+  const units = planConceptCountUnits(mapping, manifest.slices)
+  if (conceptCountSignature(units, mapping, tables) !== manifest.signature) return null
+  return units
+}
+
+/**
+ * The event relations a run counted whole and found no row in — an empty
+ * table. Its record units hold no row to name it by, so the counted relations
+ * (`relations` route) never report it; the run's plan says which units read it.
+ * Given a run planned on the current mapping (`resumable`), and the relations
+ * its units do name.
+ */
+export function emptyCountedRelations(mapping: SchemaMapping, doneUnits: readonly string[], named: ReadonlySet<string>): string[] {
+  const done = new Set(doneUnits)
+  return countedEvents(mapping, 'record_count').flatMap(({ event }, i) => {
+    const keys = [`records-${i}-std`, ...(has(event, 'source_concept_id') ? [`records-${i}-src`] : [])]
+    return keys.every((k) => done.has(k)) && !named.has(event.name) ? [event.name] : []
+  })
+}
+
 export interface ConceptCountStepProgress {
   done: number
   total: number
@@ -412,19 +325,14 @@ export interface ConceptCountProgress {
   state: ConceptCountState
   records: ConceptCountStepProgress
   patients: ConceptCountStepProgress
-  /** `total` 0 until the step is planned. */
-  stats: ConceptCountStepProgress
   finishedAt: string | null
-  statsFinishedAt: string | null
 }
 
 const NO_PROGRESS: ConceptCountProgress = {
   state: 'none',
   records: { done: 0, total: 0 },
   patients: { done: 0, total: 0 },
-  stats: { done: 0, total: 0 },
   finishedAt: null,
-  statsFinishedAt: null,
 }
 
 /** Where a stored run stands, from its manifest and the units the server has. */
@@ -440,16 +348,12 @@ export function conceptCountProgress(
   }
   const records = step('records')
   const patients = step('patients')
-  const stats = step('stats')
-  // The rows and the patients: the statistics are an extra, never awaited.
   const complete = !!run.manifest.finishedAt && records.done === records.total && patients.done === patients.total
   return {
     state: complete ? 'complete' : 'partial',
     records,
     patients,
-    stats,
     finishedAt: run.manifest.finishedAt ?? null,
-    statsFinishedAt: stats.total > 0 && stats.done === stats.total ? run.manifest.statsFinishedAt ?? null : null,
   }
 }
 

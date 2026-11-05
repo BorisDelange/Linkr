@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BarChart3, Database, Loader2, Stethoscope } from 'lucide-react'
+import { BarChart3 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
@@ -8,11 +8,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
-import { CopyIconButton } from '@/components/ui/copy-icon-button'
 import { zeroAnchoredHistogramScale, tightHistogramScale } from '@/lib/chart-ticks'
 import type { ConceptStats, HistogramBin } from './use-concepts'
-import { PRECOMPUTED_STATS_VARIANT } from './concept-count-plan'
-import { diagnosisLines, type DiagnosisLine } from './stats-diagnosis'
 
 interface ConceptStatsPanelProps {
   hasValueColumn: boolean
@@ -26,14 +23,9 @@ interface ConceptStatsPanelProps {
   /** Distinct patients carrying the concept. Already on the selected row (the
    *  table computes it with the record count), so it costs no extra query. */
   patientCount?: number
-  /** Read them from the source, when the precomputed ones hold no value. */
-  onComputeLive?: () => void
   /** Not known without a query on the source: offer to compute them. */
   deferred?: boolean
   onLoad?: () => void
-  /** Why the precomputed ones hold no value (concept_cache_fs.diagnose_stats).
-   *  Left out for users the server would refuse (`useConcepts` decides). */
-  onDiagnose?: () => Promise<Record<string, unknown>>
 }
 
 function StatRow({ label, value }: { label: string; value: string | number }) {
@@ -149,16 +141,11 @@ export function ConceptStatsPanel({
   excludeOutliers,
   statsEnabled,
   patientCount,
-  onComputeLive,
   deferred = false,
   onLoad,
-  onDiagnose,
 }: ConceptStatsPanelProps) {
   const { t } = useTranslation()
   const [startAtZero, setStartAtZero] = useState(true)
-  const [diagnosis, setDiagnosis] = useState<{ stats: ConceptStats | null; lines: DiagnosisLine[]; error?: string } | null>(null)
-  const [diagnosing, setDiagnosing] = useState(false)
-  const canDiagnose = !!onDiagnose
 
   // Stats off: say so explicitly. Falling through would render "no records",
   // which reads as "this concept has none" rather than "nothing was computed".
@@ -214,21 +201,6 @@ export function ConceptStatsPanel({
   }
 
   const d = stats.distribution
-  // The run's statistics hold no value for it: a concept without any — or one
-  // they missed, which only the source or the diagnosis can tell.
-  const precomputedEmpty = stats.histogramVariant === PRECOMPUTED_STATS_VARIANT && !d?.non_null_count
-  const diagnose = async () => {
-    if (!onDiagnose) return
-    setDiagnosing(true)
-    try {
-      setDiagnosis({ stats, lines: diagnosisLines(await onDiagnose()) })
-    } catch (err) {
-      setDiagnosis({ stats, lines: [], error: err instanceof Error ? err.message : String(err) })
-    } finally {
-      setDiagnosing(false)
-    }
-  }
-
   // One rhythm for the whole sidebar: rows sit tight inside a block, and each
   // heading hugs the rule above it while leaving room before its own rows — so a
   // block reads as title-then-content rather than a label floating between two
@@ -243,55 +215,7 @@ export function ConceptStatsPanel({
         )}
       </div>
 
-      {hasValueColumn && precomputedEmpty && (
-        <>
-          <Separator />
-          <div className="space-y-2">
-            <h4 className="text-xs font-medium">{t('concepts.stats_value_distribution')}</h4>
-            <p className="text-xs text-muted-foreground">{t('concepts.stats_precomputed_empty')}</p>
-            {/* Most concepts listed here simply carry no value: checking the
-                source is a secondary action, not a fix to apply. */}
-            {(onComputeLive || canDiagnose) && (
-              <div className="flex flex-wrap gap-1">
-                {onComputeLive && (
-                  <Button size="xs" variant="ghost" className="text-muted-foreground" onClick={onComputeLive}>
-                    <Database size={12} />
-                    {t('concepts.stats_compute_live')}
-                  </Button>
-                )}
-                {canDiagnose && (
-                  <Button size="xs" variant="ghost" className="text-muted-foreground" onClick={diagnose} disabled={diagnosing}>
-                    {diagnosing ? <Loader2 size={12} className="animate-spin" /> : <Stethoscope size={12} />}
-                    {t('concepts.stats_diagnose')}
-                  </Button>
-                )}
-              </div>
-            )}
-            {canDiagnose && diagnosis?.stats === stats && (
-              diagnosis.error ? (
-                <p className="break-words text-[10px] text-muted-foreground">{t('concepts.stats_diagnose_failed', { error: diagnosis.error })}</p>
-              ) : (
-                <div className="relative rounded-md bg-muted p-2 pr-7">
-                  <CopyIconButton
-                    text={diagnosis.lines.map((l) => `${l.label}: ${l.value}`).join('\n')}
-                    className="absolute right-1.5 top-1.5"
-                  />
-                  <dl className="max-h-64 space-y-0.5 overflow-auto text-[10px]">
-                    {diagnosis.lines.map((l, i) => (
-                      <div key={i} className="flex gap-2">
-                        <dt className="shrink-0 text-muted-foreground">{l.label}</dt>
-                        <dd className="min-w-0 break-words font-mono">{l.value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </div>
-              )
-            )}
-          </div>
-        </>
-      )}
-
-      {hasValueColumn && d && !precomputedEmpty && (
+      {hasValueColumn && d && (
         <>
           {/* The histogram first: the shape of the values is what a reader looks
               at, and the summary numbers below then say what it is made of. */}
@@ -325,9 +249,6 @@ export function ConceptStatsPanel({
           <Separator />
           <div className="space-y-0.5">
             <h4 className="mb-2 text-xs font-medium">{t('concepts.stats_value_distribution')}</h4>
-            {stats.histogramVariant === PRECOMPUTED_STATS_VARIANT && (
-              <p className="pb-1 text-[10px] text-muted-foreground">{t('concepts.stats_precomputed')}</p>
-            )}
             <StatRow label={t('concepts.stats_non_null')} value={d.non_null_count.toLocaleString()} />
             <StatRow label={t('concepts.stats_min')} value={d.min_val} />
             <StatRow label={t('concepts.stats_max')} value={d.max_val} />

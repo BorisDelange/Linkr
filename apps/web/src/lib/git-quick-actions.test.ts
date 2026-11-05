@@ -67,14 +67,17 @@ describe('buildQuickActions', () => {
     ])
   })
 
-  it('sql-script-collections: Sync all only, taking every changed path', () => {
-    const changed = ch('_collection.json', '_tree.json', 'folder/query.sql', 'README.md')
+  it('sql-script-collections: Sync all first, taking every changed path, then a card per subject', () => {
+    const changed = ch('_collection.json', '_tree.json', 'folder/query.sql', 'README.md', 'scripts/a.sql')
     const actions = buildQuickActions('sql-script-collections', changed)
-    expect(actions).toHaveLength(1)
+    expect(actions.map((a) => a.id)).toEqual(['versioning.quick_msg_all_collection', 'subject:info', 'subject:scripts'])
+    expect(actions[1].subjectKey).toBe('versioning.subject_info')
+    expect(paths(actions[1])).toEqual(['README.md'])
+    expect(paths(actions[2])).toEqual(['scripts/a.sql'])
     expect(actions[0].labelKey).toBe('versioning.quick_sync_all')
     expect(actions[0].descriptionKey).toBe('versioning.quick_desc_all_collection')
     expect(actions[0].isSyncAll).toBe(true)
-    expect(paths(actions[0])).toEqual(['_collection.json', '_tree.json', 'folder/query.sql', 'README.md'])
+    expect(paths(actions[0])).toEqual(['_collection.json', '_tree.json', 'folder/query.sql', 'README.md', 'scripts/a.sql'])
   })
 
   it('every git scope offers a Quick actions tab (a scope with no action has none)', () => {

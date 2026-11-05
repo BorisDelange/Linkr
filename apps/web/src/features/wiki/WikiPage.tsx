@@ -3,9 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { BookOpen } from 'lucide-react'
 import { useWikiStore } from '@/stores/wiki-store'
+import { useSidebarSearch } from '@/components/SidebarSearch'
 import { WikiTreeSidebar } from './WikiTreeSidebar'
 import { WikiPageEditor } from './WikiPageEditor'
-import { WikiSearchDialog } from './WikiSearchDialog'
 import { CreateWikiPageDialog } from './CreateWikiPageDialog'
 import { WikiIconDialog } from './WikiIconDialog'
 
@@ -21,7 +21,7 @@ export function WikiPage() {
     updatePage,
   } = useWikiStore()
 
-  const [searchOpen, setSearchOpen] = useState(false)
+  const search = useSidebarSearch()
   const [createOpen, setCreateOpen] = useState(false)
   const [createParentId, setCreateParentId] = useState<string | null>(null)
   const [iconDialogPageId, setIconDialogPageId] = useState<string | null>(null)
@@ -40,17 +40,17 @@ export function WikiPage() {
     setCreateOpen(true)
   }
 
-  // Keyboard shortcut: Cmd/Ctrl+K for search
+  const { open: searchOpen, toggle: toggleSearch } = search
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
-        setSearchOpen(true)
+        if (!searchOpen) toggleSearch()
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [])
+  }, [searchOpen, toggleSearch])
 
   if (!wsUid || !pagesLoaded) {
     return (
@@ -66,8 +66,8 @@ export function WikiPage() {
       <div className="w-64 shrink-0 overflow-hidden border-r bg-muted/30">
         <WikiTreeSidebar
           workspaceId={wsUid}
+          search={search}
           onCreatePage={handleCreatePage}
-          onSearch={() => setSearchOpen(true)}
           onChangeIcon={(pageId) => setIconDialogPageId(pageId)}
         />
       </div>
@@ -91,7 +91,6 @@ export function WikiPage() {
       </div>
 
       {/* Dialogs */}
-      <WikiSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <CreateWikiPageDialog
         open={createOpen}
         onOpenChange={setCreateOpen}

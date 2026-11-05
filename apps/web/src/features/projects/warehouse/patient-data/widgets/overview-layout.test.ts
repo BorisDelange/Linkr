@@ -73,6 +73,15 @@ describe('buildOverviewRows — the figure fits its height', () => {
     })
   }
 
+  // Taller than the structure needs, every line is spent: an "other" line is
+  // reserved once per group, never twice, so no band stays empty below the rows.
+  it('fills its height when there are concepts to show', () => {
+    for (const budget of [25, 40, 60, 80]) {
+      const { rows } = buildOverviewRows({ ...base, budget })
+      expect(rows.length, `budget ${budget}`).toBe(budget)
+    }
+  })
+
   it('shows more concepts individually as the height grows', () => {
     const small = buildOverviewRows({ ...base, budget: 20 })
     const large = buildOverviewRows({ ...base, budget: 80 })

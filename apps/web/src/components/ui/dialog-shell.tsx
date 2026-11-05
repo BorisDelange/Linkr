@@ -83,6 +83,9 @@ interface DialogShellProps {
    * shouldn't sit next to the button it undoes.
    */
   footerExtra?: ReactNode
+  /** Another way to confirm, placed just before the confirm button — the
+   *  pair reads as two answers to the same question. */
+  extraActions?: ReactNode
   hideFooter?: boolean
   /**
    * Opt out of Enter-to-confirm, for a body where Enter means something else
@@ -116,6 +119,7 @@ export function DialogShell({
   hideCancel,
   dirtyTracked,
   footerExtra,
+  extraActions,
   hideFooter,
   noEnterSubmit,
   className,
@@ -221,6 +225,7 @@ export function DialogShell({
                   )}
                 </Button>
               )}
+              {extraActions}
               {onConfirm && (
                 <Button
                   size="sm"

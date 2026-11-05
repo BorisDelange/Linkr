@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { DiffEditor, type BeforeMount } from '@monaco-editor/react'
+import { type BeforeMount } from '@monaco-editor/react'
+import { SafeDiffEditor } from '@/components/editor/SafeDiffEditor'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import { FileWarning, Loader2 } from 'lucide-react'
@@ -183,7 +184,7 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
                     </div>
                   ) : null}
                   <div className="min-h-0 flex-1">
-                    <DiffEditor
+                    <SafeDiffEditor
                       key={path}
                       original={diff?.oldContent ?? ''}
                       modified={diff?.newContent ?? ''}

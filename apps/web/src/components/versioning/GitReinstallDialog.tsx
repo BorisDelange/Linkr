@@ -23,12 +23,16 @@ export function GitReinstallDialog({
   url,
   branch,
   busy,
+  workspace = false,
   onConfirm,
   onClose,
 }: {
   url: string
   branch: string
   busy: boolean
+  /** A workspace is rebuilt as a whole — children it does not carry are deleted,
+   *  linked ones re-cloned — so it says so rather than the single-entity wording. */
+  workspace?: boolean
   onConfirm: () => void
   onClose: () => void
 }) {
@@ -40,7 +44,7 @@ export function GitReinstallDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{t('versioning.reinstall_confirm_title')}</AlertDialogTitle>
           <AlertDialogDescription>
-            {t('versioning.reinstall_confirm_description')}
+            {t(workspace ? 'versioning.reinstall_confirm_description_workspace' : 'versioning.reinstall_confirm_description')}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
@@ -53,7 +57,7 @@ export function GitReinstallDialog({
           <div className="flex gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
             <TriangleAlert size={13} className="mt-0.5 shrink-0 text-destructive" />
             <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
-              {t('versioning.reinstall_confirm_warning')}
+              {t(workspace ? 'versioning.reinstall_confirm_warning_workspace' : 'versioning.reinstall_confirm_warning')}
             </p>
           </div>
         </div>

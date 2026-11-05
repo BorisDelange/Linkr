@@ -3,7 +3,8 @@ import { test, expect, bootDemo, DEMO_WS } from '../fixtures'
 test('the demo mapping project filters its mappings and opens one', async ({ page }) => {
   await bootDemo(page)
   await page.goto(`${DEMO_WS}/warehouse/concept-mapping/projects`)
-  await page.getByText('MIMIC-IV Demo', { exact: true }).click()
+  // The project's name, not the same name on its source database's line.
+  await page.getByText('MIMIC-IV Demo', { exact: true }).first().click()
   await expect(page.getByText('1,786 of 5,636 source concepts mapped')).toBeVisible()
 
   await page.getByRole('tab', { name: 'Mappings' }).click()

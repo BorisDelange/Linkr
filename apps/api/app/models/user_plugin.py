@@ -1,7 +1,7 @@
 from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin
+from app.models.base import PortableJSON, Base, TimestampMixin
 
 
 class UserPlugin(Base, TimestampMixin):
@@ -17,12 +17,12 @@ class UserPlugin(Base, TimestampMixin):
     workspace_id: Mapped[str] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
     )
-    files: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # filename -> code
-    readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    files: Mapped[dict] = mapped_column(PortableJSON, default=dict)  # filename -> code
+    readme: Mapped[dict | None] = mapped_column(PortableJSON)
     # Entity licence: {id, name?, text} — the text is snapshotted at pick time
     # so it travels with the export (LICENSE.md) independently of the picker.
-    license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
-    git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    license: Mapped[dict | None] = mapped_column(PortableJSON)
+    git_remote_config: Mapped[dict | None] = mapped_column(PortableJSON)
     # User-facing semver, portable across export/import (see Project.version).
     version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")
     # Stable cross-instance identity, separate from the local PK: preserved verbatim
@@ -33,10 +33,10 @@ class UserPlugin(Base, TimestampMixin):
     lineage_id: Mapped[str | None] = mapped_column(String(36))
     parent_lineage_id: Mapped[str | None] = mapped_column(String(36))
     # Frozen origin-organization snapshot, carried across export/import.
-    organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    organization: Mapped[dict | None] = mapped_column(PortableJSON)
     # Creator provenance (see Project): created_by_id is the stable local identity;
     # created_by / created_by_details are the display snapshot for cross-instance
     # imports where the id has no local meaning.
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(Text)
-    created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    created_by_details: Mapped[dict | None] = mapped_column(PortableJSON)

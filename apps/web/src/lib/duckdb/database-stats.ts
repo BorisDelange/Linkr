@@ -60,7 +60,7 @@ function statsRunner(dsId: string, phase: StatsPhase, { signal, label, resumeOnl
         await Promise.all(queries.slice(i, i + parallel).map(async (q, j) => {
           let rows: Record<string, unknown>[] | null = null
           try {
-            rows = await queryDataSource(dsId, q.sql, { signal })
+            rows = await queryDataSource(dsId, q.sql, { signal, origin: `Database statistics · ${q.key.replace(/_/g, ' ')}` })
           } catch { /* the block shows empty */ }
           onRows(i + j, rows)
         }))

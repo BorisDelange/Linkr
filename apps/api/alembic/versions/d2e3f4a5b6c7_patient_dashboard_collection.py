@@ -16,7 +16,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 revision: str = "d2e3f4a5b6c7"
 down_revision: Union[str, None] = "c1d2e3f4a5b6"
@@ -27,7 +27,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.add_column(
         "patient_dashboards",
-        sa.Column("collection", JSONB_or_JSON, nullable=True),
+        sa.Column("collection", PortableJSON, nullable=True),
     )
 
 

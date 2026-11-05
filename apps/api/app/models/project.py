@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin
+from app.models.base import PortableJSON, Base, TimestampMixin
 
 
 class Project(Base, TimestampMixin):
@@ -22,11 +22,11 @@ class Project(Base, TimestampMixin):
     workspace_id: Mapped[str] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
     )
-    name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
-    description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
-    short_description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
-    config: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
-    git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    name: Mapped[dict] = mapped_column(PortableJSON, default=dict)
+    description: Mapped[dict] = mapped_column(PortableJSON, default=dict)
+    short_description: Mapped[dict] = mapped_column(PortableJSON, default=dict)
+    config: Mapped[dict] = mapped_column(PortableJSON, default=dict)
+    git_remote_config: Mapped[dict | None] = mapped_column(PortableJSON)
     # Absolute server paths for the three project dirs (server mode). NULL = the
     # default. Independent roles: ide_path is the working dir the IDE shows and the
     # terminal/kernel start in (default projects/<uid>); scripts_path is the code
@@ -38,21 +38,21 @@ class Project(Base, TimestampMixin):
     scripts_path: Mapped[str | None] = mapped_column(Text)
     datasets_path: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str | None] = mapped_column(String(20))
-    badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
-    todos: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    badges: Mapped[list | None] = mapped_column(PortableJSON)
+    todos: Mapped[list | None] = mapped_column(PortableJSON)
     # LocalizedString ({"en": ..., "fr": ...}); JSON, not Text — the client
     # always sends an object. `| str` tolerance is handled at the schema layer.
-    notes: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
-    readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    notes: Mapped[dict | None] = mapped_column(PortableJSON)
+    readme: Mapped[dict | None] = mapped_column(PortableJSON)
     # Entity licence: {id, name?, text} — the text is snapshotted at pick time
     # so it travels with the export (LICENSE.md) independently of the picker.
-    license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
-    linked_data_source_ids: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    license: Mapped[dict | None] = mapped_column(PortableJSON)
+    linked_data_source_ids: Mapped[list | None] = mapped_column(PortableJSON)
     # Portable identities of the databases above, one per entry. The ids are local
     # UUIDs, stripped from every export; these travel in their place so an
     # imported project can be re-linked to the databases this instance holds.
-    linked_data_source_refs: Mapped[list | None] = mapped_column(JSONB_or_JSON)
-    organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    linked_data_source_refs: Mapped[list | None] = mapped_column(PortableJSON)
+    organization: Mapped[dict | None] = mapped_column(PortableJSON)
     # Stable cross-instance identity (separate from the local PK). Preserved across
     # export/import; a fork mints a new lineage_id and points parent_lineage_id at its source.
     lineage_id: Mapped[str | None] = mapped_column(String(36))
@@ -68,4 +68,4 @@ class Project(Base, TimestampMixin):
     # kept for cross-instance imports where the id has no local meaning.
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(Text)
-    created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    created_by_details: Mapped[dict | None] = mapped_column(PortableJSON)

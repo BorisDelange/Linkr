@@ -98,7 +98,7 @@ export const META_FILE: Record<CatalogEntry['type'], string[]> = {
  * Still the only description available for a workspace tree, which is read
  * elsewhere.
  */
-function describeUnreadableTree(zip: JSZip, type: CatalogEntry['type']): string {
+export function describeUnreadableTree(zip: JSZip, type: CatalogEntry['type']): string {
   const has = (name: string) => zip.files[name] != null && !zip.files[name].dir
   const names = [ENTITY_MANIFEST, ...(META_FILE[type] ?? [])]
   if (!names.some(has)) {
@@ -213,7 +213,7 @@ export function isSameEntity(row: ExistingRow, entry: CatalogEntry): boolean {
 }
 
 /** Remove the parent row before an overwrite. Child rows are cleared by applyClonedEntity. */
-async function deleteExisting(
+export async function deleteExisting(
   type: CatalogEntry['type'],
   id: string,
   storage: Storage,
@@ -404,20 +404,21 @@ function localizedName(name: unknown): string | null {
  * Only identity fields are set here (id, workspace, a provisional name from the catalog
  * entry): everything else is overwritten from the repo a moment later. The provisional
  * name matters only if the clone fails midway — the row then reads as the catalog
- * entry rather than as "Untitled".
+ * entry rather than as "Untitled". Also the pull's way in for an inline entity a
+ * colleague added, which has no git link of its own (`git` unset).
  */
-async function createShell(
-  entry: CatalogEntry,
+export async function createShell(
+  entry: Pick<CatalogEntry, 'type' | 'id' | 'name' | 'description'>,
   id: string,
   workspaceId: string,
   storage: Storage,
-  git: GitRemoteConfig,
+  git: GitRemoteConfig | undefined,
   language: string,
 ): Promise<boolean> {
   const now = new Date().toISOString()
   const name = entry.name
   const plainName = localized(entry.name, language) || entry.id
-  const base = { workspaceId, createdAt: now, updatedAt: now, gitRemoteConfig: git, ...stampAuthored() }
+  const base = { workspaceId, createdAt: now, updatedAt: now, ...(git ? { gitRemoteConfig: git } : {}), ...stampAuthored() }
 
   switch (entry.type) {
     case 'sql-collection':
@@ -525,7 +526,7 @@ async function installWorkspaceEntry(
   parsed.workspace.gitRemoteConfig = git
 
   try {
-    const { targetWsId, idMap, skippedOrgName, aliasRenames } = await importWorkspaceTree(parsed, {
+    const { targetWsId, idMap, skippedOrgName, aliasRenames, unsyncedDictionaries } = await importWorkspaceTree(parsed, {
       // Only a real lineage match makes "keep both" meaningful — see the note above.
       duplicate: duplicate && (await workspaceLineageExists(parsed.workspace.lineageId)),
       language,
@@ -535,7 +536,7 @@ async function installWorkspaceEntry(
     // Best-effort, exactly like the page's loop: a child whose repo needs a token
     // (the catalog passes none) leaves its content behind rather than failing the
     // install.
-    const failed = await cloneWorkspaceChildren(parsed, targetWsId, idMap)
+    const failed = [...unsyncedDictionaries, ...await cloneWorkspaceChildren(parsed, targetWsId, idMap)]
     if (oid) {
       try {
         await gitSetSyncState('workspaces', targetWsId, git.branch || 'main', oid)
@@ -571,7 +572,7 @@ export function isCloneableChildUrl(url: unknown): url is string {
 }
 
 /** Pull each git-linked child's content in. Returns the ones that did not make it. */
-async function cloneWorkspaceChildren(
+export async function cloneWorkspaceChildren(
   parsed: ParsedWorkspaceZip,
   targetWsId: string,
   idMap: Map<string, string>,

@@ -110,21 +110,47 @@ async def test_settings_import_file_creates_disabled_user(client):
     assert imported["isActive"] is False
 
 
-async def test_settings_pull_preview_requires_remote(client):
-    """No remote configured → pull-preview is a clear 400, not a phantom-empty tree."""
+async def test_settings_three_way_requires_remote(client):
+    """No remote configured → the pull is a clear 400, not a phantom-empty tree."""
     headers = await _bootstrap_admin(client)
-    r = await client.get(f"{API}/git/settings/account/pull-preview", headers=headers)
+    r = await client.post(f"{API}/git/settings/account/three-way", headers=headers, data={"branch": "main"})
     assert r.status_code == 400
 
 
-async def test_settings_pull_preview_empty_repo_errors(client, tmp_path):
-    """A reachable but empty remote can't be cloned (no branch) → surfaced as a 400
-    the UI shows in the pull dialog, rather than looking like 'nothing to pull'."""
+def _git(cwd, *args) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+
+async def test_settings_pull_takes_a_colleagues_new_user_through_the_merged_tree(client, tmp_path):
+    """Settings pull through the shared 3-way: a user a colleague added upstream is
+    offered as one element of users.json, and re-importing the merged tree creates it."""
+    import json
+
     headers = await _bootstrap_admin(client)
-    await client.put(
-        f"{API}/git/settings/account/config",
-        headers=headers,
-        json={"url": _bare_repo(tmp_path), "branch": "main"},
+    remote = _bare_repo(tmp_path)
+    await client.put(f"{API}/git/settings/account/config", headers=headers, json={"url": remote, "branch": "main"})
+    r = await client.post(f"{API}/git/settings/account/commit-push", headers=headers, data={"message": "Settings", "branch": "main"})
+    assert r.status_code == 200, r.text
+
+    work = tmp_path / "colleague"
+    _git(tmp_path, "clone", "-q", "-b", "main", remote, str(work))
+    users = json.loads((work / "users.json").read_text())
+    users.append({"username": "colleague", "role": "user", "firstName": "Col", "lastName": "League"})
+    (work / "users.json").write_text(json.dumps(users, indent=2))
+    _git(work, "-c", "user.email=c@x", "-c", "user.name=c", "commit", "-qam", "Add a user")
+    _git(work, "push", "-q", "origin", "main")
+
+    r = await client.post(f"{API}/git/settings/account/three-way", headers=headers, data={"branch": "main"})
+    assert r.status_code == 200, r.text
+    preview = r.json()
+    assert [f["path"] for f in preview["files"]] == ["users.json"]
+
+    r = await client.post(
+        f"{API}/git/settings/account/merged-tree", headers=headers,
+        data={"branch": "main", "remoteHead": preview["remoteHead"], "overrides": json.dumps({"users.json": {"remote": True}})},
     )
-    r = await client.get(f"{API}/git/settings/account/pull-preview", headers=headers)
-    assert r.status_code == 400
+    assert r.status_code == 200
+    files = {"file": ("settings.zip", r.content, "application/zip")}
+    r = await client.post(f"{API}/git/settings/account/import-file", headers=headers, files=files)
+    assert r.json()["usersCreated"] == 1
+    assert any(u["username"] == "colleague" for u in (await client.get(f"{API}/users", headers=headers)).json())

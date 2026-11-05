@@ -1,7 +1,7 @@
 from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin
+from app.models.base import PortableJSON, Base, TimestampMixin
 
 
 class PatientDashboard(Base, TimestampMixin):
@@ -29,24 +29,25 @@ class PatientDashboard(Base, TimestampMixin):
     owner_cohort_id: Mapped[str | None] = mapped_column(
         ForeignKey("cohorts.id", ondelete="CASCADE"), index=True
     )
-    name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
-    description: Mapped[dict | None] = mapped_column(JSONB_or_JSON)  # LocalizedString
+    name: Mapped[dict] = mapped_column(PortableJSON, default=dict)  # LocalizedString
+    description: Mapped[dict | None] = mapped_column(PortableJSON)  # LocalizedString
     # Which linked database the board reads. Nullable: a board written before the
     # field existed falls back to the project's first usable database.
     data_source_id: Mapped[str | None] = mapped_column(String(36))
     # Portable identity of the database above ({lineageId?, entityId?, label?}).
     # data_source_id is this instance's local UUID and means nothing elsewhere, so
     # this is what the export carries and the import resolves back to a local row.
-    data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    data_source_ref: Mapped[dict | None] = mapped_column(PortableJSON)
     show_widget_titles: Mapped[bool | None] = mapped_column(Boolean)
     widget_spacing: Mapped[int | None] = mapped_column(Integer)
     fit_to_height: Mapped[bool | None] = mapped_column(Boolean)
     reload_widgets_on_tab_switch: Mapped[bool | None] = mapped_column(Boolean)
     sync_timelines_across_tabs: Mapped[bool | None] = mapped_column(Boolean)
+    read_ahead_patients: Mapped[int | None] = mapped_column(Integer)
     # Manual-collection setup: which dataset receives entries, the columns that
     # identify the patient, and the variables to collect. A board-level setting,
     # so two boards of the same project can collect into different datasets.
-    collection: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    collection: Mapped[dict | None] = mapped_column(PortableJSON)
     display_order: Mapped[int] = mapped_column(Integer, default=0)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     # User-facing semver, portable across export/import (see Project.version).
@@ -55,7 +56,7 @@ class PatientDashboard(Base, TimestampMixin):
     # created_by_details are the display snapshot kept for cross-instance imports.
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(Text)
-    created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    created_by_details: Mapped[dict | None] = mapped_column(PortableJSON)
 
 
 class PatientDashboardTab(Base):
@@ -68,8 +69,8 @@ class PatientDashboardTab(Base):
     patient_dashboard_id: Mapped[str] = mapped_column(
         ForeignKey("patient_dashboards.id", ondelete="CASCADE")
     )
-    name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
-    description: Mapped[dict | None] = mapped_column(JSONB_or_JSON)  # LocalizedString
+    name: Mapped[dict] = mapped_column(PortableJSON, default=dict)  # LocalizedString
+    description: Mapped[dict | None] = mapped_column(PortableJSON)  # LocalizedString
     display_order: Mapped[int] = mapped_column(Integer, default=0)
 
 
@@ -83,11 +84,11 @@ class PatientDashboardWidget(Base):
     tab_id: Mapped[str] = mapped_column(
         ForeignKey("patient_dashboard_tabs.id", ondelete="CASCADE")
     )
-    name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
-    description: Mapped[dict | None] = mapped_column(JSONB_or_JSON)  # LocalizedString
-    layout: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    name: Mapped[dict] = mapped_column(PortableJSON, default=dict)  # LocalizedString
+    description: Mapped[dict | None] = mapped_column(PortableJSON)  # LocalizedString
+    layout: Mapped[dict] = mapped_column(PortableJSON, default=dict)
     plugin_id: Mapped[str] = mapped_column(String(100))
     language: Mapped[str | None] = mapped_column(String(10))
-    config: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    config: Mapped[dict] = mapped_column(PortableJSON, default=dict)
     custom_sql: Mapped[str | None] = mapped_column(Text)
     plugin_version: Mapped[str | None] = mapped_column(String(20))

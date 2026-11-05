@@ -21,6 +21,8 @@ import {
 import { cn } from '@/lib/utils'
 import { localized } from '@/lib/localized'
 import { CodeEditor } from '@/components/editor/CodeEditor'
+import { OutputPaneToggle } from '@/components/editor/OutputPaneToggle'
+import { useOutputPane } from '@/components/editor/use-output-pane'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
 import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
@@ -256,6 +258,8 @@ function EditorContent({
   }, [currentCode, dataSourceId, selectedPatientId, selectedVisitId, selectedVisitDetailId, language, plugin, extraPreamble])
 
   const leftVisible = activeTab !== null
+  const [outputShown, setOutputShown] = useOutputPane('warehouse-plugin')
+  const outputVisible = outputShown || !leftVisible
 
   return (
     <div className="flex h-full flex-col">
@@ -340,6 +344,7 @@ function EditorContent({
               {t('datasets.analysis_reset_code')}
             </Button>
           )}
+          <OutputPaneToggle visible={outputVisible} disabled={!leftVisible} onToggle={() => setOutputShown(!outputShown)} />
         </div>
       </div>
 
@@ -396,7 +401,7 @@ function EditorContent({
             </div>
           </Allotment.Pane>
 
-          <Allotment.Pane minSize={200}>
+          <Allotment.Pane minSize={outputVisible ? 200 : 0} visible={outputVisible}>
             <PluginOutputRenderer
               result={result}
               isExecuting={isExecuting}

@@ -21,12 +21,13 @@ engine.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
 import sqlglot
 from sqlglot import exp
 from sqlglot.dialects.doris import Doris
+from sqlglot.dialects.oracle import Oracle
 from sqlglot.optimizer.annotate_types import annotate_types
 from sqlglot.optimizer.qualify import qualify
 from sqlglot.optimizer.scope import build_scope
@@ -34,13 +35,17 @@ from sqlglot.optimizer.scope import build_scope
 # Engine → sqlglot dialect of the SQL sent to it. MySQL is left out: its default
 # collations compare text case-insensitively, so `x = 'abc'` would also match
 # 'ABC' there and not in DuckDB.
-_DIALECTS = {"postgresql": "postgres", "doris": "doris"}
+_DIALECTS = {"postgresql": "postgres", "doris": "doris", "oracle": "oracle"}
 
 # Engines whose queries are pushed down. Postgres is translated but not pushed:
 # DuckDB's postgres scanner reads fast, and Postgres counts DISTINCT on one core
 # — measured on 3.4 M local rows, a patient-count unit took 3.2 s pushed down
 # against 0.5 s through the ATTACH. Doris won every unit (×3 to ×30).
-PUSHDOWN_ENGINES = frozenset({"doris"})
+# Oracle is pushed down through its own driver (oracle_client): the DuckDB
+# extension reads its tables whole.
+PUSHDOWN_ENGINES = frozenset({"doris", "oracle"})
+# Engines whose own SQL the console may send as written (pushdown.run_native).
+NATIVE_ENGINES = frozenset({"doris", "oracle"})
 
 _ALLOWED: tuple[type[exp.Expression], ...] = (
     exp.Select, exp.Union, exp.With, exp.CTE, exp.Subquery, exp.From, exp.Join,
@@ -69,6 +74,8 @@ _NUMERIC = _INTEGER | {T.FLOAT, T.DOUBLE, T.DECIMAL}
 _TEXT = {T.VARCHAR, T.TEXT, T.CHAR, T.NCHAR, T.NVARCHAR}
 _TEMPORAL = {T.DATE, T.DATETIME, T.TIMESTAMP, T.TIMESTAMPNTZ, T.TIMESTAMP_S, T.TIMESTAMP_MS, T.TIMESTAMP_NS}
 _NULL = {T.NULL}
+# DuckDB's TIMESTAMP, which sqlglot types TIMESTAMPNTZ once read.
+_PLAIN_TIMESTAMP = {T.TIMESTAMP, T.TIMESTAMPNTZ}
 
 # What each cast target accepts, so that the value is the same on every engine:
 # an integer or a date prints the same everywhere, a double or a timestamp not.
@@ -104,6 +111,9 @@ class RemoteQuery:
     # by position, since an engine may name a column otherwise (Doris names a
     # grouped column after the base column it collapsed it into).
     columns: tuple[str, ...]
+    # Their DuckDB types where the query fixes them (None otherwise): Oracle sends
+    # every number as NUMBER, a count as a float, a date with its time.
+    types: tuple[str | None, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -611,6 +621,198 @@ class _LinkrDoris(Doris):
             return super().datatype_sql(expression)
 
 
+# --- Oracle ----------------------------------------------------------------
+
+# What Oracle reads otherwise, or cannot spell alike: `||` and string
+# aggregation treat NULL as '' there; no IS [NOT] DISTINCT FROM before 23ai;
+# intervals, date differences and formatting follow the session's NLS rules.
+_ORACLE_REFUSED: tuple[type[exp.Expression], ...] = (
+    exp.DPipe, exp.ConcatWs, exp.GroupConcat, exp.StartsWith,
+    exp.TimeToStr, exp.ApproxQuantile, exp.Anonymous,
+)
+# A month or a year added to a date clamps to the month's end in DuckDB and fails
+# in Oracle (31 January + 1 month): only fixed-length units are added alike.
+_ORACLE_INTERVAL_UNITS = {"DAY", "HOUR", "MINUTE", "SECOND"}
+_ORACLE_DATE_PARTS = {"YEAR", "MONTH", "DAY"}
+_ORACLE_DATE_DIFF_UNITS = {"DAY", "MICROSECOND"}
+# Oracle has no BOOLEAN before 23ai: a TRUE / FALSE that stands for a condition
+# is spelled `1 = 1` / `1 = 0`, one that is a value 1 / 0 (cast back to BOOLEAN
+# by DuckDB). A 1 later read as a condition does not compile, and runs locally.
+_CONDITION_PARENTS = (exp.Where, exp.Having, exp.Join, exp.And, exp.Or, exp.Not, exp.Paren)
+
+
+def _is_condition(node: exp.Expression) -> bool:
+    parent = node.parent
+    if isinstance(parent, exp.If):
+        return node is parent.this
+    return isinstance(parent, _CONDITION_PARENTS)
+
+
+def _is_blank_nullif(node: exp.Expression) -> bool:
+    """`NULLIF(x, '')`: the one place '' means the same to Oracle, which stores
+    no empty string — x is never '', and NULLIF(x, NULL) is x."""
+    return isinstance(node, exp.Nullif) and isinstance(node.expression, exp.Literal) \
+        and node.expression.is_string and node.expression.this == ""
+
+
+def _select_lists(tree: exp.Expression) -> Iterator[exp.Expression]:
+    for select in tree.find_all(exp.Select):
+        yield from select.expressions
+        group = select.args.get("group")
+        if group is not None:
+            yield from group.expressions
+    for order in tree.find_all(exp.Order):
+        yield from (o.this for o in order.expressions)
+
+
+def _check_oracle(tree: exp.Expression) -> None:
+    for node in tree.walk():
+        if isinstance(node, _ORACLE_REFUSED):
+            raise NotPortable(f"{type(node).__name__} has no Oracle spelling alike")
+        if isinstance(node, exp.Literal) and node.is_string and node.this == "" and not _is_blank_nullif(node.parent):
+            raise NotPortable("Oracle reads '' as NULL")
+        if isinstance(node, exp.Interval) and (
+            str(node.args.get("unit") or "").upper().rstrip("S") not in _ORACLE_INTERVAL_UNITS
+            or not (isinstance(node.this, exp.Literal) and str(node.this.this).isdigit())
+        ):
+            raise NotPortable("an interval of a variable length or a non-literal count")
+        if isinstance(node, exp.DateDiff) and str(node.args.get("unit") or "").upper() not in _ORACLE_DATE_DIFF_UNITS:
+            raise NotPortable("DATE_DIFF by a unit other than day or microsecond")
+        if isinstance(node, exp.Extract) and node.this.name.upper() not in _ORACLE_DATE_PARTS:
+            # An Oracle DATE has no HOUR to extract; a TIMESTAMP has.
+            raise NotPortable("EXTRACT of a time part")
+        if isinstance(node, exp.Cast):
+            target, source = node.to.this, _type(node.this)
+            # A NULL literal is left untyped, and a NULL is spelled alike as any type.
+            if target in _TEXT and source not in _INTEGER | _TEXT | _NULL and not isinstance(node.this, exp.Null):
+                raise NotPortable("a cast to text of a non-integer")
+    for expression in _select_lists(tree):
+        if isinstance(expression.unalias(), exp.Predicate):
+            # A comparison is no value in Oracle before 23ai.
+            raise NotPortable("a condition as a result column")
+
+
+def _nonzero(divisor: exp.Expression) -> exp.Expression:
+    return exp.Nullif(this=divisor.copy(), expression=exp.Literal.number(0))
+
+
+def _oracle(node: exp.Expression) -> exp.Expression:
+    """DuckDB's meaning in Oracle's terms: NULL rather than an error (or, for MOD,
+    the dividend) on a zero divisor; `//` truncating; a SELECT with no table
+    reading DUAL; GROUP BY by expression, not by position."""
+    if isinstance(node, exp.IntDiv):
+        div = exp.Div(this=node.this.copy(), expression=_nonzero(node.expression))
+        return exp.func("TRUNC", div)
+    if isinstance(node, exp.Div):
+        return exp.Div(this=node.this.copy(), expression=_nonzero(node.expression))
+    if isinstance(node, exp.Mod):
+        return exp.Mod(this=node.this.copy(), expression=_nonzero(node.expression))
+    if _is_blank_nullif(node):
+        return node.this.copy()
+    if isinstance(node, exp.Select):
+        node = _scalar_beside_aggregates(node)
+        if node.args.get("from_") is None:
+            node.set("from_", exp.From(this=exp.to_table("DUAL")))
+        group = node.args.get("group")
+        if group is not None:
+            items = [e.unalias() if isinstance(e, exp.Alias) else e for e in node.expressions]
+            for i, key in enumerate(group.expressions):
+                position = _literal_int(key)
+                if position is not None and 1 <= position <= len(items):
+                    group.expressions[i] = items[position - 1].copy()
+    return node
+
+
+def _scalar_beside_aggregates(select: exp.Select) -> exp.Expression:
+    """`SELECT COUNT(x) AS a, (SELECT …) AS b FROM t` — a scalar subquery beside
+    aggregates, no GROUP BY — as `SELECT a, (SELECT …) AS b FROM (SELECT COUNT(x)
+    AS a FROM t)`: Oracle takes the subquery for an ungrouped column (ORA-00937)."""
+    def aggregates(e: exp.Expression) -> bool:
+        return any(not agg.find_ancestor(exp.Subquery) or agg.find_ancestor(exp.Subquery) is e
+                   for agg in e.find_all(exp.AggFunc))
+
+    if select.args.get("group") is not None or not any(aggregates(e) for e in select.expressions):
+        return select
+    scalar = [e for e in select.expressions if e.find(exp.Subquery) and not aggregates(e)]
+    if not scalar or any(not isinstance(e, exp.Alias) for e in select.expressions):
+        return select
+    inner = select.copy()
+    inner.set("expressions", [e.copy() for e in select.expressions if e not in scalar])
+    # The CTEs go up with the subqueries that read them.
+    for key in ("order", "limit", "offset", "with_"):
+        inner.set(key, None)
+    outer = exp.select(*[
+        e.copy() if e in scalar else exp.column(e.alias) for e in select.expressions
+    ]).from_(inner.subquery("aggregated"))
+    for key in ("order", "limit", "offset", "with_"):
+        if select.args.get(key) is not None:
+            outer.set(key, select.args[key].copy())
+    return outer
+
+
+def _oracle_names(tree: exp.Expression) -> None:
+    """Every name upper-cased and quoted: what Oracle folds an unquoted name to,
+    and how its catalogue spells the OMOP tables. DUAL stays bare."""
+    for identifier in tree.find_all(exp.Identifier):
+        if identifier.this.upper() == "DUAL" and isinstance(identifier.parent, exp.Table):
+            continue
+        identifier.set("this", identifier.this.upper())
+        identifier.set("quoted", True)
+
+
+class _LinkrOracle(Oracle):
+    """Oracle, with text casts to VARCHAR2 (sqlglot writes CLOB, which cannot be
+    grouped or compared) and ISO date literals as DATE / TIMESTAMP literals
+    (a CAST of a string reads the session's format)."""
+
+    class Generator(Oracle.Generator):
+        TRANSFORMS = {
+            **Oracle.Generator.TRANSFORMS,
+            # DECODE takes two NULLs as equal: IS [NOT] DISTINCT FROM, before 23ai.
+            exp.NullSafeEQ: lambda self, e: f"DECODE({self.sql(e, 'this')}, {self.sql(e, 'expression')}, 1, 0) = 1",
+            exp.NullSafeNEQ: lambda self, e: f"DECODE({self.sql(e, 'this')}, {self.sql(e, 'expression')}, 1, 0) = 0",
+            exp.Boolean: lambda self, e: ("1 = 1" if e.this else "1 = 0") if _is_condition(e) else ("1" if e.this else "0"),
+        }
+
+        def cast_sql(self, expression: exp.Cast, safe_prefix: str | None = None) -> str:
+            target = expression.to.this
+            if _is_iso_literal(expression.this) and target in _TEMPORAL:
+                value = expression.this.this
+                return f"DATE '{value[:10]}'" if target == T.DATE else f"TIMESTAMP '{value}'"
+            if target == T.DATE:
+                # Midnight of the day, as DuckDB's DATE; Oracle's DATE keeps the time.
+                return f"TRUNC({self.sql(expression, 'this')})"
+            if target in _TEXT:
+                return f"CAST({self.sql(expression, 'this')} AS VARCHAR2(4000))"
+            if target in _PLAIN_TIMESTAMP and _type(expression.this) in _PLAIN_TIMESTAMP:
+                # A no-op Oracle would still apply to the column, hiding it from
+                # its indexes (a range on the event date of a stay window).
+                return self.sql(expression, "this")
+            return super().cast_sql(expression, safe_prefix)
+
+        def datediff_sql(self, expression: exp.DateDiff) -> str:
+            end, start = self.sql(expression, "this"), self.sql(expression, "expression")
+            if str(expression.args.get("unit")).upper() == "DAY":
+                # Day boundaries crossed, as DuckDB counts them.
+                return f"(TRUNC({end}) - TRUNC({start}))"
+            span = f"(CAST({end} AS TIMESTAMP) - CAST({start} AS TIMESTAMP))"
+            return (
+                f"ROUND(EXTRACT(DAY FROM {span}) * 86400000000 + EXTRACT(HOUR FROM {span}) * 3600000000 "
+                f"+ EXTRACT(MINUTE FROM {span}) * 60000000 + EXTRACT(SECOND FROM {span}) * 1000000)"
+            )
+
+
+_ORACLE_TYPES = {**{t: "BIGINT" for t in _INTEGER}, T.DOUBLE: "DOUBLE", T.FLOAT: "DOUBLE", T.BOOLEAN: "BOOLEAN",
+                 T.DATE: "DATE", **{t: "TIMESTAMP" for t in _TEMPORAL - {T.DATE}}, **{t: "VARCHAR" for t in _TEXT}}
+
+
+def _output_types(tree: exp.Expression) -> tuple[str | None, ...]:
+    select = tree
+    while isinstance(select, (exp.Union, exp.Subquery, exp.Paren)):
+        select = select.this
+    return tuple(_ORACLE_TYPES.get(_type(e)) for e in select.expressions)
+
+
 def _is_correlated(cte: exp.CTE) -> bool:
     """Whether a column anywhere in the CTE reads a source outside it — a
     subquery's column naming a source of an enclosing scope inside the CTE is not."""
@@ -705,8 +907,14 @@ def to_remote(sql: str, engine: str, lookup: TableLookup) -> RemoteQuery:
     tree = _typed(tree, tables)
     _check_portable(tree)
     names = _output_names(tree)
+    types: tuple[str | None, ...] = ()
     if engine == "doris":
         tree = _hoist_ctes(tree.transform(_doris))
+    elif engine == "oracle":
+        # Oracle's MEDIAN and PERCENTILE_CONT interpolate as DuckDB's do.
+        _check_oracle(tree)
+        types = _output_types(tree)
+        tree = tree.transform(_oracle)
     elif any(isinstance(n, (exp.Anonymous, exp.Median, exp.PercentileCont, exp.ApproxQuantile)) for n in tree.walk()):
         raise NotPortable("no spelling of a DuckDB function")
     # qualify lower-cases every name (DuckDB's are case-insensitive); the remote
@@ -717,4 +925,7 @@ def to_remote(sql: str, engine: str, lookup: TableLookup) -> RemoteQuery:
         if remote is not None:
             table.set("db", exp.to_identifier(remote.schema, quoted=True))
             table.set("this", exp.to_identifier(remote.name, quoted=True))
+    if engine == "oracle":
+        _oracle_names(tree)
+        return RemoteQuery(tree.sql(dialect=_LinkrOracle), names, types)
     return RemoteQuery(tree.sql(dialect=_LinkrDoris if engine == "doris" else dialect), names)

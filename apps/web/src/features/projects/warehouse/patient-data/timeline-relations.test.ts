@@ -3,7 +3,7 @@ import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { conceptRelations, eventRelations } from '@/lib/schema-classes/relations'
 import { countedRelationSignature } from '@/features/projects/warehouse/concepts/concept-count-plan'
 import { buildTimelineQuery } from '@/lib/duckdb/patient-data-queries'
-import { countedAtOf, relationsWithout } from './timeline-relations'
+import { countedAtOf, relationsHolding, relationsWithout } from './timeline-relations'
 
 const mapping = mappingV1ToV2({
   patientTable: { table: 'person', idColumn: 'person_id' },
@@ -16,6 +16,42 @@ const mapping = mappingV1ToV2({
 const [measurement, observation] = eventRelations(mapping)
 const dict = conceptRelations(mapping)[0]
 const sig = (e: typeof measurement) => countedRelationSignature(e, dict)
+
+describe('relationsHolding', () => {
+  it('says which concepts each relation counted under its current SQL holds', () => {
+    const counted = [
+      { relation: measurement.name, signature: sig(measurement), holds: true, held: ['1', '2'] },
+      { relation: observation.name, signature: sig(observation), holds: true, held: ['2'] },
+    ]
+    expect(relationsHolding(mapping, counted)).toEqual(new Map([
+      [measurement.name, new Set([1, 2])],
+      [observation.name, new Set([2])],
+    ]))
+  })
+
+  it('says an empty table the count covered holds none of them', () => {
+    const counted = [{ relation: measurement.name, signature: sig(measurement), holds: true, held: ['1'] }]
+    expect(relationsHolding(mapping, counted, [observation.name]).get(observation.name)).toEqual(new Set())
+    expect([...relationsWithout(mapping, counted, [observation.name])]).toEqual([observation.name])
+  })
+
+  it('says a table the count covered, holding none of the concepts asked, holds none', () => {
+    const counted = [
+      { relation: measurement.name, signature: sig(measurement), holds: false, held: [] },
+      { relation: observation.name, signature: sig(observation), holds: true, held: ['3'] },
+    ]
+    const holding = relationsHolding(mapping, counted)
+    expect(holding.get(measurement.name)).toEqual(new Set())
+    expect(holding.get(observation.name)).toEqual(new Set([3]))
+  })
+
+  it('cannot speak for a relation counted under other SQL, or held ids it was not told', () => {
+    expect(relationsHolding(mapping, [
+      { relation: measurement.name, signature: 'older', holds: false, held: [] },
+      { relation: observation.name, signature: sig(observation), holds: true },
+    ]).size).toBe(0)
+  })
+})
 
 describe('relationsWithout', () => {
   it('leaves out a counted relation holding none of the concepts', () => {
@@ -40,14 +76,28 @@ describe('relationsWithout', () => {
   })
 })
 
-describe('buildTimelineQuery without relations', () => {
-  it('drops their branch', () => {
+describe('buildTimelineQuery over the counted relations', () => {
+  it('drops the branch of a relation holding none of the concepts, and says so', () => {
     const all = buildTimelineQuery(mapping, [1], 'p1', null)!
-    const some = buildTimelineQuery(mapping, [1], 'p1', null, new Set([observation.name]))!
+    const some = buildTimelineQuery(mapping, [1], 'p1', null, { held: new Map([[observation.name, new Set<number>()]]) })!
     expect(all).toContain(`FROM ${observation.name} e`)
     expect(some).not.toContain(`FROM ${observation.name} e`)
+    expect(some).toContain(`--   ${observation.name}`)
     expect(some).toContain(`FROM ${measurement.name} e`)
-    expect(buildTimelineQuery(mapping, [1], 'p1', null, new Set([measurement.name, observation.name]))).toBeNull()
+    const none = new Set<number>()
+    expect(buildTimelineQuery(mapping, [1], 'p1', null, { held: new Map([[measurement.name, none], [observation.name, none]]) })).toBeNull()
+  })
+
+  it('searches each relation for the concepts it holds only, each named', () => {
+    const sql = buildTimelineQuery(mapping, [1, 2], 'p1', null, {
+      held: new Map([[observation.name, new Set([2])]]),
+      label: (id) => (id === 2 ? 'LOINC - Urine output' : undefined),
+    })!
+    const observationBranch = sql.slice(sql.indexOf(`-- ${observation.name}`))
+    expect(observationBranch).toMatch(/^-- \S+: 1 of the 2 concepts, those the concept count found there/)
+    expect(observationBranch).toContain('e.concept_id IN (\n      2 -- LOINC - Urine output\n    )')
+    // The measurement table, never counted, is searched for both.
+    expect(sql).toContain(`-- ${measurement.name}: every concept, the concept count has not read this table`)
   })
 })
 

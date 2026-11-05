@@ -33,7 +33,12 @@ import {
   buildOverviewUnitStaysQuery,
 } from '@/lib/duckdb/patient-overview-queries'
 import { NO_SCOPE } from '@/lib/duckdb/patient-scope'
-import { buildAttritionQueries, buildCohortCountSql, buildCohortResultsSql } from '@/lib/duckdb/cohort-query'
+import { buildAttritionQueries, buildCohortCountSql, buildCohortResultsSql, type RelationNarrowing } from '@/lib/duckdb/cohort-query'
+import { computeCohortReportData } from '@/lib/cohort-report/model'
+import { DEFAULT_PROFILE_OPTIONS, buildBatchProfileQuery, resolveProfileSource } from '@/lib/concept-mapping/concept-profile'
+import { buildConceptsCountQuery, buildFilterOptionsQuery, computeAvailableColumns } from '@/features/projects/warehouse/concepts/concept-queries'
+import { conceptRelations, eventRelations } from '@/lib/schema-classes/relations'
+import { matchFilterValue } from '@/lib/match-filter'
 import {
   buildConceptCountQueries,
   buildConceptRankQuery,
@@ -128,7 +133,7 @@ if (death) add('overview.death', 'buildOverviewDeathQuery', death)
 const conceptCohort = cohort('patient', [conceptCriterion(firstLabel, firstConcepts)])
 const mixedCohort = cohort('visit', [ageCriterion, conceptCriterion(firstLabel, firstConcepts.slice(0, 2))])
 add('cohort.concept.count', 'buildCohortCountSql', buildCohortCountSql(conceptCohort, mapping))
-add('cohort.concept.results', 'buildCohortResultsSql', buildCohortResultsSql(conceptCohort, mapping, 1000, 0))
+add('cohort.concept.results', 'buildCohortResultsSql', buildCohortResultsSql(conceptCohort, mapping, 1000))
 add('cohort.visit-age-concept.count', 'buildCohortCountSql', buildCohortCountSql(mixedCohort, mapping))
 buildAttritionQueries(mixedCohort, mapping, { withPatients: true }).forEach((q, i) => add(`cohort.attrition.${i}`, 'buildAttritionQueries', q.sql))
 const conceptConfig = (config: object) => ({
@@ -146,6 +151,13 @@ add('cohort.concept-every-one.count', 'buildCohortCountSql', buildCohortCountSql
 add('cohort.concept-occurrences-two-tables.count', 'buildCohortCountSql', buildCohortCountSql(
   cohort('patient', [conceptConfig({ eventTableLabels: twoLabels, conceptIds: twoTablesConcepts, occurrenceCount: { operator: '<', count: 20 } })]), mapping))
 
+// A stale-count shape: the first table searched for its first concept only, the second for none.
+const narrowing: RelationNarrowing = () => new Map(eventRelations(mapping)
+  .filter((e) => twoLabels.includes(e.key ?? ''))
+  .map((e) => [e.name, e.key === twoLabels[0] ? facts.concepts[twoLabels[0]].slice(0, 1) : []]))
+add('cohort.concept-narrowed.count', 'buildCohortCountSql', buildCohortCountSql(
+  cohort('patient', [conceptConfig({ eventTableLabels: twoLabels, conceptIds: twoTablesConcepts })]), mapping, narrowing))
+
 // ── Concept counts (the Concepts page) ────────────────────────────────────────
 planConceptCountUnits(mapping, [{ hi: facts.midPatientId }, { lo: facts.midPatientId }])
   .forEach((unit) => add(`concept-counts.${unit.key}`, 'planConceptCountUnits', unit.sql))
@@ -160,5 +172,32 @@ add('catalog.concept-rank', 'buildConceptRankQuery', buildConceptRankQuery(mappi
 ;(buildConceptCountQueries(mapping, 'domain_id', 'concept_class_id') ?? [])
   .forEach((q) => add(`catalog.concept-counts.${q.dictKey}`, 'buildConceptCountQueries', q.sql))
 
-writeFileSync(outPath, JSON.stringify({ generatedAt: new Date().toISOString(), queries }, null, 1))
-console.log(`  corpus: ${queries.length} queries → ${outPath}`)
+// ── Concepts page filters ─────────────────────────────────────────────────────
+const conceptColumns = computeAvailableColumns(conceptRelations(mapping))
+add('concepts.filter-options.search', 'buildFilterOptionsQuery', buildFilterOptionsQuery(mapping, 'vocabulary_id', 'snom'), true)
+add('concepts.count.match-filter', 'buildConceptsCountQuery', buildConceptsCountQuery(
+  mapping, { vocabulary_id: ['LOINC', matchFilterValue('snom')] }, conceptColumns))
+
+// ── Concept profiles (mapping projects' source extraction) ────────────────────
+const profileSource = resolveProfileSource(mapping, conceptRelations(mapping)[0]?.key ?? '')
+if (!profileSource) throw new Error('resolveProfileSource found no event table for the first dictionary')
+add('profile.batch', 'buildBatchProfileQuery', buildBatchProfileQuery(
+  mapping, profileSource, (facts.concepts[profileSource.label] ?? firstConcepts).slice(0, 3), DEFAULT_PROFILE_OPTIONS.sections, DEFAULT_PROFILE_OPTIONS))
+
+async function main() {
+  // ── Cohort report, every section in one query ───────────────────────────────
+  let reportSql: string | undefined
+  await computeCohortReportData({
+    cohort: mixedCohort, mapping, combine: true,
+    run: async (sql) => { reportSql = sql; return [] },
+  })
+  add('cohort.report.combined', 'buildReportSectionsSql', reportSql)
+
+  writeFileSync(outPath, JSON.stringify({ generatedAt: new Date().toISOString(), queries }, null, 1))
+  console.log(`  corpus: ${queries.length} queries → ${outPath}`)
+}
+
+void main().catch((err) => {
+  console.error(err)
+  process.exit(1)
+})

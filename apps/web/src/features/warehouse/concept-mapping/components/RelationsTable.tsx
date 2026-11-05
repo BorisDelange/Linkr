@@ -98,7 +98,6 @@ export function RelationsTable({ relations }: RelationsTableProps) {
 
   return (
     <DataTable
-      cellTooltips="all"
       pageSize={100}
       data={relations}
       columns={columns}

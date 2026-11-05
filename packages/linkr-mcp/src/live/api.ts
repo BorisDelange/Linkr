@@ -16,6 +16,9 @@ import type {
 } from '@/types'
 import type { DerivePlanTable, DeriveRequest } from '@/lib/api/data-sources'
 import type { Job } from '@/lib/api/environments'
+import type {
+  ComputeScoresInput, SemanticSearchResult, SuggestionEngines, TargetFilters,
+} from '@/lib/api/suggestion-engines'
 import { injectClassRelations } from '@/lib/schema-classes/inject'
 import { sanitizeSchemaMapping, sanitizeSchemaOverrides } from '@/lib/schema-helpers'
 import { effectiveMapping } from '@/lib/schema-classes/overrides'
@@ -214,7 +217,12 @@ export class LinkrApi {
           detail = typeof payload.detail === 'string' ? payload.detail : JSON.stringify(payload.detail)
         }
         const code = (payload.detail as { code?: string } | undefined)?.code
-        if (res.status === 428 && code === 'database_credential_required') {
+        const purpose = (payload.detail as { purpose?: string } | undefined)?.purpose
+        if (res.status === 428 && code === 'database_credential_required' && purpose === 'write') {
+          detail = 'The user has no write account for this database yet: Linkr writes a derivation with a second '
+            + 'account of theirs, never the one it reads with. Ask them to derive once from Linkr (Cohorts → Derive), '
+            + 'which asks for that account, then try again. Never ask them for the password in this conversation.'
+        } else if (res.status === 428 && code === 'database_credential_required') {
           // An agent never receives or sets a password: the person does, in Linkr.
           detail = 'The user has no account of their own for this database yet. Ask them to open it in '
             + 'Linkr (or Profile → Database accounts) and enter their login there, then try again. '
@@ -243,7 +251,7 @@ export class LinkrApi {
    *  the model or a user wrote. */
   query = async (id: string, sql: string, { pushdown = true }: { pushdown?: boolean } = {}) =>
     (await this.request<{ rows: Record<string, unknown>[] }>(
-      'POST', `/data-sources/${encodeURIComponent(id)}/query`, { sql: await this.withRelations(id, sql), pushdown },
+      'POST', `/data-sources/${encodeURIComponent(id)}/query`, { sql: await this.withRelations(id, sql), pushdown, origin: 'MCP' },
     )).rows
   /** A query on the database's concepts cache (view `concepts`), loaded from its
    *  Concepts tab in Linkr; 404 until it is. */
@@ -388,6 +396,22 @@ export class LinkrApi {
       'POST', `/mapping-projects/${encodeURIComponent(id)}/scores/append`, { rows },
     )
 
+  // Suggestion engines: embedding configurations, computed scores, semantic search
+  suggestionEngines = (workspaceId: string) =>
+    this.request<SuggestionEngines>('GET', `/workspaces/${encodeURIComponent(workspaceId)}/suggestion-engines`)
+  computeScores = (id: string, body: ComputeScoresInput) =>
+    this.request<Job>('POST', `/mapping-projects/${encodeURIComponent(id)}/scores/compute`, body)
+  buildEmbeddingIndex = (workspaceId: string, configId: string, rebuild: boolean) =>
+    this.request<Job>(
+      'POST', `/workspaces/${encodeURIComponent(workspaceId)}/suggestion-engines/configs/${encodeURIComponent(configId)}/build`,
+      { rebuild },
+    )
+  semanticSearch = (workspaceId: string, configId: string, body: { texts: string[]; topK: number; filters?: TargetFilters }) =>
+    this.request<SemanticSearchResult>(
+      'POST', `/workspaces/${encodeURIComponent(workspaceId)}/suggestion-engines/configs/${encodeURIComponent(configId)}/search`,
+      body,
+    )
+
   // Cohorts: freeze, ATLAS import
   /** The server runs the membership query whole and stores it as the cohort's materialization. */
   materializeCohort = async (id: string, body: { membershipSql: string; dataSourceId: string }) =>
@@ -403,8 +427,8 @@ export class LinkrApi {
     this.request<Cohort[]>('GET', `/cohorts?dataSourceId=${encodeURIComponent(dataSourceId)}`)
   createDataSource = (body: Record<string, unknown>) => this.request<DataSource>('POST', '/data-sources', body)
   deleteDataSource = (id: string) => this.request<void>('DELETE', `/data-sources/${encodeURIComponent(id)}`)
-  derivePlan = (id: string, level: string) =>
-    this.request<DerivePlanTable[]>('POST', `/data-sources/${encodeURIComponent(id)}/derive-plan`, { level })
+  derivePlan = (id: string, level: string, scope?: string) =>
+    this.request<DerivePlanTable[]>('POST', `/data-sources/${encodeURIComponent(id)}/derive-plan`, { level, ...(scope ? { scope } : {}) })
   /** Starts the copy as a job of the database's workspace; returns it queued. */
   derive = async (id: string, body: DeriveRequest) =>
     this.request<Job>('POST', `/data-sources/${encodeURIComponent(id)}/derive`, {

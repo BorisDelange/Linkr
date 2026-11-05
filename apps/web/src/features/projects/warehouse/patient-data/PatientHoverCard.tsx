@@ -58,7 +58,7 @@ export function PatientHoverCard({
       setLoading(false)
       return
     }
-    queryDataSource(dataSourceId, sql)
+    queryDataSource(dataSourceId, sql, { origin: 'Patient list · summary on hover' })
       .then((rows) => {
         if (!cancelled && rows.length > 0) setSummary(rows[0] as unknown as PatientSummary)
       })

@@ -12,7 +12,8 @@ test('the workspace lists its databases, the demo one connected', async ({ page 
 
 test('a concept search finds a concept with its counts', async ({ page }) => {
   await page.goto(`${MORTALITY}/warehouse/concepts`)
-  await page.getByPlaceholder('Search concepts (name, code or ID)…').fill('heart rate')
+  // The Name column's filter: the fuzzy search over every concept, run on Enter.
+  await page.getByPlaceholder('Search concept name...').fill('heart rate')
   await page.keyboard.press('Enter')
   const row = page.getByRole('row', { name: /220045 Heart Rate/ })
   await expect(row).toBeVisible()

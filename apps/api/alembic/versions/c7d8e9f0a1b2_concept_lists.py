@@ -20,7 +20,7 @@ list stays readable after the source database is detached.
 import sqlalchemy as sa
 from alembic import op
 
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 revision = "c7d8e9f0a1b2"
 down_revision = "d0e1f2a3b4c5"
@@ -38,9 +38,9 @@ def upgrade() -> None:
             sa.ForeignKey("projects.uid", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column("name", JSONB_or_JSON, nullable=True),
-        sa.Column("description", JSONB_or_JSON, nullable=True),
-        sa.Column("items", JSONB_or_JSON, nullable=True),
+        sa.Column("name", PortableJSON, nullable=True),
+        sa.Column("description", PortableJSON, nullable=True),
+        sa.Column("items", PortableJSON, nullable=True),
         sa.Column("data_source_id", sa.String(36), nullable=True),
         sa.Column("version", sa.String(20), nullable=False, server_default="0.1.0"),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),

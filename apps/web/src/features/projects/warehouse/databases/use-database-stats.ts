@@ -26,6 +26,27 @@ function publish(dataSourceId: string, stats: DatabaseStatsCache) {
 }
 const BUSY_DELAY_MS = 400
 
+/** The stored statistics alone, kept live as a refresh publishes them — for a
+ *  reader that must never start a computation. */
+export function useStoredDatabaseStats(dataSourceId: string) {
+  const [cache, setCache] = useState<DatabaseStatsCache | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    getStorage().databaseStatsCache.get(dataSourceId)
+      .then((cached) => { if (!cancelled) setCache(cached ?? null) })
+      .catch(() => {})
+    const listeners = _listeners.get(dataSourceId) ?? new Set()
+    _listeners.set(dataSourceId, listeners)
+    listeners.add(setCache)
+    return () => {
+      cancelled = true
+      listeners.delete(setCache)
+    }
+  }, [dataSourceId])
+  // Another database's figures until this one's are read.
+  return cache?.dataSourceId === dataSourceId ? cache : null
+}
+
 export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapping, sourceStatus?: string) {
   const [cache, setCache] = useState<DatabaseStatsCache | null>(null)
   // Mounted mid-run: busy from the first render, so the debounce below does not

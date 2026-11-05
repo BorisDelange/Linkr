@@ -293,3 +293,68 @@ async def test_a_job_polled_by_id_carries_its_input_only_when_asked(client):
     assert polled["input"] is None and polled["status"] == "done"
     full = (await client.get(f"{API}/jobs/{job['id']}?withInput=true", headers=headers)).json()
     assert "SELECT 1 AS one" in full["input"]
+
+
+async def test_a_job_sharing_the_lane_lets_a_heavy_query_through_between_two_of_its_own(client, monkeypatch):
+    monkeypatch.setattr(settings, "max_heavy_queries", 1)
+    headers = await _admin(client)
+    ws, ds = await _source(client, headers)
+    gates = {"u0": asyncio.Event(), "u1": asyncio.Event()}
+    original = query_jobs._run_one
+
+    async def gated(job_id, source_id, runner, q, tag, launched_by):
+        if q.key in gates and job_id == shared["id"]:
+            await gates[q.key].wait()
+        return await original(job_id, source_id, runner, q, tag, launched_by)
+
+    monkeypatch.setattr(query_jobs, "_run_one", gated)
+    r = await client.post(f"{API}/data-sources/{ds}/query-jobs", headers=headers, json={
+        "label": "Profiles", "shareLane": True,
+        "queries": [{"key": "u0", "sql": "SELECT 1 AS one"}, {"key": "u1", "sql": "SELECT 2 AS two"}],
+    })
+    assert r.status_code == 202, r.text
+    shared = r.json()
+    await asyncio.sleep(0.1)
+    other = await _start(client, headers, ds, [("u0", "SELECT 3 AS three")], label="Cohort")
+    await asyncio.sleep(0.2)
+    # Its first query holds the lane.
+    assert (await _job(client, headers, ws, other["id"]))["status"] == "queued"
+
+    gates["u0"].set()
+    await _settle(other["id"])
+    assert (await _job(client, headers, ws, other["id"]))["status"] == "done"
+    # The cohort ran between the two: the profiles' second query had not.
+    assert (await _job(client, headers, ws, shared["id"]))["result"]["done"] == ["u0"]
+
+    gates["u1"].set()
+    await _settle(shared["id"])
+    assert (await _job(client, headers, ws, shared["id"]))["result"]["done"] == ["u0", "u1"]
+
+
+async def test_a_job_sharing_the_lane_is_queued_until_its_first_query_has_a_slot(client, monkeypatch):
+    monkeypatch.setattr(settings, "max_heavy_queries", 1)
+    headers = await _admin(client)
+    ws, ds = await _source(client, headers)
+    gate = asyncio.Event()
+    original = query_jobs._run_one
+
+    async def gated(job_id, source_id, runner, q, tag, launched_by):
+        if job_id == holder["id"]:
+            await gate.wait()
+        return await original(job_id, source_id, runner, q, tag, launched_by)
+
+    monkeypatch.setattr(query_jobs, "_run_one", gated)
+    holder = await _start(client, headers, ds, [("h", "SELECT 1 AS one")], label="Cohort")
+    await asyncio.sleep(0.1)
+    r = await client.post(f"{API}/data-sources/{ds}/query-jobs", headers=headers, json={
+        "label": "Profiles", "shareLane": True, "queries": [{"key": "u0", "sql": "SELECT 2 AS two"}],
+    })
+    assert r.status_code == 202, r.text
+    shared = r.json()
+    await asyncio.sleep(0.2)
+    assert (await _job(client, headers, ws, shared["id"]))["status"] == "queued"
+
+    gate.set()
+    await _settle(holder["id"])
+    await _settle(shared["id"])
+    assert (await _job(client, headers, ws, shared["id"]))["status"] == "done"

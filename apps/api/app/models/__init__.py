@@ -11,11 +11,13 @@ from app.models.patient_dashboard import (
     PatientDashboardWidget,
 )
 from app.models.attachment import ReadmeAttachment, WikiAttachment
+from app.models.concept_profile import ConceptProfile
 from app.models.concept_stats_cache import ConceptStatsCache
 from app.models.data_catalog import DataCatalog
 from app.models.mapping_project import ConceptMapping, MappingProject, ServiceMapping
 from app.models.source_concept_id import SourceConceptIdEntry, SourceConceptIdRange
 from app.models.database_credential import DatabaseCredential
+from app.models.pseudonym_key import PseudonymKey
 from app.models.data_source import DataSource, DataSourceFile
 from app.models.dataset import DatasetAnalysis, DatasetFile
 from app.models.dq_rule_set import DqCustomCheck, DqRuleSet, DqRunHistory
@@ -35,6 +37,7 @@ from app.models.organization import Organization
 from app.models.pipeline import Pipeline
 from app.models.schema_preset import SchemaPreset
 from app.models.stats_cache import StatsCache
+from app.models.git_proposal import GitProposal
 from app.models.git_sync_state import GitSyncState
 from app.models.git_content_status import GitContentStatus
 from app.models.sql_script import SqlScriptCollection, SqlScriptFile
@@ -70,6 +73,7 @@ __all__ = [
     "PatientDashboardWidget",
     "ReadmeAttachment",
     "WikiAttachment",
+    "ConceptProfile",
     "ConceptStatsCache",
     "DataCatalog",
     "SourceConceptIdRange",
@@ -96,6 +100,7 @@ __all__ = [
     "Pipeline",
     "SchemaPreset",
     "StatsCache",
+    "GitProposal",
     "GitSyncState",
     "GitContentStatus",
     "SqlScriptCollection",
@@ -103,4 +108,5 @@ __all__ = [
     "WikiPage",
     "Role",
     "DatabaseCredential",
+    "PseudonymKey",
 ]

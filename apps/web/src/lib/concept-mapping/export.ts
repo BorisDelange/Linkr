@@ -741,14 +741,17 @@ export function cleanMappingProjectMeta(
   // portable slug and `lineageId` the cross-instance identity. The provenance keys
   // go through the shared ordering, so this manifest reads the same as every other
   // kind's; `appVersion` trails the block.
-  // scoresFileSha/scoresFileName (server mode only, absent from the type) are
-  // blob-store pointers: they address nothing elsewhere, and the sha moved on
-  // every agent suggestion, churning entity.json for a file git never carried.
+  // scoresFileSha/scoresFileName and rawFileSha (server mode only, absent from
+  // the type) are blob-store pointers: they address nothing elsewhere. The scores
+  // sha moved on every agent suggestion; the raw sha names the file as stored
+  // here, unmasked, so it differed from the masked source-concepts.csv the repo
+  // carries and changed again on every pull.
   const {
     id: _localKey,
     entityId,
     scoresFileSha: _scoresSha,
     scoresFileName: _scoresName,
+    rawFileSha: _rawSha,
     // The vocabulary database is never exported (and its lineage is minted per
     // import), so a pointer to it resolved nowhere and flipped in git between
     // two users who each imported ATHENA.

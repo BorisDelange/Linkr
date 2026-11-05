@@ -20,7 +20,7 @@ import {
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { cn } from '@/lib/utils'
 import { editorTabClass } from '@/components/editor/editor-tab'
-import { usePluginEditorStore } from '@/stores/plugin-editor-store'
+import { reloadPulledPlugin, usePluginEditorStore } from '@/stores/plugin-editor-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
@@ -415,13 +415,14 @@ export function PluginEditor() {
       )}
 
       {activeTab === 'versioning' && (
-        <div className="min-h-0 flex-1 overflow-auto px-6 pb-1.5">
-          <div className="mx-auto w-full max-w-3xl">
+        <div className="flex min-h-0 flex-1 flex-col px-6 pb-1.5">
+          <div className="flex h-full min-h-0 w-full flex-col">
             <GitRepositoryTab
               gitRemote={currentPlugin?.gitRemoteConfig ?? null}
               onSave={(config) => pluginActions.onSaveGitRemote(pluginItem, config)}
               syncScope="user-plugins"
               syncId={editingPluginId ?? undefined}
+              onAfterPull={() => (editingPluginId ? reloadPulledPlugin(editingPluginId) : undefined)}
             />
           </div>
         </div>

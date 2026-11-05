@@ -18,7 +18,7 @@ from app.schemas.data_dictionary import DataDictionaryCreate, DataDictionarySync
 # The fields a sync writes; anything else (the local id, the resolved ids) stays.
 _SYNCED_FIELDS = (
     "name", "description", "expression", "source_url", "unique_id", "source_repo",
-    "category", "subcategory", "provenance", "version", "translations",
+    "category", "subcategory", "provenance", "version", "review_status", "translations",
 )
 
 

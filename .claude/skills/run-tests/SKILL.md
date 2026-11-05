@@ -15,6 +15,7 @@ covers and how it is built; this skill is the procedure.
 | **e2e** | `npm run test:e2e` | 2–5 min (+1 min build) | Chromium (`npx playwright install chromium`) |
 | **matrix** | `npm run test:matrix` (file engines) · `-- --spe` (+ PostgreSQL, MySQL) | 1 min · 5–10 min | Docker for `--spe` |
 | **spe** | `npm run test:spe -- default` · all scenarios · `--e2e` | 3 min per scenario | Docker |
+| **versioning** | `npm run test:versioning` · `-- --forge` | 4 min · +3 min (first forge boot: ~5 min) | network once (demo install), Docker for `--forge` |
 
 Never start the user's dev server (`npm run dev`/`dev:all`): the e2e tier serves
 its own build on port 4317 (4317 + the offset of a worktree's `WEB_PORT` over
@@ -22,7 +23,7 @@ its own build on port 4317 (4317 + the offset of a worktree's `WEB_PORT` over
 
 ## 1. Pick the tiers
 
-With an explicit argument, run that tier (`full` = all four, matrix and spe at
+With an explicit argument, run that tier (`full` = all five, matrix and spe at
 default settings). Otherwise read the diff — the range given, else the branch
 against `main` plus uncommitted changes (`git diff main...HEAD --name-only; git status --short`)
 — and take every row that matches:
@@ -34,6 +35,7 @@ against `main` plus uncommitted changes (`git diff main...HEAD --name-only; git 
 | SQL builders (`lib/duckdb/*-queries.ts`, `cohort-query.ts`, `catalog-queries.ts`, `lib/schema-classes/**`, `concept-count-plan.ts`) or connectors (`apps/api/app/services/data/db_connect.py`, `db_schemas.py`, `pushdown.py`, `remote_sql.py`) | **matrix** — with `--spe` when the external engines matter (connectors, pushdown, anything Postgres/MySQL-specific) |
 | performance-sensitive SQL (counts, catalog, patient pages, pagination) | **matrix** with `--spe --machine tiny --scale 50` to see it on a small machine and a bigger base |
 | `docker/**`, `nginx.conf`, the gateway, base path / prefix handling, WebSockets, environments/mirror (`LINKR_PIP_INDEX_URL`, `LINKR_R_REPOS`) | **spe** (all scenarios); `--e2e` when the UI path changed too |
+| git versioning: `lib/pull/**`, `lib/wiki/markdown-merge.ts`, `components/versioning/**`, `git_service.py`, `forge_service.py`, `routes/git.py`, an entity's export/import (`entity-io.ts`, `*_export.py`) | **versioning** — with `--forge` when proposals or the forge client changed |
 | a release | **full**, the SPE scenarios with `--e2e` |
 
 Say which tiers you picked and why in one line each before running them.
@@ -70,6 +72,11 @@ total per engine are the performance signal: compare a capped machine
 
 **spe** — `npm run test:spe [-- --machine M] [--e2e] [scenario…]`. Each scenario
 is a first install. Writes `.cache/spe/report-<machine>.md`.
+
+**versioning** — `npm run test:versioning [-- --forge] [--refresh-demo] [roundtrip|matrix|workspace-pull]`.
+Its own API + Vite dev server on free ports, never the user's; each journey
+starts from a copy of the demo snapshot in `.cache/versioning-e2e/`. Prints one
+line per journey; a failure keeps its trace under `apps/web/test-results/`.
 
 **Races** — when the diff touches mounting (`lib/duckdb/engine.ts`,
 `data-source-store`), the seed, background jobs, cancellation or WebSockets, run

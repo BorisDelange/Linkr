@@ -2,7 +2,7 @@ import type { DatabaseEngine } from '@/types'
 
 /** Network databases the server reaches by ATTACHing them into DuckDB (server mode
  *  only). Mirrors `EXTERNAL_ENGINES` in `apps/api/app/services/data/db_connect.py`. */
-export const EXTERNAL_ENGINES = ['postgresql', 'mysql', 'doris'] as const satisfies readonly DatabaseEngine[]
+export const EXTERNAL_ENGINES = ['postgresql', 'mysql', 'doris', 'sqlserver', 'oracle'] as const satisfies readonly DatabaseEngine[]
 
 export function isExternalEngine(engine: unknown): boolean {
   return (EXTERNAL_ENGINES as readonly unknown[]).includes(engine)
@@ -12,7 +12,7 @@ export function isExternalEngine(engine: unknown): boolean {
  *  portable, and take native SQL. Mirrors `PUSHDOWN_ENGINES` in
  *  `apps/api/app/services/data/remote_sql.py`. */
 export function computesQueries(engine: unknown): boolean {
-  return engine === 'doris'
+  return engine === 'doris' || engine === 'oracle'
 }
 
 export const ENGINE_LABELS: Record<DatabaseEngine, string> = {
@@ -40,6 +40,7 @@ export const DEFAULT_PORTS: Partial<Record<DatabaseEngine, string>> = {
   mysql: '3306',
   doris: '9030',
   sqlserver: '1433',
+  oracle: '1521',
 }
 
 /** The port a connection goes to: the one set, else the engine's default (the

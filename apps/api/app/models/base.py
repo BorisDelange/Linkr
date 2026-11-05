@@ -3,7 +3,6 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import JSON, DateTime, MetaData, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
@@ -17,9 +16,11 @@ NAMING_CONVENTION = {
     "pk": "pk_%(table_name)s",
 }
 
-# JSONB on PostgreSQL (indexable, native operators), plain JSON on SQLite.
-# Identical dict semantics in Python either way.
-JSONB_or_JSON = JSON().with_variant(JSONB, "postgresql")
+# Plain JSON on every database. Not JSONB on PostgreSQL: JSONB reorders an
+# object's keys, so an export from a Postgres install would differ from the same
+# entity exported by the browser or a SQLite server — a false diff in git. No
+# query relies on a JSONB operator.
+PortableJSON = JSON()
 
 
 class LocalizedText(TypeDecorator):

@@ -5,7 +5,7 @@ import type { InspectedExport, LibraryVocabulary } from '@/lib/vocabulary-librar
 /** Where an ATHENA export is, server-side. */
 export type ServerExportSource =
   | { files: { fileName: string; sha: string }[] }
-  | { serverPath: string }
+  | { serverPaths: string[] }
   | { dataSourceId: string }
 
 export interface ServerImportState {

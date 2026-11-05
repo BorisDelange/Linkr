@@ -13,7 +13,7 @@ import {
 } from '@/stores/patient-chart-store'
 import { patientQuery } from '../patient-prefetch'
 import { buildTimelineQuery } from '@/lib/duckdb/patient-data-queries'
-import { relationsCountedAt, timelineRelationsWithout } from '../timeline-relations'
+import { relationsCountedAt, relationsHoldingConcepts } from '../timeline-relations'
 import { eventRelations } from '@/lib/schema-classes/relations'
 import { formatDateTimeLocale } from '@/lib/format-helpers'
 import { isPlottable, useDatasetSeries } from './use-dataset-series'
@@ -288,18 +288,18 @@ export function TimelineWidget({
     // stay changes the scope three times in quick succession; one fetch for the
     // last of them avoids a visible reload / "No data" flash.
     const timer = setTimeout(() => {
-      timelineRelationsWithout(dataSourceId, schemaMapping, conceptIds)
-        .then((without) => {
+      relationsHoldingConcepts(dataSourceId, schemaMapping, conceptIds)
+        .then((held) => {
           if (cancelled) return null
-          const labels = eventRelations(schemaMapping).filter((e) => without.has(e.name)).map((e) => e.key ?? e.name)
+          const labels = eventRelations(schemaMapping).filter((e) => held.get(e.name)?.size === 0).map((e) => e.key ?? e.name)
           if (labels.length === 0) setSkipped(null)
           else {
             void relationsCountedAt(dataSourceId).then((countedAt) => {
               if (!cancelled) setSkipped({ labels, countedAt })
             })
           }
-          const sql = buildTimelineQuery(schemaMapping, conceptIds, patientId, scope, without)
-          return sql ? patientQuery(dataSourceId, sql, { signal: controller.signal }) : []
+          const sql = buildTimelineQuery(schemaMapping, conceptIds, patientId, scope, { held })
+          return sql ? patientQuery(dataSourceId, sql, { signal: controller.signal, origin: `Timeline · events of ${conceptIds.length} concept${conceptIds.length > 1 ? "s" : ""}` }) : []
         })
         .then((rows) => {
           if (cancelled) return

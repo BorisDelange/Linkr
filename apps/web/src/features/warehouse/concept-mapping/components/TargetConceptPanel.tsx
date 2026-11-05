@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, useTransition } from 'react'
 import { labelMatcher } from '@/lib/fuzzy-search'
-import { has } from '@/lib/schema-classes/relations'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
@@ -9,25 +8,16 @@ import {
   type ColumnDef,
   type VisibilityState,
 } from '@tanstack/react-table'
-import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, SlidersHorizontal, MessageSquare, EyeOff, Info, Sparkles, Upload, Trash2, BookOpen } from 'lucide-react'
+import { Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, SlidersHorizontal, MessageSquare, EyeOff, Info, Sparkles, Upload, Trash2, BookOpen } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { EmptyState } from '@/components/ui/empty-state'
 import { paths } from '@/lib/paths'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { Input } from '@/components/ui/input'
-import { NumberInput } from '@/components/ui/number-input'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { csvPathForMethod, formatMegabytes, GIT_FRIENDLY_CSV_BYTES, versionedMethodsValue, type ScoreMethodStat } from '@/lib/concept-mapping/scores-csv'
 import { Textarea } from '@/components/ui/textarea'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Label } from '@/components/ui/label'
 import {
@@ -57,23 +47,19 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
-import { type SuggestionCandidate, getProviderForMethod, computeCombinedScore, pickStrongestEquivalence, pickFirstComment, pickFirstConceptSet, DEFAULT_WEIGHTS, ALL_PROVIDERS, METHOD_DOT_COLORS } from '@/lib/concept-mapping/syntactic-suggestions'
+import { ConceptSearchTable, type ConceptSearchRow } from './ConceptSearchTable'
+import { type SuggestionCandidate, getProviderForMethod, computeCombinedScore, pickStrongestEquivalence, pickFirstComment, pickFirstConceptSet, DEFAULT_WEIGHTS, ALL_PROVIDERS, METHOD_DOT_COLORS, providerLabel } from '@/lib/concept-mapping/syntactic-suggestions'
 import { SuggestionsTable } from './SuggestionsTable'
+import { ManageSuggestionsDialog } from './suggestion-engines/ManageSuggestionsDialog'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
-import { ColumnResizeHandle, FILTER_INPUT_CLASS, FILTER_INPUT_CLASS_DENSE, SortIndicator, columnLabel } from '@/components/ui/table-primitives'
+import { ColumnResizeHandle, FILTER_INPUT_CLASS_DENSE, SortIndicator, columnLabel } from '@/components/ui/table-primitives'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SectionLabel } from '@/components/ui/section-label'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { TruncatedText } from '@/components/ui/truncated-text'
+import { CellContextMenu, useCellContextMenu } from '@/components/ui/cell-context-menu'
 import { EQUIV_BADGE, normalizeEquivalence } from '@/lib/concept-mapping/equivalence-badge'
 import { isMappingLocked } from '@/lib/concept-mapping/mapping-status'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
@@ -81,7 +67,6 @@ import { EquivalenceMenuItems, EquivalencePickerButton } from './EquivalenceMenu
 import { ConceptSetDetailSheet } from '../ConceptSetDetailSheet'
 import { ConceptDetailSheet, type ConceptInfoTarget } from './ConceptDetailSheet'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
-import { ValidityBadge } from '@/lib/concept-mapping/validity-badge'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useSuggestionScoresStore } from '@/stores/suggestion-scores-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -90,6 +75,7 @@ import { useRequireIdentity } from './IdentityRequiredDialog'
 import type { MappingProject, MappingEquivalence, ConceptSet, ResolvedConcept } from '@/types'
 import type { SourceConceptRow } from '../MappingEditorTab'
 import { resolveVocabularyTarget } from '@/lib/concept-mapping/vocabulary-target'
+import { buildNewMapping, targetFromResolvedConcept, type MappingTarget } from '@/lib/concept-mapping/new-mapping'
 
 interface TargetConceptPanelProps {
   project: MappingProject
@@ -97,17 +83,6 @@ interface TargetConceptPanelProps {
   /** Set of source concept IDs marked as ignored (derived from mappings). */
   ignoredConceptIds: Set<number>
   onGoToConceptSets?: () => void
-}
-
-interface SearchResult {
-  concept_id: number
-  concept_name: string
-  concept_code: string
-  vocabulary_id: string
-  domain_id?: string
-  concept_class_id?: string
-  standard_concept?: string
-  invalid_reason?: string | null
 }
 
 /** Derive the resolved concept set URL from the source URL. */
@@ -299,6 +274,7 @@ function MapWithCommentDialog({
 export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, onGoToConceptSets }: TargetConceptPanelProps) {
   const navigate = useNavigate()
   const { t, i18n } = useTranslation()
+  const cellMenu = useCellContextMenu()
   const lang = i18n.language
   // Per-field selectors, not the whole store: subscribing to the object re-rendered
   // this panel on every unrelated store change (suggestion scores, other projects…).
@@ -313,18 +289,6 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const { requireIdentity, dialog: identityDialog } = useRequireIdentity()
 
-  // Search for mapping
-  const [searchTerm, setSearchTerm] = useState('')
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
-  const [searching, setSearching] = useState(false)
-
-  // Search pre-filters (applied server-side in the SQL query)
-  const [searchFilterVocabs, setSearchFilterVocabs] = useState<Set<string>>(new Set())
-  const [searchFilterDomains, setSearchFilterDomains] = useState<Set<string>>(new Set())
-  const [searchFilterClasses, setSearchFilterClasses] = useState<Set<string>>(new Set())
-  const [searchFilterStandard, setSearchFilterStandard] = useState<Set<string>>(new Set())
-  const [searchMaxResults, setSearchMaxResults] = useState(1000)
-  const [searchFilterOptions, setSearchFilterOptions] = useState<{ vocabs: string[]; domains: string[]; classes: string[]; standards: string[] }>({ vocabs: [], domains: [], classes: [], standards: [] })
 
   // "Map with comment" dialog. While open, the text is typed into the dialog's own
   // state; on close it comes back here as a draft so reopening resumes it. The
@@ -410,7 +374,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
   const [conceptDetailTarget, setConceptDetailTarget] = useState<ConceptInfoTarget | null>(null)
 
   // Selected target concept (for resolved concepts or search results)
-  const [selectedTarget, setSelectedTarget] = useState<{ conceptId: number; conceptName: string; vocabularyId: string; domainId: string; conceptCode: string; conceptClassId?: string; standardConcept?: string } | null>(null)
+  const [selectedTarget, setSelectedTarget] = useState<MappingTarget | null>(null)
 
   // Clear selected target when source concept changes, and reset the add-button
   // equivalence to the sticky manual preference — otherwise a value carried over from
@@ -627,103 +591,10 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
     (resolvedPage + 1) * RESOLVED_PAGE_SIZE,
   )
 
-  // Load distinct filter options for the search pre-filters
-  useEffect(() => {
-    if (!vocabTarget) return
-    const targetDsId = vocabTarget.dsId
-    const dict = vocabTarget.dictionary
-    const column = (extra: string, fallback: 'category' | 'subcategory' | null) =>
-      dict.extras?.[extra] ? `"${dict.extras[extra]}"` : fallback && has(dict, fallback) ? fallback : undefined
-    const vocabCol = 'terminology_id'
-    const domainCol = column('domain_id', 'category')
-    const classCol = column('concept_class_id', 'subcategory')
-    const stdCol = column('standard_concept', null)
-    const parts: string[] = []
-    const distinct = (col: string) => `SELECT DISTINCT d.${col} AS v FROM ${dict.name} d WHERE d.${col} IS NOT NULL ORDER BY v`
-    parts.push(distinct(vocabCol))
-    if (domainCol) parts.push(distinct(domainCol))
-    if (classCol) parts.push(distinct(classCol))
-    if (stdCol) parts.push(distinct(stdCol))
-    ;(async () => {
-      try {
-        await ensureMounted(targetDsId)
-        const results = await Promise.all(parts.map((sql) => queryDataSource(targetDsId, sql)))
-        const toArr = (rows: Record<string, unknown>[]) => rows.map((r) => String(r.v)).filter(Boolean).sort()
-        let idx = 0
-        const vocabs = toArr(results[idx++])
-        const domains = domainCol ? toArr(results[idx++]) : []
-        const classes = classCol ? toArr(results[idx++]) : []
-        const standards = stdCol ? toArr(results[idx++]) : []
-        setSearchFilterOptions({ vocabs, domains, classes, standards })
-      } catch {
-        // Silently fail — filter options remain empty
-      }
-    })()
-  }, [vocabTarget, ensureMounted])
-
   // Reset resolved page when filters change
   useEffect(() => {
     setResolvedPage(0)
   }, [resolvedSearch, resolvedFilters])
-
-  const [searchWarningOpen, setSearchWarningOpen] = useState(false)
-
-  const runSearch = useCallback(async () => {
-    const targetDsId = vocabTarget?.dsId
-    const targetMapping = vocabTarget?.mapping
-    if (!targetDsId || !targetMapping) return
-    setSearching(true)
-    try {
-      await ensureMounted(targetDsId)
-      const filters = {
-        vocabularyIds: searchFilterVocabs.size > 0 ? [...searchFilterVocabs] : undefined,
-        domainIds: searchFilterDomains.size > 0 ? [...searchFilterDomains] : undefined,
-        conceptClassIds: searchFilterClasses.size > 0 ? [...searchFilterClasses] : undefined,
-        standardConcepts: searchFilterStandard.size > 0 ? [...searchFilterStandard] : undefined,
-      }
-      const sql = buildStandardConceptSearchQuery(targetMapping, searchTerm.trim(), filters, searchMaxResults)
-      if (!sql) { setSearching(false); return }
-      const results = await queryDataSource(targetDsId, sql)
-      setSearchResults(results as unknown as SearchResult[])
-      setSearchPage(0)
-    } catch (err) {
-      console.error('Search failed:', err)
-      setSearchResults([])
-    } finally {
-      setSearching(false)
-    }
-  }, [searchTerm, vocabTarget, ensureMounted, searchFilterVocabs, searchFilterDomains, searchFilterClasses, searchFilterStandard, searchMaxResults])
-
-  /** Submit handler. If the user typed a term but didn't pick any filter, warn first
-   *  before launching what may be a multi-second scan over the entire vocabulary. */
-  const handleSearch = useCallback(() => {
-    const noFilter =
-      searchFilterVocabs.size === 0 &&
-      searchFilterDomains.size === 0 &&
-      searchFilterClasses.size === 0 &&
-      searchFilterStandard.size === 0
-    if (searchTerm.trim() && noFilter) {
-      setSearchWarningOpen(true)
-      return
-    }
-    void runSearch()
-  }, [searchTerm, searchFilterVocabs, searchFilterDomains, searchFilterClasses, searchFilterStandard, runSearch])
-
-  const confirmUnfilteredSearch = useCallback(() => {
-    setSearchWarningOpen(false)
-    void runSearch()
-  }, [runSearch])
-
-  // Open on a first page of concepts, as if Enter had been pressed on the empty
-  // box. Guarded by a ref because runSearch is rebuilt on every filter change,
-  // and re-firing here would bypass the unfiltered-search warning.
-  const didInitialSearchRef = useRef(false)
-  useEffect(() => {
-    if (didInitialSearchRef.current) return
-    if (!vocabTarget) return
-    didInitialSearchRef.current = true
-    void runSearch()
-  }, [runSearch, vocabTarget])
 
   /** Add mapping from the selected target concept with a given predicate and optional comment. */
   const handleAddSelectedMapping = async (predicate: MappingEquivalence = 'skos:exactMatch', comment = '') => {
@@ -736,42 +607,17 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
     // clearing the selection immediately keeps the interaction instant. On persistence
     // failure the store rolls back the optimistic insert, so we only log here.
     setSelectedTarget(null)
-    createMapping({
+    createMapping(buildNewMapping({
       id: crypto.randomUUID(),
       projectId: project.id,
-      sourceConceptId: sourceConcept.concept_id,
-      sourceConceptName: sourceConcept.concept_name,
-      sourceVocabularyId: sourceConcept.vocabulary_id ?? '',
-      sourceDomainId: sourceConcept.domain_id ?? '',
-      sourceConceptCode: sourceConcept.concept_code ?? '',
-      sourceFrequency: sourceConcept.record_count,
-      sourceCategoryId: sourceConcept.category,
-      sourceSubcategoryId: sourceConcept.subcategory,
-      sourceConceptClassId: sourceConcept.concept_class_id,
-      targetConceptId: selectedTarget.conceptId,
-      targetConceptName: selectedTarget.conceptName,
-      targetVocabularyId: selectedTarget.vocabularyId,
-      targetDomainId: selectedTarget.domainId,
-      targetConceptCode: selectedTarget.conceptCode,
-      targetConceptClassId: selectedTarget.conceptClassId,
-      targetStandardConcept: selectedTarget.standardConcept,
-      conceptSetId: selectedCs?.id,
-      mappingType: 'maps_to',
+      source: sourceConcept,
+      target: selectedTarget,
       equivalence: predicate,
-      status: 'unchecked',
-      comments: comment ? [{
-        id: crypto.randomUUID(),
-        authorId: getUserDisplayName(),
-        authorDetails: getAuthorDetails(),
-        text: comment,
-        createdAt: now,
-      }] : undefined,
-      mappedBy: getUserDisplayName(),
-      mappedByDetails: getAuthorDetails(),
-      mappedOn: now,
-      createdAt: now,
-      updatedAt: now,
-    }).catch((err) => console.error('Failed to persist mapping', err))
+      comment,
+      author: getUserDisplayName(),
+      authorDetails: getAuthorDetails(),
+      now,
+    })).catch((err) => console.error('Failed to persist mapping', err))
   }
 
   /** Change the equivalence of the mapping the selected target already has. */
@@ -790,42 +636,23 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
     deleteMapping(selectedTargetMapping.id).catch((err) => console.error('Failed to delete mapping', err))
   }
 
-  /** Align the current source concept onto a resolved concept-set concept (from
-   *  the concept-set detail sheet), mirroring handleAddSelectedMapping. */
+  /** Align the current source concept onto a concept of the set open in the
+   *  detail sheet, recording that set like a pick from the resolved list. */
   const alignResolvedConcept = useCallback(async (target: ResolvedConcept, predicate: MappingEquivalence) => {
     if (!sourceConcept) return
     if (existingMappings.some((m) => m.targetConceptId === target.conceptId)) return
     if (!requireIdentity()) return
-    const now = new Date().toISOString()
-    createMapping({
+    createMapping(buildNewMapping({
       id: crypto.randomUUID(),
       projectId: project.id,
-      sourceConceptId: sourceConcept.concept_id,
-      sourceConceptName: sourceConcept.concept_name,
-      sourceVocabularyId: sourceConcept.vocabulary_id ?? '',
-      sourceDomainId: sourceConcept.domain_id ?? '',
-      sourceConceptCode: sourceConcept.concept_code ?? '',
-      sourceFrequency: sourceConcept.record_count,
-      sourceCategoryId: sourceConcept.category,
-      sourceSubcategoryId: sourceConcept.subcategory,
-      sourceConceptClassId: sourceConcept.concept_class_id,
-      targetConceptId: target.conceptId,
-      targetConceptName: target.conceptName,
-      targetVocabularyId: target.vocabularyId,
-      targetDomainId: target.domainId,
-      targetConceptCode: target.conceptCode,
-      targetConceptClassId: target.conceptClassId,
-      targetStandardConcept: target.standardConcept ?? undefined,
-      mappingType: 'maps_to',
+      source: sourceConcept,
+      target: targetFromResolvedConcept(target, detailSheetCs),
       equivalence: predicate,
-      status: 'unchecked',
-      mappedBy: getUserDisplayName(),
-      mappedByDetails: getAuthorDetails(),
-      mappedOn: now,
-      createdAt: now,
-      updatedAt: now,
-    }).catch((err) => console.error('Failed to persist mapping', err))
-  }, [sourceConcept, existingMappings, requireIdentity, createMapping, project.id, getUserDisplayName, getAuthorDetails])
+      author: getUserDisplayName(),
+      authorDetails: getAuthorDetails(),
+      now: new Date().toISOString(),
+    })).catch((err) => console.error('Failed to persist mapping', err))
+  }, [sourceConcept, existingMappings, requireIdentity, createMapping, project.id, detailSheetCs, getUserDisplayName, getAuthorDetails])
 
   /** The pending draft, only if it belongs to the concept currently selected. */
   const draftForConcept =
@@ -1141,19 +968,44 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
       size: 40, minSize: 30,
     },
     {
-      id: '_check',
+      id: '_actions',
       header: '',
       cell: ({ row }) => {
+        const c = row.original
         const alreadyMapped = sourceConcept
-          ? existingMappings.some((m) => m.targetConceptId === row.original.conceptId)
+          ? existingMappings.some((m) => m.targetConceptId === c.conceptId)
           : false
         return (
-          <span className="flex justify-center">
+          <div className="flex items-center justify-end gap-0.5">
             {alreadyMapped && <Check size={11} className="shrink-0 text-green-600" />}
-          </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setConceptDetailTarget({
+                      concept_id: c.conceptId,
+                      concept_name: c.conceptName,
+                      concept_code: c.conceptCode || undefined,
+                      vocabulary_id: c.vocabularyId || undefined,
+                      domain_id: c.domainId || undefined,
+                      concept_class_id: c.conceptClassId || undefined,
+                      standard_concept: c.standardConcept ?? undefined,
+                    })
+                    setConceptDetailOpen(true)
+                  }}
+                >
+                  <Info size={11} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="text-xs">{t('concept_mapping.concept_info_btn')}</TooltipContent>
+            </Tooltip>
+          </div>
         )
       },
-      size: 30, minSize: 24, enableResizing: false,
+      size: 48, minSize: 48, enableResizing: false,
     },
   ], [t, sourceConcept, existingMappings])
 
@@ -1172,7 +1024,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
   })
 
   const handleResolvedSort = (columnId: string) => {
-    if (columnId === '_check') return
+    if (columnId === '_actions') return
     setResolvedSorting((s) =>
       s?.columnId === columnId ? (s.desc ? { columnId, desc: false } : null) : { columnId, desc: true },
     )
@@ -1251,6 +1103,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
               )}
             </TableRow>
           </TableHeader>
+          <CellContextMenu menu={cellMenu}>
           <TableBody>
             {csFullPageItems.length === 0 ? (
               <TableRow>
@@ -1291,6 +1144,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
                         key={cell.id}
                         className="overflow-hidden truncate text-xs px-2 py-1"
                         style={{ maxWidth: cell.column.getSize() }}
+                        onContextMenu={cellMenu.on(raw)}
                       >
                         {rendered}
                       </TableCell>
@@ -1300,6 +1154,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
               ))
             )}
           </TableBody>
+          </CellContextMenu>
         </Table>
       </div>
 
@@ -1401,13 +1256,13 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
                 <p className="text-xs text-destructive">{resolvedError}</p>
               </div>
             ) : (
-              <Table className="w-full" style={{ tableLayout: 'fixed' }}>
+              <Table style={{ tableLayout: 'fixed', width: resolvedTable.getTotalSize(), minWidth: '100%' }}>
                 <TableHeader>
                   <TableRow>
                     {resolvedTable.getHeaderGroups().map((hg) =>
                       hg.headers.map((header) => {
                         const colId = header.column.id
-                        const isSortable = colId !== '_check'
+                        const isSortable = colId !== '_actions'
                         return (
                           <TableHead
                             key={header.id}
@@ -1451,6 +1306,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
                     )}
                   </TableRow>
                 </TableHeader>
+                <CellContextMenu menu={cellMenu}>
                 <TableBody>
                   {resolvedTable.getRowModel().rows.length === 0 ? (
                     <TableRow>
@@ -1471,15 +1327,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
                           className={`cursor-pointer ${isSelected ? 'bg-accent' : ''} ${alreadyMapped && !isSelected ? 'opacity-50' : ''}`}
                           onClick={() => {
                             if (sourceConcept) {
-                              setSelectedTarget(isSelected ? null : {
-                                conceptId: rc.conceptId,
-                                conceptName: rc.conceptName,
-                                vocabularyId: rc.vocabularyId,
-                                domainId: rc.domainId,
-                                conceptCode: rc.conceptCode,
-                                conceptClassId: rc.conceptClassId,
-                                standardConcept: rc.standardConcept ?? undefined,
-                              })
+                              setSelectedTarget(isSelected ? null : targetFromResolvedConcept(rc, selectedCs))
                               // Non-suggestion target: fall back to the manual preference.
                               if (!isSelected) setSelectedEquivalence(manualEquivalence)
                             }
@@ -1496,6 +1344,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
                                 key={cell.id}
                                 className="overflow-hidden truncate px-2 py-1 text-xs"
                                 style={{ maxWidth: cell.column.getSize() }}
+                                onContextMenu={cellMenu.on(raw)}
                               >
                                 {rendered}
                               </TableCell>
@@ -1506,6 +1355,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
                     })
                   )}
                 </TableBody>
+                </CellContextMenu>
               </Table>
             )}
       </div>
@@ -1559,259 +1409,24 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
     </div>
   )
 
-  // ─── Search mode: TanStack DataTable ─────────────────────────────
+  // ─── Search mode ─────────────────────────────────────────────────
 
-  const [searchColVisibility, setSearchColVisibility] = useState<VisibilityState>({ concept_id: false, concept_code: false, valid: false })
-  const [searchColSizing, setSearchColSizing] = useState<Record<string, number>>({})
-  const [searchSorting, setSearchSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
-  const [searchPage, setSearchPage] = useState(0)
-  const SEARCH_PAGE_SIZE = 50
-
-  // Inline column filters for search results (client-side post-filtering)
-  interface SearchColumnFilters {
-    concept_id?: string
-    concept_name?: string
-    concept_code?: string
-    vocabulary_id?: Set<string>
-    domain_id?: Set<string>
-    concept_class_id?: Set<string>
-    standard_concept?: string | null
-  }
-  const [searchColFilters, setSearchColFilters] = useState<SearchColumnFilters>({})
-
-  // Apply inline filters to search results
-  const searchName = labelMatcher(searchResults, (r) => r.concept_name, searchColFilters.concept_name)
-  const filteredSearchResults = searchResults.filter((r) => {
-    const f = searchColFilters
-    if (f.concept_id && !String(r.concept_id).includes(f.concept_id)) return false
-    if (!searchName(r)) return false
-    if (f.concept_code && !r.concept_code.toLowerCase().includes(f.concept_code.toLowerCase())) return false
-    if (f.vocabulary_id?.size && !f.vocabulary_id.has(r.vocabulary_id ?? '')) return false
-    if (f.domain_id?.size && !f.domain_id.has(r.domain_id ?? '')) return false
-    if (f.concept_class_id?.size && !f.concept_class_id.has(r.concept_class_id ?? '')) return false
-    if (f.standard_concept && (r.standard_concept ?? '') !== f.standard_concept) return false
-    return true
-  })
-
-  const updateSearchFilter = (key: keyof SearchColumnFilters, value: string | null | Set<string>) => {
-    setSearchColFilters((prev) => ({
-      ...prev,
-      [key]: value instanceof Set ? (value.size > 0 ? value : undefined) : (value ?? undefined),
-    }))
-    setSearchPage(0)
-  }
-
-
-  // Compute distinct values for inline column filters from search results
-  const searchResultFilterOptions = useMemo(() => {
-    const unique = (fn: (r: SearchResult) => string | undefined) =>
-      [...new Set(searchResults.map(fn).filter(Boolean) as string[])].sort()
-    return {
-      vocabulary_id: unique((r) => r.vocabulary_id),
-      domain_id: unique((r) => r.domain_id),
-      concept_class_id: unique((r) => r.concept_class_id),
-    }
-  }, [searchResults])
-
-  const renderSearchColumnFilter = (columnId: string) => {
-    if (columnId === 'vocabulary_id' && searchResultFilterOptions.vocabulary_id.length > 0) {
-      return <ResolvedMultiSelect options={searchResultFilterOptions.vocabulary_id} selected={searchColFilters.vocabulary_id} onChange={(v) => updateSearchFilter('vocabulary_id', v)} triggerClass={FILTER_INPUT_CLASS} />
-    }
-    if (columnId === 'concept_id') {
-      return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={searchColFilters.concept_id ?? ''} onChange={(e) => updateSearchFilter('concept_id', e.target.value || null)} />
-    }
-    if (columnId === 'concept_name') {
-      return <input className={FILTER_INPUT_CLASS} placeholder="..." value={searchColFilters.concept_name ?? ''} onChange={(e) => updateSearchFilter('concept_name', e.target.value || null)} />
-    }
-    if (columnId === 'concept_code') {
-      return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="Code..." value={searchColFilters.concept_code ?? ''} onChange={(e) => updateSearchFilter('concept_code', e.target.value || null)} />
-    }
-    if (columnId === 'domain_id' && searchResultFilterOptions.domain_id.length > 0) {
-      return <ResolvedMultiSelect options={searchResultFilterOptions.domain_id} selected={searchColFilters.domain_id} onChange={(v) => updateSearchFilter('domain_id', v)} triggerClass={FILTER_INPUT_CLASS} />
-    }
-    if (columnId === 'concept_class_id' && searchResultFilterOptions.concept_class_id.length > 0) {
-      return <ResolvedMultiSelect options={searchResultFilterOptions.concept_class_id} selected={searchColFilters.concept_class_id} onChange={(v) => updateSearchFilter('concept_class_id', v)} triggerClass={FILTER_INPUT_CLASS} />
-    }
-    if (columnId === 'standard_concept') {
-      return (
-        <Select value={searchColFilters.standard_concept ?? '__all__'} onValueChange={(v) => updateSearchFilter('standard_concept', v === '__all__' ? null : v)}>
-          <SelectTrigger className="h-6 w-full overflow-hidden border-dashed text-[10px] font-normal [&>svg]:hidden">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__all__">{t('concept_mapping.filter_all')}</SelectItem>
-            <SelectItem value="S" className="text-xs">S</SelectItem>
-            <SelectItem value="C" className="text-xs">C</SelectItem>
-          </SelectContent>
-        </Select>
-      )
-    }
-    return null
-  }
-
-  const searchColumns = useMemo<ColumnDef<SearchResult>[]>(() => [
-    {
-      id: 'vocabulary_id',
-      header: () => t('concept_mapping.col_vocabulary'),
-      accessorFn: (row) => row.vocabulary_id,
-      cell: ({ row }) => row.original.vocabulary_id,
-      size: 80,
-      minSize: 50,
-    },
-    {
-      id: 'concept_id',
-      header: () => t('concept_mapping.col_concept_id'),
-      accessorFn: (row) => row.concept_id,
-      cell: ({ row }) => <span className="font-mono">{row.original.concept_id}</span>,
-      size: 70,
-      minSize: 50,
-    },
-    {
-      id: 'concept_name',
-      header: () => t('concept_mapping.col_name'),
-      accessorFn: (row) => row.concept_name,
-      cell: ({ row }) => row.original.concept_name,
-      size: 200,
-      minSize: 100,
-    },
-    {
-      id: 'concept_code',
-      header: () => t('concept_mapping.col_concept_code'),
-      accessorFn: (row) => row.concept_code,
-      cell: ({ row }) => <span className="font-mono">{row.original.concept_code}</span>,
-      size: 80,
-      minSize: 50,
-    },
-    {
-      id: 'domain_id',
-      header: () => t('concept_mapping.col_domain'),
-      accessorFn: (row) => row.domain_id,
-      cell: ({ row }) => row.original.domain_id ?? '',
-      size: 80,
-      minSize: 50,
-    },
-    {
-      id: 'concept_class_id',
-      header: () => t('concept_mapping.col_concept_class'),
-      accessorFn: (row) => row.concept_class_id,
-      cell: ({ row }) => row.original.concept_class_id ?? '',
-      size: 90,
-      minSize: 50,
-    },
-    {
-      id: 'standard_concept',
-      header: () => t('concept_mapping.col_std'),
-      accessorFn: (row) => row.standard_concept,
-      cell: ({ row }) => {
-        const sc = row.original.standard_concept
-        return <StandardConceptBadge value={sc} />
-      },
-      size: 40,
-      minSize: 30,
-    },
-    {
-      id: 'valid',
-      header: () => t('concept_mapping.col_valid'),
-      accessorFn: (row) => row.invalid_reason ?? '',
-      cell: ({ row }) => <ValidityBadge value={row.original.invalid_reason} />,
-      size: 40,
-      minSize: 30,
-    },
-    {
-      id: '_actions',
-      header: '',
-      cell: ({ row }) => {
-        const alreadyMapped = sourceConcept
-          ? existingMappings.some((m) => m.targetConceptId === row.original.concept_id)
-          : false
-        return (
-          <div className="flex items-center justify-end gap-0.5">
-            {alreadyMapped && <Check size={11} className="text-green-600 shrink-0" />}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    const r = row.original
-                    setConceptDetailTarget({
-                      concept_id: r.concept_id,
-                      concept_name: r.concept_name,
-                      concept_code: r.concept_code ?? undefined,
-                      vocabulary_id: r.vocabulary_id ?? undefined,
-                      domain_id: r.domain_id ?? undefined,
-                      concept_class_id: r.concept_class_id ?? undefined,
-                      standard_concept: r.standard_concept ?? undefined,
-                    })
-                    setConceptDetailOpen(true)
-                  }}
-                >
-                  <Info size={11} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="left" className="text-xs">{t('concept_mapping.concept_info_btn')}</TooltipContent>
-            </Tooltip>
-          </div>
-        )
-      },
-      size: 48,
-      minSize: 48,
-      enableResizing: false,
-    },
-  ], [t, sourceConcept, existingMappings, setConceptDetailTarget])
-
-  // Apply sorting to filtered search results
-  const sortedSearchResults = useMemo(() => {
-    if (!searchSorting) return filteredSearchResults
-    const { columnId, desc } = searchSorting
-    const dir = desc ? -1 : 1
-    return [...filteredSearchResults].sort((a, b) => {
-      const av = (a as unknown as Record<string, unknown>)[columnId]
-      const bv = (b as unknown as Record<string, unknown>)[columnId]
-      if (av == null && bv == null) return 0
-      if (av == null) return 1
-      if (bv == null) return -1
-      if (typeof av === 'number' && typeof bv === 'number') return dir * (av - bv)
-      return dir * String(av).localeCompare(String(bv))
+  const mappedTargetIds = useMemo(
+    () => new Set(sourceConcept ? existingMappings.map((m) => m.targetConceptId) : []),
+    [sourceConcept, existingMappings],
+  )
+  const openSearchInfo = useCallback((r: ConceptSearchRow) => {
+    setConceptDetailTarget({
+      concept_id: r.concept_id,
+      concept_name: r.concept_name,
+      concept_code: r.concept_code ?? undefined,
+      vocabulary_id: r.vocabulary_id ?? undefined,
+      domain_id: r.domain_id ?? undefined,
+      concept_class_id: r.concept_class_id ?? undefined,
+      standard_concept: r.standard_concept ?? undefined,
     })
-  }, [filteredSearchResults, searchSorting])
-
-  const handleSearchSort = (columnId: string) => {
-    if (searchSorting?.columnId === columnId) {
-      if (searchSorting.desc) setSearchSorting({ columnId, desc: false })
-      else setSearchSorting(null)
-    } else {
-      setSearchSorting({ columnId, desc: true })
-    }
-    setSearchPage(0)
-  }
-
-  const searchPageItems = sortedSearchResults.slice(searchPage * SEARCH_PAGE_SIZE, (searchPage + 1) * SEARCH_PAGE_SIZE)
-  const searchTotalPages = Math.max(1, Math.ceil(sortedSearchResults.length / SEARCH_PAGE_SIZE))
-
-  const searchTable = useReactTable({
-    data: searchPageItems,
-    columns: searchColumns,
-    state: { columnVisibility: searchColVisibility, columnSizing: searchColSizing },
-    onColumnVisibilityChange: setSearchColVisibility,
-    onColumnSizingChange: setSearchColSizing,
-    columnResizeMode: 'onChange',
-    getCoreRowModel: getCoreRowModel(),
-    manualPagination: true,
-    pageCount: searchTotalPages,
-  })
-
-  /** Get human-readable label for a column. */
-  const getSearchColLabel = (id: string): string => {
-    const col = searchColumns.find((c) => 'id' in c && c.id === id)
-    if (col && typeof col.header === 'function') {
-      const result = (col.header as () => string)()
-      if (typeof result === 'string') return result
-    }
-    if (col && typeof col.header === 'string') return col.header
-    return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-  }
+    setConceptDetailOpen(true)
+  }, [setConceptDetailTarget])
 
   // Disable the search row entirely when no vocabulary reference or data source is
   // available — there's nothing to search against. Mirrors the empty-state hint
@@ -1819,7 +1434,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
   const noVocabAvailable = !vocabTarget
 
   // ─── Suggestions: from imported scores ───────────────────────────────────
-  const { index: scoresIndex, loadProjectMeta, importScores, deleteProjectScores, removeMethods, queryScoresForSource, hasSuggestionsFor } = useSuggestionScoresStore()
+  const { index: scoresIndex, loadProjectMeta, reindexProject, importScores, deleteProjectScores, removeMethods, queryScoresForSource, hasSuggestionsFor } = useSuggestionScoresStore()
 
   useEffect(() => {
     loadProjectMeta(project.id)
@@ -1928,7 +1543,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
     if (!sql) { setEnrichedSuggestions(suggestions); return }
 
     ensureMounted(dsId).then(() =>
-      queryDataSource(dsId, sql) as Promise<Record<string, unknown>[]>
+      queryDataSource(dsId, sql, { origin: 'Concept mapping · target concept details' }) as Promise<Record<string, unknown>[]>
     ).then((rows) => {
       const byId = new Map(rows.map((r) => [Number(r.concept_id), r]))
       setEnrichedSuggestions(suggestions.map((s) => {
@@ -2031,6 +1646,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
             conceptCode: s.concept_code,
             conceptClassId: s.concept_class_id,
             standardConcept: s.standard_concept,
+            conceptSetId: s.conceptSetUid ? conceptSetsByUid.get(s.conceptSetUid)?.id : undefined,
           })
           // Preload the add button with the equivalence the suggestion proposes; a
           // subsequent manual pick via the dropdown overrides it until the next select.
@@ -2065,285 +1681,45 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
 
   const renderSearchMode = () => (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Search bar + filter + search button */}
-      <div className="flex items-center gap-1.5 border-b px-3 py-2">
-        {/* Filter popover */}
-        <Popover>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon-sm" disabled={noVocabAvailable} className={`h-8 w-8 shrink-0 ${(searchFilterVocabs.size + searchFilterDomains.size + searchFilterClasses.size + searchFilterStandard.size > 0) ? 'text-primary' : ''}`}>
-                  <SlidersHorizontal size={14} />
-                </Button>
-              </PopoverTrigger>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.search_filters')}</TooltipContent>
-          </Tooltip>
-          <PopoverContent align="start" className="w-[280px] p-3 space-y-3" onCloseAutoFocus={(e) => e.preventDefault()}>
-            <p className="text-xs font-medium">{t('concept_mapping.search_filters')}</p>
-            {/* Vocabulary */}
-            {searchFilterOptions.vocabs.length > 0 && (
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_vocabulary')}</label>
-                <ResolvedMultiSelect options={searchFilterOptions.vocabs} selected={searchFilterVocabs} onChange={setSearchFilterVocabs} />
-              </div>
+      {noVocabAvailable ? (
+        <div className="flex min-h-40 flex-col items-center justify-center gap-2 px-4">
+          {/* Same words as the OHDSI Vocabularies tab: the fix is the same place. */}
+          <EmptyState
+            icon={BookOpen}
+            title={t('concept_mapping.vocab_library_empty_title')}
+            description={t('concept_mapping.vocab_library_empty_hint')}
+            action={(
+              <Button size="sm" variant="outline" onClick={() => navigate(paths.warehouseVocabularies(project.workspaceId, 'ohdsi', 'library'))}>
+                <Settings2 size={14} />
+                {t('concept_mapping.vocab_library_manage')}
+              </Button>
             )}
-            {/* Domain */}
-            {searchFilterOptions.domains.length > 0 && (
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_domain')}</label>
-                <ResolvedMultiSelect options={searchFilterOptions.domains} selected={searchFilterDomains} onChange={setSearchFilterDomains} />
-              </div>
-            )}
-            {/* Concept Class */}
-            {searchFilterOptions.classes.length > 0 && (
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_concept_class')}</label>
-                <ResolvedMultiSelect options={searchFilterOptions.classes} selected={searchFilterClasses} onChange={setSearchFilterClasses} />
-              </div>
-            )}
-            {/* Standard */}
-            {searchFilterOptions.standards.length > 0 && (
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_std')}</label>
-                <div className="flex gap-1">
-                  {searchFilterOptions.standards.map((s) => (
-                    <Button
-                      key={s}
-                      size="xs"
-                      variant={searchFilterStandard.has(s) ? 'default' : 'outline'}
-                      className={`h-6 text-[10px] ${searchFilterStandard.has(s) && s === 'S' ? 'bg-green-600 hover:bg-green-700' : ''}`}
-                      onClick={() => {
-                        const next = new Set(searchFilterStandard)
-                        if (next.has(s)) next.delete(s); else next.add(s)
-                        setSearchFilterStandard(next)
-                      }}
-                    >
-                      {s}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {/* Max results */}
-            <div className="space-y-1">
-              <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.search_max_results')}</label>
-              <NumberInput
-                className="h-7 text-xs"
-                value={searchMaxResults}
-                min={1}
-                max={100000}
-                onValueChange={setSearchMaxResults}
-              />
-              {searchMaxResults > 10000 && (
-                <p className="text-[10px] text-destructive">{t('concept_mapping.search_max_results_warning')}</p>
-              )}
-            </div>
-          </PopoverContent>
-        </Popover>
-        {/* Search input */}
-        <div className="relative min-w-0 flex-1">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="h-8 pl-8 text-xs"
-            placeholder={noVocabAvailable ? t('concept_mapping.no_vocab_for_search_short') : t('concept_mapping.search_omop')}
-            value={searchTerm}
-            disabled={noVocabAvailable}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                // preventDefault: see ConceptSetsTab — without it the warning
-                // AlertDialog that handleSearch may open would auto-close because
-                // its focused action button receives the bubbled Enter keydown.
-                e.preventDefault()
-                handleSearch()
-              }
-            }}
           />
         </div>
-        <Button size="sm" variant="outline" className="h-8 text-xs shrink-0" onClick={handleSearch} disabled={searching || noVocabAvailable}>
-          {searching ? <Loader2 size={14} className="animate-spin" /> : t('common.search')}
-        </Button>
-      </div>
-
-      {/* Results table */}
-      <div className="min-h-0 flex-1 overflow-auto" style={{ paddingRight: 'calc(var(--spacing) * 2.5)' }}>
-        {searchResults.length === 0 ? (
-          <div className="flex min-h-40 flex-col items-center justify-center gap-2 px-4">
-            {searching ? (
-              <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
-            ) : noVocabAvailable ? (
-              // Same words as the OHDSI Vocabularies tab: the fix is the same place.
-              <EmptyState
-                icon={BookOpen}
-                title={t('concept_mapping.vocab_library_empty_title')}
-                description={t('concept_mapping.vocab_library_empty_hint')}
-                action={(
-                  <Button size="sm" variant="outline" onClick={() => navigate(paths.warehouseVocabularies(project.workspaceId, 'ohdsi', 'library'))}>
-                    <Settings2 size={14} />
-                    {t('concept_mapping.vocab_library_manage')}
-                  </Button>
-                )}
-              />
-            ) : (
-              <p className="text-xs text-muted-foreground">{t('concept_mapping.search_hint')}</p>
-            )}
-          </div>
-        ) : (
-          <Table className="w-full" style={{ tableLayout: 'fixed' }}>
-            <TableHeader>
-              {/* Column titles */}
-              <TableRow>
-                {searchTable.getHeaderGroups().map((hg) =>
-                  hg.headers.map((header) => {
-                    const colId = header.column.id
-                    const isSortable = colId !== '_check'
-                    return (
-                    <TableHead
-                      key={header.id}
-                      className="relative select-none overflow-hidden text-xs"
-                      style={{ width: header.getSize(), maxWidth: header.getSize() }}
-                    >
-                      {isSortable ? (
-                        <button
-                          type="button"
-                          className="flex w-full min-w-0 items-center gap-1 overflow-hidden hover:text-foreground"
-                          onClick={() => handleSearchSort(colId)}
-                        >
-                          <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
-                            {flexRender(header.column.columnDef.header, header.getContext())}
-                          </TruncatedHeader>
-                          <SortIndicator columnId={colId} sorting={searchSorting} />
-                        </button>
-                      ) : (
-                        <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
-                          {flexRender(header.column.columnDef.header, header.getContext())}
-                        </TruncatedHeader>
-                      )}
-                      <ColumnResizeHandle header={header} />
-                    </TableHead>
-                    )
-                  })
-                )}
-              </TableRow>
-              {/* Inline column filters */}
-              <TableRow className="hover:bg-transparent">
-                {searchTable.getHeaderGroups().map((hg) =>
-                  hg.headers.map((header) => (
-                    <TableHead
-                      key={`filter-${header.id}`}
-                      className="px-1 py-1"
-                      style={{ width: header.getSize() }}
-                    >
-                      {renderSearchColumnFilter(header.column.id)}
-                    </TableHead>
-                  ))
-                )}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {searchTable.getRowModel().rows.map((row) => {
-                const alreadyMapped = sourceConcept
-                  ? existingMappings.some((m) => m.targetConceptId === row.original.concept_id)
-                  : false
-                const isSelected = selectedTarget?.conceptId === row.original.concept_id
-                return (
-                  <TableRow
-                    key={row.original.concept_id}
-                    className={`cursor-pointer ${isSelected ? 'bg-accent' : ''} ${alreadyMapped && !isSelected ? 'opacity-50' : ''}`}
-                    onClick={() => {
-                      if (sourceConcept) {
-                        setSelectedTarget(isSelected ? null : {
-                          conceptId: row.original.concept_id,
-                          conceptName: row.original.concept_name,
-                          vocabularyId: row.original.vocabulary_id,
-                          domainId: row.original.domain_id ?? '',
-                          conceptCode: row.original.concept_code,
-                          conceptClassId: row.original.concept_class_id,
-                          standardConcept: row.original.standard_concept,
-                        })
-                        // Non-suggestion target: fall back to the manual preference.
-                        if (!isSelected) setSelectedEquivalence(manualEquivalence)
-                      }
-                    }}
-                  >
-                    {row.getVisibleCells().map((cell) => {
-                      const raw = cell.getValue()
-                      const useTooltip = SEARCH_TOOLTIP_COLUMNS.has(cell.column.id) && raw != null && String(raw) !== ''
-                      const rendered = useTooltip
-                        ? <TruncatedText text={String(raw)} className={SEARCH_MONO_COLUMNS.has(cell.column.id) ? 'font-mono' : undefined} />
-                        : flexRender(cell.column.columnDef.cell, cell.getContext())
-                      return (
-                        <TableCell
-                          key={cell.id}
-                          className="overflow-hidden truncate px-2 py-1 text-xs"
-                          style={{ maxWidth: cell.column.getSize() }}
-                        >
-                          {rendered}
-                        </TableCell>
-                      )
-                    })}
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        )}
-      </div>
-
-      {/* Pagination + column visibility */}
-      {searchResults.length > 0 && (
-        <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
-          <div className="flex items-center gap-2">
-            {/* The ratio only says something while an inline column filter is
-                hiding rows; "1000 / 1000 results" is just noise. */}
-            <span className="text-[10px] text-muted-foreground">
-              {filteredSearchResults.length < searchResults.length
-                ? `${filteredSearchResults.length} / ${searchResults.length}`
-                : searchResults.length}{' '}
-              {t('common.results').toLowerCase()}
-            </span>
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon-sm" className="h-6 w-6">
-                      <Settings2 size={12} />
-                    </Button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="start" className="w-[180px]">
-                <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {searchTable.getAllColumns()
-                  .filter((col) => !col.id.startsWith('_'))
-                  .map((col) => (
-                    <DropdownMenuCheckboxItem
-                      key={col.id}
-                      checked={col.getIsVisible()}
-                      onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
-                      onSelect={(e) => e.preventDefault()}
-                      className="text-xs"
-                    >
-                      {getSearchColLabel(col.id)}
-                    </DropdownMenuCheckboxItem>
-                  ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon-sm" disabled={searchPage === 0} onClick={() => setSearchPage(searchPage - 1)}>
-              <ChevronLeft size={14} />
-            </Button>
-            <span className="text-[10px] text-muted-foreground">
-              {searchPage + 1} / {searchTotalPages}
-            </span>
-            <Button variant="ghost" size="icon-sm" disabled={searchPage >= searchTotalPages - 1} onClick={() => setSearchPage(searchPage + 1)}>
-              <ChevronRight size={14} />
-            </Button>
-          </div>
+      ) : (
+        <div className="min-h-0 flex-1" style={{ paddingRight: 'calc(var(--spacing) * 2.5)' }}>
+          <ConceptSearchTable
+            dataSourceId={vocabTarget.dsId}
+            mapping={vocabTarget.mapping}
+            onInfo={openSearchInfo}
+            selectedConceptId={selectedTarget?.conceptId ?? null}
+            mappedConceptIds={mappedTargetIds}
+            onRowClick={(r) => {
+              if (!sourceConcept) return
+              const isSelected = selectedTarget?.conceptId === r.concept_id
+              setSelectedTarget(isSelected ? null : {
+                conceptId: r.concept_id,
+                conceptName: r.concept_name,
+                vocabularyId: r.vocabulary_id,
+                domainId: r.domain_id ?? '',
+                conceptCode: r.concept_code,
+                conceptClassId: r.concept_class_id,
+                standardConcept: r.standard_concept,
+              })
+              // Non-suggestion target: fall back to the manual preference.
+              if (!isSelected) setSelectedEquivalence(manualEquivalence)
+            }}
+          />
         </div>
       )}
     </div>
@@ -2355,13 +1731,15 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
     <>
     {identityDialog}
     {/* Suggestions settings dialog */}
-    <Dialog open={suggestionsSettingsOpen} onOpenChange={setSuggestionsSettingsOpen}>
-      <DialogContent className="max-w-md gap-0 p-0">
-        <DialogHeader className="border-b p-4">
-          <DialogTitle>{t('concept_mapping.suggestions_manage')}</DialogTitle>
-          <p className="mt-0.5 text-xs text-muted-foreground">{t('concept_mapping.suggestions_manage_subtitle')}</p>
-        </DialogHeader>
-        <div className="p-4">
+    <ManageSuggestionsDialog
+      open={suggestionsSettingsOpen}
+      onOpenChange={setSuggestionsSettingsOpen}
+      projectId={project.id}
+      workspaceId={project.workspaceId}
+      onComputed={() => void reindexProject(project.id)}
+      methodsPanel={
+        <div className="flex flex-1 flex-col">
+        <div className="flex-1 p-4">
           <div className="mb-3 flex items-center justify-between">
             <SectionLabel as="p" className="tracking-wide">{t('concept_mapping.suggestions_weights_section')}</SectionLabel>
             {ALL_PROVIDERS.some((p) => weights[p] !== DEFAULT_WEIGHTS[p]) && (
@@ -2378,7 +1756,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
             {ALL_PROVIDERS.map((provider) => {
               const value = weights[provider] ?? DEFAULT_WEIGHTS[provider] ?? 1
               const dot = METHOD_DOT_COLORS[provider] ?? 'bg-gray-400'
-              const label = provider === 'IA' ? 'IA agentique' : provider
+              const label = providerLabel(provider, t)
               return (
                 <div key={provider} className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
                   <div className="flex w-32 items-center gap-2">
@@ -2402,7 +1780,9 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
           {(scoresIndex?.methods.length ?? 0) > 0 && (
             <div className="mt-5 border-t pt-3">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <SectionLabel as="p" className="tracking-wide">{t('concept_mapping.suggestions_methods_section')}</SectionLabel>
+                <SectionLabel as="p" className="tracking-wide" info={t('concept_mapping.suggestions_versioned_desc')}>
+                  {t('concept_mapping.suggestions_methods_section')}
+                </SectionLabel>
                 <span className="mr-8 text-[10px] text-muted-foreground">{t('concept_mapping.suggestions_versioned_column')}</span>
               </div>
               <ul className="space-y-1">
@@ -2454,7 +1834,6 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
                   )
                 })}
               </ul>
-              <p className="mt-2 text-[10px] text-muted-foreground">{t('concept_mapping.suggestions_versioned_desc')}</p>
             </div>
           )}
           <div className="mt-5 border-t pt-3 text-xs text-muted-foreground">
@@ -2471,7 +1850,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
             <p className="mt-2 text-[11px] text-destructive">{suggestionsImportError}</p>
           )}
         </div>
-        <div className="flex items-center justify-between gap-2 rounded-b-lg border-t bg-muted/30 px-4 py-3">
+        <div className="flex items-center justify-between gap-2 border-t px-4 py-3">
           <Button
             size="sm-tight"
             variant="outline"
@@ -2494,8 +1873,9 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
             </Button>
           )}
         </div>
-      </DialogContent>
-    </Dialog>
+        </div>
+      }
+    />
     <AlertDialog open={suggestionsDeleteConfirmOpen} onOpenChange={setSuggestionsDeleteConfirmOpen}>
       <AlertDialogContent>
         <AlertDialogHeader>
@@ -2542,20 +1922,6 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
           >
             {t('common.delete')}
           </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-    <AlertDialog open={searchWarningOpen} onOpenChange={setSearchWarningOpen}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{t('concept_mapping.unfiltered_search_warning_title')}</AlertDialogTitle>
-          <AlertDialogDescription>
-            {t('concept_mapping.unfiltered_search_warning_desc')}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-          <AlertDialogAction onClick={confirmUnfilteredSearch}>{t('concept_mapping.unfiltered_search_warning_proceed')}</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

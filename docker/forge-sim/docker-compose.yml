@@ -1,0 +1,29 @@
+# Local GitLab for testing merge requests without a real account
+# (docs/planning/collaborative-versioning-plan.md §4.2). On demand only:
+# ~4 GB of RAM, a few minutes to boot. Accounts are created by seed.sh.
+services:
+  gitlab:
+    image: gitlab/gitlab-ce:18.5.1-ce.0
+    hostname: localhost
+    ports:
+      - "127.0.0.1:8929:8929"
+    environment:
+      GITLAB_ROOT_PASSWORD: Qv7#mZ2pL-x9Rk4tWb8n
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://localhost:8929'
+        gitlab_rails['initial_root_password'] = 'Qv7#mZ2pL-x9Rk4tWb8n'
+        gitlab_rails['usage_ping_enabled'] = false
+        prometheus_monitoring['enable'] = false
+        puma['worker_processes'] = 0
+        sidekiq['concurrency'] = 5
+        registry['enable'] = false
+    shm_size: 256m
+    volumes:
+      - forge-sim-config:/etc/gitlab
+      - forge-sim-data:/var/opt/gitlab
+      - forge-sim-logs:/var/log/gitlab
+
+volumes:
+  forge-sim-config:
+  forge-sim-data:
+  forge-sim-logs:
