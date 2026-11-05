@@ -224,7 +224,8 @@ editable result in the pull diff, a wiki page's settings on its text row.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | **[TO TEST]** In the app: a pull on each kind (workspace, project, SQL, ETL, DQ, catalog, schema, database, plugin, settings), a conflict settled by editing the result, Propose changes, review mode | M |
+| 🔜 | **[TO TEST]** In the app: a pull on each kind (workspace, project, SQL, ETL, DQ, catalog, schema, database, plugin, settings), a conflict settled by editing the result | M |
+| 💤 | Merge requests from Linkr (Propose changes) and the workspace review mode — set aside 2026-11-05: UI hidden, review mode not enforced (`lib/git-proposals.ts`, `GIT_PROPOSALS_ENABLED` in `routes/git.py`); routes and their tests kept. Before re-enabling: who sees a proposal in Linkr, who reviews and accepts it there (today only on the forge) | M |
 | 🔜 | `npm run worktree:new`: `node_modules/.bin` links copied as absolute paths to the main checkout — Playwright loads twice, `test:e2e` fails in a worktree | S |
 
 | St | Item | Effort |

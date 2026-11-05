@@ -348,10 +348,16 @@ async def _proposals(db, scope, entity_id, remote_url, token) -> list[dict]:
     return [GitProposalResponse.model_validate(r).model_dump(by_alias=True, mode="json") for r in rows]
 
 
+# TODO(git-proposals): set aside on 2026-11-05 with "Propose changes" (twin of
+# apps/web/src/lib/git-proposals.ts). The review mode is no longer enforced: its
+# switch is hidden, so a workspace left in it could not push nor be switched back.
+GIT_PROPOSALS_ENABLED = False
+
+
 async def _refuse_direct_push(db, workspace_id: str | None) -> None:
     """A workspace in review mode takes changes as merge requests only — for itself
     and every entity in it (its git_push_policy)."""
-    if not workspace_id:
+    if not GIT_PROPOSALS_ENABLED or not workspace_id:
         return
     ws = await db.get(Workspace, workspace_id)
     if ws is not None and ws.git_push_policy == "review":

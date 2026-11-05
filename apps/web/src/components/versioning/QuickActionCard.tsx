@@ -17,11 +17,13 @@ import { changeTypeMeta } from './git-change-meta'
  * there's nothing to push or a pull is required.
  */
 export function QuickActionCard({
-  action, canPush, running, disabled, onRun, onOpenDiff, onViewMappings, t,
+  action, canPush, canPropose, running, disabled, onRun, onOpenDiff, onViewMappings, t,
 }: {
   action: QuickAction
   /** False in review mode: the card can only propose. */
   canPush: boolean
+  /** Whether proposing exists at all (lib/git-proposals.ts). */
+  canPropose: boolean
   /** THIS action is mid-run, and how → that button shows its spinner. */
   running: DataPushAction | null
   /** Disabled (another action is running, or a pull is required) — no spinner. */
@@ -91,7 +93,7 @@ export function QuickActionCard({
           )}
         </div>
         <div className="mt-1 flex shrink-0 gap-2">
-          <Button
+          {canPropose && <Button
             size="sm"
             variant={canPush ? 'outline' : 'default'}
             className="h-8 flex-1 gap-1.5 text-xs"
@@ -101,7 +103,7 @@ export function QuickActionCard({
           >
             {running === 'propose' ? <Loader2 size={13} className="animate-spin" /> : <GitPullRequest size={13} />}
             {t('versioning.quick_run_propose')}
-          </Button>
+          </Button>}
           {canPush && (
             <Button
               size="sm"

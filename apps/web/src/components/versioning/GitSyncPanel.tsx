@@ -19,6 +19,7 @@ import { GitDiffDialog } from './GitDiffDialog'
 import { PushMappingsDialog } from './PushMappingsDialog'
 import { MappingProjectPull } from './MappingProjectPull'
 import { GitProposals } from './GitProposals'
+import { GIT_PROPOSALS_ENABLED } from '@/lib/git-proposals'
 import { ThreeWayPull } from './ThreeWayPull'
 import { REINSTALLABLE } from '@/lib/entity-reinstall'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -82,11 +83,12 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   const authorName = useAppStore((s) => s.getUserDisplayName())
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   // A workspace in review mode takes changes as merge requests only, for itself
-  // and every entity in it: pushing is replaced by proposing (the server refuses
-  // a direct push too).
-  const reviewOnly = useWorkspaceStore((s) =>
+  // and every entity in it: pushing is replaced by proposing. Set aside with
+  // proposals (lib/git-proposals.ts).
+  const reviewPolicy = useWorkspaceStore((s) =>
     s._workspacesRaw.find((w) => w.id === (scope === 'workspaces' ? id : s.activeWorkspaceId))?.gitPushPolicy === 'review',
-  ) && scope !== 'settings'
+  )
+  const reviewOnly = GIT_PROPOSALS_ENABLED && reviewPolicy && scope !== 'settings'
   // Every scope pulls through the shared 3-way pull (ThreeWayPull) unless it
   // brings its own: mapping projects keep the per-mapping one below.
   const threeWay = THREE_WAY_SCOPES.includes(scope)
@@ -499,6 +501,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
                       key={qa.id}
                       action={qa}
                       canPush={!reviewOnly}
+                      canPropose={GIT_PROPOSALS_ENABLED}
                       running={runningQuickAction?.id === qa.id ? runningQuickAction.action : null}
                       // While one action runs, the others disable (but don't spin);
                       // a pull-first requirement disables all.
@@ -626,7 +629,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
             {t('versioning.proposal_opened', { number: proposed.forge === 'github' ? `#${proposed.number}` : `!${proposed.number}` })}
           </a>
         )}
-        <Button
+        {GIT_PROPOSALS_ENABLED && <Button
           variant={reviewOnly ? 'default' : 'outline'}
           onClick={handlePropose}
           disabled={!message.trim() || nothingToCommit || selected.size === 0 || committing || mustPullFirst}
@@ -635,7 +638,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
         >
           <GitPullRequest size={14} />
           {t('versioning.propose')}
-        </Button>
+        </Button>}
         {!reviewOnly && (
           <Button
             onClick={handleCommit}
@@ -647,7 +650,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
           </Button>
         )}
       </div>
-      <GitProposals scope={scope} id={id} refreshKey={proposalsKey} />
+      {GIT_PROPOSALS_ENABLED && <GitProposals scope={scope} id={id} refreshKey={proposalsKey} />}
       </>}
         </TabsContent>
       </Tabs>

@@ -362,6 +362,7 @@ async def test_relinking_to_a_new_empty_repository_pushes_everything_with_no_old
     assert _git(second, "show", "main:wiki/home.md") == "Hello\n"
 
 
+@pytest.mark.skip(reason="TODO(git-proposals): review mode set aside, not enforced")
 async def test_a_workspace_in_review_mode_refuses_direct_pushes(client, tmp_path):
     headers = await _admin(client)
     ws, _ = await _linked_workspace(client, headers, tmp_path)
@@ -371,6 +372,7 @@ async def test_a_workspace_in_review_mode_refuses_direct_pushes(client, tmp_path
     assert r.status_code == 403 and "review_required" in r.text
 
 
+@pytest.mark.skip(reason="TODO(git-proposals): review mode set aside, not enforced")
 async def test_review_mode_refuses_a_direct_push_of_an_entity_in_the_workspace(client, tmp_path):
     headers = await _admin(client)
     ws, _ = await _linked_workspace(client, headers, tmp_path)
