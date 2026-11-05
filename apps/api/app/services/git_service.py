@@ -32,12 +32,13 @@ import socket
 import subprocess
 import tempfile
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import quote, urlsplit, urlunsplit
 
 import structlog
 
 from app.config import settings
+from app.core import path_ids
 from app.services.export_layout import ENTITY_MANIFEST
 
 logger = structlog.get_logger()
@@ -128,19 +129,19 @@ def _project_repo(project_uid: str) -> Path:
 
 
 def _workspace_repo(workspace_id: str) -> Path:
-    d = settings.data_path / "workspaces" / workspace_id / "versioning"
+    d = path_ids.child_dir(settings.data_path / "workspaces", workspace_id) / "versioning"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def _mapping_project_repo(mapping_project_id: str) -> Path:
-    d = settings.data_path / "mapping-projects" / mapping_project_id / "versioning"
+    d = path_ids.child_dir(settings.data_path / "mapping-projects", mapping_project_id) / "versioning"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def _sql_collection_repo(collection_id: str) -> Path:
-    d = settings.data_path / "sql-collections" / collection_id / "versioning"
+    d = path_ids.child_dir(settings.data_path / "sql-collections", collection_id) / "versioning"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -148,7 +149,7 @@ def _sql_collection_repo(collection_id: str) -> Path:
 def _entity_repo(kind: str, entity_id: str) -> Path:
     """Working-tree dir for a workspace-scoped versionable entity (kind = a stable
     folder name under data_path). One repo per entity, mirroring the others."""
-    d = settings.data_path / kind / entity_id / "versioning"
+    d = path_ids.child_dir(settings.data_path / kind, entity_id) / "versioning"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -159,10 +160,12 @@ def remove_repo(kind: str, entity_id: str) -> None:
     deleted so its versioning folder doesn't linger as an orphan. `kind` is the
     same folder segment the *_repo helpers use ("workspaces", "mapping-projects",
     "sql-collections", …). No-op if the dir is absent (never versioned)."""
-    # entity_id comes from trusted DB callers today, but this is an rmtree — guard
-    # against an id that resolves outside data_path/<kind> (defense in depth).
-    target = _safe_join(settings.data_path / kind, entity_id)
-    shutil.rmtree(target, ignore_errors=True)
+    # Only ever one entity's own folder: an id that is not a single safe segment
+    # removes nothing.
+    if not path_ids.is_safe_segment(entity_id):
+        logger.warning("not removing the versioning tree of %s/%r: invalid id", kind, entity_id)
+        return
+    shutil.rmtree(path_ids.child_dir(settings.data_path / kind, entity_id), ignore_errors=True)
 
 
 def rename_repo(kind: str, old_id: str, new_id: str) -> bool:
@@ -183,9 +186,11 @@ def rename_repo(kind: str, old_id: str, new_id: str) -> bool:
     """
     if old_id == new_id:
         return False
+    if not (path_ids.is_safe_segment(old_id) and path_ids.is_safe_segment(new_id)):
+        return False
     base = settings.data_path / kind
-    src = _safe_join(base, old_id)
-    dst = _safe_join(base, new_id)
+    src = path_ids.child_dir(base, old_id)
+    dst = path_ids.child_dir(base, new_id)
     if not src.is_dir():
         return False
     if dst.exists():
@@ -612,6 +617,21 @@ def _is_lfs_pointer(path: Path) -> bool:
         return False
 
 
+def _tree_files(repo: Path):
+    """The regular files of a checked-out tree, .git excluded.
+
+    A remote decides what its tree holds, links included, so a committed symlink
+    is skipped rather than followed: its target is a server file, not repository
+    content."""
+    root = repo.resolve()
+    for p in repo.rglob("*"):
+        if ".git" in p.relative_to(repo).parts or p.is_symlink() or not p.is_file():
+            continue
+        if root not in p.resolve().parents:
+            continue
+        yield p
+
+
 def _drop_unresolved_lfs_pointers(repo: Path) -> int:
     """Delete files still holding an LFS pointer, and return how many.
 
@@ -624,9 +644,7 @@ def _drop_unresolved_lfs_pointers(repo: Path) -> int:
     keeping it corrupts silently.
     """
     dropped = 0
-    for p in repo.rglob("*"):
-        if ".git" in p.relative_to(repo).parts or not p.is_file():
-            continue
+    for p in _tree_files(repo):
         if _is_lfs_pointer(p):
             p.unlink(missing_ok=True)
             dropped += 1
@@ -638,8 +656,33 @@ def _drop_unresolved_lfs_pointers(repo: Path) -> int:
     return dropped
 
 
-def _lfs_pull(repo: Path, token: str | None) -> str | None:
-    """Download this repo's LFS objects. Returns None on success, else why it failed.
+def _lfs_endpoint(remote_url: str) -> str:
+    """The LFS endpoint git-lfs derives from `remote_url` itself: `<repo>.git/info/lfs`
+    for an http(s) remote, the remote as written otherwise (ssh, local)."""
+    parts = urlsplit(remote_url)
+    if parts.scheme not in ("http", "https"):
+        return remote_url
+    path = parts.path.rstrip("/")
+    if not path.endswith(".git"):
+        path += ".git"
+    return urlunsplit(parts._replace(path=f"{path}/info/lfs", query="", fragment=""))
+
+
+def _lfs_env(remote_url: str) -> dict:
+    """`_git_env()` with the LFS endpoint pinned to the remote that was checked,
+    whatever a committed `.lfsconfig` names: configuration given to git outranks it.
+    """
+    env = _git_env()
+    n = int(env["GIT_CONFIG_COUNT"])
+    env[f"GIT_CONFIG_KEY_{n}"] = "lfs.url"
+    env[f"GIT_CONFIG_VALUE_{n}"] = _lfs_endpoint(remote_url)
+    env["GIT_CONFIG_COUNT"] = str(n + 1)
+    return env
+
+
+def _lfs_pull(repo: Path, token: str | None, remote_url: str) -> str | None:
+    """Download this repo's LFS objects from `remote_url`'s own LFS endpoint (with
+    the credentials it carries). Returns None on success, else why it failed.
 
     ``"auth"`` when the LFS batch API refused the credentials — the caller can
     retry anonymously, which is what a public repo needs. ``"other"`` for anything
@@ -653,7 +696,7 @@ def _lfs_pull(repo: Path, token: str | None) -> str | None:
             # a demo database is tens of files. The plain git timeout is sized for
             # refs and metadata, so reusing it made an ordinary dataset look like a
             # hung clone.
-            capture_output=True, text=True, timeout=_LFS_TIMEOUT, env=_git_env(),
+            capture_output=True, text=True, timeout=_LFS_TIMEOUT, env=_lfs_env(remote_url),
         )
     except subprocess.TimeoutExpired:
         # Left unhandled this killed the whole clone, losing the metadata too.
@@ -694,6 +737,9 @@ def _ensure_repo(repo: Path, remote_url: str | None) -> None:
             _run(repo, "remote", "add", "origin", remote_url)
         elif current != remote_url:
             _run(repo, "remote", "set-url", "origin", remote_url)
+        # Every LFS transfer of this tree (smudge on checkout, pre-push upload) goes
+        # to the remote's own endpoint, never one the content names (_lfs_env).
+        _run(repo, "config", "lfs.url", _lfs_endpoint(remote_url), check=False)
 
 
 def _safe_join(tree: Path, rel: str) -> Path:
@@ -711,22 +757,43 @@ def _unpack_zip_into(zip_bytes: bytes, tree: Path) -> None:
 
     Everything except .git is wiped first so deletions in the export show up as
     git deletions (a stale file left on disk would never be removed otherwise).
+
+    The ZIP comes from the client and is working-tree content only: no member may
+    land in the repository's metadata, because git runs what its own config names
+    (filters, hooks) on the next `git add`. Raises GitError otherwise.
     """
     for entry in tree.iterdir():
         if entry.name == ".git":
             continue
-        if entry.is_dir():
-            shutil.rmtree(entry, ignore_errors=True)
-        else:
+        # A link left by a remote checkout is removed as a link: rmtree refuses to
+        # follow one and would leave it, and a member written through it later
+        # could resolve into .git.
+        if entry.is_symlink() or not entry.is_dir():
             entry.unlink(missing_ok=True)
+        else:
+            shutil.rmtree(entry, ignore_errors=True)
+    metadata = (tree / ".git").resolve()
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         for name in zf.namelist():
             if name.endswith("/"):
                 continue
-            # Reject path traversal from a crafted ZIP.
+            if _names_git_dir(name):
+                raise GitError(f"export member inside .git: {name}")
             dest = _safe_join(tree, name)
+            if dest == metadata or metadata in dest.parents:
+                raise GitError(f"export member inside .git: {name}")
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(zf.read(name))
+
+
+def _names_git_dir(name: str) -> bool:
+    """True when a path component is git's metadata dir, under any spelling a
+    case-insensitive or Windows filesystem maps to it (`.GIT`, `.git.`, `git~1`)."""
+    for part in PurePosixPath(name.replace("\\", "/")).parts:
+        folded = part.rstrip(". ").casefold()
+        if folded in (".git", "git~1"):
+            return True
+    return False
 
 
 _STATUS_CODE = {"M": "modified", "A": "added", "D": "deleted", "R": "renamed", "??": "added"}
@@ -987,7 +1054,7 @@ def _materialize_at(
         try:
             subprocess.run(
                 ["git", "-C", str(repo), "lfs", "pull", "--include", path],
-                capture_output=True, text=True, timeout=_GIT_TIMEOUT, env=_git_env(),
+                capture_output=True, text=True, timeout=_GIT_TIMEOUT, env=_lfs_env(ls_url),
             )
         finally:
             _run(repo, "remote", "set-url", "origin", remote_url, check=False)
@@ -1944,7 +2011,7 @@ async def commit_push(
             if remote_url:
                 _reject_internal_host(remote_url)
                 push_url = _with_credentials(remote_url, token)
-                _run(repo, "push", push_url, f"{target}:{target}", token=token)
+                _run(repo, "push", push_url, f"{target}:{target}", token=token, env_extra=_lfs_env(push_url))
                 pushed = True
         finally:
             if push_branch:
@@ -2072,7 +2139,7 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> tuple[bytes,
                     )
                 else:
                     _run(repo, "lfs", "install", "--local", check=False)
-                    failure = _lfs_pull(repo, token)
+                    failure = _lfs_pull(repo, token, clone_url)
                     # LFS authenticates separately from git itself, against the
                     # repo's own /info/lfs batch API — and GitLab rejects the
                     # `oauth2:<token>` form there that it accepts for clone. So a
@@ -2083,7 +2150,7 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> tuple[bytes,
                     # this is exactly the case where they are what breaks it.
                     if failure == "auth" and token:
                         _run(repo, "remote", "set-url", "origin", cleaned, check=False)
-                        failure = _lfs_pull(repo, None)
+                        failure = _lfs_pull(repo, None, cleaned)
                 # Whatever the reason, an unresolved pointer must not be handed back as
                 # if it were the file: it imports as a 130-byte blob that every reader
                 # then fails on, far from here and with nothing naming the cause.
@@ -2091,11 +2158,8 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> tuple[bytes,
             cloned_oid = _run(repo, "rev-parse", "HEAD", check=False).strip() or None
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                for p in repo.rglob("*"):
-                    if ".git" in p.relative_to(repo).parts:
-                        continue
-                    if p.is_file():
-                        zf.write(p, p.relative_to(repo).as_posix())
+                for p in _tree_files(repo):
+                    zf.write(p, p.relative_to(repo).as_posix())
             return buf.getvalue(), cloned_oid
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -2192,8 +2256,14 @@ def data_source_repo_getter(uid: str) -> Path:
 
 def settings_repo_getter(uid: str) -> Path:
     # Account-level (per-instance) settings repo: organizations + users + roles.
-    # Single working tree keyed by the fixed id "account".
-    return _entity_repo("settings", uid)
+    # Single working tree keyed by the fixed id "account" (addressed by the routes
+    # as "settings/account", hence one folder per segment).
+    d = settings.data_path / "settings"
+    for part in uid.split("/"):
+        d = path_ids.child_dir(d, part)
+    d = d / "versioning"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def user_plugin_repo_getter(uid: str) -> Path:

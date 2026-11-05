@@ -34,6 +34,7 @@ from pathlib import Path
 import duckdb
 
 from app.config import settings
+from app.core import path_ids
 from app.services.data.db_connect import _ext_dir, skip_glob_path
 
 # Column types of the OMOP CDM v5.4 vocabulary tables. Every import is cast to
@@ -104,7 +105,7 @@ _DATA_SUFFIXES = (".csv", ".tsv", ".txt", ".parquet", ".pq")
 
 
 def library_dir(workspace_id: str) -> Path:
-    return settings.data_path / "vocabularies" / workspace_id
+    return path_ids.child_dir(settings.data_path / "vocabularies", workspace_id)
 
 
 def _staging_root() -> Path:

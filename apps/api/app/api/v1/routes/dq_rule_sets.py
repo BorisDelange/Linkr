@@ -419,7 +419,10 @@ async def create_run(
     rule_set = await _load_rule_set(db, body.rule_set_id, user, "data-quality:write")
     # Trust the rule set's workspace, not the client-supplied one.
     body.workspace_id = rule_set.workspace_id
-    run = await dq_rule_set_service.create_run(db, body)
+    try:
+        run = await dq_rule_set_service.create_run(db, body)
+    except dq_rule_set_service.RunIdTaken as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This run id belongs to another rule set") from e
     await _notify_runs(db, request, user, rule_set.id, rule_set.workspace_id)
     return run
 

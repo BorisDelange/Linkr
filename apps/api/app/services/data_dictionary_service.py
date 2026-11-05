@@ -134,7 +134,11 @@ async def sync(db: AsyncSession, d: DataDictionary, data: DataDictionarySync) ->
     """Make the dictionary's concept sets those of `data`: add the new ones,
     update in place (same id, so projects keep them) the ones that changed,
     drop the ones the repository no longer has. Units are replaced wholesale."""
-    res = await db.execute(select(ConceptSet).where(ConceptSet.dictionary_id == d.id))
+    # Only the dictionary's own workspace's sets: a sync never reads nor writes
+    # another workspace's rows.
+    res = await db.execute(select(ConceptSet).where(
+        ConceptSet.dictionary_id == d.id, ConceptSet.workspace_id == d.workspace_id,
+    ))
     # A set with neither key is left alone, as the front plan (the preview the
     # user confirmed) leaves it.
     existing: dict[str, ConceptSet] = {}

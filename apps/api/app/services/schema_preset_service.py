@@ -71,7 +71,9 @@ async def reconcile_repo_dirs(db: AsyncSession) -> int:
     return moved
 
 
-async def save(db: AsyncSession, data: SchemaPresetSave) -> SchemaPreset:
+async def save(
+    db: AsyncSession, data: SchemaPresetSave, existing: SchemaPreset | None = None
+) -> SchemaPreset:
     """Upsert, keyed on `id` and falling back to `preset_id`.
 
     `id` is looked up first because it is the primary key: two rows may share a
@@ -84,7 +86,9 @@ async def save(db: AsyncSession, data: SchemaPresetSave) -> SchemaPreset:
     and encrypts any authToken. The earlier update branch dropped git_remote_config.
     """
     payload = data.model_dump()
-    preset = await get(db, data.id or data.preset_id)
+    # A caller that already resolved (and authorized) the row passes it, so the
+    # row written is never a different one from the row checked.
+    preset = existing if existing is not None else await get(db, data.id or data.preset_id)
     if preset is None:
         # A None created_at (fresh create / legacy file) must not override the
         # DateTime column's server_default with NULL — drop it so it stamps now.

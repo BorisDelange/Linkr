@@ -364,6 +364,26 @@ async def test_downloads_exports_and_previews_are_logged(client):
     assert (uid, ws) in exports and (None, ws) in exports
 
 
+async def test_ide_working_dir_reads_are_logged(client):
+    from app.services import project_fs
+
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    token = (await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})).json()["access_token"]
+    h = {"Authorization": f"Bearer {token}"}
+    ws = (await client.post(f"{API}/workspaces", headers=h, json={"name": {"en": "W"}})).json()["id"]
+    uid = (await client.post(f"{API}/projects", headers=h, json={"name": {"en": "P"}, "workspaceId": ws})).json()["uid"]
+    out = project_fs.ide_dir(uid) / "out.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("a\n1\n")
+
+    assert (await client.get(f"{API}/ide-files/raw", headers=h, params={"projectUid": uid, "path": "out.csv"})).status_code == 200
+    assert (await client.get(f"{API}/ide-files", headers=h, params={"projectUid": uid})).status_code == 200
+
+    [download] = _lines("download")
+    assert download["project_uid"] == uid and "ide/out.csv" in download["detail"]
+    assert [r["project_uid"] for r in _lines("preview")] == [uid]
+
+
 def test_a_retention_of_zero_is_refused():
     from pydantic import ValidationError
 

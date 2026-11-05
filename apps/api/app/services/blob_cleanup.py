@@ -115,7 +115,11 @@ async def all_referenced_shas(db: AsyncSession) -> set[str]:
     return shas
 
 
-async def _sha_still_referenced(db: AsyncSession, sha: str) -> bool:
+async def sha_still_referenced(db: AsyncSession, sha: str) -> bool:
+    """Whether any row of any table, in any workspace, still points at this sha.
+
+    The only reference check a blob deletion may rely on: a per-table check
+    misses the rows of the other tables sharing the same deduplicated blob."""
     for model, column in _SHA_COLUMNS:
         result = await db.execute(select(model.id).where(column == sha).limit(1))
         if result.first() is not None:
@@ -132,7 +136,7 @@ async def deref_blobs(db: AsyncSession, shas: set[str]) -> int:
     for sha in shas:
         if not sha:
             continue
-        if await _sha_still_referenced(db, sha):
+        if await sha_still_referenced(db, sha):
             continue
         await blob_store.delete(sha)
         deleted += 1

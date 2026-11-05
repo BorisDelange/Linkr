@@ -14,6 +14,7 @@ import {
   resolveByLineage as resolveByLineageRule,
   resolveChildId as resolveChildIdRule,
   entityKey,
+  type MintId,
   resolvePointer,
   resolveProjectPointers,
   resolveSlugLanding,
@@ -72,6 +73,22 @@ export function importedDatabaseLineage(
   }
   if (ds.lineageId) return { lineageId: ds.lineageId }
   return ds.gitRemoteConfig?.url ? {} : { lineageId: crypto.randomUUID() }
+}
+
+/**
+ * The uid an imported project lands under. A plain import overwrites only a
+ * project already in the target workspace: a uid held by a project of ANOTHER
+ * workspace is never deleted, replaced nor moved — a fresh uid is minted instead.
+ */
+export async function importedProjectUid(
+  getById: (uid: string) => Promise<{ workspaceId?: string } | undefined>,
+  key: string,
+  targetWorkspaceId: string,
+  duplicate: boolean,
+  mint?: MintId,
+): Promise<string> {
+  const holder = duplicate ? undefined : await getById(key).catch(() => undefined)
+  return resolveChildIdRule(holder, key, targetWorkspaceId, duplicate, mint)
 }
 
 /**
@@ -302,7 +319,8 @@ export async function importWorkspaceTree(
     // workspace in silence. entityKey falls back to the slug, then the folder.
     project.uid = entityKey(project, folder)
 
-    const uid = duplicate ? crypto.randomUUID() : project.uid
+    const uid = await importedProjectUid((i) => storage.projects.getById(i), project.uid, targetWsId, duplicate)
+    idMap.set(`project:${project.uid}`, uid)
     const entity: Project = {
       ...project,
       // The pointer's git config is narrowed to url+branch: a tree written before
@@ -361,7 +379,7 @@ export async function importWorkspaceTree(
     if (!project) continue
     // Same as the full-content loop above: no `uid` in an export.
     project.uid = entityKey(project, entry.folder)
-    const uid = duplicate ? crypto.randomUUID() : project.uid
+    const uid = await importedProjectUid((i) => storage.projects.getById(i), project.uid, targetWsId, duplicate)
     idMap.set(`project:${project.uid}`, uid)
     landed.projects.add(uid)
     const existing = await storage.projects.getById(uid)
@@ -683,10 +701,11 @@ export async function importWorkspaceTree(
     reportPhase('workspaces.import_phase_concept_sets', 0, parsed.conceptSets.length)
     await yieldToBrowser()
   }
-  for (const cs of parsed.conceptSets) {
+  for (const { dictionaryId: _localKey, ...cs } of parsed.conceptSets) {
     const id = await resolveChildId((i) => storage.conceptSets.getById(i), cs.id)
     landed.conceptSets.add(id)
     if (id === cs.id) await storage.conceptSets.delete(cs.id).catch(() => {})
+    // A dictionary id is a key of the instance that wrote the tree, never one here.
     await storage.conceptSets.create({
       ...cs, id, workspaceId: targetWsId, updatedAt: now,
       ...(duplicate ? { name: `${cs.name} (copy)`, createdAt: now } : {}),
@@ -873,10 +892,10 @@ export async function importWorkspaceTree(
       await storage.sourceConceptIdEntries.saveBatch(
         parsed.sourceConceptIdEntries.map(entry => {
           const badgeLabel = duplicate ? `${entry.badgeLabel} (copy)` : entry.badgeLabel
-          const newId = duplicate
-            ? `${targetWsId}__${badgeLabel}__${entry.vocabularyId}__${entry.conceptCode}`
-            : entry.id
-          return { ...entry, id: newId, workspaceId: targetWsId, badgeLabel }
+          // The key embeds the workspace: re-derived for the target, it never
+          // names an entry of the workspace the tree was exported from.
+          const id = `${targetWsId}__${badgeLabel}__${entry.vocabularyId}__${entry.conceptCode}`
+          return { ...entry, id, workspaceId: targetWsId, badgeLabel }
         })
       )
     }

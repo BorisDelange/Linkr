@@ -577,7 +577,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
     // would keep executing against the target with no way to stop it.
     if (get().pipelineRunning) return false
     const abort = new AbortController()
-    const runId = `run-${Date.now()}`
+    const runId = crypto.randomUUID()
     // Persisted rows are keyed by pipeline, so a run has to know which one it
     // belongs to — the history panel of another pipeline must not show it.
     const pipelineId = get().activePipelineId ?? ''

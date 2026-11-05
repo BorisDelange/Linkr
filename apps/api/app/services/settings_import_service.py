@@ -186,7 +186,10 @@ async def _import_users(
         existing = await db.scalar(select(User).where(User.username == username))
         if existing is None:
             # New account: no password → disabled until an admin sets one.
-            db.add(User(username=username, password_hash=None, is_active=False, **profile, **_created_at_kwarg(row)))
+            db.add(User(
+                username=username, password_hash=None, is_active=False,
+                password_changed_at=datetime.now(timezone.utc), **profile, **_created_at_kwarg(row),
+            ))
             report.users_created += 1
         else:
             # Importing never changes a local account's admin status in EITHER

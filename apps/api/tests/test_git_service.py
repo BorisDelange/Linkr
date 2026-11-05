@@ -146,6 +146,50 @@ def test_unpack_rejects_zip_traversal():
         shutil.rmtree(tree, ignore_errors=True)
 
 
+_FILTER_CONFIG = (
+    "[core]\n\trepositoryformatversion = 0\n\tbare = false\n"
+    "[filter \"x\"]\n\tclean = touch {marker}; cat\n"
+)
+
+
+@pytest.mark.parametrize("member", [".git/config", ".GIT/config", "sub/.git/config", ".git./config"])
+def test_unpack_never_writes_into_git_metadata(tmp_path, member):
+    repo = tmp_path / "repo"
+    g._ensure_repo(repo, None)
+    config_before = (repo / ".git" / "config").read_text()
+    marker = tmp_path / "marker"
+    payload = _zip({
+        member: _FILTER_CONFIG.format(marker=marker),
+        ".gitattributes": "* filter=x\n",
+        "entity.json": "{}\n",
+    })
+    with pytest.raises(g.GitError):
+        g._unpack_zip_into(payload, repo)
+    assert (repo / ".git" / "config").read_text() == config_before
+    g._run(repo, "add", "-A")
+    assert not marker.exists()
+
+
+def test_unpack_does_not_write_through_a_link_left_in_the_tree(tmp_path):
+    repo = tmp_path / "repo"
+    g._ensure_repo(repo, None)
+    config_before = (repo / ".git" / "config").read_text()
+    (repo / "meta").symlink_to(repo / ".git", target_is_directory=True)
+    g._unpack_zip_into(_zip({"meta/config": "[core]\n", "entity.json": "{}"}), repo)
+    assert (repo / ".git" / "config").read_text() == config_before
+    assert not (repo / "meta").is_symlink()
+    assert (repo / "meta" / "config").read_text() == "[core]\n"
+
+
+def test_unpack_keeps_legitimate_dotfiles(tmp_path):
+    repo = tmp_path / "repo"
+    g._ensure_repo(repo, None)
+    g._unpack_zip_into(_zip({
+        ".gitattributes": "*.parquet filter=lfs\n", ".gitignore": "data/\n", "a/.github/x.yml": "x",
+    }), repo)
+    assert (repo / ".gitattributes").is_file() and (repo / "a/.github/x.yml").is_file()
+
+
 def test_safe_join_rejects_traversal_keeps_legit_paths():
     tree = Path(tempfile.mkdtemp())
     try:

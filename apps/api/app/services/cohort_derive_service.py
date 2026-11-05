@@ -387,6 +387,10 @@ async def validate(
     request that starts the job answers 400 (or 428, a missing login) rather than
     queueing a job that fails."""
     _check_options(body)
+    if body.target.kind == "new-database" and not _created(target).get("file"):
+        # A build replaces the database's content: never one others filled.
+        if await data_source_service.holds_files_or_cohorts(db, target.id):
+            raise DeriveError("the target database already holds data; derive into a new database")
     await _source_spec(db, source, user_id)
     await _target_spec(source, target, body, await _target_login(db, target, body, user_id))
     await _pseudonyms(db, source, target, body, user_id)
@@ -413,14 +417,17 @@ async def derive(
     cohort: Cohort | None,
     user_id: int,
     progress: Callable[[int, str], Awaitable[None]] | None = None,
+    *,
+    may_remove: bool = False,
 ) -> dict:
     """Copy `source`, filtered on the cohort, into `target`, and record it —
     reading and writing with `user_id`'s own logins, resolved now (the job runs
     as its launcher, never with a secret copied into it).
 
     `progress(percent, line)` is told of each table as it starts. A new database
-    that never held a build is removed again when this fails or is cancelled: it
-    was created for this derivation and would only be an empty card.
+    that never held a build is removed again when this fails or is cancelled —
+    only when `may_remove`: the launcher may delete it, or it is the empty card
+    they created for this derivation. Otherwise the row is left as it was.
 
     The derived database copies the EFFECTIVE mapping (base + the source's
     overrides) as its own base, as the app does (derivedDatabaseRow)."""
@@ -430,7 +437,7 @@ async def derive(
     target_login = await _target_login(db, target, body, user_id)
     target_spec, config, new_location = await _target_spec(source, target, body, target_login)
     pseudonyms = await _pseudonyms(db, source, target, body, user_id)
-    first_build = t.kind == "new-database" and not _created(target).get("file")
+    first_build = may_remove and t.kind == "new-database" and not _created(target).get("file")
     target_id = target.id  # read now: a rollback expires the instance
     try:
         return await _derive(

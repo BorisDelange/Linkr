@@ -59,9 +59,9 @@ WORKSPACE_CATALOGUE: dict[str, list[str]] = {
     # lists, which ARE authored on this page.
     "concepts": RWD,
     "cohorts": RWD,
-    # execute = render widgets/analyses (run their author-defined code). It's a
-    # view-time operation, so viewer gets it by default (see _catalogue_perms),
-    # yet it stays separable from ide:execute (arbitrary code in the IDE).
+    # execute = render widgets/analyses that run author-defined code. Running
+    # client-sent code through /execute always needs ide:execute as well: this
+    # permission narrows who may run a widget, it never grants free-form code.
     "patient-data": ["read", "write", "delete", "execute"],
     "datasets": ["read", "write", "delete", "execute"],
     "dashboards": ["read", "write", "delete", "execute"],
@@ -223,16 +223,19 @@ async def effective_workspace_role(
 
 
 async def has_permission(
-    db: AsyncSession, workspace_id: str, user: User, permission: str
+    db: AsyncSession, workspace_id: str | None, user: User, permission: str
 ) -> bool:
     """True if the user's role on `workspace_id` grants `permission`.
+
+    No workspace means no membership: only admins and holders of a global
+    all-workspaces grant pass, never "anyone".
 
     Global admins always pass (hard super-admin). Otherwise the user's workspace
     member role is resolved to a Role row and its permission list is consulted.
     """
     if user.role == "admin":
         return True
-    member = await db.get(WorkspaceMember, (workspace_id, user.id))
+    member = await db.get(WorkspaceMember, (workspace_id, user.id)) if workspace_id is not None else None
     if member is not None:
         role = await db.scalar(select(Role).where(Role.name == member.role))
         if role is not None and permission in (role.permissions or []):
@@ -372,7 +375,7 @@ async def check_project_permission(
 
 
 async def check_workspace_permission(
-    db: AsyncSession, workspace_id: str, user: User, permission: str
+    db: AsyncSession, workspace_id: str | None, user: User, permission: str
 ) -> None:
     """Enforce that the user's role on `workspace_id` grants `permission`; raise
     403 otherwise. Callable inline. Admins and matching all-workspaces grants

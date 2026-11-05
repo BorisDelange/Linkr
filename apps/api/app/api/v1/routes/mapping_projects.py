@@ -27,8 +27,8 @@ from app.schemas.mapping_project import (
     ServiceMappingUpdate,
 )
 import asyncio
+import dataclasses
 import os
-import shutil
 import tempfile
 from pathlib import Path
 
@@ -821,13 +821,6 @@ class ServerFileImport(CamelModel):
 _SOURCE_FILE_EXTENSIONS = [".csv", ".tsv", ".txt", ".xlsx", ".xls", ".parquet"]
 
 
-def _copy_to_temp(src: Path) -> Path:
-    fd, tmp = tempfile.mkstemp(prefix="linkr-server-file-")
-    os.close(fd)
-    shutil.copyfile(src, tmp)
-    return Path(tmp)
-
-
 @router.post(_PROJ + "/import-server-file")
 async def import_server_file(
     body: ServerFileImport,
@@ -836,16 +829,25 @@ async def import_server_file(
 ):
     """Copy a file already on the server into the blob store, so a mapping
     project can use it as its source like an uploaded one (then preview-columns
-    with the returned sha). Gated like browsing the server: the path must sit
-    inside the browse roots and the user must be allowed to browse them."""
+    with the returned sha). The file may sit wherever a database's server path
+    may — inside the browse roots, never Linkr's data folder, a system folder nor
+    a folder bound to a project — and the copy re-checks the file it opened."""
     await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:write")
     await check_workspace_permission(db, body.workspace_id, user, "databases:write")
-    checked = fs_browser.validate_file(body.path, _SOURCE_FILE_EXTENSIONS)
-    if not checked["ok"]:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, checked["reason"])
-    src = Path(checked["path"])
-    tmp = await asyncio.to_thread(_copy_to_temp, src)
-    sha, size = await blob_store.store_file(tmp)
+    if not body.path:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No server file chosen")
+    scope = await fs_browser.import_scope(db, None, user)
+    # validate_source_path bounds the reach (as for a database); the copy scope
+    # only lets the guarded open run without browse roots, as a database may.
+    copy_scope = dataclasses.replace(scope, whole_fs_allowed=True)
+    try:
+        fs_browser.validate_source_path(body.path, scope)
+        src = fs_browser.validate_import_source(body.path, copy_scope)
+        if not fs_browser._matches_extensions(src.name, _SOURCE_FILE_EXTENSIONS):
+            raise fs_browser.FsBrowseError("wrong_extension")
+        sha, size = await blob_store.store_copy(lambda: fs_browser.open_import_source(str(src), copy_scope))
+    except fs_browser.FsBrowseError as e:
+        raise HTTPException(e.status_code, str(e))
     return {"sha": sha, "fileName": src.name, "size": size}
 
 

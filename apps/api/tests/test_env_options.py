@@ -93,7 +93,7 @@ def test_plain_http_and_tls_off_only_for_a_mirror_the_server_or_workspace_chose(
 
     assert py({"indexUrl": "http://mirror.chu.local/other"})["indexUrl"] == "http://mirror.chu.local/other"
     assert py({"indexUrl": "http://evil.example/simple"})["indexUrl"] == "https://ws-mirror.local/simple"
-    assert py({"indexUrl": "https://evil.example/simple"})["indexUrl"] == "https://evil.example/simple"
+    assert py({"indexUrl": "https://evil.example/simple"})["indexUrl"] == "https://ws-mirror.local/simple"
     assert "trustedHost" not in py({"trustedHost": "evil.example"})
     assert env_options.resolve("r", None, {"repos": "http://evil.example"})["repos"] == "https://cran.chu.local"
     # The workspace layer itself (an owner's choice) may use them.
@@ -119,3 +119,29 @@ def test_an_override_may_repeat_what_an_upper_layer_set():
     ws = {"python": {"indexUrl": "http://ws.local/simple", "trustedHost": "ws.local"}}
     out = env_options.resolve("python", ws, {"indexUrl": "http://ws.local/other", "trustedHost": "WS.local"})
     assert out == {"indexUrl": "http://ws.local/other", "trustedHost": "WS.local"}
+
+
+def test_once_the_deployment_names_a_mirror_a_project_index_stays_on_it(monkeypatch):
+    monkeypatch.setattr(settings, "pip_index_url", "https://pypi.chu.local/simple")
+    monkeypatch.setattr(settings, "r_repos", "https://cran.chu.local/latest")
+
+    def py(ws, override):
+        return env_options.resolve("python", ws, override)
+
+
+    assert py(None, {"indexUrl": "https://elsewhere.example/simple"})["indexUrl"] == "https://pypi.chu.local/simple"
+    assert py(None, {"indexUrl": "https://pypi.chu.local/other"})["indexUrl"] == "https://pypi.chu.local/other"
+    ws = {"python": {"indexUrl": "https://ws.chu.local/simple"}}
+    assert py(ws, {"indexUrl": "https://ws.chu.local/x"})["indexUrl"] == "https://ws.chu.local/x"
+    assert py(ws, {"indexUrl": "https://elsewhere.example/simple"})["indexUrl"] == "https://ws.chu.local/simple"
+    r = env_options.resolve("r", None, {"repos": "https://cran.chu.local/2024-01-01,https://elsewhere.example"})
+    assert r["repos"] == "https://cran.chu.local/latest"
+    assert env_options.resolve("r", None, {"repos": "https://cran.chu.local/2024-01-01"})["repos"] == (
+        "https://cran.chu.local/2024-01-01"
+    )
+
+
+def test_with_the_public_default_a_project_may_pick_another_https_index(monkeypatch):
+    monkeypatch.setattr(settings, "pip_index_url", type(settings).model_fields["pip_index_url"].default)
+    out = env_options.resolve("python", None, {"indexUrl": "https://other.example/simple"})
+    assert out["indexUrl"] == "https://other.example/simple"

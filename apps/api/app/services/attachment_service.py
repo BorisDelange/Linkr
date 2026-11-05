@@ -1,21 +1,8 @@
-from sqlalchemy import delete as sa_delete, func, select
+from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.attachment import ReadmeAttachment, WikiAttachment
-from app.services import blob_store
-
-
-async def _blob_unreferenced(db: AsyncSession, model, sha: str) -> bool:
-    """True if no row of either attachment table still points at this sha —
-    blobs are shared/deduped, so only delete the bytes once nothing references
-    them (mirrors dataset_service's reference check)."""
-    for m in (ReadmeAttachment, WikiAttachment):
-        count = await db.scalar(
-            select(func.count()).select_from(m).where(m.blob_sha == sha)
-        )
-        if count:
-            return False
-    return True
+from app.services import blob_cleanup, blob_store
 
 
 # --- README attachments (polymorphic owner) --------------------------------
@@ -65,8 +52,7 @@ async def delete_readme(db: AsyncSession, att: ReadmeAttachment) -> None:
     sha = att.blob_sha
     await db.delete(att)
     await db.commit()
-    if await _blob_unreferenced(db, ReadmeAttachment, sha):
-        await blob_store.delete(sha)
+    await blob_cleanup.deref_blobs(db, {sha})
 
 
 async def _delete_readme_where(db: AsyncSession, whereclause) -> None:
@@ -75,8 +61,7 @@ async def _delete_readme_where(db: AsyncSession, whereclause) -> None:
     await db.execute(sa_delete(ReadmeAttachment).where(whereclause))
     await db.commit()
     for sha in set(shas):
-        if await _blob_unreferenced(db, ReadmeAttachment, sha):
-            await blob_store.delete(sha)
+        await blob_cleanup.deref_blobs(db, {sha})
 
 
 async def delete_readme_for_owner(
@@ -98,10 +83,13 @@ async def delete_readme_for_workspace(db: AsyncSession, workspace_id: str) -> No
 # --- Wiki attachments (page / workspace-scoped) -----------------------------
 
 
-async def list_wiki_by_page(db: AsyncSession, page_id: str) -> list[WikiAttachment]:
-    result = await db.execute(
-        select(WikiAttachment).where(WikiAttachment.page_id == page_id)
-    )
+def _of_page(page_id: str, workspace_id: str | None):
+    return (WikiAttachment.page_id == page_id) & (WikiAttachment.workspace_id == workspace_id)
+
+
+async def list_wiki_by_page(db: AsyncSession, page_id: str, workspace_id: str | None) -> list[WikiAttachment]:
+    """The attachments of a page, in the page's own workspace only."""
+    result = await db.execute(select(WikiAttachment).where(_of_page(page_id, workspace_id)))
     return list(result.scalars().all())
 
 
@@ -135,8 +123,7 @@ async def delete_wiki(db: AsyncSession, att: WikiAttachment) -> None:
     sha = att.blob_sha
     await db.delete(att)
     await db.commit()
-    if await _blob_unreferenced(db, WikiAttachment, sha):
-        await blob_store.delete(sha)
+    await blob_cleanup.deref_blobs(db, {sha})
 
 
 async def _delete_wiki_where(db: AsyncSession, whereclause) -> None:
@@ -145,12 +132,11 @@ async def _delete_wiki_where(db: AsyncSession, whereclause) -> None:
     await db.execute(sa_delete(WikiAttachment).where(whereclause))
     await db.commit()
     for sha in set(shas):
-        if await _blob_unreferenced(db, WikiAttachment, sha):
-            await blob_store.delete(sha)
+        await blob_cleanup.deref_blobs(db, {sha})
 
 
-async def delete_wiki_for_page(db: AsyncSession, page_id: str) -> None:
-    await _delete_wiki_where(db, WikiAttachment.page_id == page_id)
+async def delete_wiki_for_page(db: AsyncSession, page_id: str, workspace_id: str | None) -> None:
+    await _delete_wiki_where(db, _of_page(page_id, workspace_id))
 
 
 async def delete_wiki_for_workspace(db: AsyncSession, workspace_id: str) -> None:

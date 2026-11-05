@@ -1,4 +1,6 @@
+import asyncio
 import gzip
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from functools import cache
 from pathlib import Path
@@ -13,6 +15,35 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
+
+
+# A bcrypt call holds a CPU for a quarter of a second: it runs off the event loop,
+# on a pool of its own, so a burst of logins neither stalls other requests nor
+# takes the threads the rest of the server runs its blocking work on.
+_hashing = ThreadPoolExecutor(max_workers=2, thread_name_prefix="password-hash")
+
+
+async def _off_loop(fn, *args):
+    return await asyncio.get_running_loop().run_in_executor(_hashing, fn, *args)
+
+
+@cache
+def _no_account_hash() -> str:
+    return pwd_context.hash("no account has this password")
+
+
+def _verify(plain_password: str, hashed_password: str | None) -> bool:
+    if hashed_password is None:
+        pwd_context.verify(plain_password, _no_account_hash())
+        return False
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+async def verify_password_async(plain_password: str, hashed_password: str | None) -> bool:
+    """verify_password off the event loop. A missing hash (no such account, or
+    none set) costs as much as a wrong password, so the time a refusal takes
+    does not tell which usernames exist."""
+    return await _off_loop(_verify, plain_password, hashed_password)
 
 
 # bcrypt hashes only the first 72 bytes: anything past them would be accepted
@@ -49,10 +80,24 @@ def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
 
+async def hash_password_async(password: str) -> str:
+    return await _off_loop(hash_password, password)
+
+
+def _store_password(user, password_hash: str) -> None:
+    user.password_hash = password_hash
+    user.password_changed_at = datetime.now(timezone.utc)
+
+
 def set_password(user, password: str) -> None:
     """Hash `password` onto `user` and end the sessions issued before it."""
-    user.password_hash = hash_password(password)
-    user.password_changed_at = datetime.now(timezone.utc)
+    _store_password(user, hash_password(password))
+
+
+async def set_password_async(user, password: str) -> None:
+    """set_password, hashing off the event loop. Also stamped on a new account:
+    no session token older than the account itself is ever accepted for it."""
+    _store_password(user, await hash_password_async(password))
 
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)

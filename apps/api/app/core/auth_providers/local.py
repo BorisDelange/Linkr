@@ -2,7 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth_providers.base import AuthProvider
-from app.core.security import verify_password
+from app.core.security import verify_password_async
 from app.models.user import User
 
 
@@ -14,8 +14,6 @@ class LocalAuthProvider(AuthProvider):
     ) -> User | None:
         result = await db.execute(select(User).where(User.username == username))
         user = result.scalar_one_or_none()
-        if user is None or user.password_hash is None:
-            return None
-        if not verify_password(password, user.password_hash):
+        if not await verify_password_async(password, user.password_hash if user else None):
             return None
         return user

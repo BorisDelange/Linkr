@@ -8,11 +8,23 @@ import pytest
 
 from app.config import settings
 from app.models.attachment import ReadmeAttachment
+from app.models.data_source import DataSource, DataSourceFile
 from app.models.dataset import DatasetFile
 from app.models.mapping_project import MappingProject
 from app.models.project import Project
 from app.models.workspace import Workspace
-from app.services import blob_cleanup, blob_store, project_fs, project_service, workspace_service
+from app.schemas.mapping_project import MappingProjectUpdate
+from app.services import (
+    attachment_service,
+    blob_cleanup,
+    blob_store,
+    data_source_service,
+    dataset_service,
+    mapping_project_service,
+    project_fs,
+    project_service,
+    workspace_service,
+)
 
 
 def _uid() -> str:
@@ -160,6 +172,72 @@ async def test_readme_attachment_blob_dereferenced_on_project_delete(db):
 
     await project_service.delete(db, project)
 
+    assert not blob_store.exists(sha)
+
+
+async def _source_file(db, workspace_id: str, sha: str) -> DataSourceFile:
+    source = DataSource(
+        id=_uid(), workspace_id=workspace_id, alias=f"ds-{_uid()[:8]}",
+        source_type="database", connection_config={},
+    )
+    db.add(source)
+    await db.commit()
+    row = DataSourceFile(data_source_id=source.id, file_name="f.csv", content_hash=sha)
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+async def test_a_blob_survives_every_single_entity_delete_while_another_table_references_it(db):
+    """A blob is removed only when no row of any table, in any workspace, still
+    points at it — whichever kind of entity dropped its own reference."""
+    ws_a = await _make_workspace(db)
+    ws_b = await _make_workspace(db)
+    project_b = await _make_project(db, ws_b)
+    sha = await _store_blob(b"bytes workspace A relies on")
+    kept = await _source_file(db, ws_a, sha)
+
+    mp = MappingProject(
+        id=_uid(), workspace_id=ws_b, name={"en": "M"}, source_type="file", raw_file_sha=sha,
+    )
+    db.add(mp)
+    await db.commit()
+    other_sha = await _store_blob(b"replacement")
+    await mapping_project_service.update(db, mp, MappingProjectUpdate(raw_file_sha=other_sha))
+    assert blob_store.exists(sha)
+
+    mp2 = MappingProject(
+        id=_uid(), workspace_id=ws_b, name={"en": "M"}, source_type="file", raw_file_sha=sha,
+    )
+    db.add(mp2)
+    await db.commit()
+    await mapping_project_service.delete(db, mp2)
+    assert blob_store.exists(sha)
+
+    node = DatasetFile(id=_uid(), project_uid=project_b.uid, name="d.csv", type="file", raw_sha=sha)
+    db.add(node)
+    await db.commit()
+    await dataset_service.delete(db, node)
+    assert blob_store.exists(sha)
+
+    att = ReadmeAttachment(
+        id=_uid(), owner_type="project", owner_id=project_b.uid, file_name="a.png", blob_sha=sha,
+    )
+    db.add(att)
+    await db.commit()
+    await attachment_service.delete_readme(db, att)
+    assert blob_store.exists(sha)
+
+    mp3 = MappingProject(
+        id=_uid(), workspace_id=ws_a, name={"en": "M"}, source_type="file", raw_file_sha=sha,
+    )
+    db.add(mp3)
+    await db.commit()
+    await data_source_service.delete_file(db, kept)
+    assert blob_store.exists(sha), "still referenced by the mapping project"
+
+    await mapping_project_service.delete(db, mp3)
     assert not blob_store.exists(sha)
 
 

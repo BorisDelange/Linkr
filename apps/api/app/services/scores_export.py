@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 from app.config import settings
+from app.core import path_ids
 from app.models.mapping_project import MappingProject
 from app.services import blob_store
 from app.services.data import scores_service
@@ -33,7 +34,7 @@ def scores_lock(project_id: str) -> asyncio.Lock:
 
 
 def _project_cache_root(project_id: str) -> Path:
-    return settings.data_path / ".cache" / "scores-csv" / project_id
+    return path_ids.child_dir(settings.data_path / ".cache" / "scores-csv", project_id)
 
 
 def _cache_dir(project_id: str, sha: str) -> Path:

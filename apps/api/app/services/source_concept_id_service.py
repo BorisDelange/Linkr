@@ -138,9 +138,17 @@ async def count_entries_by_badge(
     ]
 
 
+class EntryOfAnotherWorkspace(ValueError):
+    """The entry id names a row that belongs to a different workspace."""
+
+
 async def _upsert_entry(db: AsyncSession, data: SourceConceptIdEntrySave) -> None:
     existing = await db.get(SourceConceptIdEntry, data.id)
     values = data.model_dump()
+    # An entry is only ever written within its own workspace: an id held by
+    # another workspace is neither updated nor moved.
+    if existing is not None and existing.workspace_id != data.workspace_id:
+        raise EntryOfAnotherWorkspace(data.id)
     if existing is None:
         db.add(SourceConceptIdEntry(**values))
     else:
@@ -156,8 +164,12 @@ async def save_entry(db: AsyncSession, data: SourceConceptIdEntrySave) -> None:
 async def save_entries(
     db: AsyncSession, entries: list[SourceConceptIdEntrySave]
 ) -> None:
-    for entry in entries:
-        await _upsert_entry(db, entry)
+    try:
+        for entry in entries:
+            await _upsert_entry(db, entry)
+    except EntryOfAnotherWorkspace:
+        await db.rollback()
+        raise
     await db.commit()
 
 

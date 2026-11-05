@@ -154,3 +154,27 @@ async def test_cascade_delete_with_workspace(client):
     assert (
         await client.get(f"{API}/wiki-pages/wp-cascade", headers=headers)
     ).status_code == 404
+
+
+async def test_a_page_stays_in_its_workspace(client, db):
+    from app.models.wiki_page import WikiPage
+
+    admin = await _bootstrap_admin(client)
+    ws_a = await _make_workspace(client, admin)
+    ws_b = await _make_workspace(client, admin)
+    editor = await _create_user(db, client, "editor")
+    editor_id = (await client.get(f"{API}/auth/me", headers=editor)).json()["id"]
+    await client.put(f"{API}/workspaces/{ws_a}/members", headers=admin, json={"userId": editor_id, "role": "editor"})
+    assert (await _make_page(client, editor, ws_a, "pa")).status_code == 201
+
+    for target in (ws_b, None):
+        r = await client.patch(f"{API}/wiki-pages/pa", headers=editor, json={"workspaceId": target})
+        assert r.status_code == 400
+    assert (await client.patch(f"{API}/wiki-pages/pa", headers=editor, json={"workspaceId": ws_a, "slug": "s"})).status_code == 200
+    assert [p["id"] for p in (await client.get(f"{API}/wiki-pages?workspaceId={ws_b}", headers=admin)).json()] == []
+
+    # A page outside every workspace is no member's to reach.
+    db.add(WikiPage(id="loose", workspace_id=None, title={"en": "x"}, content={"en": "x"}))
+    await db.commit()
+    assert (await client.get(f"{API}/wiki-pages/loose", headers=editor)).status_code == 403
+    assert (await client.delete(f"{API}/wiki-pages/loose", headers=editor)).status_code == 403

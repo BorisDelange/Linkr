@@ -19,6 +19,7 @@ import hashlib
 from pathlib import Path
 
 from app.config import settings
+from app.core import path_ids
 
 # Files/dirs ignored when scanning (editor/OS noise, hidden caches).
 _IGNORE = {".DS_Store", ".git", ".cache", "__pycache__", ".ipynb_checkpoints"}
@@ -40,7 +41,7 @@ _LANG_BY_EXT = {
 
 def project_dir(project_uid: str) -> Path:
     """Absolute path of the project's working directory (created on access)."""
-    d = settings.data_path / "projects" / project_uid
+    d = path_ids.child_dir(settings.data_path / "projects", project_uid)
     d.mkdir(parents=True, exist_ok=True)
     return d
 

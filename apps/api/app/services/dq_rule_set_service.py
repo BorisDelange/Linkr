@@ -109,6 +109,10 @@ class ChecksNotFound(LookupError):
     pass
 
 
+class RunIdTaken(ValueError):
+    """A run id already recorded under another rule set."""
+
+
 async def _validate_new_checks(
     db: AsyncSession, data: list[DqCustomCheckCreate], replacing: str | None = None
 ) -> None:
@@ -272,6 +276,9 @@ async def create_run(db: AsyncSession, data: DqRunHistoryCreate) -> DqRunHistory
     run = await db.get(DqRunHistory, data.id)
     if run is None:
         run = DqRunHistory()
+    elif run.rule_set_id != data.rule_set_id:
+        # The rule set the caller was authorized on is the run's own, never another's.
+        raise RunIdTaken(data.id)
     for key, value in payload.items():
         setattr(run, key, value)
     db.add(run)

@@ -4,13 +4,14 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
+from app.core.path_ids import SafeId
 from app.schemas.base import CamelModel
 
 _ROLE_NAME = re.compile(r"[a-z_][a-z0-9_]*", re.IGNORECASE)
 
 
 class DataSourceCreate(CamelModel):
-    id: str | None = None  # client-supplied uuid
+    id: SafeId | None = None  # client-supplied uuid
     entity_id: str | None = None
     workspace_id: str | None = None
     alias: str

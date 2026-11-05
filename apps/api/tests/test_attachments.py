@@ -211,3 +211,34 @@ async def test_wiki_cascade_on_page_delete(client):
     # Deleting the page cascades the attachment row (FK ondelete=CASCADE).
     assert (await client.delete(f"{API}/wiki-pages/{page}", headers=headers)).status_code == 204
     assert (await client.get(f"{API}/wiki-attachments/wc1/blob", headers=headers)).status_code == 404
+
+
+async def test_wiki_attachments_are_bound_to_their_page_s_workspace(client, db):
+    from app.models.attachment import WikiAttachment
+
+    owner_b = await _admin_headers(client)
+    ws_b = await _workspace(client, owner_b)
+    page_b = await _wiki_page(client, owner_b, ws_b, pid="page-b")
+    alice = await _create_user(db, client, "alice")
+    ws_a = await _workspace(client, owner_b)
+    alice_id = (await client.get(f"{API}/auth/me", headers=alice)).json()["id"]
+    await client.put(f"{API}/workspaces/{ws_a}/members", headers=owner_b, json={"userId": alice_id, "role": "owner"})
+
+    qs = f"id=att-a&pageId={page_b}&workspaceId={ws_a}&fileName=a.txt"
+    assert (await client.post(f"{API}/wiki-attachments?{qs}", headers=alice, content=b"a")).status_code == 403
+    await _wiki_page(client, alice, ws_a, pid="page-a")
+    qs = f"id=att-a&pageId=page-a&workspaceId={ws_b}&fileName=a.txt"
+    assert (await client.post(f"{API}/wiki-attachments?{qs}", headers=owner_b, content=b"a")).status_code == 400
+
+    # A row of another workspace under the page's id stays out of the page's scope.
+    db.add(WikiAttachment(id="stray", page_id=page_b, workspace_id=ws_a, file_name="stray.txt",
+                          mime_type="", file_size=1, blob_sha="0" * 64))
+    await db.commit()
+    qs = f"id=att-b&pageId={page_b}&workspaceId={ws_b}&fileName=b.pdf"
+    assert (await client.post(f"{API}/wiki-attachments?{qs}", headers=owner_b, content=PNG)).status_code == 201
+
+    r = await client.get(f"{API}/wiki-attachments?pageId={page_b}", headers=owner_b)
+    assert r.status_code == 200 and [a["id"] for a in r.json()] == ["att-b"]
+    assert (await client.get(f"{API}/wiki-attachments?pageId={page_b}", headers=alice)).status_code == 403
+    assert (await client.delete(f"{API}/wiki-attachments?pageId={page_b}", headers=alice)).status_code == 403
+    assert (await client.get(f"{API}/wiki-attachments/att-b/blob", headers=owner_b)).content == PNG

@@ -146,7 +146,10 @@ async def save_entry(
     db: AsyncSession = Depends(get_db),
 ):
     await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:write")
-    await svc.save_entry(db, body)
+    try:
+        await svc.save_entry(db, body)
+    except svc.EntryOfAnotherWorkspace as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Entry id already in use") from exc
     return body
 
 
@@ -160,7 +163,10 @@ async def save_entries_batch(
     # All entries must target the same accessible workspace(s); authorize each.
     for ws in {e.workspace_id for e in body.entries}:
         await check_workspace_permission(db, ws, user, "concept-mapping:write")
-    await svc.save_entries(db, body.entries)
+    try:
+        await svc.save_entries(db, body.entries)
+    except svc.EntryOfAnotherWorkspace as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Entry id already in use") from exc
     by_badge: dict[tuple[str, str], list[int]] = {}
     for e in body.entries:
         by_badge.setdefault((e.workspace_id, e.badge_label), []).append(e.source_concept_id)

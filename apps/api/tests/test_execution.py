@@ -396,6 +396,31 @@ async def test_render_correlation_matrix_end_to_end(client):
     assert data["matrix"][0][1]["r"] > 0.999
 
 
+async def test_render_imports_nothing_from_the_project_folder(client):
+    """A built-in render runs only server code: modules and config files in the
+    project's IDE folder, named like the ones it imports, are never loaded."""
+    from app.services import project_fs
+
+    headers = await _admin_headers(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "W"}})).json()["id"]
+    uid = (await client.post(f"{API}/projects", headers=headers, json={"name": {"en": "P"}, "workspaceId": ws})).json()["uid"]
+    (project_fs.datasets_dir(uid) / "d.csv").write_text("a,b\n1,2\n2,4\n3,6\n")
+    ide = project_fs.ide_dir(uid)
+    ide.mkdir(parents=True, exist_ok=True)
+    marker = ide / "loaded.txt"
+    for name in ("json", "base64", "pandas", "scipy"):
+        (ide / f"{name}.py").write_text(
+            f"open({str(marker)!r}, 'a').write({name!r})\nraise ImportError('project module')\n"
+        )
+    r = await client.post(f"{API}/execute/render", headers=headers, json={
+        "kind": "correlation-matrix",
+        "spec": {"names": ["a", "b"], "method": "pearson"},
+        "projectUid": uid, "datasetFileId": "d.csv",
+    })
+    assert r.status_code == 200, r.text
+    assert not marker.exists()
+
+
 async def test_render_rejects_unknown_kind(client):
     headers = await _admin_headers(client)
     uid = await _project(client, headers)
@@ -438,7 +463,7 @@ async def test_sql_query_bridge_runs_via_host(client, monkeypatch):
     uid = await _project(client, headers)
 
     class _FakeSource:
-        workspace_id = None  # workspace-less → access check skipped
+        workspace_id = None  # workspace-less: the admin caller passes
         connection_config = {"engine": "duckdb"}
 
     async def fake_get(db, source_id):
@@ -670,6 +695,33 @@ async def test_render_execute_gated_per_resource(client):
                      json={"userId": val_id, "role": "editor"})
     assert (await client.post(f"{API}/execute", headers=val,
             json={"language": "python", "code": "print(1)", "projectUid": uid, "purpose": "dashboards"})).status_code == 200
+
+
+async def test_execute_requires_ide_execute_whatever_the_purpose(client):
+    """A role holding a widget :execute permission but not ide:execute runs no
+    client-sent code, on /execute (persistent and ephemeral) or as a job."""
+    admin = await _admin_headers(client)
+    ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "W"}})).json()["id"]
+    uid = (await client.post(
+        f"{API}/projects", headers=admin, json={"name": {"en": "P"}, "workspaceId": ws}
+    )).json()["uid"]
+    await client.post(f"{API}/users", headers=admin,
+                      json={"username": "val", "password": "pw-for-tests-only", "role": "user"})
+    val_id = next(u["id"] for u in (await client.get(f"{API}/users", headers=admin)).json() if u["username"] == "val")
+    val = {"Authorization": f"Bearer {(await client.post(f'{API}/auth/login', json={'username': 'val', 'password': 'pw-for-tests-only'})).json()['access_token']}"}
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
+                     json={"userId": val_id, "role": "viewer"})
+    viewer = next(r for r in (await client.get(f"{API}/roles", headers=admin)).json() if r["name"] == "viewer")
+    widget_perms = ["dashboards:execute", "datasets:execute", "patient-data:execute"]
+    assert (await client.patch(f"{API}/roles/{viewer['id']}", headers=admin,
+            json={"permissions": [*viewer["permissions"], *widget_perms]})).status_code == 200
+
+    for purpose in ("dashboards", "datasets", "patient-data"):
+        run = {"language": "python", "code": "print(1)", "projectUid": uid, "purpose": purpose}
+        assert (await client.post(f"{API}/execute", headers=val, json=run)).status_code == 403
+        assert (await client.post(f"{API}/execute", headers=val,
+                json={**run, "ephemeral": True})).status_code == 403
+        assert (await client.post(f"{API}/execute/run-as-job", headers=val, json=run)).status_code == 403
 
 
 # --- Streaming core (execute_stream) -------------------------------------------

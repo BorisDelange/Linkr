@@ -92,7 +92,10 @@ async def notifications_ws(websocket: WebSocket):
             if reader in done:
                 getter.cancel()
                 break
-            await websocket.send_json(getter.result())
+            event = getter.result()
+            if event is notification_hub.CLOSE:
+                break
+            await websocket.send_json(event)
     except WebSocketDisconnect:
         pass
     finally:

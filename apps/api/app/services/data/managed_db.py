@@ -21,6 +21,7 @@ from pathlib import Path
 import duckdb
 
 from app.config import settings
+from app.services.data.db_connect import _forbid_file_access, _lock_down_user_sql
 
 # A managed file is named after the source id, which reaches here from the API
 # layer and becomes a filesystem path — so it is validated rather than trusted.
@@ -39,6 +40,17 @@ _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,127}$")
 
 # DuckDB has no ADD CONSTRAINT; the OMOP DDL is full of foreign keys.
 _ALTER_TABLE = re.compile(r"^\s*ALTER\s+TABLE\s", re.IGNORECASE)
+
+# What a schema DDL is made of. ALTER covers COMMENT ON; DROP the usual
+# `DROP TABLE IF EXISTS` preamble. Anything else (COPY, ATTACH, INSERT, SET, LOAD…)
+# is not schema definition.
+_DDL_STATEMENT_TYPES = frozenset({
+    duckdb.StatementType.CREATE,
+    duckdb.StatementType.CREATE_FUNC,
+    duckdb.StatementType.ALTER,
+    duckdb.StatementType.DROP,
+    duckdb.StatementType.TRANSACTION,
+})
 
 
 def _databases_dir() -> Path:
@@ -74,23 +86,31 @@ def create_from_ddl(path: Path, ddl: str) -> str:
 
     Recreates from scratch if a file is already there, so retrying a failed
     creation cannot leave half a schema behind.
+
+    The DDL is client text: it may define schema objects in this file and nothing
+    else. The connection is cut off from the filesystem before it runs, so a
+    `CREATE TABLE … AS SELECT` cannot read a server file nor a `COPY` write one.
+    Raises ValueError for a statement that is not schema definition.
     """
+    # ALTER TABLE is skipped the same way the browser path does: the OMOP DDL ends
+    # with ~176 `ADD CONSTRAINT ... FOREIGN KEY` statements, which DuckDB rejects
+    # ("No support for that ALTER TABLE option yet"). The tables themselves are
+    # what matter here; referential constraints are not enforced on either side.
+    statements = [stmt for stmt in _split(ddl) if not _ALTER_TABLE.match(stmt)]
+    for stmt in statements:
+        for parsed in duckdb.extract_statements(stmt):
+            if parsed.type not in _DDL_STATEMENT_TYPES:
+                raise ValueError(f"{parsed.type.name} is not allowed in a schema DDL")
     _remove(path)
 
-    skipped: list[str] = []
     con = duckdb.connect(str(path))
     try:
         con.execute(f"SET extension_directory = '{_ext_dir()}'")
+        _forbid_file_access(con)
+        _lock_down_user_sql(con)
         # Statement by statement, so a failure names the statement that broke
-        # rather than the whole batch. ALTER TABLE is skipped the same way the
-        # browser path does: the OMOP DDL ends with ~176 `ADD CONSTRAINT ...
-        # FOREIGN KEY` statements, which DuckDB rejects ("No support for that
-        # ALTER TABLE option yet"). The tables themselves are what matter here;
-        # referential constraints are not enforced on either side.
-        for stmt in _split(ddl):
-            if _ALTER_TABLE.match(stmt):
-                skipped.append(stmt)
-                continue
+        # rather than the whole batch.
+        for stmt in statements:
             con.execute(stmt)
     except Exception:
         con.close()

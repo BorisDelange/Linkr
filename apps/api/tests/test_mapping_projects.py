@@ -1036,3 +1036,35 @@ async def test_project_delete_drops_its_scores_csv_cache(client):
     (cache / "some-sha").mkdir(parents=True)
     assert (await client.delete(f"{API}/mapping-projects/{p['id']}", headers=headers)).status_code == 204
     assert not cache.exists()
+
+
+async def test_server_file_import_stays_out_of_linkr_data_folder(client, db, tmp_path_factory):
+    """A mapping source copied from the server reaches what a database's server
+    path may: a file elsewhere on the server, never a file in Linkr's data folder
+    (another workspace's datasets live there)."""
+    from app.config import settings
+
+    admin = await _admin_headers(client)
+    other_ws = await _workspace(client, admin)
+    own_ws = await _workspace(client, admin)
+    bob = await _create_user(db, client, "bob")
+    bob_id = next(u["id"] for u in (await client.get(f"{API}/users", headers=admin)).json() if u["username"] == "bob")
+    await client.put(f"{API}/workspaces/{own_ws}/members", headers=admin, json={"userId": bob_id, "role": "editor"})
+    uid = (await client.post(f"{API}/projects", headers=admin,
+                             json={"name": {"en": "P"}, "workspaceId": other_ws})).json()["uid"]
+    inside = settings.data_path / "projects" / uid / "datasets" / "d.csv"
+    inside.parent.mkdir(parents=True, exist_ok=True)
+    inside.write_text("code,name\nX1,a\n")
+    outside = tmp_path_factory.mktemp("server-files") / "source.csv"
+    outside.write_text("code,name\nX1,a\n")
+
+    for headers in (bob, admin):
+        r = await client.post(f"{API}/mapping-projects/import-server-file", headers=headers,
+                              json={"workspaceId": own_ws, "path": str(inside)})
+        assert r.status_code == 403
+    r = await client.post(f"{API}/mapping-projects/import-server-file", headers=bob,
+                          json={"workspaceId": own_ws, "path": str(outside)})
+    assert r.status_code == 200 and blob_store.exists(r.json()["sha"])
+    r = await client.post(f"{API}/mapping-projects/import-server-file", headers=bob,
+                          json={"workspaceId": own_ws, "path": str(outside.with_suffix(".json"))})
+    assert r.status_code == 400

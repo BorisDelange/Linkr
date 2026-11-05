@@ -3,10 +3,11 @@ from sqlalchemy import func, select
 from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import hash_password, password_policy_error, set_password
+from app.core.security import password_policy_error, set_password_async
 from app.models.base import Base
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate
+from app.services import database_credential_service, notification_hub
 
 
 async def list_all(db: AsyncSession) -> list[User]:
@@ -39,7 +40,8 @@ async def create(db: AsyncSession, data: UserCreate) -> User:
         )
     _check_password(data.password, data.username)
     payload = data.model_dump(exclude={"password"})
-    user = User(**payload, password_hash=hash_password(data.password))
+    user = User(**payload)
+    await set_password_async(user, data.password)
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -91,7 +93,7 @@ async def update(
     for key, value in changes.items():
         setattr(user, key, value)
     if data.password is not None:
-        set_password(user, data.password)
+        await set_password_async(user, data.password)
     await db.commit()
     await db.refresh(user)
     return user
@@ -108,9 +110,12 @@ async def delete(db: AsyncSession, user: User, acting_user: User | None = None) 
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot delete the last administrator",
         )
-    await _detach_authored_rows(db, user.id)
+    user_id = user.id
+    await _detach_authored_rows(db, user_id)
     await db.delete(user)
     await db.commit()
+    await database_credential_service.forget_user(db, user_id)
+    notification_hub.drop_user(user_id)
 
 
 async def _detach_authored_rows(db: AsyncSession, user_id: int) -> None:

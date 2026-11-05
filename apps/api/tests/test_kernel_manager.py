@@ -335,7 +335,7 @@ async def test_acquire_waits_for_in_flight_warm_instead_of_cold_starting(warm):
 async def test_run_ephemeral_discards_process_and_refills(warm, monkeypatch):
     pool, make, made = warm
     monkeypatch.setattr(kernel_mod, "warm_pool", pool)
-    monkeypatch.setattr(kernel_mod.manager, "_make", lambda language, project_uid, environment=None: make())
+    monkeypatch.setattr(kernel_mod.manager, "_make", lambda language, project_uid, environment=None, **_kw: make())
     monkeypatch.setattr(settings, "widget_pool_size", 1, raising=False)
     monkeypatch.setattr(settings, "widget_max_concurrency", 4, raising=False)
 
@@ -371,10 +371,17 @@ def test_interpreter_key_isolates_every_project_r_env():
     assert _interpreter_key("r", "p1", _Env("system")) == "__project_r__:p1"
     assert _interpreter_key("r", "p2", _Env("system")) == "__project_r__:p2"
     assert _interpreter_key("r", "p1", _Env("system")) != _interpreter_key("r", "p1", None)
-    # The app interpreter (no env) → shared system interpreter.
-    assert _interpreter_key("r", "p1", None) == "__system__:r"
+
+    # The app interpreter (no env) → one shared server key per language.
+    assert _interpreter_key("r", "p1", None) == "__server__:r"
     # Python not-yet-built has no private-lib isolation here → stays app interpreter.
     assert _interpreter_key("python", "p1", _Env("managed")) == "__system__:python"
+
+
+def test_server_owned_warm_processes_are_never_shared_with_user_code():
+    from app.services.execution.kernel import _interpreter_key
+
+    assert _interpreter_key("python", "p1", None) != _interpreter_key("python", "p1", _Env("system"))
 
 
 def test_r_kernel_runs_from_a_file_not_the_e_argument():

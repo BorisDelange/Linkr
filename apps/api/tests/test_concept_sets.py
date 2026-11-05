@@ -84,3 +84,42 @@ async def test_non_member_cannot_access(client, db):
     other = await _create_user(db, client, "bob")
     assert (await client.get(f"{API}/concept-sets?workspaceId={ws}", headers=other)).status_code == 403
     assert (await client.delete(f"{API}/concept-sets/{cs['id']}", headers=other)).status_code == 403
+
+
+async def test_a_set_is_only_bound_to_a_dictionary_of_its_own_workspace(client):
+    admin = await _admin_headers(client)
+    ws_a = await _workspace(client, admin)
+    ws_b = await _workspace(client, admin)
+    await client.post(f"{API}/data-dictionaries", headers=admin, json={"id": "dict-b", "workspaceId": ws_b, "name": "D"})
+    content = f"{API}/data-dictionaries/dict-b/content"
+    one = {"name": "b-v1", "uniqueId": "k1", "expression": {"v": 1}}
+    await client.put(content, headers=admin, json={"conceptSets": [one]})
+
+    r = await client.post(f"{API}/concept-sets", headers=admin, json={
+        "id": "cs-a", "workspaceId": ws_a, "name": "a", "uniqueId": "k1", "dictionaryId": "dict-b",
+    })
+    assert r.status_code == 400
+    await _concept_set(client, admin, ws_a, cid="cs-a2")
+    r = await client.patch(f"{API}/concept-sets/cs-a2", headers=admin, json={"dictionaryId": "dict-b"})
+    assert r.status_code == 400
+    r = await client.post(f"{API}/concept-sets", headers=admin, json={
+        "id": "cs-b", "workspaceId": ws_b, "name": "b", "uniqueId": "k2", "dictionaryId": "dict-b",
+    })
+    assert r.status_code == 201
+
+
+async def test_a_dictionary_sync_never_touches_another_workspaces_sets(client, db):
+    from app.models.concept_set import ConceptSet
+
+    admin = await _admin_headers(client)
+    ws_a = await _workspace(client, admin)
+    ws_b = await _workspace(client, admin)
+    await client.post(f"{API}/data-dictionaries", headers=admin, json={"id": "dict-b", "workspaceId": ws_b, "name": "D"})
+    db.add(ConceptSet(id="cs-a", workspace_id=ws_a, name="a", unique_id="k1", dictionary_id="dict-b"))
+    await db.commit()
+
+    r = await client.put(f"{API}/data-dictionaries/dict-b/content", headers=admin, json={
+        "conceptSets": [{"name": "b-v2", "uniqueId": "k1", "expression": {"v": 2}}]})
+    assert r.json()["added"] == 1
+    a = (await client.get(f"{API}/concept-sets/cs-a", headers=admin)).json()
+    assert a["workspaceId"] == ws_a and a["name"] == "a"

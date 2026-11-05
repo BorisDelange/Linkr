@@ -485,3 +485,64 @@ async def test_the_correspondence_never_goes_into_the_derived_database_under_ano
     })
     with pytest.raises(cohort_derive_service.DeriveError, match="keep it apart"):
         await cohort_derive_service._correspondence_target(_Db(), source, target, body, 1)
+
+
+async def _editor(client, db, admin, ws) -> dict:
+    editor = User(username="editor", password_hash=hash_password("pw-for-tests-only"), role="user")
+    db.add(editor)
+    await db.commit()
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin, json={"userId": editor.id, "role": "editor"})
+    token = (await client.post(f"{API}/auth/login", json={"username": "editor", "password": "pw-for-tests-only"})).json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+FAILING = "SELECT no_such_column AS id, 1 AS patient_id FROM person"
+
+
+@pytest.mark.parametrize("mark_managed", ["patch", "empty-ddl"])
+async def test_a_failed_build_never_removes_a_database_the_launcher_may_not_delete(client, db, mark_managed):
+    admin = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "WS"}})).json()["id"]
+    src = await _managed(client, admin, ws, "src", seed=True)
+    other = (await client.post(f"{API}/data-sources", headers=admin, json={
+        "workspaceId": ws, "alias": "other", "name": "other", "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb"},
+    })).json()["id"]
+    editor = await _editor(client, db, admin, ws)
+    assert (await client.delete(f"{API}/data-sources/{other}", headers=editor)).status_code == 403
+    if mark_managed == "patch":
+        r = await client.patch(f"{API}/data-sources/{other}", headers=editor, json={"connectionConfig": {"engine": "duckdb", "managed": True}})
+    else:
+        r = await client.post(f"{API}/data-sources/{other}/create-from-ddl", headers=editor, json={"ddl": ""})
+    assert r.status_code == 200, r.text
+    job = await _derive(client, editor, ws, src, {
+        "membershipSql": FAILING, "level": "patient", "target": {"kind": "new-database", "dataSourceId": other},
+    })
+    assert job["status"] == "error"
+    assert (await client.get(f"{API}/data-sources/{other}", headers=admin)).status_code == 200
+
+
+async def test_a_new_database_build_refuses_a_target_holding_cohorts(client, db):
+    from app.models.cohort import Cohort
+
+    admin = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "WS"}})).json()["id"]
+    src = await _managed(client, admin, ws, "src", seed=True)
+    dst = await _managed(client, admin, ws, "dst", seed=False)
+    db.add(Cohort(id="coh-dst", owner_data_source_id=dst, name={"en": "c"}, level="patient"))
+    await db.commit()
+    assert await _post_derive(client, admin, src, {"kind": "new-database", "dataSourceId": dst}) == 400
+    assert await db.get(Cohort, "coh-dst") is not None
+
+
+async def test_a_failed_first_build_removes_the_editor_s_own_empty_card(client, db):
+    admin = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "WS"}})).json()["id"]
+    src = await _managed(client, admin, ws, "src", seed=True)
+    editor = await _editor(client, db, admin, ws)
+    dst = await _managed(client, editor, ws, "mine", seed=False)
+    job = await _derive(client, editor, ws, src, {
+        "membershipSql": FAILING, "level": "patient", "target": {"kind": "new-database", "dataSourceId": dst},
+    })
+    assert job["status"] == "error"
+    assert (await client.get(f"{API}/data-sources/{dst}", headers=admin)).status_code == 404

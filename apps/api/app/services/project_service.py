@@ -3,6 +3,7 @@ import shutil
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import path_ids
 from app.core.permissions import global_grant_role
 from app.models.project import Project
 from app.models.project_member import ProjectMember
@@ -102,7 +103,8 @@ async def delete(db: AsyncSession, project: Project) -> None:
     # it's safe to remove outright. Blobs are content-addressed and may be
     # shared (e.g. a duplicated mapping project) — deref_blobs only deletes
     # ones no longer referenced by any row anywhere.
-    shutil.rmtree(project_fs.project_dir(project_uid), ignore_errors=True)
+    if path_ids.is_safe_segment(project_uid):
+        shutil.rmtree(project_fs.project_dir(project_uid), ignore_errors=True)
     # The README attachments' owner is polymorphic (no FK), so clean them here.
     await attachment_service.delete_readme_for_owner(db, "project", project_uid)
     await blob_cleanup.deref_blobs(db, shas)

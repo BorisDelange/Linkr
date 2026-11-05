@@ -2,6 +2,7 @@ from datetime import datetime
 
 from pydantic import field_validator, model_validator
 
+from app.core.path_ids import SafeId
 from app.schemas.base import CamelModel
 from app.schemas.dq_taxonomy import (
     check_threshold,
@@ -11,7 +12,7 @@ from app.schemas.dq_taxonomy import (
 
 
 class DqRuleSetCreate(CamelModel):
-    id: str
+    id: SafeId
     workspace_id: str
     entity_id: str | None = None
     git_remote_config: dict | None = None

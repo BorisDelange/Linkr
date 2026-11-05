@@ -1,11 +1,12 @@
-from typing import Literal
 from datetime import datetime
+from typing import Literal
 
+from app.core.path_ids import SafeId
 from app.schemas.base import CamelModel
 
 
 class WorkspaceCreate(CamelModel):
-    id: str | None = None  # client supplies crypto.randomUUID()
+    id: SafeId | None = None  # client supplies crypto.randomUUID()
     name: dict[str, str]
     description: dict[str, str] = {}
     organization_id: str | None = None

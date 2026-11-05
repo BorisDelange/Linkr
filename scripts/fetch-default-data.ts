@@ -28,7 +28,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // Relative paths, not `@linkr/format`: the workspace link is not installed in
@@ -38,6 +38,9 @@ import {
   buildSeedManifest, buildSeedProjectIndex, buildSeedRoot,
 } from '../packages/linkr-format/src/seed-manifest.js'
 import { FsTree } from '../packages/linkr-format/src/node/fs-tree.js'
+import {
+  childPath, copyContentTree, irregularEntries, writeGeneratedFile,
+} from '../packages/linkr-format/src/node/content-copy.js'
 import { isAppTooOld } from '../packages/linkr-format/src/app-version.js'
 import { ENTITY_MANIFEST, MANIFEST } from '../packages/linkr-format/src/layout.js'
 
@@ -92,14 +95,24 @@ function cacheKey(url, ref) {
  */
 function cloneCached(url, ref, label) {
   const dest = join(CACHE_DIR, cacheKey(url, ref))
+  if (existsSync(join(dest, '.git')) && !cachedCloneMatches(dest, url)) {
+    log(`${label}: cached clone does not point at ${url}, cloning afresh`)
+    rmSync(dest, { recursive: true, force: true })
+  }
   if (existsSync(join(dest, '.git'))) {
     if (OFFLINE) {
       log(`${label}: cached`)
       return dest
     }
     try {
-      execFileSync('git', ['fetch', '--depth', '1', 'origin', ref], { cwd: dest, stdio: 'pipe' })
-      execFileSync('git', ['reset', '--hard', 'FETCH_HEAD'], { cwd: dest, stdio: 'pipe' })
+      // Fetch by URL, not through the clone's own remote, then leave the
+      // checkout exactly at what was fetched, with nothing else in it.
+      git(dest, ['fetch', '--depth', '1', url, ref])
+      git(dest, ['reset', '--hard', 'FETCH_HEAD'])
+      git(dest, ['clean', '-ffdx'])
+      if (git(dest, ['rev-parse', 'HEAD']) !== git(dest, ['rev-parse', 'FETCH_HEAD'])) {
+        throw new Error('the checkout does not match the fetched ref')
+      }
       log(`${label}: updated ${url}@${ref}`)
     } catch (e) {
       fail(`could not update ${label} (${url}@${ref})\n${e.stderr?.toString() ?? e.message}`)
@@ -121,7 +134,7 @@ function cloneCached(url, ref, label) {
   if (existsSync(join(dest, '.gitattributes'))
     && readFileSync(join(dest, '.gitattributes'), 'utf-8').includes('filter=lfs')) {
     try {
-      execFileSync('git', ['lfs', 'pull'], { cwd: dest, stdio: 'pipe' })
+      git(dest, ['lfs', 'pull'])
     } catch (e) {
       fail(`${label} tracks files with git-lfs, but \`git lfs pull\` failed. `
         + `Install git-lfs, or its Parquet will be pointer files.\n${e.stderr?.toString() ?? e.message}`)
@@ -130,11 +143,33 @@ function cloneCached(url, ref, label) {
   return dest
 }
 
-/** Copy a cloned tree, minus its own git metadata. */
-function copyTree(from, to) {
-  rmSync(to, { recursive: true, force: true })
-  mkdirSync(dirname(to), { recursive: true })
-  cpSync(from, to, { recursive: true, filter: (src) => !/(^|[/\\])\.git([/\\]|$)/.test(src) })
+/**
+ * Git in a cached clone, with the options a clone's own config could use to run
+ * commands switched off. The cache may be restored from elsewhere (CI), so its
+ * `.git/config` is not trusted.
+ */
+function git(cwd, args) {
+  return execFileSync('git', [
+    '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', ...args,
+  ], { cwd, stdio: 'pipe', encoding: 'utf-8' }).trim()
+}
+
+/** Whether the cached clone at `dest` is a clone of `url`. */
+function cachedCloneMatches(dest, url) {
+  try {
+    return git(dest, ['config', '--get', 'remote.origin.url']) === url
+  } catch {
+    return false
+  }
+}
+
+/** Copy a cloned tree, minus its own git metadata; regular files only. */
+function copyTree(from, to, label) {
+  try {
+    copyContentTree(from, to)
+  } catch (e) {
+    fail(`${label}: ${e.message} — content repositories hold regular files only`)
+  }
 }
 
 function main() {
@@ -144,13 +179,13 @@ function main() {
     log('profile=lean — no default data will be bundled')
     rmSync(SEED_DIR, { recursive: true, force: true })
     mkdirSync(SEED_DIR, { recursive: true })
-    writeFileSync(join(SEED_DIR, 'seed.json'), `${JSON.stringify(buildSeedRoot([]), null, 2)}\n`)
+    writeGeneratedFile(join(SEED_DIR, 'seed.json'), `${JSON.stringify(buildSeedRoot([]), null, 2)}\n`)
     return
   }
 
   const wsRepo = cloneCached(WORKSPACE_URL, WORKSPACE_REF, 'workspace')
   const target = join(SEED_DIR, WORKSPACE_FOLDER)
-  copyTree(wsRepo, target)
+  copyTree(wsRepo, target, 'workspace')
 
   // Splice each git-linked child's repo over the pointer folder the workspace
   // exported. The pointer carries identity + the remote; the content lives in the
@@ -169,8 +204,21 @@ function main() {
       log(`SKIP ${link.type}/${link.folder}: unknown entity type`)
       continue
     }
-    const child = cloneCached(link.url, link.branch || 'main', `${link.type}/${link.folder}`)
-    copyTree(child, join(target, dir, link.folder))
+    let dest
+    try {
+      dest = childPath(join(target, dir), link.folder)
+    } catch (e) {
+      fail(`git-links.json: ${link.type} link: ${e.message}`)
+    }
+    const label = `${link.type}/${link.folder}`
+    const child = cloneCached(link.url, link.branch || 'main', label)
+    copyTree(child, dest, label)
+  }
+
+  // Nothing written below may land through a link left in the seed folder.
+  const irregular = irregularEntries(SEED_DIR)
+  if (irregular.length) {
+    fail(`the seed folder holds entries that are not regular files:\n  ${irregular.join('\n  ')}`)
   }
 
   refuseTooNew(target)
@@ -187,8 +235,8 @@ function main() {
     // exactly what a plain import does.
     databases: readJsonIfPresent(join(ROOT, 'scripts/default-data-links.json')) ?? {},
   })
-  writeFileSync(join(target, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
-  writeFileSync(
+  writeGeneratedFile(join(target, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
+  writeGeneratedFile(
     join(SEED_DIR, 'seed.json'),
     `${JSON.stringify(buildSeedRoot([WORKSPACE_FOLDER]), null, 2)}\n`,
   )
@@ -200,7 +248,7 @@ function main() {
     if (entity.type !== 'project') continue
     const dir = `projects/${entity.folder ?? entity.id}`
     const index = buildSeedProjectIndex(tree, dir)
-    writeFileSync(join(target, dir, '_index.json'), `${JSON.stringify(index, null, 2)}\n`)
+    writeGeneratedFile(join(target, dir, '_index.json'), `${JSON.stringify(index, null, 2)}\n`)
   }
 
   // A `demo` build that fetched nothing must fail rather than ship looking like a

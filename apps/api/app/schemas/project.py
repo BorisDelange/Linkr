@@ -1,10 +1,11 @@
 from datetime import datetime
 
+from app.core.path_ids import SafeId
 from app.schemas.base import CamelModel
 
 
 class ProjectCreate(CamelModel):
-    uid: str | None = None  # client supplies crypto.randomUUID()
+    uid: SafeId | None = None  # client supplies crypto.randomUUID()
     entity_id: str | None = None
     project_id: str | None = None
     # Required: a project's access is inherited from its workspace, and a project

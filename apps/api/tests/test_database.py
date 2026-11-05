@@ -58,6 +58,29 @@ async def test_write_is_rolled_back_even_if_it_slipped_through(client):
     assert before == 1
 
 
+@pytest.mark.parametrize("sql", [
+    "WITH t AS (SELECT 1) UPDATE users SET role='viewer' RETURNING username, role",
+    "WITH t AS (SELECT 1) UPDATE users SET role='viewer'",
+    "/* c */ WITH t AS (SELECT 1) DELETE FROM users",
+    "WITH t AS (SELECT 1) INSERT INTO roles (id, name) SELECT 'r-x', 'x' FROM t",
+])
+async def test_cte_prefixed_writes_change_nothing(client, sql):
+    """The console only reads, whatever keyword the statement starts with, and the
+    app's own writes keep working on the connection afterwards."""
+    headers = await _admin_headers(client)
+    r = await client.post(f"{API}/database/query", headers=headers, json={"sql": sql})
+    assert r.status_code == 422
+    rows = (await client.post(
+        f"{API}/database/query", headers=headers,
+        json={"sql": "SELECT username, role FROM users"},
+    )).json()["rows"]
+    assert rows == [{"username": "admin", "role": "admin"}]
+    assert (await client.post(f"{API}/database/query", headers=headers,
+            json={"sql": "SELECT count(*) AS n FROM roles WHERE name = 'x'"})).json()["rows"][0]["n"] == 0
+    assert (await client.post(f"{API}/users", headers=headers,
+            json={"username": "bob", "password": "pw-for-tests-only", "role": "user"})).status_code in (200, 201)
+
+
 async def test_bad_sql_is_422(client):
     headers = await _admin_headers(client)
     r = await client.post(

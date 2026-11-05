@@ -26,6 +26,7 @@ from app.schemas.data_source import (
 )
 from app.services import (
     author_provenance,
+    blob_cleanup,
     blob_store,
     concept_profile_service,
     concept_stats_cache_service,
@@ -496,13 +497,14 @@ async def delete(
     await db.delete(source)  # cascades to data_source_files via FK
     await db.commit()
     connection_pool.invalidate(source_id)
-    concept_cache_fs.invalidate(source_id)
+    # Every cache keyed by the id goes with it: a database created later under
+    # the same id must start empty, not read what this one computed.
+    await invalidate_concept_caches(db, source_id)
+    await stats_cache_service.delete_with_prefix(db, "database", source_id)
     # A managed file is owned by this source alone — nothing else references it.
     if owns_default_file:
         managed_db.delete(source_id)
-    for sha in shas:
-        if not await _sha_still_referenced(db, sha):
-            await blob_store.delete(sha)
+    await blob_cleanup.deref_blobs(db, shas)
 
 
 async def _forget_created_schema(db: AsyncSession, source: DataSource) -> None:
@@ -542,9 +544,12 @@ async def get_file(db: AsyncSession, file_id: str) -> DataSourceFile | None:
     return await db.get(DataSourceFile, file_id)
 
 
-async def _sha_still_referenced(db: AsyncSession, sha: str) -> bool:
-    q = select(DataSourceFile.id).where(DataSourceFile.content_hash == sha).limit(1)
-    return (await db.execute(q)).first() is not None
+async def holds_files_or_cohorts(db: AsyncSession, source_id: str) -> bool:
+    """Whether removing the database row would take uploaded files or cohorts
+    with it (both cascade)."""
+    has_file = select(DataSourceFile.id).where(DataSourceFile.data_source_id == source_id).limit(1)
+    has_cohort = select(Cohort.id).where(Cohort.owner_data_source_id == source_id).limit(1)
+    return (await db.execute(has_file)).first() is not None or (await db.execute(has_cohort)).first() is not None
 
 
 async def import_file(
@@ -575,8 +580,7 @@ async def delete_file(db: AsyncSession, file: DataSourceFile) -> None:
     await db.commit()
     connection_pool.invalidate(source_id)
     await invalidate_concept_caches(db, source_id)
-    if not await _sha_still_referenced(db, sha):
-        await blob_store.delete(sha)
+    await blob_cleanup.deref_blobs(db, {sha})
 
 
 def is_managed(source: DataSource) -> bool:

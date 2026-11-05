@@ -80,7 +80,7 @@ class TestLfsPullFailureClassification:
             return sp.CompletedProcess(args=[], returncode=rc, stdout="", stderr=stderr)
 
         monkeypatch.setattr(git_service.subprocess, "run", fake_run)
-        return git_service._lfs_pull(Path("/tmp/x"), None)
+        return git_service._lfs_pull(Path("/tmp/x"), None, "https://example.org/x.git")
 
     def test_success_reports_no_failure(self, monkeypatch):
         assert self._run(monkeypatch, 0, "") is None
@@ -103,4 +103,86 @@ class TestLfsPullFailureClassification:
             raise sp.TimeoutExpired(cmd="git lfs pull", timeout=1)
 
         monkeypatch.setattr(git_service.subprocess, "run", fake_run)
-        assert git_service._lfs_pull(Path("/tmp/x"), None) == "other"
+        assert git_service._lfs_pull(Path("/tmp/x"), None, "https://example.org/x.git") == "other"
+
+
+class TestLfsEndpointIsTheRemotes:
+    """LFS objects come from the checked remote's own endpoint: a repository's
+    committed `.lfsconfig` never chooses where the server sends a request."""
+
+    def test_endpoint_derives_from_the_remote(self):
+        from app.services import git_service
+
+        assert git_service._lfs_endpoint("https://h.org/g/r") == "https://h.org/g/r.git/info/lfs"
+        assert git_service._lfs_endpoint("https://h.org/g/r.git/") == "https://h.org/g/r.git/info/lfs"
+        assert git_service._lfs_endpoint("git@h.org:g/r.git") == "git@h.org:g/r.git"
+
+    def test_a_versioning_tree_pins_its_endpoint_to_its_remote(self, tmp_path):
+        from app.services import git_service
+
+        repo = tmp_path / "repo"
+        git_service._ensure_repo(repo, "https://h.org/g/r")
+        assert git_service._run(repo, "config", "--get", "lfs.url").strip() == "https://h.org/g/r.git/info/lfs"
+
+    @staticmethod
+    def _repo_naming_its_own_lfs_server(tmp_path, port: int) -> str:
+        import subprocess as sp
+
+        from app.services import git_service
+
+        env = git_service._git_env()
+        src = tmp_path / "src"
+        remote = tmp_path / "remote.git"
+        sp.run(["git", "init", "-q", str(src)], check=True, env=env)
+        sp.run(["git", "init", "--bare", "-q", str(remote)], check=True, env=env)
+        (src / ".gitattributes").write_text("*.csv filter=lfs diff=lfs merge=lfs -text\n")
+        (src / ".lfsconfig").write_text(f"[lfs]\n\turl = http://127.0.0.1:{port}/hook\n")
+        (src / "x.csv").write_bytes(POINTER)
+        (src / "entity.json").write_text("{}")
+        for args in (
+            ["add", "-A"],
+            ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c"],
+            ["push", "-q", str(remote), "HEAD:main"],
+        ):
+            sp.run(["git", "-C", str(src), *args], check=True, env=env)
+        return str(remote)
+
+    async def test_a_committed_lfsconfig_does_not_redirect_the_clone(self, tmp_path):
+        import socket
+        import threading
+
+        import pytest
+
+        from app.services import git_service
+
+        if not git_service._has_git_lfs():
+            pytest.skip("git-lfs is not installed")
+
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(4)
+        listener.settimeout(0.2)
+        hits: list[int] = []
+        stop = threading.Event()
+
+        def serve():
+            while not stop.is_set():
+                try:
+                    conn, _ = listener.accept()
+                except OSError:
+                    continue
+                hits.append(1)
+                conn.close()
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        try:
+            remote = self._repo_naming_its_own_lfs_server(tmp_path, listener.getsockname()[1])
+            data, _oid = await git_service.clone_to_zip(remote, "main", None)
+        finally:
+            stop.set()
+            thread.join(timeout=2)
+            listener.close()
+
+        assert hits == []
+        assert data

@@ -2,11 +2,12 @@ from datetime import datetime
 
 from pydantic import Field, field_validator
 
+from app.core.path_ids import SafeId
 from app.schemas.base import CamelModel
 
 
 class MappingProjectCreate(CamelModel):
-    id: str
+    id: SafeId
     workspace_id: str
     entity_id: str | None = None
     name: dict = {}

@@ -2,6 +2,7 @@ import asyncio
 import os
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.core import audit
@@ -474,6 +475,81 @@ async def test_non_member_cannot_access(client, db):
     assert (await client.get(f"{API}/data-sources", headers=other)).json() == []
 
 
+def _duckdb_file(path, tag: str) -> str:
+    import duckdb
+
+    con = duckdb.connect(str(path))
+    con.execute("CREATE TABLE person AS SELECT 42 AS person_id, ? AS tag", [tag])
+    con.close()
+    return str(path)
+
+
+async def test_a_database_without_workspace_is_not_open_to_everyone(client, db, tmp_path):
+    from app.services import cohort_access
+
+    admin = await _admin_headers(client)
+    ws = await _workspace(client, admin)
+    served = _duckdb_file(tmp_path / "a.duckdb", "WS-A-ROW")
+    await client.post(f"{API}/data-sources", headers=admin, json={
+        "workspaceId": ws, "alias": "a", "name": "A", "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb", "serverPath": served},
+    })
+    db.add(DataSource(id="free", alias="free", name={"en": "Free"}, source_type="database",
+                      connection_config={"engine": "duckdb"}, workspace_id=None))
+    await db.commit()
+    mallory = await _create_user(db, client, "mallory")
+    mallory_user = (await db.execute(select(User).where(User.username == "mallory"))).scalar_one()
+
+    created = await client.post(f"{API}/data-sources", headers=mallory, json={
+        "alias": "m1", "name": {"en": "m1"}, "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb", "serverPath": served}, "status": "connected",
+    })
+    assert created.status_code == 403
+    assert (await client.get(f"{API}/data-sources", headers=mallory)).json() == []
+    assert (await client.get(f"{API}/data-sources/free", headers=mallory)).status_code == 403
+    assert (await client.patch(f"{API}/data-sources/free", headers=mallory, json={"alias": "x"})).status_code == 403
+    assert (await client.post(f"{API}/data-sources/free/query", headers=mallory, json={"sql": "select 1"})).status_code == 403
+    assert (await client.delete(f"{API}/data-sources/free", headers=mallory)).status_code == 403
+    free = await db.get(DataSource, "free")
+    with pytest.raises(HTTPException):
+        await cohort_access.require_database_access(db, free.id, mallory_user, "cohorts:read")
+    assert (await client.get(f"{API}/data-sources/free", headers=admin)).status_code == 200
+
+
+async def test_create_from_ddl_cannot_read_server_files_without_code_execution(client, db, tmp_path, monkeypatch):
+    from app.config import settings
+    from app.models.role import Role
+    from app.models.workspace_member import WorkspaceMember
+
+    monkeypatch.setattr(type(settings), "data_path", property(lambda _: tmp_path / "data"))
+    admin = await _admin_headers(client)
+    ws = await _workspace(client, admin)
+    member = await _create_user(db, client, "member")
+    member_id = (await db.execute(select(User.id).where(User.username == "member"))).scalar_one()
+    db.add(Role(name="db-editor", scope="workspace", permissions=["databases:read", "databases:write"]))
+    db.add(WorkspaceMember(workspace_id=ws, user_id=member_id, role="db-editor"))
+    await db.commit()
+    sentinel = tmp_path / "outside" / "sentinel.txt"
+    sentinel.parent.mkdir()
+    sentinel.write_text("SERVER-ONLY")
+    ds = (await client.post(f"{API}/data-sources", headers=member, json={
+        "workspaceId": ws, "alias": "m", "name": "M", "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb"},
+    })).json()
+
+    ddl = (
+        f"CREATE TABLE t1 AS SELECT content FROM read_text('{sentinel}');"
+        f"COPY (SELECT 'w') TO '{tmp_path / 'outside' / 'written.csv'}' (FORMAT csv, HEADER false);"
+    )
+    r = await client.post(f"{API}/data-sources/{ds['id']}/create-from-ddl", headers=member, json={"ddl": ddl})
+
+    assert r.status_code == 422
+    assert not (tmp_path / "outside" / "written.csv").exists()
+    ok = await client.post(f"{API}/data-sources/{ds['id']}/create-from-ddl", headers=member,
+                           json={"ddl": "CREATE TABLE person (person_id BIGINT);"})
+    assert ok.status_code == 200
+
+
 # Opt-in live test: set LINKR_TEST_PG_DSN to a JSON connectionConfig, e.g.
 #   LINKR_TEST_PG_DSN='{"engine":"postgresql","host":"127.0.0.1","port":5432,
 #                       "database":"linkr","username":"me","password":"pw-for-tests-only"}'
@@ -852,3 +928,21 @@ async def test_a_query_id_is_a_uuid(client):
     assert r.status_code == 200 and r.json() == {"cancelled": False}
     bad = await client.post(f"{API}/data-sources/{source_id}/query", headers=headers, json={"sql": "SELECT 1", "queryId": "q"})
     assert bad.status_code == 422
+
+
+async def test_a_database_created_again_under_a_deleted_id_starts_with_no_cache(client, db):
+    admin = await _admin_headers(client)
+    ws_a, ws_b = await _workspace(client, admin), await _workspace(client, admin)
+    _, bob = await _create_member(db, client, admin, ws_b, "bob", "editor")
+    ds_id = "11111111-2222-3333-4444-555555555555"
+    body = {"id": ds_id, "alias": "db", "name": "db", "sourceType": "database", "connectionConfig": {"engine": "duckdb"}}
+    assert (await client.post(f"{API}/data-sources", headers=admin, json={**body, "workspaceId": ws_a})).status_code == 201
+    stats = {"computedAt": "2026-10-22T00:00:00Z", "payload": {"summary": {"patientCount": 4242}}}
+    assert (await client.put(f"{API}/data-sources/{ds_id}/stats-cache", headers=admin, json=stats)).status_code == 200
+    assert (await client.put(f"{API}/data-sources/{ds_id}/concept-stats/7", headers=admin, json={"stats": {"rowCount": 9}})).status_code == 200
+    assert (await client.delete(f"{API}/data-sources/{ds_id}", headers=admin)).status_code == 204
+
+    assert (await client.post(f"{API}/data-sources", headers=bob, json={**body, "workspaceId": ws_b})).status_code == 201
+    r = await client.get(f"{API}/data-sources/{ds_id}/stats-cache", headers=bob)
+    assert r.status_code == 200 and r.json() is None
+    assert (await client.get(f"{API}/data-sources/{ds_id}/concept-stats/7", headers=bob)).status_code == 404

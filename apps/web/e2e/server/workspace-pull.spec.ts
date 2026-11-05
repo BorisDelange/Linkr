@@ -66,12 +66,12 @@ test('a colleague’s wiki edits come back through the pull, page by page and it
   git(clone, 'config', 'user.email', 'colleague@example.org')
   const treePath = path.join(clone, 'wiki', '_tree.json')
   const tree = JSON.parse(readFileSync(treePath, 'utf-8'))
-  tree.find((p: { id: string }) => p.id === page1.id).status = 'needs_revision'
+  tree.find((p: { entityId: string }) => p.entityId === page1.entityId).status = 'needs_revision'
   // A page as a Linkr export writes it: every key of an existing entry, in its
-  // order, createdAt included; the tree sorted by id.
+  // order, createdAt included; the tree keyed and sorted by entityId.
   const blank = Object.fromEntries(Object.keys(tree[0]).map((k) => [k, null]))
-  tree.push({ ...blank, id: `e2e-note-${run}`, entityId: 'note', title: { en: 'Note' }, slug: 'note', sortOrder: 2, createdAt: '2026-01-02T03:04:05.000Z' })
-  tree.sort((a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : 1))
+  tree.push({ ...blank, entityId: 'note', title: { en: 'Note' }, slug: 'note', sortOrder: 2, createdAt: '2026-01-02T03:04:05.000Z' })
+  tree.sort((a: { entityId: string }, b: { entityId: string }) => (a.entityId < b.entityId ? -1 : 1))
   writeFileSync(treePath, JSON.stringify(tree, null, 2))
   writeFileSync(path.join(clone, 'wiki', 'setup.md'), 'Install it.\n\nRun it.\n\nThen check the logs.\n')
   writeFileSync(path.join(clone, 'wiki', 'faq.md'), 'Question one, theirs.\n\nAnswer one.\n')
@@ -152,10 +152,10 @@ test('a colleague’s wiki edits come back through the pull, page by page and it
   await expect(page.getByRole('button', { name: 'Propose', exact: true })).toHaveCount(0)
   if (process.env.E2E_SHOTS) await page.screenshot({ path: path.join(process.env.E2E_SHOTS, 'push-quick.png'), fullPage: true })
 
-  const pages: { id: string; status?: string; content: { en: string } }[] = await (await http.get(`/wiki-pages?workspaceId=${wsId}`)).json()
-  const byId = new Map(pages.map((p) => [p.id, p]))
-  expect(byId.get(page1.id)?.status).toBe('needs_revision')
-  expect(byId.get(page1.id)?.content.en).toBe('Install it with uv.\n\nRun it.\n\nThen check the logs.\n')
-  expect(byId.get(page2.id)?.content.en).toBe('Question one, mine and theirs.\n\nAnswer one.\n')
-  expect(byId.get(`e2e-note-${run}`)?.content.en).toBe('A note from the colleague.\n')
+  const pages: { entityId: string; status?: string; content: { en: string } }[] = await (await http.get(`/wiki-pages?workspaceId=${wsId}`)).json()
+  const byEntity = new Map(pages.map((p) => [p.entityId, p]))
+  expect(byEntity.get(page1.entityId)?.status).toBe('needs_revision')
+  expect(byEntity.get(page1.entityId)?.content.en).toBe('Install it with uv.\n\nRun it.\n\nThen check the logs.\n')
+  expect(byEntity.get(page2.entityId)?.content.en).toBe('Question one, mine and theirs.\n\nAnswer one.\n')
+  expect(byEntity.get('note')?.content.en).toBe('A note from the colleague.\n')
 })

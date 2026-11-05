@@ -100,3 +100,28 @@ async def test_non_member_cannot_access(client, db):
     other = await _create_user(db, client, "bob")
     assert (await client.get(f"{API}/source-concept-id-ranges?workspaceId={ws}", headers=other)).status_code == 403
     assert (await client.get(f"{API}/source-concept-id-entries?workspaceId={ws}", headers=other)).status_code == 403
+
+
+async def test_an_entry_is_only_written_within_its_own_workspace(client):
+    headers = await _admin_headers(client)
+    ws_a = await _workspace(client, headers)
+    ws_b = await _workspace(client, headers)
+    entry = {"badgeLabel": "B", "vocabularyId": "LOC", "conceptCode": "c1", "sourceConceptId": 7}
+    held = f"{ws_b}__B__LOC__c1"
+    r = await client.put(f"{API}/source-concept-id-entries", headers=headers,
+                         json={"id": held, "workspaceId": ws_b, **entry})
+    assert r.status_code == 200
+
+    r = await client.put(f"{API}/source-concept-id-entries", headers=headers,
+                         json={"id": held, "workspaceId": ws_a, **entry, "sourceConceptId": 1})
+    assert r.status_code == 409
+    r = await client.put(f"{API}/source-concept-id-entries/batch", headers=headers, json={"entries": [
+        {"id": f"{ws_a}__B__LOC__c2", "workspaceId": ws_a, **entry, "conceptCode": "c2"},
+        {"id": held, "workspaceId": ws_a, **entry, "sourceConceptId": 2},
+    ]})
+    assert r.status_code == 409
+
+    b = (await client.get(f"{API}/source-concept-id-entries?workspaceId={ws_b}", headers=headers)).json()
+    assert [(e["id"], e["sourceConceptId"]) for e in b] == [(held, 7)]
+    a = (await client.get(f"{API}/source-concept-id-entries?workspaceId={ws_a}", headers=headers)).json()
+    assert a == []

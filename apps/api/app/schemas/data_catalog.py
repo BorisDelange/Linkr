@@ -1,10 +1,11 @@
 from datetime import datetime
 
+from app.core.path_ids import SafeId
 from app.schemas.base import CamelModel
 
 
 class DataCatalogCreate(CamelModel):
-    id: str
+    id: SafeId
     workspace_id: str
     entity_id: str | None = None
     git_remote_config: dict | None = None

@@ -271,33 +271,74 @@ function columnIndex(headers: string[], mapped: string | undefined, guesses: str
   return -1
 }
 
-/** `text` with every cell the rule masks rewritten; unchanged when nothing is. */
+/** How the app reads a mapping project's source file (FileSourceData.parseOptions). */
+export interface SourceParseOptions {
+  delimiter?: string
+  skipRows?: number
+  hasHeader?: boolean
+}
+
+/** The names DuckDB gives the columns of a file read with header=false — what a
+ *  headerless project's column mapping refers to. */
+function positionalHeaders(width: number): string[] {
+  const digits = String(Math.max(width - 1, 0)).length
+  return Array.from({ length: width }, (_, i) => `column${String(i).padStart(digits, '0')}`)
+}
+
+/**
+ * `text` with every cell the rule masks rewritten; unchanged when nothing is.
+ *
+ * The file is read as the app reads it (`parseOptions`: skipRows lines kept as
+ * they are, the chosen delimiter, a header or positional names). A count or
+ * profile column the mapping names but the file does not have means the file was
+ * not read as it should be: it throws rather than leaves unmasked.
+ */
 export function maskSourceConceptsCsv(
   text: string,
   columnMapping?: Partial<FileColumnMapping> | null,
   k: number = exportMinCount,
+  parseOptions?: SourceParseOptions | null,
 ): string {
   if (text.startsWith('\uFEFF')) text = text.slice(1)
   if (k <= 1 || !text || text.startsWith('version https://git-lfs')) return text
-  const firstLine = text.split('\n', 1)[0]
-  const delimiter = [',', ';', '\t'].reduce((best, d) =>
+  const opts = parseOptions ?? {}
+  const skip = Math.max(0, Math.trunc(Number(opts.skipRows ?? 0)))
+  if (!Number.isFinite(skip)) throw new SourceConceptsUnreadableError()
+  let preamble = ''
+  let table = text
+  for (let i = 0; i < skip; i++) {
+    const nl = table.indexOf('\n')
+    if (nl < 0) return text
+    preamble += table.slice(0, nl + 1)
+    table = table.slice(nl + 1)
+  }
+  if (!table) return text
+  const firstLine = table.split('\n', 1)[0]
+  const delimiter = opts.delimiter || [',', ';', '\t', '|'].reduce((best, d) =>
     firstLine.split(d).length > firstLine.split(best).length ? d : best)
-  const parsed = Papa.parse<string[]>(text, { delimiter, skipEmptyLines: false })
+  if (delimiter.length !== 1) throw new SourceConceptsUnreadableError()
+  const parsed = Papa.parse<string[]>(table, { delimiter, skipEmptyLines: false })
   const rows = parsed.data
-  if (text.endsWith('\n') && rows.length > 0 && rows[rows.length - 1].length === 1 && rows[rows.length - 1][0] === '') {
+  if (table.endsWith('\n') && rows.length > 0 && rows[rows.length - 1].length === 1 && rows[rows.length - 1][0] === '') {
     rows.pop()
   }
   if (rows.length === 0) return text
   const mapping = columnMapping ?? {}
-  const headers = rows[0]
+  const hasHeader = opts.hasHeader !== false
+  const headers = hasHeader ? rows[0] : positionalHeaders(Math.max(...rows.map((r) => r.length)))
+  const data = hasHeader ? rows.slice(1) : rows
   const recordIdx = columnIndex(headers, mapping.recordCountColumn, ['record_count', 'rows_count'])
   const patientIdx = columnIndex(headers, mapping.patientCountColumn, ['patient_count', 'patients_count'])
   const jsonIdx = columnIndex(headers, mapping.infoJsonColumn, JSON_HEADERS)
+  const roles: [string | undefined, number][] = [
+    [mapping.recordCountColumn, recordIdx], [mapping.patientCountColumn, patientIdx], [mapping.infoJsonColumn, jsonIdx],
+  ]
+  if (roles.some(([name, idx]) => name && idx < 0)) throw new SourceConceptsUnreadableError()
   const countIdx = [recordIdx, patientIdx].filter((i) => i >= 0)
   if (countIdx.length === 0 && jsonIdx < 0) return text
 
   let changed = false
-  for (const cells of rows.slice(1)) {
+  for (const cells of data) {
     const withheld = countIdx.some((i) => i < cells.length && isSmall(cells[i], k))
     const [rowPatients, rowRecords] = [patientIdx, recordIdx].map((i) =>
       i >= 0 && i < cells.length && cells[i].trim() ? cells[i] : null)
@@ -324,5 +365,5 @@ export function maskSourceConceptsCsv(
   }
   if (!changed) return text
   const body = rows.map((cells) => cells.map((c) => cell(c, delimiter)).join(delimiter)).join('\n')
-  return text.endsWith('\n') ? `${body}\n` : body
+  return preamble + (table.endsWith('\n') ? `${body}\n` : body)
 }
