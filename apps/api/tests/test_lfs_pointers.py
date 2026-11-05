@@ -122,7 +122,39 @@ class TestLfsEndpointIsTheRemotes:
 
         repo = tmp_path / "repo"
         git_service._ensure_repo(repo, "https://h.org/g/r")
-        assert git_service._run(repo, "config", "--get", "lfs.url").strip() == "https://h.org/g/r.git/info/lfs"
+        for key in ("lfs.url", "lfs.pushurl"):
+            assert git_service._run(repo, "config", "--get", key).strip() == "https://h.org/g/r.git/info/lfs"
+
+    @staticmethod
+    def _listener():
+        import socket
+        import threading
+
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(4)
+        listener.settimeout(0.2)
+        hits: list[int] = []
+        stop = threading.Event()
+
+        def serve():
+            while not stop.is_set():
+                try:
+                    conn, _ = listener.accept()
+                except OSError:
+                    continue
+                hits.append(1)
+                conn.close()
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+
+        def close():
+            stop.set()
+            thread.join(timeout=2)
+            listener.close()
+
+        return listener.getsockname()[1], hits, close
 
     @staticmethod
     def _repo_naming_its_own_lfs_server(tmp_path, port: int) -> str:
@@ -148,8 +180,27 @@ class TestLfsEndpointIsTheRemotes:
         return str(remote)
 
     async def test_a_committed_lfsconfig_does_not_redirect_the_clone(self, tmp_path):
-        import socket
-        import threading
+        import pytest
+
+        from app.services import git_service
+
+        if not git_service._has_git_lfs():
+            pytest.skip("git-lfs is not installed")
+
+        port, hits, close = self._listener()
+        try:
+            remote = self._repo_naming_its_own_lfs_server(tmp_path, port)
+            data, _oid = await git_service.clone_to_zip(remote, "main", None)
+        finally:
+            close()
+
+        assert hits == []
+        assert data
+
+    async def test_lfs_uploads_go_only_to_the_checked_remote(self, tmp_path):
+        import io
+        import subprocess as sp
+        import zipfile
 
         import pytest
 
@@ -158,31 +209,31 @@ class TestLfsEndpointIsTheRemotes:
         if not git_service._has_git_lfs():
             pytest.skip("git-lfs is not installed")
 
-        listener = socket.socket()
-        listener.bind(("127.0.0.1", 0))
-        listener.listen(4)
-        listener.settimeout(0.2)
-        hits: list[int] = []
-        stop = threading.Event()
+        port, hits, close = self._listener()
+        env = git_service._git_env()
+        src, remote = tmp_path / "src", tmp_path / "remote.git"
+        sp.run(["git", "init", "--bare", "-q", str(remote)], check=True, env=env)
+        sp.run(["git", "init", "-q", str(src)], check=True, env=env)
+        (src / ".lfsconfig").write_text(f"[lfs]\n\tpushurl = http://127.0.0.1:{port}/hook\n")
+        (src / "entity.json").write_text("{}")
+        for args in (
+            ["add", "-A"],
+            ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c"],
+            ["push", "-q", str(remote), "HEAD:main"],
+        ):
+            sp.run(["git", "-C", str(src), *args], check=True, env=env)
 
-        def serve():
-            while not stop.is_set():
-                try:
-                    conn, _ = listener.accept()
-                except OSError:
-                    continue
-                hits.append(1)
-                conn.close()
-
-        thread = threading.Thread(target=serve, daemon=True)
-        thread.start()
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr(".gitattributes", "*.csv filter=lfs diff=lfs merge=lfs -text\n")
+            zf.writestr("data.csv", "a,b\n1,2\n")
         try:
-            remote = self._repo_naming_its_own_lfs_server(tmp_path, listener.getsockname()[1])
-            data, _oid = await git_service.clone_to_zip(remote, "main", None)
+            result = await git_service.commit_push(
+                lambda _uid: tmp_path / "repo", "u", buf.getvalue(), "main", "m", str(remote), None,
+                paths=[".gitattributes", "data.csv"],
+            )
         finally:
-            stop.set()
-            thread.join(timeout=2)
-            listener.close()
+            close()
 
         assert hits == []
-        assert data
+        assert result["pushed"]

@@ -12,13 +12,30 @@ stages:
 # a server-side net (e.g. for pushes made with --no-verify).
 # ---------------------------------------------------------------------------
 
-build:
+.build:
   stage: build
-  # Branches only. A tag pipeline builds and publishes the Docker images
-  # instead (see `docker` below), and the static site it would produce here is
-  # already published from the default branch.
+  script:
+    # The default data is NOT in this repo (see CLAUDE.md): a WASM build has no
+    # git client, so the seed has to be baked in at build time. The alpine image
+    # ships neither git nor git-lfs, and without them this step fails loudly
+    # rather than publishing a site with no default content.
+    - apk add --no-cache git git-lfs
+    - npm ci
+    - npm run data:fetch
+    - cd apps/web && npx vite build --base /
+  artifacts:
+    paths:
+      - apps/web/dist
+
+# Branches only. A tag pipeline builds and publishes the Docker images instead
+# (see `docker` below), and the static site it would produce here is already
+# published from the default branch.
+build:
+  extends: .build
   rules:
     - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: never
     - when: on_success
   cache:
@@ -30,30 +47,20 @@ build:
       # re-pulling the LFS Parquet too; the script reuses this checkout when it
       # is present and only fetches the pinned refs it is missing.
       - .cache/default-data/
-  script:
-    # The default data is NOT in this repo (see CLAUDE.md): a WASM build has no
-    # git client, so the seed has to be baked in at build time. The alpine image
-    # ships neither git nor git-lfs, and without them this step fails loudly
-    # rather than publishing a site with no default content.
-    - apk add --no-cache git git-lfs
-    # The default branch publishes the site, so it starts from nothing a cache
-    # could have carried over from another branch's pipeline: any branch can
-    # write a cache under any key.
-    - |
-      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
-        rm -rf .cache/default-data node_modules apps/web/node_modules
-      fi
-    - npm ci
-    - npm run data:fetch
-    - cd apps/web && npx vite build --base /
-  artifacts:
-    paths:
-      - apps/web/dist
+
+# The default branch publishes the site, so it builds from nothing a cache could
+# carry over: any branch's pipeline can write a cache under any key.
+build-site:
+  extends: .build
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 pages:
   stage: deploy
   dependencies:
-    - build
+    - build-site
   script:
     - mkdir -p public
     - cp -r apps/web/dist/* public/

@@ -141,14 +141,17 @@ def _require_read_only_sqlserver_login(con: duckdb.DuckDBPyConnection, alias: st
         )
 
 
-# Permissions a read-only login may hold on the database or on a schema: the
-# deny-list below names the rest, as fn_my_permissions spells them.
-_SQLSERVER_WRITE_PERMS = {"INSERT", "UPDATE", "DELETE", "CONTROL", "EXECUTE", "TAKE OWNERSHIP", "IMPERSONATE"}
+# Permissions a read-only login must not hold on the database or on a schema, as
+# fn_my_permissions spells them. Families go by their leading word, so every
+# member is refused (EXECUTE ANY EXTERNAL SCRIPT, BACKUP LOG, ADMINISTER DATABASE
+# BULK OPERATIONS, KILL DATABASE CONNECTION…), the bare EXECUTE included.
+_SQLSERVER_WRITE_PERMS = {"INSERT", "UPDATE", "DELETE", "CONTROL", "TAKE OWNERSHIP", "IMPERSONATE", "CHECKPOINT"}
+_SQLSERVER_WRITE_FAMILIES = ("ALTER", "CREATE", "EXECUTE", "BACKUP", "ADMINISTER", "KILL", "ENABLE")
 
 
 def _is_sqlserver_write_permission(name: str) -> bool:
-    name = name.strip().upper()
-    return name in _SQLSERVER_WRITE_PERMS or name.startswith(("ALTER", "CREATE"))
+    name = " ".join(name.upper().split())
+    return name in _SQLSERVER_WRITE_PERMS or name.split(" ", 1)[0] in _SQLSERVER_WRITE_FAMILIES
 
 
 def _sqlserver_granted_permissions(con: duckdb.DuckDBPyConnection, alias: str) -> list[str]:

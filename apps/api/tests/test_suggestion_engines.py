@@ -542,3 +542,27 @@ async def test_a_paused_computation_keeps_what_it_finished_and_resumes_the_rest(
     assert await methods_of("hr") == {"syntactic/jaro-winkler": 0.9}  # resuming leaves what was done
     assert (await client.get(f"{base}/compute", headers=headers)).json()["paused"] is None
     assert (await client.post(f"{base}/compute/resume", headers=headers)).status_code == 409
+
+
+def test_a_model_folder_with_pickle_weights_alone_is_refused(tmp_path):
+    plain = [{"idx": 0, "name": "0", "path": "", "type": "sentence_transformers.models.Transformer"},
+             {"idx": 1, "name": "1", "path": "2_Dense", "type": "sentence_transformers.models.Dense"}]
+    safe = _model_folder(tmp_path / "safe", plain, {
+        "model.safetensors": "x", "training_args.bin": "x", "2_Dense/model.safetensors": "x",
+    })
+    assert worker.unsafe_model_reason(safe) is None
+    for name, extra in {
+        "root": {"pytorch_model.bin": "x"},
+        "module": {"model.safetensors": "x", "2_Dense/pytorch_model.bin": "x"},
+        "checkpoint": {"weights.PT": "x"},
+    }.items():
+        folder = _model_folder(tmp_path / name, plain, extra)
+        assert "pickle" in worker.unsafe_model_reason(folder)
+        with pytest.raises(ValueError, match="pickle"):
+            worker.load_model({"modelPath": str(folder)})
+
+
+def test_the_embeddings_runtime_requires_loaders_that_refuse_pickled_code():
+    from app.services.suggestions import runtime
+
+    assert "torch>=2.6" in runtime.PACKAGES and "transformers>=4.50" in runtime.PACKAGES

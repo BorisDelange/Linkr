@@ -668,15 +668,23 @@ def _lfs_endpoint(remote_url: str) -> str:
     return urlunsplit(parts._replace(path=f"{path}/info/lfs", query="", fragment=""))
 
 
+# git-lfs takes an upload endpoint from `lfs.pushurl` before `lfs.url`, and both are
+# readable from a committed `.lfsconfig`: every one is pinned, or the other wins.
+_LFS_ENDPOINT_KEYS = ("lfs.url", "lfs.pushurl")
+
+
 def _lfs_env(remote_url: str) -> dict:
     """`_git_env()` with the LFS endpoint pinned to the remote that was checked,
     whatever a committed `.lfsconfig` names: configuration given to git outranks it.
     """
     env = _git_env()
     n = int(env["GIT_CONFIG_COUNT"])
-    env[f"GIT_CONFIG_KEY_{n}"] = "lfs.url"
-    env[f"GIT_CONFIG_VALUE_{n}"] = _lfs_endpoint(remote_url)
-    env["GIT_CONFIG_COUNT"] = str(n + 1)
+    endpoint = _lfs_endpoint(remote_url)
+    for key in _LFS_ENDPOINT_KEYS:
+        env[f"GIT_CONFIG_KEY_{n}"] = key
+        env[f"GIT_CONFIG_VALUE_{n}"] = endpoint
+        n += 1
+    env["GIT_CONFIG_COUNT"] = str(n)
     return env
 
 
@@ -739,16 +747,20 @@ def _ensure_repo(repo: Path, remote_url: str | None) -> None:
             _run(repo, "remote", "set-url", "origin", remote_url)
         # Every LFS transfer of this tree (smudge on checkout, pre-push upload) goes
         # to the remote's own endpoint, never one the content names (_lfs_env).
-        _run(repo, "config", "lfs.url", _lfs_endpoint(remote_url), check=False)
+        for key in _LFS_ENDPOINT_KEYS:
+            _run(repo, "config", key, _lfs_endpoint(remote_url), check=False)
 
 
 def _safe_join(tree: Path, rel: str) -> Path:
     """Resolve `rel` under `tree`, refusing anything that escapes it (a client
-    `path`/`paths` entry could be `../../etc/passwd`). Raises GitError on escape."""
+    `path`/`paths` entry could be `../../etc/passwd`) or reaches the repository's
+    own metadata, as written or once links are followed. Raises GitError."""
     dest = (tree / rel).resolve()
     root = tree.resolve()
     if dest != root and root not in dest.parents:
         raise GitError(f"path escapes tree: {rel}")
+    if _names_git_dir(rel) or _names_git_dir(dest.relative_to(root).as_posix()):
+        raise GitError(f"path inside .git: {rel}")
     return dest
 
 
@@ -779,11 +791,30 @@ def _unpack_zip_into(zip_bytes: bytes, tree: Path) -> None:
                 continue
             if _names_git_dir(name):
                 raise GitError(f"export member inside .git: {name}")
+            if _names_lfs_config(name):
+                raise GitError(f"export member is repository configuration: {name}")
             dest = _safe_join(tree, name)
             if dest == metadata or metadata in dest.parents:
                 raise GitError(f"export member inside .git: {name}")
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(zf.read(name))
+
+
+def _crosses_link(tree: Path, rel: str) -> bool:
+    """True when `rel`, or a folder on the way to it, is a symbolic link in `tree`."""
+    node = tree
+    for part in PurePosixPath(rel.replace("\\", "/")).parts:
+        node = node / part
+        if node.is_symlink():
+            return True
+    return False
+
+
+def _names_lfs_config(name: str) -> bool:
+    """True for the root `.lfsconfig` git-lfs reads its endpoints from. Linkr's
+    exports never write one: the endpoints are the checked remote's own."""
+    parts = PurePosixPath(name.replace("\\", "/")).parts
+    return len(parts) == 1 and parts[0].rstrip(". ").casefold() == ".lfsconfig"
 
 
 def _names_git_dir(name: str) -> bool:
@@ -1041,6 +1072,8 @@ def _materialize_at(
     _safe_join(repo, path)  # reject a traversing path before any git use
     _run(repo, "checkout", commit, "--", path, check=False)
     target = _safe_join(repo, path)
+    if _crosses_link(repo, path):
+        raise GitError(f"path is a symbolic link: {path}")
     if not target.is_file():
         return None
     data = target.read_bytes()
@@ -2020,7 +2053,10 @@ async def commit_push(
                 if base_head:
                     _run(repo, "checkout", "-q", "-f", "-B", branch, base_head, check=False)
                 else:
-                    _run(repo, "checkout", "-q", "-B", branch, check=False)
+                    # No base commit: the base branch goes back to unborn, empty index.
+                    _run(repo, "symbolic-ref", "HEAD", f"refs/heads/{branch}", check=False)
+                    _run(repo, "update-ref", "-d", f"refs/heads/{branch}", check=False)
+                    _run(repo, "read-tree", "--empty", check=False)
         return {
             "committed": True,
             "pushed": pushed,

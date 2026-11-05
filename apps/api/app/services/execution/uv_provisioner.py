@@ -17,9 +17,11 @@ import subprocess
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from app.config import settings
 from app.services import project_fs
+from app.services.execution import env_options
 from app.services.execution.child_env import child_env
 from app.services.execution.package_spec import validate_package_spec
 
@@ -123,7 +125,64 @@ def _uv_env(project_uid: str, options: dict | None = None) -> dict[str, str]:
         # uv honours pip's trusted-host to skip TLS verification for an internal
         # mirror (self-signed cert behind a corporate proxy).
         env["UV_INSECURE_HOST"] = trusted
+    if env_options.confined_hosts("python", options):
+        # Under a mirror the index is the deployment's alone: the project's own
+        # pyproject cannot name another one, nor pin a package to another source.
+        env["UV_NO_CONFIG"] = "1"
+        env["UV_NO_SOURCES"] = "1"
     return env
+
+
+def _require_mirror_sources(project_uid: str, options: dict | None, *, lock_too: bool) -> None:
+    """Under a deployment mirror, refuse a manifest requirement or, before a sync
+    (which fetches a locked URL as written), a lockfile source that downloads from
+    a host outside it. A re-lock resolves against the mirror alone, so it is how a
+    lock from elsewhere is brought onto it."""
+    allowed = env_options.confined_hosts("python", options or {})
+    if not allowed:
+        return
+    outside: set[str] = set()
+    manifest, lock = _pyproject_path(project_uid), _lock_path(project_uid)
+    if manifest.exists():
+        for req in _manifest_requirements(tomllib.loads(manifest.read_text())):
+            reference = req.split(";", 1)[0].partition("@")[2].strip()
+            if reference:
+                outside |= _hosts_outside(reference, allowed)
+    if lock_too and lock.exists():
+        for url in _lock_urls(tomllib.loads(lock.read_text())):
+            outside |= _hosts_outside(url, allowed)
+    if outside:
+        raise ProvisionError(
+            "This environment's pyproject.toml or uv.lock downloads from outside the deployment's "
+            f"package mirror ({', '.join(sorted(outside))}). Remove those sources, or update all "
+            "packages to lock them again on the mirror."
+        )
+
+
+def _manifest_requirements(data: dict) -> list[str]:
+    project = data.get("project") or {}
+    groups = [project.get("dependencies") or [], *(project.get("optional-dependencies") or {}).values(),
+              *(data.get("dependency-groups") or {}).values(), (data.get("build-system") or {}).get("requires") or []]
+    return [req for group in groups if isinstance(group, list) for req in group if isinstance(req, str)]
+
+
+def _lock_urls(node) -> list[str]:
+    if isinstance(node, dict):
+        found = [v for k, v in node.items() if k in ("url", "registry", "git") and isinstance(v, str)]
+        return found + [u for v in node.values() for u in _lock_urls(v)]
+    if isinstance(node, list):
+        return [u for v in node for u in _lock_urls(v)]
+    return []
+
+
+def _hosts_outside(url: str, allowed: set[str]) -> set[str]:
+    """{the host of `url`} unless it is an http(s) URL on an allowed host; a URL of
+    another scheme (file:, ssh:) never goes through the mirror."""
+    parts = urlsplit(url.removeprefix("git+"))
+    host = (parts.hostname or "").lower()
+    if parts.scheme in ("http", "https") and host in allowed:
+        return set()
+    return {host or url}
 
 
 def _run(project_uid: str, args: list[str], on_log=None, options: dict | None = None) -> str:
@@ -132,6 +191,7 @@ def _run(project_uid: str, args: list[str], on_log=None, options: dict | None = 
     ``on_log`` (if given) receives the exact command line and its output so a job
     can surface both — the user sees precisely what ran and why it failed."""
     spec_dir = project_fs.env_spec_dir(project_uid, "python")
+    _require_mirror_sources(project_uid, options, lock_too=False)
     env = _uv_env(project_uid, options)
     cmdline = f"$ {settings.uv_bin} {' '.join(args)}"
     if on_log is not None:
@@ -195,6 +255,10 @@ async def build(project_uid: str, on_log=None, options: dict | None = None) -> B
     terminates the uv process (see the CancelledError handler)."""
     ensure_manifest(project_uid)
     spec_dir = project_fs.env_spec_dir(project_uid, "python")
+    try:
+        _require_mirror_sources(project_uid, options, lock_too=True)
+    except ProvisionError as e:
+        return BuildResult(ok=False, log=str(e))
     env = _uv_env(project_uid, options)
     if on_log is not None:
         on_log(f"$ {settings.uv_bin} sync")

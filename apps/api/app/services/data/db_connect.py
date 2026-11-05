@@ -559,21 +559,25 @@ _FORBIDDEN_IN_USER_SQL = re.compile(
 # Functions that send SQL to an attached database past its READ_ONLY flag
 # (community_engines, and the postgres/mysql extensions' `*_execute`), or that run
 # a statement held in a string, which hides any of those from this token check
-# (`json_execute_serialized_sql(json_serialize_sql('…'))`). Where a SQL Server or
-# Oracle database is attached, `query()` and `query_table()` too: they would build
-# such a call from a string. Elsewhere a script may use them (the vocabulary prune
+# (`json_execute_serialized_sql(json_serialize_sql('…'))`). Where a database with
+# such a function is attached, `query()` and `query_table()` too: they would build
+# the call from a string. Elsewhere a script may use them (the vocabulary prune
 # script runs `query(getvariable(...))`).
 _PASSTHROUGH_CALL = re.compile(r"(MSSQL_|ORACLE_)\w+|POSTGRES_EXECUTE|MYSQL_EXECUTE|JSON_EXECUTE_SERIALIZED_SQL")
 _DYNAMIC_SQL_CALL = re.compile(r"QUERY|QUERY_TABLE")
+_PASSTHROUGH_ENGINES = frozenset({"postgres", "mysql", "mssql"})
 
 
-def _has_community_attach(con: duckdb.DuckDBPyConnection) -> bool:
-    """Whether a SQL Server or Oracle database is reachable from `con`: SQL Server
-    attached, or Oracle's views over oracle_query (community_engines). Read before
-    a script runs, so a statement dropping them cannot lift the guard."""
+def _has_passthrough_attach(con: duckdb.DuckDBPyConnection) -> bool:
+    """Whether a database that runs SQL handed to it as text is reachable from
+    `con`: PostgreSQL, MySQL or SQL Server attached, or Oracle's views over
+    oracle_query (community_engines). Read before a script runs, so a statement
+    dropping them cannot lift the guard."""
+    types = {str(t).lower() for (t,) in con.execute("SELECT DISTINCT type FROM duckdb_databases()").fetchall()}
+    if types & _PASSTHROUGH_ENGINES:
+        return True
     return bool(con.execute(
-        "SELECT (SELECT COUNT(*) FROM duckdb_databases() WHERE type = 'mssql') "
-        "+ (SELECT COUNT(*) FROM duckdb_views() WHERE sql ILIKE '%oracle_query(%')"
+        "SELECT COUNT(*) FROM duckdb_views() WHERE sql ILIKE '%oracle_query(%'"
     ).fetchall()[0][0])
 
 
@@ -818,7 +822,7 @@ def _run_statements(
     con.execute(f"SET search_path='{_sql_path(search_path)}'")
     result: duckdb.DuckDBPyConnection | None = None
     statements = _split_statements(sql)
-    dynamic_sql = _has_community_attach(con)
+    dynamic_sql = _has_passthrough_attach(con)
     for stmt in statements:
         _reject_passthrough_calls(stmt, dynamic_sql)
     if _has_sqlserver_attach(con):
@@ -847,7 +851,7 @@ def _run_to_arrow(con: duckdb.DuckDBPyConnection, search_path: str, sql: str):
     con.execute(f"SET search_path='{_sql_path(search_path)}'")
     result: duckdb.DuckDBPyConnection | None = None
     statements = _split_statements(sql)
-    dynamic_sql = _has_community_attach(con)
+    dynamic_sql = _has_passthrough_attach(con)
     for stmt in statements:
         _reject_passthrough_calls(stmt, dynamic_sql)
     if _has_sqlserver_attach(con):

@@ -67,6 +67,21 @@ def test_query_table_is_refused_beside_a_community_database():
         db_connect._reject_passthrough_calls(sql, dynamic_sql=True)
 
 
+@pytest.mark.parametrize("engine", ["postgres", "mysql", "mssql"])
+def test_dynamic_sql_is_refused_beside_any_database_that_runs_text(engine):
+    con = _FakeCon({"duckdb_databases": [("duckdb",), (engine,)]})
+    assert db_connect._has_passthrough_attach(con)
+    with pytest.raises(ValueError, match="read-only guard"):
+        db_connect._run_statements(con, "memory", "SELECT * FROM query('SELECT ' || 'x')")
+
+
+def test_dynamic_sql_stays_available_beside_local_databases():
+    con = duckdb.connect()
+    con.execute("ATTACH ':memory:' AS local_copy")
+    assert not db_connect._has_passthrough_attach(con)
+    assert db_connect._run_statements(con, "memory", "SELECT * FROM query('SELECT 1 AS x')") == [{"x": 1}]
+
+
 @pytest.mark.parametrize("sql", [
     "SELECT query, oracle_id FROM t",
     "SELECT 'mssql_scan(x)' AS s",
@@ -118,6 +133,24 @@ def test_a_sqlserver_login_that_only_reads_on_its_schemas_is_accepted():
         "fn_my_permissions": [("CONNECT",), ("SELECT",), ("VIEW DEFINITION",), ("REFERENCES",), ("SHOWPLAN",)],
     })
     community_engines.attach(con, "ext", SQLSERVER, "pw")
+
+
+@pytest.mark.parametrize("perm", [
+    "INSERT", "update", "EXECUTE", "EXECUTE ANY EXTERNAL SCRIPT", "EXECUTE EXTERNAL SCRIPT",
+    "BACKUP DATABASE", "BACKUP LOG", "ADMINISTER DATABASE BULK OPERATIONS", "CHECKPOINT",
+    "KILL DATABASE CONNECTION", "ALTER ANY SCHEMA", "CREATE TABLE", "CONTROL", "TAKE OWNERSHIP",
+    "IMPERSONATE", "ENABLE LEDGER", " backup  log ",
+])
+def test_a_sqlserver_permission_that_writes_is_classified_as_such(perm):
+    assert community_engines._is_sqlserver_write_permission(perm)
+
+
+@pytest.mark.parametrize("perm", [
+    "CONNECT", "SELECT", "REFERENCES", "SHOWPLAN", "VIEW DEFINITION", "VIEW DATABASE STATE",
+    "SUBSCRIBE QUERY NOTIFICATIONS", "AUTHENTICATE",
+])
+def test_a_sqlserver_read_permission_is_not(perm):
+    assert not community_engines._is_sqlserver_write_permission(perm)
 
 
 def _oracle(privs, table_privs=(), owned=0, columns=()):

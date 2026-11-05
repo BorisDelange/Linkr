@@ -354,3 +354,20 @@ async def test_a_run_id_never_moves_a_run_to_another_rule_set(client):
     runs = (await client.get(f"{API}/dq-rule-sets/{rb['id']}/runs", headers=headers)).json()
     assert [(x["id"], x["failed"], x["workspaceId"]) for x in runs] == [("dq-b", 3, ws_b)]
     assert (await client.get(f"{API}/dq-rule-sets/{ra['id']}/runs", headers=headers)).json() == []
+
+
+async def test_a_run_without_its_rule_set_is_reached_only_through_its_workspace(client, db):
+    from app.models.dq_rule_set import DqRunHistory
+
+    admin = await _admin_headers(client)
+    ws = await _workspace(client, admin)
+    common = {"rule_set_id": None, "data_source_id": "src-1", "started_at": "2026-07-14T10:00:00Z", "status": "success"}
+    db.add(DqRunHistory(id="in-ws", workspace_id=ws, **common))
+    db.add(DqRunHistory(id="no-ws", workspace_id=None, **common))
+    await db.commit()
+    other = await _create_user(db, client, "bob")
+
+    assert (await client.patch(f"{API}/dq-run-history/in-ws", headers=other, json={"status": "failed"})).status_code == 403
+    assert (await client.delete(f"{API}/dq-run-history/in-ws", headers=other)).status_code == 403
+    assert (await client.delete(f"{API}/dq-run-history/no-ws", headers=other)).status_code == 404
+    assert (await client.delete(f"{API}/dq-run-history/in-ws", headers=admin)).status_code == 204

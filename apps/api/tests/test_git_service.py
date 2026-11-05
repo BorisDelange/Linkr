@@ -190,6 +190,16 @@ def test_unpack_keeps_legitimate_dotfiles(tmp_path):
     assert (repo / ".gitattributes").is_file() and (repo / "a/.github/x.yml").is_file()
 
 
+@pytest.mark.parametrize("member", [".lfsconfig", "./.lfsconfig", ".LFSCONFIG", ".lfsconfig."])
+def test_unpack_never_writes_the_lfs_endpoint_config(tmp_path, member):
+    repo = tmp_path / "repo"
+    g._ensure_repo(repo, None)
+    with pytest.raises(g.GitError):
+        g._unpack_zip_into(_zip({member: "[lfs]\n", "entity.json": "{}"}), repo)
+    g._unpack_zip_into(_zip({"scripts/.lfsconfig": "x", "entity.json": "{}"}), repo)
+    assert (repo / "scripts/.lfsconfig").is_file()
+
+
 def test_safe_join_rejects_traversal_keeps_legit_paths():
     tree = Path(tempfile.mkdtemp())
     try:
@@ -201,6 +211,30 @@ def test_safe_join_rejects_traversal_keeps_legit_paths():
                 g._safe_join(tree, bad)
     finally:
         shutil.rmtree(tree, ignore_errors=True)
+
+
+@pytest.mark.parametrize("bad", [".git/config", "a/../.git/config", ".GIT/config", "meta/config"])
+def test_safe_join_never_reaches_repository_metadata(tmp_path, bad):
+    repo = tmp_path / "repo"
+    g._ensure_repo(repo, None)
+    (repo / "meta").symlink_to(repo / ".git", target_is_directory=True)
+    with pytest.raises(g.GitError):
+        g._safe_join(repo, bad)
+    assert g._safe_join(repo, ".gitattributes") == (repo / ".gitattributes").resolve()
+
+
+@pytest.mark.parametrize("link_target", ["entity.json", ".git/config"])
+def test_materialize_returns_only_regular_files(tmp_path, link_target):
+    repo = tmp_path / "repo"
+    g._ensure_repo(repo, None)
+    (repo / "entity.json").write_text("{}")
+    (repo / "link").symlink_to(link_target)
+    g._run(repo, "add", "-A")
+    g._run(repo, "commit", "-q", "-m", "c")
+    (repo / "link").unlink()
+    with pytest.raises(g.GitError):
+        g._materialize_at(repo, "HEAD", "link", "https://h.org/g/r", None)
+    assert g._materialize_at(repo, "HEAD", "entity.json", "https://h.org/g/r", None) == b"{}"
 
 
 @pytest.mark.asyncio
@@ -1568,3 +1602,23 @@ def test_rename_sources_leaves_the_real_index_untouched():
         assert g._run(repo, "diff", "--cached", "--name-only").strip() == ""
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+async def test_a_proposal_on_an_empty_remote_leaves_its_base_branch_unborn(tmp_path):
+    def getter(_uid):
+        return tmp_path / "repo"
+
+    remote = _bare_remote(tmp_path)
+    r = await g.commit_push(
+        getter, "u", _zip({"entity.json": "{}"}), "main", "proposed", remote, None, push_branch="linkr/x",
+    )
+    assert r["pushed"] and r["branch"] == "linkr/x"
+    repo = tmp_path / "repo"
+    assert g._run(repo, "symbolic-ref", "HEAD").strip() == "refs/heads/main"
+    assert g._run(repo, "rev-parse", "-q", "--verify", "refs/heads/main", check=False).strip() == ""
+
+    await g.commit_push(getter, "u", _zip({"entity.json": "{}"}), "main", "direct", remote, None)
+    log = subprocess.run(
+        ["git", "log", "--format=%s", "main"], cwd=remote, capture_output=True, text=True, check=True, env=g._git_env(),
+    ).stdout.split()
+    assert log == ["direct"]
