@@ -170,8 +170,7 @@ async def materialize_cohort(
     source = await data_source_service.get(db, source_id)
     if source is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Database not found")
-    if source.workspace_id is not None:
-        await check_workspace_permission(db, source.workspace_id, user, "databases:read")
+    await check_workspace_permission(db, source.workspace_id, user, "databases:read")
     login = await database_credential_service.resolve_login(db, source, user.id)
 
     async def work() -> CohortResponse:

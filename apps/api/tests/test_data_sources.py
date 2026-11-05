@@ -2,6 +2,7 @@ import asyncio
 import os
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.core import audit
@@ -472,6 +473,81 @@ async def test_non_member_cannot_access(client, db):
     assert (await client.delete(f"{API}/data-sources/{ds['id']}", headers=other)).status_code == 403
     # A workspace-filtered list they can't see returns 403; unfiltered omits it.
     assert (await client.get(f"{API}/data-sources", headers=other)).json() == []
+
+
+def _duckdb_file(path, tag: str) -> str:
+    import duckdb
+
+    con = duckdb.connect(str(path))
+    con.execute("CREATE TABLE person AS SELECT 42 AS person_id, ? AS tag", [tag])
+    con.close()
+    return str(path)
+
+
+async def test_a_database_without_workspace_is_not_open_to_everyone(client, db, tmp_path):
+    from app.services import cohort_access
+
+    admin = await _admin_headers(client)
+    ws = await _workspace(client, admin)
+    served = _duckdb_file(tmp_path / "a.duckdb", "WS-A-ROW")
+    await client.post(f"{API}/data-sources", headers=admin, json={
+        "workspaceId": ws, "alias": "a", "name": "A", "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb", "serverPath": served},
+    })
+    db.add(DataSource(id="free", alias="free", name={"en": "Free"}, source_type="database",
+                      connection_config={"engine": "duckdb"}, workspace_id=None))
+    await db.commit()
+    mallory = await _create_user(db, client, "mallory")
+    mallory_user = (await db.execute(select(User).where(User.username == "mallory"))).scalar_one()
+
+    created = await client.post(f"{API}/data-sources", headers=mallory, json={
+        "alias": "m1", "name": {"en": "m1"}, "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb", "serverPath": served}, "status": "connected",
+    })
+    assert created.status_code == 403
+    assert (await client.get(f"{API}/data-sources", headers=mallory)).json() == []
+    assert (await client.get(f"{API}/data-sources/free", headers=mallory)).status_code == 403
+    assert (await client.patch(f"{API}/data-sources/free", headers=mallory, json={"alias": "x"})).status_code == 403
+    assert (await client.post(f"{API}/data-sources/free/query", headers=mallory, json={"sql": "select 1"})).status_code == 403
+    assert (await client.delete(f"{API}/data-sources/free", headers=mallory)).status_code == 403
+    free = await db.get(DataSource, "free")
+    with pytest.raises(HTTPException):
+        await cohort_access.require_database_access(db, free.id, mallory_user, "cohorts:read")
+    assert (await client.get(f"{API}/data-sources/free", headers=admin)).status_code == 200
+
+
+async def test_create_from_ddl_cannot_read_server_files_without_code_execution(client, db, tmp_path, monkeypatch):
+    from app.config import settings
+    from app.models.role import Role
+    from app.models.workspace_member import WorkspaceMember
+
+    monkeypatch.setattr(type(settings), "data_path", property(lambda _: tmp_path / "data"))
+    admin = await _admin_headers(client)
+    ws = await _workspace(client, admin)
+    member = await _create_user(db, client, "member")
+    member_id = (await db.execute(select(User.id).where(User.username == "member"))).scalar_one()
+    db.add(Role(name="db-editor", scope="workspace", permissions=["databases:read", "databases:write"]))
+    db.add(WorkspaceMember(workspace_id=ws, user_id=member_id, role="db-editor"))
+    await db.commit()
+    sentinel = tmp_path / "outside" / "sentinel.txt"
+    sentinel.parent.mkdir()
+    sentinel.write_text("SERVER-ONLY")
+    ds = (await client.post(f"{API}/data-sources", headers=member, json={
+        "workspaceId": ws, "alias": "m", "name": "M", "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb"},
+    })).json()
+
+    ddl = (
+        f"CREATE TABLE t1 AS SELECT content FROM read_text('{sentinel}');"
+        f"COPY (SELECT 'w') TO '{tmp_path / 'outside' / 'written.csv'}' (FORMAT csv, HEADER false);"
+    )
+    r = await client.post(f"{API}/data-sources/{ds['id']}/create-from-ddl", headers=member, json={"ddl": ddl})
+
+    assert r.status_code == 422
+    assert not (tmp_path / "outside" / "written.csv").exists()
+    ok = await client.post(f"{API}/data-sources/{ds['id']}/create-from-ddl", headers=member,
+                           json={"ddl": "CREATE TABLE person (person_id BIGINT);"})
+    assert ok.status_code == 200
 
 
 # Opt-in live test: set LINKR_TEST_PG_DSN to a JSON connectionConfig, e.g.

@@ -436,7 +436,7 @@ async def test_sql_query_bridge_runs_via_host(client, monkeypatch):
     uid = await _project(client, headers)
 
     class _FakeSource:
-        workspace_id = None  # workspace-less → access check skipped
+        workspace_id = None  # workspace-less: the admin caller passes
         connection_config = {"engine": "duckdb"}
 
     async def fake_get(db, source_id):

@@ -88,9 +88,9 @@ router = APIRouter(prefix="/data-sources", tags=["data-sources"])
 async def _require_source_access(
     db: AsyncSession, source: DataSource, user: User, permission: str
 ) -> None:
-    """Data source access derives from its workspace membership."""
-    if source.workspace_id is not None:
-        await check_workspace_permission(db, source.workspace_id, user, permission)
+    """Data source access derives from its workspace membership; a database with
+    no workspace is reachable by admins and all-workspaces grants only."""
+    await check_workspace_permission(db, source.workspace_id, user, permission)
 
 
 async def _load_source(
@@ -162,9 +162,6 @@ async def list_data_sources(
     sources = await data_source_service.list_all(db)
     visible: list[DataSource] = []
     for s in sources:
-        if s.workspace_id is None:
-            visible.append(s)
-            continue
         try:
             await check_workspace_permission(db, s.workspace_id, user, "databases:read")
             visible.append(s)
@@ -180,8 +177,7 @@ async def create_data_source(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if body.workspace_id is not None:
-        await check_workspace_permission(db, body.workspace_id, user, "databases:write")
+    await check_workspace_permission(db, body.workspace_id, user, "databases:write")
     try:
         source = await data_source_service.create(db, body, user)
     except fs_browser.FsBrowseError as exc:

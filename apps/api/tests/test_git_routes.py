@@ -465,3 +465,62 @@ async def test_catalog_file_needs_a_write_permission_somewhere(client, db, monke
     assert (await client.get(f"{API}/git/catalog-file?{query}", headers=carol)).status_code == 403
     assert (await client.get(f"{API}/git/catalog-file?{query}", headers=bob)).status_code == 200
     assert (await client.get(f"{API}/git/catalog-file?{query}", headers=admin)).status_code == 200
+
+
+async def test_status_export_cannot_reach_the_repository_config(client, db, tmp_path):
+    admin = await _bootstrap_admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "WS"}})).json()["id"]
+    await client.post(f"{API}/projects", headers=admin, json={"workspaceId": ws, "uid": "p-meta", "name": {"en": "P"}})
+    viewer = await _user(client, db, "viewer")
+    viewer_id = (await client.get(f"{API}/auth/me", headers=viewer)).json()["id"]
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin, json={"userId": viewer_id, "role": "viewer"})
+    marker = tmp_path / "marker"
+    export = _zip({
+        ".git/config": f'[core]\n\trepositoryformatversion = 0\n[filter "x"]\n\tclean = touch {marker}; cat\n',
+        ".gitattributes": "* filter=x\n",
+        "entity.json": '{"id":"x"}\n',
+    })
+
+    r = await client.post(
+        f"{API}/git/projects/p-meta/status", headers=viewer,
+        files={"file": ("export.zip", export, "application/zip")}, data={"branch": "main"},
+    )
+
+    assert r.status_code == 400
+    assert not marker.exists()
+    legit = await client.post(
+        f"{API}/git/projects/p-meta/status", headers=viewer,
+        files={"file": ("export.zip", _zip({"entity.json": "{}"}), "application/zip")}, data={"branch": "main"},
+    )
+    assert legit.status_code == 200 and not marker.exists()
+
+
+async def test_clone_never_returns_the_target_of_a_committed_symlink(client, db, tmp_path, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "enable_code_execution", False)
+    admin = await _bootstrap_admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "WS"}})).json()["id"]
+    editor = await _user(client, db, "ed")
+    editor_id = (await client.get(f"{API}/auth/me", headers=editor)).json()["id"]
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin, json={"userId": editor_id, "role": "editor"})
+    secret = tmp_path / "data" / "secret.key"
+    secret.parent.mkdir()
+    secret.write_text("SERVER-ONLY")
+    repo = tmp_path / "remote"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    (repo / "README.md").write_text("hi")
+    (repo / "leak.txt").symlink_to(secret)
+    (repo / "rel_leak.txt").symlink_to("../data/secret.key")
+    (repo / "dir_leak").symlink_to(secret.parent, target_is_directory=True)
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.name=x", "-c", "user.email=x@x", "commit", "-qm", "c"], check=True)
+
+    r = await client.post(
+        f"{API}/git/clone", headers=editor, json={"url": f"file://{repo}", "branch": "main", "workspaceId": ws},
+    )
+
+    assert r.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
+        assert zf.namelist() == ["README.md"]
+        assert all(b"SERVER-ONLY" not in zf.read(n) for n in zf.namelist())

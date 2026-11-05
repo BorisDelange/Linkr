@@ -1,21 +1,18 @@
 /**
- * Lightweight HTML/SVG sanitizer using the browser's built-in DOMParser.
- * Removes <script> tags and on* event handler attributes.
- * Suitable for content from trusted-but-untrusted sources (runtime outputs).
+ * HTML/SVG sanitizer for markup another principal wrote: warehouse note text,
+ * plugin and kernel figures, project files brought in by git or a ZIP.
+ *
+ * An allowlist (DOMPurify's HTML and SVG profiles), never a denylist: whatever is
+ * not known to be inert is dropped — frames and their srcdoc, scripts, handlers in
+ * any case, javascript: URLs, foreignObject. It runs on the string the caller
+ * assigns to innerHTML, i.e. on the HTML parse the browser will make of it.
  */
+import DOMPurify from 'dompurify'
 
-/** Strip <script> elements and on* handler attributes from a parsed document root. */
-function stripDangerous(root: ParentNode): void {
-  for (const el of root.querySelectorAll('script')) {
-    el.remove()
-  }
-  for (const el of root.querySelectorAll('*')) {
-    for (const attr of Array.from(el.attributes)) {
-      if (attr.name.startsWith('on')) {
-        el.removeAttribute(attr.name)
-      }
-    }
-  }
+const PURIFY_CONFIG = {
+  USE_PROFILES: { html: true, svg: true, svgFilters: true },
+  FORBID_TAGS: ['iframe', 'frame', 'frameset', 'object', 'embed', 'foreignObject', 'meta', 'base', 'link', 'form'],
+  FORBID_ATTR: ['srcdoc', 'formaction'],
 }
 
 // A page-lifetime counter so every rendered SVG gets a distinct id namespace.
@@ -63,29 +60,22 @@ function namespaceSvgIds(root: Element): void {
 }
 
 export function sanitizeHtml(dirty: string): string {
-  // Standalone SVG (e.g. an svglite figure) MUST be parsed as XML, not HTML: the
-  // HTML parser lowercases tag/attribute names, so `clipPath`, `viewBox`,
-  // `clipPathUnits` etc. break — and it mishandles the `<style><![CDATA[…]]></style>`
-  // svglite emits. A broken clipPath makes the whole figure render blank (this bit
-  // ggplot plots using `coord_cartesian(clip = "off")`, whose panel relies on the
-  // clipPath/coordinate system surviving intact). Parse SVG as image/svg+xml to
-  // preserve case-sensitive names, namespaces, and CDATA.
-  const trimmed = dirty.trimStart()
-  const isSvg = trimmed.startsWith('<svg') || trimmed.startsWith('<?xml')
-  if (isSvg) {
-    const svgDoc = new DOMParser().parseFromString(dirty, 'image/svg+xml')
-    // A malformed SVG yields a <parsererror>; fall back to HTML parsing rather than
-    // rendering the browser's error markup.
-    if (!svgDoc.querySelector('parsererror') && svgDoc.documentElement) {
-      stripDangerous(svgDoc)
-      // Namespace internal ids so multiple figures on the page don't collide (a
-      // shared clipPath id would blank all but the first — see namespaceSvgIds).
-      namespaceSvgIds(svgDoc.documentElement)
-      return new XMLSerializer().serializeToString(svgDoc.documentElement)
-    }
-  }
+  return DOMPurify.sanitize(namespaceStandaloneSvg(dirty), PURIFY_CONFIG)
+}
 
-  const doc = new DOMParser().parseFromString(dirty, 'text/html')
-  stripDangerous(doc)
-  return doc.body.innerHTML
+/** Namespace the ids of a standalone SVG (an svglite figure), returned
+ *  re-serialized; anything else unchanged.
+ *
+ *  The SVG is read as XML for this step: the HTML parser mishandles the
+ *  `<style><![CDATA[…]]></style>` svglite emits, and case-sensitive names
+ *  (`clipPath`, `viewBox`) must survive for the figure to render — a broken
+ *  clipPath blanks a ggplot using `coord_cartesian(clip = "off")`. This step only
+ *  renames ids; sanitizing happens afterwards, on the serialized text. */
+function namespaceStandaloneSvg(dirty: string): string {
+  const trimmed = dirty.trimStart()
+  if (!trimmed.startsWith('<svg') && !trimmed.startsWith('<?xml')) return dirty
+  const svgDoc = new DOMParser().parseFromString(dirty, 'image/svg+xml')
+  if (svgDoc.querySelector('parsererror') || !svgDoc.documentElement) return dirty
+  namespaceSvgIds(svgDoc.documentElement)
+  return new XMLSerializer().serializeToString(svgDoc.documentElement)
 }

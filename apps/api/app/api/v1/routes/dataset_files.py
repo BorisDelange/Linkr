@@ -406,8 +406,7 @@ async def create_dataset_from_query(
     source = await db.get(DataSource, body.data_source_id)
     if source is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Database not found")
-    if source.workspace_id is not None:
-        await check_workspace_permission(db, source.workspace_id, user, "databases:read")
+    await check_workspace_permission(db, source.workspace_id, user, "databases:read")
 
     path = body.path if body.path.lower().endswith(".parquet") else f"{body.path}.parquet"
     try:

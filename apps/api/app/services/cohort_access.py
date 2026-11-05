@@ -36,10 +36,9 @@ async def require_database_access(
     source = await db.get(DataSource, data_source_id)
     if source is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Database not found")
-    if source.workspace_id is not None:
-        await check_workspace_permission(
-            db, source.workspace_id, user, _DATABASE_PERMISSION[permission]
-        )
+    await check_workspace_permission(
+        db, source.workspace_id, user, _DATABASE_PERMISSION[permission]
+    )
 
 
 async def require_owner_access(

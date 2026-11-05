@@ -131,8 +131,7 @@ async def _require_connection_access(
     source = await data_source_service.get(db, connection_id)
     if source is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Connection not found")
-    if source.workspace_id is not None:
-        await check_workspace_permission(db, source.workspace_id, user, "databases:read")
+    await check_workspace_permission(db, source.workspace_id, user, "databases:read")
     return source
 
 

@@ -31,7 +31,7 @@ import socket
 import subprocess
 import tempfile
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import quote, urlsplit, urlunsplit
 
 import structlog
@@ -573,6 +573,21 @@ def _is_lfs_pointer(path: Path) -> bool:
         return False
 
 
+def _tree_files(repo: Path):
+    """The regular files of a checked-out tree, .git excluded.
+
+    A remote decides what its tree holds, links included, so a committed symlink
+    is skipped rather than followed: its target is a server file, not repository
+    content."""
+    root = repo.resolve()
+    for p in repo.rglob("*"):
+        if ".git" in p.relative_to(repo).parts or p.is_symlink() or not p.is_file():
+            continue
+        if root not in p.resolve().parents:
+            continue
+        yield p
+
+
 def _drop_unresolved_lfs_pointers(repo: Path) -> int:
     """Delete files still holding an LFS pointer, and return how many.
 
@@ -585,9 +600,7 @@ def _drop_unresolved_lfs_pointers(repo: Path) -> int:
     keeping it corrupts silently.
     """
     dropped = 0
-    for p in repo.rglob("*"):
-        if ".git" in p.relative_to(repo).parts or not p.is_file():
-            continue
+    for p in _tree_files(repo):
         if _is_lfs_pointer(p):
             p.unlink(missing_ok=True)
             dropped += 1
@@ -672,22 +685,43 @@ def _unpack_zip_into(zip_bytes: bytes, tree: Path) -> None:
 
     Everything except .git is wiped first so deletions in the export show up as
     git deletions (a stale file left on disk would never be removed otherwise).
+
+    The ZIP comes from the client and is working-tree content only: no member may
+    land in the repository's metadata, because git runs what its own config names
+    (filters, hooks) on the next `git add`. Raises GitError otherwise.
     """
     for entry in tree.iterdir():
         if entry.name == ".git":
             continue
-        if entry.is_dir():
-            shutil.rmtree(entry, ignore_errors=True)
-        else:
+        # A link left by a remote checkout is removed as a link: rmtree refuses to
+        # follow one and would leave it, and a member written through it later
+        # could resolve into .git.
+        if entry.is_symlink() or not entry.is_dir():
             entry.unlink(missing_ok=True)
+        else:
+            shutil.rmtree(entry, ignore_errors=True)
+    metadata = (tree / ".git").resolve()
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         for name in zf.namelist():
             if name.endswith("/"):
                 continue
-            # Reject path traversal from a crafted ZIP.
+            if _names_git_dir(name):
+                raise GitError(f"export member inside .git: {name}")
             dest = _safe_join(tree, name)
+            if dest == metadata or metadata in dest.parents:
+                raise GitError(f"export member inside .git: {name}")
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(zf.read(name))
+
+
+def _names_git_dir(name: str) -> bool:
+    """True when a path component is git's metadata dir, under any spelling a
+    case-insensitive or Windows filesystem maps to it (`.GIT`, `.git.`, `git~1`)."""
+    for part in PurePosixPath(name.replace("\\", "/")).parts:
+        folded = part.rstrip(". ").casefold()
+        if folded in (".git", "git~1"):
+            return True
+    return False
 
 
 _STATUS_CODE = {"M": "modified", "A": "added", "D": "deleted", "R": "renamed", "??": "added"}
@@ -1821,11 +1855,8 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> tuple[bytes,
             cloned_oid = _run(repo, "rev-parse", "HEAD", check=False).strip() or None
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                for p in repo.rglob("*"):
-                    if ".git" in p.relative_to(repo).parts:
-                        continue
-                    if p.is_file():
-                        zf.write(p, p.relative_to(repo).as_posix())
+                for p in _tree_files(repo):
+                    zf.write(p, p.relative_to(repo).as_posix())
             return buf.getvalue(), cloned_oid
         finally:
             shutil.rmtree(tmp, ignore_errors=True)

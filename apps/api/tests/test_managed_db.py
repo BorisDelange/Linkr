@@ -72,6 +72,48 @@ def test_foreign_key_constraints_are_skipped(data_dir):
 # case to one canonical file" — encoded a rule that no longer holds.
 
 
+def test_a_schema_ddl_cannot_reach_the_server_filesystem(data_dir, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secret = outside / "sentinel.txt"
+    secret.write_text("SERVER-ONLY")
+    written = outside / "written.csv"
+    target = managed_db.path_for("dd000000-0000-0000-0000-000000000001")
+
+    for ddl in (
+        f"CREATE TABLE t1 AS SELECT content FROM read_text('{secret}');",
+        f"CREATE VIEW v AS SELECT * FROM read_csv('{secret}');",
+        f"CREATE TABLE t AS SELECT 1 AS x; COPY t TO '{written}' (FORMAT csv);",
+        f"ATTACH '{outside / 'other.duckdb'}' AS o;",
+        "INSTALL httpfs;",
+        "SET enable_external_access = true;",
+        "INSERT INTO nowhere VALUES (1);",
+    ):
+        with pytest.raises((ValueError, duckdb.Error)):
+            managed_db.create_from_ddl(target, ddl)
+        assert not target.exists()
+    assert not written.exists()
+    assert not (outside / "other.duckdb").exists()
+
+
+def test_a_schema_ddl_keeps_what_schemas_are_made_of(data_dir):
+    ddl = """
+    DROP TABLE IF EXISTS person;
+    CREATE SCHEMA hosp;
+    CREATE TABLE person (person_id BIGINT PRIMARY KEY, gender_concept_id INTEGER);
+    CREATE TABLE hosp.admissions (hadm_id BIGINT, subject_id BIGINT);
+    CREATE INDEX idx_person ON person (gender_concept_id);
+    CREATE SEQUENCE seq_person START 1;
+    COMMENT ON TABLE person IS 'one row per patient';
+    ALTER TABLE person ADD CONSTRAINT fk FOREIGN KEY (gender_concept_id) REFERENCES concept (concept_id);
+    """
+    path = managed_db.create_from_ddl(managed_db.path_for("dd000000-0000-0000-0000-000000000002"), ddl)
+    con = duckdb.connect(path, read_only=True)
+    tables = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables").fetchall()}
+    con.close()
+    assert tables == {"person", "admissions"}
+
+
 def test_delete_removes_the_file(data_dir):
     sid = "44444444-4444-4444-4444-444444444444"
     managed_db.create_from_ddl(managed_db.path_for(sid), DDL)
