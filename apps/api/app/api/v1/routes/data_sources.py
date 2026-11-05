@@ -932,7 +932,9 @@ async def get_database_connection_info(
     connection details.
     """
     source = await _load_source(db, source_id, user, "databases:read")
-    return await data_source_service.connection_info(db, source, user.id)
+    info = await data_source_service.connection_info(db, source, user.id)
+    info.building = cohort_derive_service.building(source.id)
+    return info
 
 
 def _compact_status(state: data_source_service.CompactionState) -> CompactStatus:

@@ -951,6 +951,50 @@ async def test_interrupt_stops_run_and_kernel_survives(tmp_path):
         await kernel.shutdown()
 
 
+@pytest.mark.parametrize("parent_state", ["ignored", "blocked"])
+async def test_interrupt_works_when_the_server_ignores_or_blocks_sigint(tmp_path, parent_state):
+    """A child inherits SIGINT ignored or blocked from the process that spawns it: a
+    server launched as a background job (`uvicorn … &` ignores SIGINT), or a library
+    holding it off at the instant of the fork. Python then installs no
+    KeyboardInterrupt handler, so Stop would never end the run."""
+    import signal
+
+    kernel = _make_python_kernel(tmp_path)
+    previous = signal.getsignal(signal.SIGINT)
+    try:
+        if parent_state == "ignored":
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+        else:
+            signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
+        try:
+            await kernel.execute_stream("pass", lambda k, d: None)
+        finally:
+            signal.signal(signal.SIGINT, previous)
+            signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
+
+        started = asyncio.Event()
+        chunks: list[str] = []
+
+        def on_chunk(kind: str, data: str) -> None:
+            chunks.append(data)
+            if "started" in data:
+                started.set()
+
+        run = asyncio.create_task(
+            kernel.execute_stream(
+                "import time\nprint('started', flush=True)\nwhile True:\n    time.sleep(0.05)",
+                on_chunk,
+            )
+        )
+        await asyncio.wait_for(started.wait(), timeout=60)
+        assert kernel.interrupt() is True
+        out = await asyncio.wait_for(run, timeout=30)
+        assert out.failed
+        assert any("KeyboardInterrupt" in c for c in chunks)
+    finally:
+        await kernel.shutdown()
+
+
 async def test_interrupt_no_live_process_returns_false(tmp_path):
     kernel = _make_python_kernel(tmp_path)
     assert kernel.interrupt() is False

@@ -378,6 +378,8 @@ export interface DatabaseConnectionInfo {
   blob: boolean
   /** Parquet folders: the table files found there. */
   fileNames: string[]
+  /** A derivation is writing this database now: a missing file is expected. */
+  building: boolean
   /** Parquet folders: table name → the blob path(s) holding it. */
   tables: ParquetTablePath[]
   /** External engines. The password is never returned. */

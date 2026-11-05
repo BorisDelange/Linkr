@@ -441,6 +441,8 @@ class DatabaseConnectionInfo(CamelModel):
     blob: bool = False
     # Parquet folders: the table files found there, for a quick sanity check.
     file_names: list[str] = []
+    # A derivation is writing this database now: a file not there yet is expected.
+    building: bool = False
     # Parquet folders: table name → blob path(s), resolved the same way the SQL
     # editor resolves bare table names. Empty for other kinds.
     tables: list[ParquetTablePath] = []

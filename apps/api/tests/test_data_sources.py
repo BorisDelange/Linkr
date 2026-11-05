@@ -955,3 +955,32 @@ async def test_a_database_created_again_under_a_deleted_id_starts_with_no_cache(
     r = await client.get(f"{API}/data-sources/{ds_id}/stats-cache", headers=bob)
     assert r.status_code == 200 and r.json() is None
     assert (await client.get(f"{API}/data-sources/{ds_id}/concept-stats/7", headers=bob)).status_code == 404
+
+
+async def test_connection_info_says_whether_a_derivation_is_writing_the_database(client):
+    from app.services import cohort_derive_service
+
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    created = (
+        await client.post(
+            f"{API}/data-sources",
+            headers=headers,
+            json={
+                "workspaceId": ws,
+                "alias": "derived",
+                "name": "Derived",
+                "sourceType": "database",
+                "connectionConfig": {"engine": "duckdb", "managed": True},
+            },
+        )
+    ).json()
+    url = f"{API}/data-sources/{created['id']}/connection-info"
+
+    assert (await client.get(url, headers=headers)).json()["building"] is False
+    cohort_derive_service.reserve(created["id"])
+    try:
+        assert (await client.get(url, headers=headers)).json()["building"] is True
+    finally:
+        cohort_derive_service.release(created["id"])
+    assert (await client.get(url, headers=headers)).json()["building"] is False

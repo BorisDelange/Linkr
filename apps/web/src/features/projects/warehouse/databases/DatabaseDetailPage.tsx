@@ -276,11 +276,13 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
         </div>
 
         {/* Under the tab bar, so it reads the same from every tab. */}
-        <ConnectionStatusBanner
-          source={source}
-          onEditConnection={canEditLocation ? () => setEditOpen(true) : undefined}
-          className={bannerClass}
-        />
+        {!(location.missing && source.status === 'configuring') && (
+          <ConnectionStatusBanner
+            source={source}
+            onEditConnection={canEditLocation ? () => setEditOpen(true) : undefined}
+            className={bannerClass}
+          />
+        )}
         {/* Nothing in this page works until the files are found again. */}
         {location.missing && (
           <NoticeBanner

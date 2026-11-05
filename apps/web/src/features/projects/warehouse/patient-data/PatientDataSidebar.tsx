@@ -46,7 +46,7 @@ import type { Cohort } from '@/types'
 import { usePatientChartContext } from './PatientChartContext'
 import { usePatientData } from './use-patient-data'
 import { PatientHoverCard } from './PatientHoverCard'
-import { daysBetween, formatDate as fmtDate, formatGender as fmtGender, formatGenderShort as fmtGenderShort, formatStayDuration } from '@/lib/format-helpers'
+import { daysBetween, formatDateTimeLocale, formatDate as fmtDate, formatGender as fmtGender, formatGenderShort as fmtGenderShort, formatStayDuration } from '@/lib/format-helpers'
 
 interface PatientDataSidebarProps {
   /**
@@ -73,6 +73,7 @@ export function PatientDataSidebar({ cohort }: PatientDataSidebarProps = {}) {
     setPatientPage,
     patientFilters,
     setPatientFilters,
+    narrowedBy,
     visits,
     visitsLoading,
     visitDetails,
@@ -374,6 +375,13 @@ export function PatientDataSidebar({ cohort }: PatientDataSidebarProps = {}) {
                     </PopoverContent>
                   </Popover>
                 </div>
+                {narrowedBy && (
+                  <p className="truncate text-[10px] text-muted-foreground" title={t('cohorts.results_narrowed_hint')}>
+                    {narrowedBy.countedAt
+                      ? t('cohorts.results_narrowed', { date: formatDateTimeLocale(narrowedBy.countedAt, i18n.language) })
+                      : t('cohorts.results_narrowed_unknown')}
+                  </p>
+                )}
 
                 <div className="relative mt-1.5">
                   <Search

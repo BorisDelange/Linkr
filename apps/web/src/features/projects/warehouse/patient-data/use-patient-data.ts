@@ -5,6 +5,7 @@ import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { runMaterialization } from '@/lib/cohort-materialization'
 import { cohortRelationNarrowing } from '@/features/projects/warehouse/cohorts/relation-narrowing'
+import { relationsCountedAt } from './timeline-relations'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { DEFAULT_READ_AHEAD, patientQuery, releasePrefetch, setPrefetchPatients } from './patient-prefetch'
 import {
@@ -122,6 +123,9 @@ export function usePatientData(
   // When prev/next crosses a page boundary, remember which edge patient of the
   // newly loaded page to auto-select once it arrives.
   const pendingEdgeSelectRef = useRef<'first' | 'last' | null>(null)
+  // Whether the concept count left a table out of the list's queries, and as of when.
+  const [narrowed, setNarrowed] = useState<{ listKey: string; countedAt: string | null } | null>(null)
+  const narrowedBy = narrowed?.listKey === listKey ? { countedAt: narrowed.countedAt } : null
 
   const loadPatients = useCallback(
     async (page: number, signal?: AbortSignal) => {
@@ -157,6 +161,11 @@ export function usePatientData(
           narrowing,
         )
         const countSql = buildPatientCountQuery(schemaMapping, selectedCohort, patientFilters, narrowing)
+        if (narrowing && countSql !== buildPatientCountQuery(schemaMapping, selectedCohort, patientFilters)) {
+          void relationsCountedAt(dataSourceId).catch(() => null).then((countedAt) => {
+            if (!signal?.aborted) setNarrowed({ listKey, countedAt })
+          })
+        }
         // The count is the cohort's and the filters', the same on every page.
         const knownCount = patientCountCacheRef.current.get(listKey)
 
@@ -363,6 +372,7 @@ export function usePatientData(
     setPatientPage,
     patientFilters,
     setPatientFilters,
+    narrowedBy,
 
     // Visits (hospitalizations)
     visits,

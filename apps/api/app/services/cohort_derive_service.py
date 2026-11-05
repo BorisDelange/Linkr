@@ -361,6 +361,14 @@ def bind_job(target_id: str, job_id: str) -> None:
     _running[target_id] = job_id
 
 
+def building(target_id: str) -> bool:
+    """Whether a derivation into `target_id` is queued or running in this process."""
+    if target_id not in _running:
+        return False
+    job_id = _running[target_id]
+    return job_id is None or jobs.is_running(job_id)
+
+
 def release(target_id: str, job_id: str | None = None) -> None:
     if target_id in _running and _running[target_id] == job_id:
         del _running[target_id]

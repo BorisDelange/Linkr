@@ -55,9 +55,10 @@ export function useDatabaseLocation(source: DataSource | undefined): DatabaseLoc
     const missing = source.status === 'error' && HANDLE_NOT_FOUND.test(source.errorMessage ?? '')
     return { info: null, missing, path: null }
   }
-  // A database being set up (a derivation job) has no file yet: its banner says
-  // it is in progress, not that it was lost.
-  const missing = source.status !== 'configuring'
+  // A database a derivation is writing has no file yet: its banner says it is in
+  // progress, not that it was lost. A 'configuring' row with no build behind it
+  // (one cut by a restart) is a lost file like any other.
+  const missing = !info?.building
     && !!info && (info.kind === 'file' || info.kind === 'parquet-folder') && !info.exists
   return { info, missing, path: info?.path ?? null }
 }

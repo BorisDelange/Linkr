@@ -127,7 +127,13 @@ ChunkHandler = Callable[[str, str], Awaitable[None] | None]
 # (the legacy contract, used by analyses/widgets). Capture mirrors the stateless
 # harness (matplotlib SVG figures, a `result`/last DataFrame as a table).
 _PY_KERNEL_LOOP = r'''
-import sys, io, json, base64, time, traceback
+import sys, io, json, base64, signal, time, traceback
+
+# Python installs its KeyboardInterrupt handler only when SIGINT arrives at default,
+# and a child inherits SIGINT ignored or blocked from its spawner (a server started
+# as a background job, a library holding it off at the fork): Stop would do nothing.
+signal.signal(signal.SIGINT, signal.default_int_handler)
+signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
 
 _real_out, _real_err = sys.stdout, sys.stderr
 
