@@ -35,6 +35,7 @@ export function DatasetEditToolbar({
   const { t } = useTranslation()
   const applyOps = useDatasetStore((s) => s.applyOps)
   const undoLastOps = useDatasetStore((s) => s.undoLastOps)
+  const canUndo = useDatasetStore((s) => s.canUndoLastOps(fileId))
   const file = useDatasetStore((s) => s.files.find((f) => f.id === fileId))
   const [addingColumn, setAddingColumn] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -132,7 +133,7 @@ export function DatasetEditToolbar({
                   <Button
                     variant="ghost"
                     size="xs"
-                    disabled={!hasOps || undoing}
+                    disabled={!hasOps || undoing || !canUndo}
                     onClick={async () => {
                       setUndoing(true)
                       try {
@@ -149,7 +150,9 @@ export function DatasetEditToolbar({
                 </span>
               </TooltipTrigger>
               <TooltipContent className="max-w-xs">
-                {undoing ? t('datasets.undo_in_progress') : t('datasets.undo_edit')}
+                {undoing
+                  ? t('datasets.undo_in_progress')
+                  : canUndo ? t('datasets.undo_edit') : t('datasets.undo_value_lost')}
               </TooltipContent>
             </Tooltip>
 

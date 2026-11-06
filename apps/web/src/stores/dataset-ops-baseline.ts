@@ -10,6 +10,21 @@
 import { ROW_ORD, type DatasetOp, type ReplayInput } from '@linkr/format'
 
 /**
+ * Whether a baseline rewound by `unreplay` still holds what dropping `ops[from…]`
+ * must bring back. It does for a cell an earlier op wrote and for what the log
+ * added; a raw cell's first value, a removed row or column and an earlier order or
+ * name are not in the log.
+ */
+export function canRewind(ops: readonly DatasetOp[], from: number): boolean {
+  for (let i = from; i < ops.length; i++) {
+    const op = ops[i]
+    if (op.type === 'addRow' || op.type === 'addColumn') continue
+    if (op.type !== 'setCell' || priorValue(ops, i, op.row, op.column) === UNKNOWN) return false
+  }
+  return true
+}
+
+/**
  * Recover the pre-op state from an already-replayed one.
  *
  * Every effect the log had must be rewound, not just the rows it added: this
@@ -21,8 +36,7 @@ import { ROW_ORD, type DatasetOp, type ReplayInput } from '@linkr/format'
  * its raw value is genuinely unknowable from a replayed state, and blanking it
  * would destroy real data to satisfy a reconstruction. Replaying the log forward
  * re-applies that op anyway, so the visible result is identical; only an undo of
- * that particular op cannot recover the original — the one limit of deriving a
- * baseline instead of re-reading the raw file.
+ * that particular op cannot recover the original: see `canRewind`.
  */
 export function unreplay(state: ReplayInput, ops: readonly DatasetOp[]): ReplayInput {
   // Annotated: spreading with a computed key narrows the inferred type to just that

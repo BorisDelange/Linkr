@@ -54,7 +54,7 @@ test('undoing a cell edit restores the value, for good', async ({ page }) => {
   await expect(FIRST_ROW(page, 72)).toBeVisible()
 })
 
-test('undoing after a reload restores the value @known-bug', async ({ page }) => {
+test('undoing after a reload restores the value', async ({ page }) => {
   await bootDemo(page)
   await editFirstAge(page)
   await reloadDataset(page)

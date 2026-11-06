@@ -1,8 +1,6 @@
 import { test, expect, bootDemo, ACTIVITY } from '../fixtures'
 
-// Rows are keyed by column id in the browser; SpcComponent looks them up by name, so
-// the client build never finds a value and always answers "Not enough data".
-test('a control chart added to a dashboard draws its chart @known-bug', async ({ page }) => {
+test('a control chart added to a dashboard draws its chart', async ({ page }) => {
   await bootDemo(page)
   await page.goto(`${ACTIVITY}/lab/dashboards`)
   await page.getByText('ICU Activity', { exact: true }).click()

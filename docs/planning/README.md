@@ -44,7 +44,7 @@ Built, and beyond what the automated journeys can check.
 | Vocabularies and dictionaries: ATHENA import (full, subset, a second release), legacy vocabulary databases, dictionary sync + update, resolution, SQL tab | both | M |
 | Data catalog: variables and crossings, a resumed run, Pause/Stop, anonymization audit, Publish (Pages) | both | M |
 | Derive a cohort through the UI → new DuckDB, and → new schema (Linkr-owned DuckDB, Postgres with writes allowed) | server | S |
-| SPC widget added to a dashboard, server mode, once the client bug below is fixed | server | S |
+| SPC widget added to a dashboard, server mode | server | S |
 | Server file picker end to end ([server-file-picker-plan.md](server-file-picker-plan.md) §6) | server | S |
 | Versioning against a real forge, with the LFS path | both | S |
 | Dataset editing and manual collection: a rename repairing filters through the collection dialog, two people collecting, editing in server mode | both | M |
@@ -56,15 +56,6 @@ Built, and beyond what the automated journeys can check.
 | Schema classes: step 2b, and step 11's custom SQL relation with two-part names in a real run ([schema-classes-plan.md](../design/schema-classes-plan.md)) | server | S |
 
 ## Build
-
-### Bugs
-
-Each has a journey tagged `@known-bug`, left out of normal runs: `E2E_KNOWN_BUGS=1`.
-
-| Item | Effort |
-|------|--------|
-| SPC widget, client mode: always "Not enough data". Rows are keyed by column id, `SpcComponent` reads them by name (`e2e/client/spc.spec.ts`) | S |
-| Dataset editing, client mode: undo after a reload does not restore the value (`e2e/client/dataset.spec.ts`). Suspect: `parsedInput` rewinding once a reload emptied `_rawBaseline`, unproven | S |
 
 ### Data engines
 

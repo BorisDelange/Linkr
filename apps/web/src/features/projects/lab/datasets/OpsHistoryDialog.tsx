@@ -66,6 +66,8 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
   const compactFileOps = useDatasetStore((s) => s.compactFileOps)
   const undoLastOps = useDatasetStore((s) => s.undoLastOps)
   const resetOps = useDatasetStore((s) => s.resetOps)
+  const canUndo = useDatasetStore((s) => s.canUndoLastOps(fileId))
+  const canReset = useDatasetStore((s) => s.canResetOps(fileId))
   const resolveName = useUserDirectoryStore((s) => s.resolveName)
   const [confirmingReset, setConfirmingReset] = useState(false)
   /**
@@ -189,7 +191,8 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
             variant="outline"
             size="sm"
             className="ml-auto"
-            disabled={!ops.length || busy}
+            disabled={!ops.length || busy || !canUndo}
+            title={canUndo ? undefined : t('datasets.undo_value_lost')}
             onClick={() => void run('undo', () => undoLastOps(fileId))}
           >
             {busyAction === 'undo'
@@ -201,7 +204,8 @@ export function OpsHistoryDialog({ fileId, open, onOpenChange }: Props) {
             variant="ghost"
             size="sm"
             className="text-destructive hover:text-destructive"
-            disabled={!ops.length || busy}
+            disabled={!ops.length || busy || !canReset}
+            title={canReset ? undefined : t('datasets.undo_value_lost')}
             onClick={() => setConfirmingReset(true)}
           >
             {busyAction === 'reset'

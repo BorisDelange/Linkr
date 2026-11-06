@@ -1843,6 +1843,7 @@
     "column_type": "Type",
     "undo_edit": "Annuler la dernière modification",
     "undo_in_progress": "Annulation de la dernière modification…",
+    "undo_value_lost": "Cette modification est antérieure à la conservation des originaux : sa valeur précédente est perdue.",
     "edit_history": "Historique des modifications",
     "edit_history_description": "Toutes les opérations enregistrées sur le fichier source, de la plus récente à la plus ancienne. Le fichier source n'est jamais modifié : cette liste est ce qui fait le jeu de données.",
     "compact_history": "Compacter",

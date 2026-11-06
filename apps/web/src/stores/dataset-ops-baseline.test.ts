@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ROW_ORD, replayOps, type DatasetOp, type ReplayInput } from '@linkr/format'
-import { carryColumnMeta, unreplay } from './dataset-ops-baseline'
+import { canRewind, carryColumnMeta, unreplay } from './dataset-ops-baseline'
 
 let seq = 0
 const mint = () => ({ id: `op${++seq}`, at: 1_700_000_000_000 })
@@ -257,5 +257,31 @@ describe('unreplay — a collected column keeps its entry constraints', () => {
     const replayed = [{ id: 'col_new', name: 'n', type: 'string', order: 0 }]
     expect(carryColumnMeta(replayed, [])).toBe(replayed)
     expect(carryColumnMeta(replayed, [{ id: 'other' }])[0]).toBe(replayed[0])
+  })
+})
+
+describe('canRewind', () => {
+  const setCell = (value: string, row = 0): DatasetOp => ({ ...mint(), type: 'setCell', row, column: 'col_a', value })
+
+  it('refuses a raw cell the log wrote only once: its first value is not in the log', () => {
+    expect(canRewind([setCell('new')], 0)).toBe(false)
+  })
+
+  it('allows a cell an earlier kept op wrote', () => {
+    expect(canRewind([setCell('first'), setCell('second')], 1)).toBe(true)
+  })
+
+  it('refuses dropping both writes of a cell: the first still replaced a raw value', () => {
+    expect(canRewind([setCell('first'), setCell('second')], 0)).toBe(false)
+  })
+
+  it('does not take a write to another row as the previous value', () => {
+    expect(canRewind([setCell('first', 1), setCell('second', 0)], 1)).toBe(false)
+  })
+
+  it('allows what the log added, refuses a removal', () => {
+    expect(canRewind([{ ...mint(), type: 'addRow', row: -1, values: {} }], 0)).toBe(true)
+    expect(canRewind([{ ...mint(), type: 'removeRow', row: 0 }], 0)).toBe(false)
+    expect(canRewind([{ ...mint(), type: 'removeColumn', column: 'col_a' }], 0)).toBe(false)
   })
 })

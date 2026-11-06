@@ -15,7 +15,7 @@ Each audit covers the commits since the previous entry's `Last audited commit`.
   - API `apps/api/tests/test_web_apps.py` — detection of gradio, panel, fastapi, flask, plumber by content; argv of panel, flask, fastapi; gradio's environment; the open tab's poll keeps an app from going idle
 - Updated: `docs/testing.md` (client coverage)
 - Removed: none, no strict duplicate found
-- Known bugs re-checked: the two tagged above are new, both still failing. In the client build, undo after a reload keeps the edit: `parsedInput` rewinds current rows and a reload lost `_rawBaseline`. In the client build, a control chart always says "Not enough data": rows are keyed by column id, `SpcComponent` reads them by name (the journey passes with the rows mapped to names)
+- Known bugs re-checked: the two tagged above are new, both still failing. Both fixed the same day, tags dropped: the baseline is now saved with the rows, SPC rows are re-keyed by name. In the client build, undo after a reload keeps the edit: `parsedInput` rewinds current rows and a reload lost `_rawBaseline`. In the client build, a control chart always says "Not enough data": rows are keyed by column id, `SpcComponent` reads them by name (the journey passes with the rows mapped to names)
 - Left for later: rename repairing filters through the collection dialog (the only UI calling `renameColumn`; `dataset-column-rename.test.ts` covers the logic); data catalog run; server file picker and second-machine wizard journeys; terminal and env installs in the SPE smoke test. `npm run test:e2e` still fails in a worktree (`.bin` links to the main checkout): run `node ../../node_modules/@playwright/test/cli.js test` from `apps/web`
 
 ## 2026-11-05 — Demo ETL pipeline run whole on the server

@@ -12,7 +12,7 @@ import type { SchemaMapping, SchemaOverrides } from './schema-mapping'
 // The ops log is defined once, in the format package, because the replay engine
 // there is the shared contract between the client, the server and the validator.
 export type { DatasetOp } from '@linkr/format'
-import type { DatasetOp } from '@linkr/format'
+import type { DatasetOp, ReplayInput } from '@linkr/format'
 
 export interface User {
   id: number
@@ -1188,6 +1188,8 @@ export interface DatasetFile extends Seedable, Authored {
 export interface DatasetData {
   datasetFileId: string
   rows: Record<string, unknown>[]
+  /** Client mode, edited dataset: the rows and columns before any op, what undo replays over. */
+  baseline?: ReplayInput
 }
 
 export interface DatasetRawFile {

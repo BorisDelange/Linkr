@@ -57,8 +57,7 @@ test's data folder links to: the first run needs the network, the next ones do n
   4500, out of that range. Needs the seed
   (`npm run data:fetch`). Covers the boot and a cold deep link, the workspace
   databases, a concept search, a cohort, a patient board, a dashboard, a
-  dataset with a cell edited and undone, a control chart added to a dashboard
-  (`@known-bug`), the IDE running the demo SQL script and moving it and its result
+  dataset with a cell edited and undone, also after a reload, a control chart added to a dashboard, the IDE running the demo SQL script and moving it and its result
   between the two panels, the demo ETL pipeline (its
   scripts, one run against its source), the demo mapping project (filter, open a
   mapping) and a project exported as a ZIP then re-imported. Python and R in the

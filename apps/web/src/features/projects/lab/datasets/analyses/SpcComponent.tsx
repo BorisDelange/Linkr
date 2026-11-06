@@ -100,8 +100,11 @@ export function SpcComponent({ config, columns, rows, compact, datasetFileId, da
 
   const localResult = useMemo(() => {
     if (server || !ready) return null
-    return computeSpc(rows, spcConfig)
-  }, [server, ready, rows, spcConfig])
+    // The config holds column names, as the server's render spec needs them; the
+    // browser's rows are keyed by column id.
+    const byName = rows.map((row) => Object.fromEntries(columns.map((c) => [c.name, row[c.id]])))
+    return computeSpc(byName, spcConfig)
+  }, [server, ready, rows, columns, spcConfig])
 
   const spec = server && datasetFileId && ready ? buildSpcSpec(spcConfig) : null
   const specKey = spec ? JSON.stringify(spec) : null

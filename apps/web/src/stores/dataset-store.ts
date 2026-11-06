@@ -11,7 +11,7 @@ import {
   compactOps, replayOps, retypeAddedColumn,
   type DatasetCellValue, type DatasetOp, type OpColumn, type ReplayInput,
 } from '@linkr/format'
-import { carryColumnMeta, unreplay } from '@/stores/dataset-ops-baseline'
+import { canRewind, carryColumnMeta, unreplay } from '@/stores/dataset-ops-baseline'
 import { planColumnRename, rekeyFilter, rekeyWidgetConfig, type ColumnRenamePlan } from '@/lib/dataset-column-rename'
 import { stampAuthored, useAppStore } from '@/stores/app-store'
 import { rekeyVersioningMarks } from '@/stores/rekey-versioning-marks'
@@ -151,6 +151,10 @@ interface DatasetState {
   /** Undo the last recorded op group, by appending its inverse. Serialisable and
    *  durable, unlike the closure-based undoStack (which covers tree ops only). */
   undoLastOps: (fileId: string) => Promise<void>
+  /** False when the value the last action replaced is lost: it was edited before baselines were saved. */
+  canUndoLastOps: (fileId: string) => boolean
+  /** Same as `canUndoLastOps`, for dropping the whole log. */
+  canResetOps: (fileId: string) => boolean
   /** How many undoable op groups the log holds. */
   undoableOpCount: (fileId: string) => number
   /** Drop every op, restoring the dataset to its raw file. */
@@ -205,8 +209,24 @@ const MAX_UNDO = 50
  * Captured once and held: it is reconstructed from the CURRENT rows minus the
  * CURRENT log, so re-deriving it after the log has changed would rewind the wrong
  * ops. Only a reparse of the raw invalidates it — `reimportData` clears the entry.
+ *
+ * `exact` means it was captured on an empty log, so it holds every raw value. It is
+ * then saved with the rows and survives a reload. One rewound from a grown log
+ * (a dataset edited before baselines were saved, or after a reparse) is not exact
+ * and is never saved: undo is limited to what `canRewind` allows.
  */
-const _rawBaseline = new Map<string, ReplayInput>()
+const _rawBaseline = new Map<string, { input: ReplayInput; exact: boolean }>()
+
+/** Where the last action starts in the log: one user action can record several ops. */
+function lastGroupStart(log: readonly DatasetOp[]): number {
+  const groupId = log[log.length - 1]?.group
+  return groupId ? log.findIndex((op) => op.group === groupId) : log.length - 1
+}
+
+/** Whether dropping `log[from…]` restores what it replaced. The server replays from its raw. */
+function canDropOps(fileId: string, log: readonly DatasetOp[], from: number): boolean {
+  return isServerMode() || !!_rawBaseline.get(fileId)?.exact || canRewind(log, from)
+}
 
 function mintOp(group?: string): { id: string; at: number; group?: string } {
   return { id: uid(), at: Date.now(), ...(group ? { group } : {}) }
@@ -226,15 +246,16 @@ function mintOp(group?: string): { id: string; at: number; group?: string } {
  */
 function parsedInput(fileId: string): ReplayInput | null {
   const cached = _rawBaseline.get(fileId)
-  if (cached) return cached
+  if (cached) return cached.input
 
   const file = useDatasetStore.getState().files.find((f) => f.id === fileId)
   if (!file || file.type !== 'file') return null
   const columns = (file.columns ?? []) as OpColumn[]
 
-  const baseline = unreplay({ columns, rows: _loadedData.get(fileId) ?? [] }, file.ops ?? [])
-  _rawBaseline.set(fileId, baseline)
-  return baseline
+  const log = file.ops ?? []
+  const input = unreplay({ columns, rows: _loadedData.get(fileId) ?? [] }, log)
+  _rawBaseline.set(fileId, { input, exact: log.length === 0 })
+  return input
 }
 
 /**
@@ -340,7 +361,8 @@ async function recordOps(fileId: string, ops: DatasetOp[], replace: boolean): Pr
   }))
 
   const storage = getStorage()
-  await storage.datasetData.save({ datasetFileId: fileId, rows })
+  const saved = _rawBaseline.get(fileId)
+  await storage.datasetData.save({ datasetFileId: fileId, rows, baseline: saved?.exact ? saved.input : undefined })
   _savedDataSnapshot.set(fileId, JSON.stringify(rows))
   await storage.datasetFiles.update(fileId, patch)
 }
@@ -903,6 +925,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       if (data) {
         _loadedData.set(fileId, data.rows)
         _savedDataSnapshot.set(fileId, JSON.stringify(data.rows))
+        if (data.baseline) _rawBaseline.set(fileId, { input: data.baseline, exact: true })
       } else {
         _loadedData.set(fileId, [])
         _savedDataSnapshot.set(fileId, '[]')
@@ -1515,9 +1538,19 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     const log = get().files.find((f) => f.id === fileId)?.ops ?? []
     if (!log.length) return
 
-    const groupId = log[log.length - 1].group
-    const start = groupId ? log.findIndex((op) => op.group === groupId) : log.length - 1
+    const start = lastGroupStart(log)
+    if (!canDropOps(fileId, log, start)) return
     await recordOps(fileId, log.slice(0, start), true)
+  },
+
+  canUndoLastOps: (fileId) => {
+    const log = get().files.find((f) => f.id === fileId)?.ops ?? []
+    return !log.length || canDropOps(fileId, log, lastGroupStart(log))
+  },
+
+  canResetOps: (fileId) => {
+    const log = get().files.find((f) => f.id === fileId)?.ops ?? []
+    return !log.length || canDropOps(fileId, log, 0)
   },
 
   undoableOpCount: (fileId) => {
@@ -1532,6 +1565,8 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
   },
 
   resetOps: async (fileId) => {
+    const log = get().files.find((f) => f.id === fileId)?.ops ?? []
+    if (!canDropOps(fileId, log, 0)) return
     await recordOps(fileId, [], true)
   },
 
