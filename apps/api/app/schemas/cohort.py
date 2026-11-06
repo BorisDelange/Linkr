@@ -1,10 +1,11 @@
 from datetime import datetime
 
+from app.core.path_ids import SegmentId
 from app.schemas.base import CamelModel
 
 
 class CohortCreate(CamelModel):
-    id: str
+    id: SegmentId
     # Exactly one owner: a project, or a database (the database page's cohorts).
     project_uid: str | None = None
     owner_data_source_id: str | None = None

@@ -1,10 +1,11 @@
 from datetime import datetime
 
+from app.core.path_ids import SegmentId
 from app.schemas.base import CamelModel
 
 
 class DataDictionaryCreate(CamelModel):
-    id: str
+    id: SegmentId
     workspace_id: str
     name: str = ""
     source_repo: str | None = None

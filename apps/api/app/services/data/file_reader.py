@@ -83,6 +83,16 @@ def transcoded_paths(con: duckdb.DuckDBPyConnection) -> list[str]:
     return list(_transcoded.get(id(con), []))
 
 
+def confine_reader(con: duckdb.DuckDBPyConnection, path: str, writable_dir: str | None = None) -> None:
+    """Cut `con` off the filesystem once build_read_expr has run: only `path`, its
+    UTF-8 temps and `writable_dir` stay reachable. Irreversible for the connection."""
+    files = ", ".join(_sql_str(p) for p in [path, *transcoded_paths(con)])
+    con.execute(f"SET allowed_paths=[{files}]")
+    if writable_dir is not None:
+        con.execute(f"SET allowed_directories=[{_sql_str(writable_dir)}]")
+    con.execute("SET enable_external_access=false")
+
+
 def cleanup_transcoded(con: duckdb.DuckDBPyConnection) -> None:
     """Unlink any UTF-8 temp files build_read_expr created for `con`. Call in the
     caller's ``finally`` (alongside ``con.close()``)."""
@@ -142,7 +152,8 @@ def build_read_expr(
     concept-mapping file source, which reads with ``nullstr='NA'`` so a literal
     "NA" cell becomes NULL identically server-side."""
     ext = Path(file_name or "").suffix.lower()
-    header = opts.get("hasHeader", True)
+    # A boolean by contract, and it reaches the SQL below as text.
+    header = opts.get("hasHeader", True) is not False
     skip = int(opts.get("skipRows") or 0)
 
     if ext in (".parquet", ".pq") and _is_parquet(path):

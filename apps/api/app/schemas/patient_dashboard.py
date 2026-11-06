@@ -2,13 +2,14 @@ from datetime import datetime
 
 from pydantic import Field
 
+from app.core.path_ids import SegmentId
 from app.schemas.base import CamelModel
 
 
 # Multilingual name is a LocalizedString dict ({"en": ...}); rows migrated from the
 # old localStorage store may carry a bare string — accept both so imports don't 422.
 class PatientDashboardCreate(CamelModel):
-    id: str
+    id: SegmentId
     # Exactly one owner: a project, or a database. A database's board is for one
     # of its cohorts (`owner_cohort_id`), whose patients it reviews; a project's
     # may be too — then that cohort's own board, not a Patient data board.
@@ -84,7 +85,7 @@ class PatientDashboardResponse(CamelModel):
 
 
 class PatientDashboardTabCreate(CamelModel):
-    id: str
+    id: SegmentId
     patient_dashboard_id: str
     name: dict | str = {}
     description: dict | str | None = None
@@ -106,7 +107,7 @@ class PatientDashboardTabResponse(CamelModel):
 
 
 class PatientDashboardWidgetCreate(CamelModel):
-    id: str
+    id: SegmentId
     tab_id: str
     name: dict | str = {}
     description: dict | str | None = None

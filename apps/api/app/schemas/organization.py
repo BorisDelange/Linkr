@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from app.core.path_ids import SegmentId
 from app.schemas.base import CamelModel
 
 
@@ -8,7 +9,7 @@ LocalizedOrStr = dict[str, str] | str
 
 
 class OrganizationCreate(CamelModel):
-    id: str | None = None  # client supplies crypto.randomUUID()
+    id: SegmentId | None = None  # client supplies crypto.randomUUID()
     name: LocalizedOrStr
     type: str | None = None
     location: LocalizedOrStr | None = None

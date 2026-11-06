@@ -127,6 +127,15 @@ def test_a_sqlserver_login_granted_writes_on_one_schema_is_refused():
     assert "CROSS APPLY fn_my_permissions(s.name, ''SCHEMA'')" in query
 
 
+def test_the_sqlserver_login_check_reads_grants_on_objects_and_what_it_owns():
+    con = _FakeCon({"sysadmin": [(0,) * 9], "fn_my_permissions": [("SELECT",), ("INSERT",)]})
+    with pytest.raises(ValueError, match="INSERT"):
+        community_engines._require_read_only_sqlserver_login(con, "ext")
+    query = next(s for s in con.sql if "fn_my_permissions" in s)
+    assert "sys.database_permissions" in query and "HAS_PERMS_BY_NAME(QUOTENAME" in query
+    assert "o.principal_id = DATABASE_PRINCIPAL_ID()" in query
+
+
 def test_a_refused_sqlserver_login_is_told_how_to_become_read_only():
     con = _FakeCon({
         "IS_SRVROLEMEMBER": [(0,) * 9],
@@ -226,6 +235,30 @@ def test_oracle_reads_one_schema_and_sqlserver_defaults_to_dbo():
 def test_project_code_cannot_attach_them_yet():
     with pytest.raises(ValueError, match="not available from project code"):
         db_connect.attach_recipe(ORACLE, "pw")
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM mssql_scan NOT MATERIALIZED ('db', 'SELECT 1')",
+    "SELECT * FROM mssql_exec NOT /* c */ MATERIALIZED ('db', 'SELECT 1')",
+    "SELECT * FROM query NOT MATERIALIZED ('SELECT 1')",
+])
+def test_a_hint_is_only_dropped_from_a_cte(sql):
+    assert "MATERIALIZED" in db_connect._materialization_left_to_duckdb(sql)
+
+
+@pytest.mark.parametrize("run", [db_connect._run_statements, db_connect._run_to_arrow])
+def test_the_read_only_guard_reads_a_statement_as_it_will_run(monkeypatch, run):
+    monkeypatch.setattr(db_connect, "_has_sqlserver_attach", lambda con: True)
+    monkeypatch.setattr(db_connect, "_has_passthrough_attach", lambda con: True)
+    with pytest.raises(duckdb.ParserException):
+        run(duckdb.connect(), "memory", "SELECT * FROM query NOT MATERIALIZED ('SELECT 42 AS x')")
+    con = duckdb.connect()
+    with pytest.raises(duckdb.ParserException):
+        run(con, "memory", "SELECT * FROM query AS NOT MATERIALIZED ('SELECT 1')")
+    with pytest.raises(duckdb.ParserException):
+        run(con, "memory", "PREPARE NOT MATERIALIZED p AS SELECT 1")
+    with pytest.raises(ValueError, match="read-only guard"):
+        run(con, "memory", 'WITH x AS NOT MATERIALIZED (SELECT * FROM "query"(\'SELECT 1\')) SELECT * FROM x')
 
 
 def test_not_materialized_hints_are_dropped_for_sql_server():

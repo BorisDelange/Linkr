@@ -69,9 +69,9 @@ def _read_all_varchar_spec(columns: list[dict], row_ord: bool = False) -> str:
     read fail. The declared types are then applied with ``try_cast`` in the
     SELECT (see ``_typed_projection``), so a stray non-numeric value in a column
     inferred as ``number`` becomes NULL instead of aborting the whole write."""
-    parts = [f"{json.dumps(c['id'])}: 'VARCHAR'" for c in columns]
+    parts = [f"{_quote_ident(c['id'])}: 'VARCHAR'" for c in columns]
     if row_ord:
-        parts.insert(0, f"{json.dumps(ROW_ORD)}: 'VARCHAR'")
+        parts.insert(0, f"{_quote_ident(ROW_ORD)}: 'VARCHAR'")
     return "{" + ", ".join(parts) + "}"
 
 
@@ -132,6 +132,9 @@ def write_parquet(
 
     con = duckdb.connect()
     try:
+        # Column ids come from the ops log: only this folder stays reachable.
+        con.execute(f"SET allowed_directories=[{_sql_str(tmp_dir.as_posix())}]")
+        con.execute("SET enable_external_access=false")
         if columns:
             spec = _read_all_varchar_spec(columns, row_ord=row_ord)
             projection = _typed_projection(columns)
@@ -172,7 +175,7 @@ def _sql_str(value: str) -> str:
 
 
 def _quote_ident(name: str) -> str:
-    """Quote a column id as a DuckDB identifier (ids validated by the caller)."""
+    """Quote a column id as a DuckDB identifier."""
     return '"' + name.replace('"', '""') + '"'
 
 

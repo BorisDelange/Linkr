@@ -89,3 +89,10 @@ describe('splitSqlStatements', () => {
     ])
   })
 })
+
+describe('a dollar sign ending an identifier', () => {
+  it('opens no dollar-quoted block, as for the engine', () => {
+    expect(splitSqlStatements('SELECT 1 AS a$$; SELECT 2 AS b$$')).toHaveLength(2)
+    expect(splitSqlStatements('SELECT $$a;b$$; SELECT 2')).toHaveLength(2)
+  })
+})

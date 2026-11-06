@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import field_validator, model_validator
 
-from app.core.path_ids import SafeId
+from app.core.path_ids import SafeId, SegmentId
 from app.schemas.base import CamelModel
 from app.schemas.dq_taxonomy import (
     check_threshold,
@@ -110,7 +110,7 @@ class DqRuleSetResponse(CamelModel):
 
 
 class DqCustomCheckCreate(CamelModel):
-    id: str
+    id: SegmentId
     rule_set_id: str
     name: str = ""
     description: str = ""
@@ -170,7 +170,7 @@ class DqCustomCheckUpdate(CamelModel):
 
 class DqCustomCheckPatch(DqCustomCheckUpdate):
     """One check's changes in a batch update."""
-    id: str
+    id: SegmentId
 
 
 class DqChecksDelete(CamelModel):
@@ -198,7 +198,7 @@ class DqCustomCheckResponse(CamelModel):
 
 
 class DqRunHistoryCreate(CamelModel):
-    id: str
+    id: SegmentId
     # Required (like DqCustomCheckCreate.rule_set_id): the route authorizes the
     # write via this rule set's workspace, so a null value must not slip past the
     # `if body.rule_set_id` guard and let any authed user write an orphan run.

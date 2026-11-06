@@ -144,7 +144,14 @@ def _require_mirror_sources(project_uid: str, options: dict | None, *, lock_too:
     outside: set[str] = set()
     manifest, lock = _pyproject_path(project_uid), _lock_path(project_uid)
     if manifest.exists():
-        for req in _manifest_requirements(tomllib.loads(manifest.read_text())):
+        data = tomllib.loads(manifest.read_text())
+        # Each member is a pyproject of its own, with requirements read from elsewhere.
+        if ((data.get("tool") or {}).get("uv") or {}).get("workspace") is not None:
+            raise ProvisionError(
+                "This environment's pyproject.toml declares a uv workspace, whose members are not "
+                "checked against the deployment's package mirror. Remove [tool.uv.workspace] from it."
+            )
+        for req in _manifest_requirements(data):
             reference = req.split(";", 1)[0].partition("@")[2].strip()
             if reference:
                 outside |= _hosts_outside(reference, allowed)
@@ -154,8 +161,8 @@ def _require_mirror_sources(project_uid: str, options: dict | None, *, lock_too:
     if outside:
         raise ProvisionError(
             "This environment's pyproject.toml or uv.lock downloads from outside the deployment's "
-            f"package mirror ({', '.join(sorted(outside))}). Remove those sources, or update all "
-            "packages to lock them again on the mirror."
+            f"package mirror ({', '.join(sorted(outside))}). Remove those sources from pyproject.toml; "
+            "updating all packages then locks them again on the mirror."
         )
 
 
@@ -163,6 +170,11 @@ def _manifest_requirements(data: dict) -> list[str]:
     project = data.get("project") or {}
     groups = [project.get("dependencies") or [], *(project.get("optional-dependencies") or {}).values(),
               *(data.get("dependency-groups") or {}).values(), (data.get("build-system") or {}).get("requires") or []]
+    # uv reads these whatever UV_NO_CONFIG says.
+    tool_uv = (data.get("tool") or {}).get("uv") or {}
+    groups += [tool_uv.get(key) or [] for key in (
+        "dev-dependencies", "override-dependencies", "constraint-dependencies", "build-constraint-dependencies",
+    )]
     return [req for group in groups if isinstance(group, list) for req in group if isinstance(req, str)]
 
 
@@ -177,7 +189,10 @@ def _lock_urls(node) -> list[str]:
 
 def _hosts_outside(url: str, allowed: set[str]) -> set[str]:
     """{the host of `url`} unless it is an http(s) URL on an allowed host; a URL of
-    another scheme (file:, ssh:) never goes through the mirror."""
+    another scheme (file:, ssh:) never goes through the mirror. A backslash ends the
+    host for uv and not for urlsplit, so the two would read different hosts."""
+    if "\\" in url:
+        return {url}
     parts = urlsplit(url.removeprefix("git+"))
     host = (parts.hostname or "").lower()
     if parts.scheme in ("http", "https") and host in allowed:

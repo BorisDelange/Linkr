@@ -424,8 +424,11 @@ def _dollar_tag(sql: str, at: int) -> str | None:
     """The dollar-quote tag opening at `at` (`$$` or `$name$`), or None.
 
     A tag is `$` + optional identifier + `$`, and the identifier may not start
-    with a digit (`$1` is a parameter, not a tag)."""
+    with a digit (`$1` is a parameter, not a tag). Right after an identifier
+    character the `$` belongs to that identifier, as it does for DuckDB's parser."""
     if sql[at] != "$":
+        return None
+    if at > 0 and (sql[at - 1].isalnum() or sql[at - 1] in "_$" or ord(sql[at - 1]) >= 0x80):
         return None
     j = at + 1
     while j < len(sql) and (sql[j].isalnum() or sql[j] == "_"):
@@ -586,13 +589,16 @@ def _has_sqlserver_attach(con: duckdb.DuckDBPyConnection) -> bool:
 
 
 def _materialization_left_to_duckdb(stmt: str) -> str:
-    """`stmt` without its `NOT MATERIALIZED` hints. The mssql extension's build
-    for DuckDB 1.5 fails a NOT MATERIALIZED CTE read twice ("mssql_catalog_scan
-    does not exist"); without the hint DuckDB chooses, and the answer is the same."""
+    """`stmt` without the `NOT MATERIALIZED` hints of its CTEs. The mssql extension's
+    build for DuckDB 1.5 fails a NOT MATERIALIZED CTE read twice ("mssql_catalog_scan
+    does not exist"); without the hint DuckDB chooses, and the answer is the same.
+    Only `AS NOT MATERIALIZED (` is a hint: the same words anywhere else are left
+    for the parser to refuse."""
     tokens = _tokens(stmt)
     texts = [t for t, _ in _token_texts(stmt)]
-    cuts = [(tokens[i][0], tokens[i + 2][0]) for i in range(len(tokens) - 2)
-            if texts[i] == "NOT" and texts[i + 1] == "MATERIALIZED"]
+    cuts = [(tokens[i][0], tokens[i + 2][0]) for i in range(1, len(tokens) - 2)
+            if texts[i - 1] == "AS" and texts[i] == "NOT" and texts[i + 1] == "MATERIALIZED"
+            and texts[i + 2].startswith("(")]
     for start, end in reversed(cuts):
         stmt = stmt[:start] + stmt[end:]
     return stmt
@@ -610,6 +616,46 @@ def _reject_passthrough_calls(stmt: str, dynamic_sql: bool = False, dynamic_hint
                 f"{text.lower()}() is not allowed: it runs SQL built from text, "
                 f"which Linkr's read-only guard cannot check{dynamic_hint}"
             )
+
+
+def _reject_hidden_statements(stmt: str) -> None:
+    """Every check reads one split statement as one statement: where DuckDB's parser
+    would run several from that text, the checks would not have seen them."""
+    try:
+        parsed = duckdb.extract_statements(stmt)
+    except duckdb.Error:
+        return
+    if len(parsed) > 1:
+        raise ValueError("this statement could not be read as a single statement")
+
+
+def _statements_to_run(con: duckdb.DuckDBPyConnection, sql: str) -> list[str]:
+    """`sql` split as it will run: the passthrough check reads the final text."""
+    statements = _split_statements(sql)
+    for stmt in statements:
+        _reject_hidden_statements(stmt)
+    if _has_sqlserver_attach(con):
+        statements = [_materialization_left_to_duckdb(stmt) for stmt in statements]
+    dynamic_sql = _has_passthrough_attach(con)
+    for stmt in statements:
+        _reject_passthrough_calls(stmt, dynamic_sql)
+    return statements
+
+
+def _reject_stored_passthrough(con: duckdb.DuckDBPyConnection, databases: list[str]) -> None:
+    """A macro or a view stored in a file a script attaches runs under the script's
+    guard without appearing in its text, so beside a database that runs SQL handed
+    to it as text, those definitions are held to the same check."""
+    if not _has_passthrough_attach(con):
+        return
+    rows = con.execute(
+        "SELECT macro_definition FROM duckdb_functions() "
+        "WHERE macro_definition IS NOT NULL AND database_name IN (SELECT unnest(?)) "
+        "UNION ALL SELECT sql FROM duckdb_views() WHERE database_name IN (SELECT unnest(?))",
+        [databases, databases],
+    ).fetchall()
+    for (definition,) in rows:
+        _reject_passthrough_calls(definition, dynamic_sql=True)
 
 
 # The generated vocabulary fill script ran `query(getvariable(...))` before it
@@ -630,10 +676,14 @@ def _reject_forbidden_statements(sql: str, dynamic_hint: str = "") -> None:
     The splitter keeps string literals intact, so `SELECT '-- install httpfs'` is
     still not a false positive."""
     for stmt in _split_statements(sql):
+        _reject_hidden_statements(stmt)
         m = _leading_match(_FORBIDDEN_IN_USER_SQL, stmt)
         if m:
             raise ValueError(f"{m.group(1).upper()} is not allowed in a pipeline script")
         _reject_passthrough_calls(stmt, dynamic_sql=True, dynamic_hint=dynamic_hint)
+        for kind, _, _ in _classified(stmt):
+            if kind in (duckdb.StatementType.ATTACH, duckdb.StatementType.LOAD):
+                raise ValueError(f"{kind.name} is not allowed in a pipeline script")
 
 
 # Where a token's own text stops: DuckDB's tokenizer only gives start offsets, so
@@ -790,6 +840,7 @@ _FORBIDDEN_TYPES_IN_SHARED_READ = frozenset({
 
 def _reject_session_statements(sql: str) -> None:
     for stmt in _split_statements(sql):
+        _reject_hidden_statements(stmt)
         m = _leading_match(_FORBIDDEN_IN_SHARED_READ, stmt)
         if m:
             raise ValueError(f"{m.group(1).upper()} is not allowed in a query")
@@ -835,12 +886,7 @@ def _run_statements(
     to the next — splitting the script across requests loses that."""
     con.execute(f"SET search_path='{_sql_path(search_path)}'")
     result: duckdb.DuckDBPyConnection | None = None
-    statements = _split_statements(sql)
-    dynamic_sql = _has_passthrough_attach(con)
-    for stmt in statements:
-        _reject_passthrough_calls(stmt, dynamic_sql)
-    if _has_sqlserver_attach(con):
-        statements = [_materialization_left_to_duckdb(stmt) for stmt in statements]
+    statements = _statements_to_run(con, sql)
     for i, stmt in enumerate(statements):
         if on_statement is not None:
             on_statement(i, len(statements), stmt)
@@ -864,12 +910,7 @@ def _run_to_arrow(con: duckdb.DuckDBPyConnection, search_path: str, sql: str):
     dataset from a query) and must not truncate it."""
     con.execute(f"SET search_path='{_sql_path(search_path)}'")
     result: duckdb.DuckDBPyConnection | None = None
-    statements = _split_statements(sql)
-    dynamic_sql = _has_passthrough_attach(con)
-    for stmt in statements:
-        _reject_passthrough_calls(stmt, dynamic_sql)
-    if _has_sqlserver_attach(con):
-        statements = [_materialization_left_to_duckdb(stmt) for stmt in statements]
+    statements = _statements_to_run(con, sql)
     for stmt in statements:
         query_cancel.raise_if_interrupted()
         result = con.execute(stmt)
@@ -1047,6 +1088,8 @@ def query_file_source(
         reader = file_reader.build_read_expr(
             con, path, file_name, parse_options or {}, nullstr="NA"
         )
+        # Only the blob, or its UTF-8 transcode, stays readable from here on.
+        _forbid_file_access(con, [path, *file_reader.transcoded_paths(con)])
         # Raw (pre-dedup) projection, then the deduped view the frontend queries.
         # Keeping the raw one lets the editor count dropped duplicates via
         # `COUNT(*) FROM source_concepts_raw - COUNT(*) FROM source_concepts`,
@@ -1064,9 +1107,8 @@ def query_file_source(
             f"(PARTITION BY {dedup_partition} ORDER BY concept_id) = 1"
         )
         # `sql` is arbitrary client SQL (editor-authored, mirroring the in-browser
-        # DuckDB-WASM path): only the blob — or its UTF-8 transcode — stays readable.
+        # DuckDB-WASM path).
         _reject_session_statements(sql)
-        _forbid_file_access(con, [path, *file_reader.transcoded_paths(con)])
         _lock_down_user_sql(con)
         return _run_statements(con, "memory", sql, max_rows=max_rows)
     finally:
@@ -1093,6 +1135,7 @@ def file_source_columns(
         reader = file_reader.build_read_expr(
             con, path, file_name, parse_options or {}, nullstr="NA"
         )
+        _forbid_file_access(con, [path, *file_reader.transcoded_paths(con)])
         cols = [d[0] for d in con.execute(f"SELECT * FROM {reader} LIMIT 0").description]
         total = con.execute(f"SELECT COUNT(*) FROM {reader}").fetchone()[0]
         rows: list[dict] = []
@@ -1721,6 +1764,7 @@ def run_etl_sql(
             # can be smuggled in through a `'mapping.<name>'` substitution.
             _reject_forbidden_statements(sql, _REGENERATE_FILL_HINT)
             _reject_copy_to_file(sql)
+            _reject_stored_passthrough(con, list(attached.values()))
             if TARGET_CONCEPT_IDS_VIEW in sql.lower():
                 _create_target_concept_ids_view(con)
 

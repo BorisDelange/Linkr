@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import audit
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.core.path_ids import SegmentId
 from app.core.permissions import check_project_permission, check_workspace_permission
 from app.models.data_catalog import DataCatalog
 from app.models.data_source import DataSource
@@ -102,7 +103,7 @@ async def list_readme(
 @readme_router.post("", response_model=ReadmeAttachmentResponse, status_code=status.HTTP_201_CREATED)
 async def create_readme(
     request: Request,
-    id: str = Query(),
+    id: SegmentId = Query(),
     file_name: str = Query(alias="fileName"),
     owner_type: str | None = Query(alias="ownerType", default=None),
     owner_id: str | None = Query(alias="ownerId", default=None),
@@ -210,7 +211,7 @@ async def list_wiki(
 @wiki_router.post("", response_model=WikiAttachmentResponse, status_code=status.HTTP_201_CREATED)
 async def create_wiki(
     request: Request,
-    id: str = Query(),
+    id: SegmentId = Query(),
     page_id: str = Query(alias="pageId"),
     workspace_id: str = Query(alias="workspaceId"),
     file_name: str = Query(alias="fileName"),

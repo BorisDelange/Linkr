@@ -3,6 +3,7 @@
  */
 import { normalizeCatalog } from '@/lib/data-catalog/config'
 import JSZip from 'jszip'
+import { isOnePathSegment } from '@/lib/format-helpers'
 import { sanitizeSchemaMapping, sanitizeSchemaOverrides } from '@/lib/schema-helpers'
 import { isEmptyOverrides } from '@/lib/schema-classes/overrides'
 import type { SchemaOverrides } from '@/types/schema-mapping'
@@ -2119,7 +2120,7 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
   // --- Read project.json ---
   const projectFile = zipData.files[ENTITY_MANIFEST] ?? zipData.files[MANIFEST.project]
   if (!projectFile) return null
-  const projectRaw = JSON.parse(await projectFile.async('string'))
+  const projectRaw = withoutForeignPathIds(JSON.parse(await projectFile.async('string')))
   assertEntityType(projectRaw, 'project')
   // Clean git-versioned exports strip `uid` (the local PK) and identify the project
   // by its stable `projectId` (and `lineageId` when it has one); the target uid is
@@ -2189,6 +2190,18 @@ async function readJsonFile<T>(zip: JSZip, path: string): Promise<T | null> {
  * what lets every already-published repo keep importing after the format flip.
  * Writers are NOT tolerant — one format out, no flag.
  */
+/**
+ * A manifest's `id` and `uid` reach API paths. One that is not a single path
+ * segment is dropped: the importer then identifies the entity like any manifest
+ * without an id.
+ */
+function withoutForeignPathIds<T>(manifest: T): T {
+  const fields = manifest as { id?: unknown; uid?: unknown }
+  if (typeof fields.id === 'string' && !isOnePathSegment(fields.id)) delete fields.id
+  if (typeof fields.uid === 'string' && !isOnePathSegment(fields.uid)) delete fields.uid
+  return manifest
+}
+
 async function readEntityManifest<T>(
   zip: JSZip,
   prefix: string,
@@ -2197,7 +2210,7 @@ async function readEntityManifest<T>(
 ): Promise<T | null> {
   for (const name of [ENTITY_MANIFEST, MANIFEST[kind], ...extraNames]) {
     const found = await readJsonFile<T>(zip, `${prefix}${name}`)
-    if (found) return found
+    if (found) return withoutForeignPathIds(found)
   }
   return null
 }
@@ -5000,7 +5013,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   // --- workspace.json ---
   const wsFile = zipData.files[ENTITY_MANIFEST] ?? zipData.files[MANIFEST.workspace]
   if (!wsFile) return null
-  const workspace = JSON.parse(await wsFile.async('string')) as Workspace & { appVersion?: string }
+  const workspace = withoutForeignPathIds(JSON.parse(await wsFile.async('string'))) as Workspace & { appVersion?: string }
   if (!workspace) return null
   assertEntityType(workspace, 'workspace')
   // A manifest no longer carries the writing instance's `id`. The importer mints

@@ -150,3 +150,22 @@ def test_a_comment_after_force_does_not_hide_the_extension_statement(stmt):
         db_connect._reject_forbidden_statements(stmt)
     with pytest.raises(ValueError, match="not allowed in a query"):
         db_connect._reject_session_statements(stmt)
+
+
+@pytest.mark.parametrize("definition", [
+    "CREATE MACRO q(s) AS TABLE SELECT * FROM query(s)",
+    "CREATE VIEW v AS SELECT * FROM query('SELECT 1 AS x')",
+])
+def test_a_stored_definition_cannot_run_text_beside_a_database_that_would_run_it(tmp_path, target_db, monkeypatch, definition):
+    stored = tmp_path / "stored.duckdb"
+    con = duckdb.connect(str(stored))
+    con.execute(definition)
+    con.close()
+    role = {"kind": "file", "path": str(stored)}
+
+    assert db_connect.run_etl_sql(target_db, "SELECT 1 AS ok", roles={"source": role})[0]["ok"] == 1
+
+    monkeypatch.setattr(db_connect, "_has_passthrough_attach", lambda con: True)
+    with pytest.raises(ValueError, match="read-only guard"):
+        db_connect.run_etl_sql(target_db, "SELECT 1 AS ok", roles={"source": role})
+    assert db_connect.run_etl_sql(target_db, "SELECT 1 AS ok")[0]["ok"] == 1

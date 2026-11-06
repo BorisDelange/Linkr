@@ -204,9 +204,10 @@ def method_file_name(method: str) -> str:
 # --- Model folders -----------------------------------------------------------
 
 
-# Weights serialised with pickle, which runs code as it loads. Next to a
-# .safetensors file in the same folder they are never read.
+# Weights serialised with pickle, which runs code as it loads. Next to the
+# safetensors weights the loaders look for by name, they are never read.
 _PICKLE_WEIGHTS = {".bin", ".pt", ".pth", ".pkl", ".pickle", ".ckpt"}
+_SAFE_WEIGHT_FILES = ("model.safetensors", "model.safetensors.index.json")
 
 
 def unsafe_model_reason(path: Path) -> str | None:
@@ -218,8 +219,8 @@ def unsafe_model_reason(path: Path) -> str | None:
         return "The model folder holds Python code (.py files): only plain sentence-transformers models are accepted"
     for weights in path.rglob("*"):
         if weights.suffix.lower() in _PICKLE_WEIGHTS and weights.is_file() \
-                and not any(weights.parent.glob("*.safetensors")):
-            return (f"The model's weights are in a pickle format ({weights.name}) with no .safetensors "
+                and not any((weights.parent / name).is_file() for name in _SAFE_WEIGHT_FILES):
+            return (f"The model's weights are in a pickle format ({weights.name}) with no model.safetensors "
                     "beside them: only models published in safetensors are accepted")
     modules = path / "modules.json"
     if not modules.is_file():

@@ -70,6 +70,16 @@ async function refreshTokens(): Promise<boolean> {
 }
 
 /**
+ * Paths are built from row and manifest ids, and `fetch` resolves dot segments
+ * before sending, in every spelling the URL standard accepts. An id must never
+ * move a request to another route, carrying the user's token.
+ */
+export function leavesItsRoute(path: string): boolean {
+  const route = path.split(/[?#]/, 1)[0]
+  return /[\\\t\n\r]/.test(route) || route.split('/').some((segment) => /^(?:\.|%2e){1,2}$/i.test(segment))
+}
+
+/**
  * Fetch wrapper that adds Authorization header and handles 401 with token refresh.
  * Use for all authenticated API calls in server mode.
  */
@@ -78,6 +88,7 @@ export async function apiFetch(
   options: RequestInit = {},
   { promptLogin = true }: { promptLogin?: boolean } = {},
 ): Promise<Response> {
+  if (leavesItsRoute(path)) throw new ApiError(400, 'Invalid request path')
   const url = `${getApiBaseUrl()}${path}`
   const token = getStoredToken()
 

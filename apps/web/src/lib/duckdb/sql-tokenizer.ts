@@ -107,6 +107,8 @@ export function isProtected(regions: Region[], index: number): boolean {
  */
 function matchDollarTag(sql: string, at: number): string | null {
   if (sql[at] !== '$') return null
+  // Right after an identifier character the `$` belongs to that identifier.
+  if (at > 0 && /[\w$\u0080-\uffff]/.test(sql[at - 1])) return null
   let j = at + 1
   while (j < sql.length && /[A-Za-z0-9_]/.test(sql[j])) {
     // The first char of a non-empty tag must not be a digit.

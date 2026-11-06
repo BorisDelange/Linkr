@@ -8,6 +8,7 @@ import subprocess
 import pytest
 
 from app.services.execution import renv_provisioner as R
+from app.services.execution.package_spec import InvalidPackageSpec
 
 
 def _capture(monkeypatch):
@@ -255,3 +256,14 @@ def test_under_a_mirror_a_package_named_by_a_file_is_refused(tmp_path, monkeypat
     with pytest.raises(R.ProvisionError, match="not from the deployment's package mirror"):
         R.upgrade("p", spec)
     assert not calls
+
+
+@pytest.mark.parametrize("name", ["evil/pkg", 'x"); system("id"); ("'])
+def test_update_all_never_writes_a_lockfile_name_it_has_not_validated(tmp_path, monkeypatch, name):
+    _lock_with(tmp_path, monkeypatch, {name: {"Source": "Repository", "Repository": "CRAN"}})
+    calls = []
+    monkeypatch.setattr(R, "_run_r", lambda uid, code, on_log=None, options=None: calls.append(code) or "")
+    monkeypatch.setattr(R, "ensure_r_sandbox", lambda on_log=None: None)
+    with pytest.raises(InvalidPackageSpec):
+        R.upgrade("p")
+    assert calls == []

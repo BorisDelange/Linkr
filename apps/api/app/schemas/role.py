@@ -1,10 +1,11 @@
 from datetime import datetime
 
+from app.core.path_ids import SegmentId
 from app.schemas.base import CamelModel
 
 
 class RoleCreate(CamelModel):
-    id: str | None = None  # client supplies crypto.randomUUID()
+    id: SegmentId | None = None  # client supplies crypto.randomUUID()
     name: str
     label: dict[str, str] = {}
     scope: str = "workspace"

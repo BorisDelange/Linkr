@@ -1,12 +1,13 @@
 from datetime import datetime
 
+from app.core.path_ids import SegmentId
 from app.schemas.base import CamelModel
 
 
 # Multilingual name is a LocalizedString dict ({"en": ...}), but legacy dashboards
 # (and old export ZIPs) may carry a bare string — accept both so imports don't 422.
 class DashboardCreate(CamelModel):
-    id: str
+    id: SegmentId
     project_uid: str
     name: dict | str = {}
     description: dict | str | None = None
@@ -71,7 +72,7 @@ class DashboardResponse(CamelModel):
 # Tab/widget name is a LocalizedString dict ({"en": ...}); legacy rows and old export
 # ZIPs may carry a bare string — accept both so imports don't 422.
 class DashboardTabCreate(CamelModel):
-    id: str
+    id: SegmentId
     dashboard_id: str
     name: dict | str = {}
     description: dict | str | None = None
@@ -96,7 +97,7 @@ class DashboardTabResponse(CamelModel):
 
 
 class DashboardWidgetCreate(CamelModel):
-    id: str
+    id: SegmentId
     tab_id: str
     name: dict | str = {}
     description: dict | str | None = None

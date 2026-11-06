@@ -1,10 +1,11 @@
 from datetime import datetime
 
+from app.core.path_ids import SegmentId
 from app.schemas.base import CamelModel
 
 
 class ConceptListCreate(CamelModel):
-    id: str
+    id: SegmentId
     project_uid: str
     name: dict = {}
     description: dict = {}

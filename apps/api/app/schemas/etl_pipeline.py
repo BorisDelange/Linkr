@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from app.core.path_ids import SafeId
+from app.core.path_ids import SafeId, SegmentId
 from app.schemas.base import CamelModel
 
 
@@ -114,7 +114,7 @@ class EtlPipelineResponse(CamelModel):
 
 
 class EtlRunHistoryCreate(CamelModel):
-    id: str
+    id: SegmentId
     # Required, like DqRunHistoryCreate.rule_set_id: the route authorizes the write
     # through this pipeline's workspace, so a null value must not slip past that
     # check and let any authenticated user store an orphan run.
@@ -142,7 +142,7 @@ class EtlRunHistoryResponse(CamelModel):
 
 
 class EtlFileCreate(CamelModel):
-    id: str
+    id: SegmentId
     pipeline_id: str
     name: str
     type: str = "file"  # 'file' | 'folder'

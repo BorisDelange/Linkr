@@ -1,8 +1,9 @@
+from app.core.path_ids import SegmentId
 from app.schemas.base import CamelModel
 
 
 class IdeConnectionCreate(CamelModel):
-    id: str
+    id: SegmentId
     project_uid: str
     name: str = ""
     source: str

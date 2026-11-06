@@ -24,7 +24,7 @@ from typing import Any
 import duckdb
 
 from app.services.data.column_id import build_column_ids
-from app.services.data.file_reader import build_read_expr, cleanup_transcoded, is_excel
+from app.services.data.file_reader import build_read_expr, cleanup_transcoded, confine_reader, is_excel
 from app.services.data.type_inference import (
     ASCII_WS,
     BOOL_FALSE,
@@ -49,7 +49,9 @@ _DATE_RE_SQL = (
 def _relation(con: duckdb.DuckDBPyConnection, path: Path, name: str, opts: dict):
     # build_read_expr forces all_varchar so our own type inference stays
     # authoritative, and handles the CSV/Parquet/Excel dispatch + sheet option.
-    return con.sql(f"SELECT * FROM {build_read_expr(con, str(path), name, opts)}")
+    reader = build_read_expr(con, str(path), name, opts)
+    confine_reader(con, str(path))
+    return con.sql(f"SELECT * FROM {reader}")
 
 
 def _coerce(value: Any, col_type: str, na_set: set[str] | None = None) -> Any:
@@ -223,6 +225,7 @@ def preview_blob(path: Path, file_name: str, parse_options: dict | None) -> dict
     con = duckdb.connect()
     try:
         reader = build_read_expr(con, str(path), file_name, opts)
+        confine_reader(con, str(path))
         if is_native_parquet_expr(reader):
             # A real Parquet carries its own types (timestamps, ints…), which the
             # import keeps too (`parquet_schema`): text inference would not apply,
@@ -375,6 +378,7 @@ def convert_to_parquet(
     con = duckdb.connect()
     try:
         reader = build_read_expr(con, str(path), file_name, opts)
+        confine_reader(con, str(path), writable_dir=dest.parent.as_posix())
         headers = list(con.sql(f"SELECT * FROM {reader}").columns)
         types, row_count = _infer_types_sql(con, reader, headers, na_values)
         ids = build_column_ids(headers)

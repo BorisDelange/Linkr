@@ -325,17 +325,17 @@ def upgrade(project_uid: str, package: str | None = None, on_log=None, options: 
     ensure_manifest(project_uid)
     if package:
         # Strip any version pin — upgrade means "go to latest".
-        name = validate_package_spec(package).split("==")[0].split(">")[0].split("<")[0].strip()
-    _require_mirror_sources(project_uid, options, [name] if package else [])
+        names = [validate_package_spec(package).split("==")[0].split(">")[0].split("<")[0].strip()]
+    else:
+        # Names read from renv.lock, which may come from a git repository, reach
+        # `Rscript -e` source just the same.
+        names = [validate_package_spec(p["name"]) for p in list_packages(project_uid)]
+    _require_mirror_sources(project_uid, options, names)
     ensure_r_sandbox(on_log=on_log)
     projlib = str(_library_dir(project_uid)).replace("\\", "/")
-    if package:
-        targets = f'"{name}"'
-    else:
-        names = [p["name"] for p in list_packages(project_uid)]
-        if not names:
-            return
-        targets = "c(" + ", ".join(f'"{n}"' for n in names) + ")"
+    if not names:
+        return
+    targets = f'"{names[0]}"' if package else "c(" + ", ".join(f'"{n}"' for n in names) + ")"
     _run_r(
         project_uid,
         _isolation_prefix(project_uid)

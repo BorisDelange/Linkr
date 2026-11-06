@@ -1,13 +1,14 @@
 from datetime import datetime
 from typing import Literal
 
+from app.core.path_ids import SegmentId
 from app.schemas.base import CamelModel
 
 WikiPageStatus = Literal["draft", "needs_revision", "approved"]
 
 
 class WikiPageCreate(CamelModel):
-    id: str  # client supplies crypto.randomUUID()
+    id: SegmentId  # client supplies crypto.randomUUID()
     workspace_id: str
     entity_id: str | None = None
     lineage_id: str | None = None

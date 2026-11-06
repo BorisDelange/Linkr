@@ -223,6 +223,10 @@ export function escSql(value: string): string {
  * Validate that a value is a safe SQL identifier (column/table name).
  * Only allows alphanumeric, underscore, and dot characters.
  */
+export function isOnePathSegment(id: string): boolean {
+  return !/^\.{1,2}$/.test(id) && !/[/\\?#%]/.test(id) && ![...id].some((c) => c.charCodeAt(0) < 0x20)
+}
+
 export function isSafeIdentifier(name: string): boolean {
   // `RegExp.test` stringifies its argument: undefined would pass as "undefined".
   return typeof name === 'string' && /^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(name)

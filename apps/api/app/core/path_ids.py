@@ -13,12 +13,25 @@ import re
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import StringConstraints
+from pydantic import AfterValidator, StringConstraints
 
 SAFE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
 _SAFE_ID_RE = re.compile(SAFE_ID_PATTERN)
 
 SafeId = Annotated[str, StringConstraints(pattern=SAFE_ID_PATTERN)]
+
+_NOT_IN_A_SEGMENT = re.compile(r"[/\\?#%\x00-\x1f]")
+
+
+def _one_path_segment(value: str) -> str:
+    if not value or value in (".", "..") or _NOT_IN_A_SEGMENT.search(value):
+        raise ValueError("an id must be a single path segment")
+    return value
+
+
+# A row id the client later puts in a URL: exactly one path segment, whatever the
+# route's id format. Less strict than SafeId, which also names folders.
+SegmentId = Annotated[str, AfterValidator(_one_path_segment)]
 
 
 class UnsafePathSegment(ValueError):

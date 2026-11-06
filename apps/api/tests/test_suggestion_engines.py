@@ -562,6 +562,7 @@ def test_a_model_folder_with_pickle_weights_alone_is_refused(tmp_path):
         "root": {"pytorch_model.bin": "x"},
         "module": {"model.safetensors": "x", "2_Dense/pytorch_model.bin": "x"},
         "checkpoint": {"weights.PT": "x"},
+        "unrelated safetensors": {"unrelated.safetensors": "x", "pytorch_model.bin": "x"},
     }.items():
         folder = _model_folder(tmp_path / name, plain, extra)
         assert "pickle" in worker.unsafe_model_reason(folder)

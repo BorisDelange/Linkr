@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, apiRequest, formatApiError } from './api-client'
+import { ApiError, apiFetch, apiRequest, formatApiError, leavesItsRoute } from './api-client'
 import i18n from './i18n'
 
 describe('apiRequest deferred polling', () => {
@@ -77,5 +77,25 @@ describe('apiRequest proxy errors', () => {
     const body = JSON.stringify({ detail: 'Connection failed' })
     const err = await failure(new Response(body, { status: 502, headers: { 'content-type': 'application/json' } }))
     expect(err.message).toBe(body)
+  })
+})
+
+describe('an id never moves a request to another route', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it.each(['/api/v1/cohorts/../users/5', '/api/v1/cohorts/%2e%2E/users/5', '/api/v1/cohorts/.%2e/users/5', '/api/v1/a/./b', '/api/v1/a/..\\users', '/api/v1/a/.\t./users'])(
+    'refuses %s without sending it', async (path) => {
+      const fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+      vi.stubGlobal('localStorage', { getItem: () => 'token', setItem: () => {}, removeItem: () => {} })
+      await expect(apiFetch(path)).rejects.toBeInstanceOf(ApiError)
+      expect(fetchMock).not.toHaveBeenCalled()
+    },
+  )
+
+  it('leaves ordinary paths and query values alone', () => {
+    expect(leavesItsRoute('/api/v1/cohorts/abc-1')).toBe(false)
+    expect(leavesItsRoute('/api/v1/files?path=../x')).toBe(false)
+    expect(leavesItsRoute('/api/v1/a.b/c..d')).toBe(false)
   })
 })

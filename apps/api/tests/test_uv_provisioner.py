@@ -127,3 +127,17 @@ def test_under_a_mirror_a_direct_reference_elsewhere_is_refused(tmp_path, monkey
         uv._require_mirror_sources("p", {}, lock_too=False)
     with pytest.raises(uv.ProvisionError):
         uv.add_packages("p", ["pandas"])
+
+
+@pytest.mark.parametrize("manifest", [
+    '[tool.uv]\n{key} = ["six @ https://elsewhere.example/six.whl"]\n'.format(key=key)
+    for key in ("dev-dependencies", "override-dependencies", "constraint-dependencies", "build-constraint-dependencies")
+] + [
+    '[tool.uv.workspace]\nmembers = ["sub"]\n',
+    '[project]\nname = "x"\nversion = "0"\ndependencies = ["six @ http://127.0.0.1:9\\\\@pypi.chu.local/six.whl"]\n',
+])
+def test_under_a_mirror_no_part_of_the_manifest_reaches_another_host(tmp_path, monkeypatch, manifest):
+    _mirror(monkeypatch)
+    _spec_dir(tmp_path, monkeypatch, manifest)
+    with pytest.raises(uv.ProvisionError):
+        uv._require_mirror_sources("p", {}, lock_too=False)

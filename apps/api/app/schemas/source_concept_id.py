@@ -1,3 +1,4 @@
+from app.core.path_ids import SegmentId
 from app.schemas.base import CamelModel
 
 
@@ -24,7 +25,7 @@ class SourceConceptIdRangeResponse(CamelModel):
 
 
 class SourceConceptIdEntrySave(CamelModel):
-    id: str
+    id: SegmentId
     workspace_id: str
     badge_label: str
     vocabulary_id: str

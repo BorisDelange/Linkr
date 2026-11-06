@@ -176,15 +176,24 @@ def _is_sqlserver_write_permission(name: str) -> bool:
 
 
 def _sqlserver_granted_permissions(con: duckdb.DuckDBPyConnection, alias: str) -> list[str]:
-    """The writing permissions the login holds on the database or on any user
-    schema — a grant on one schema (`GRANT INSERT ON SCHEMA::cdm`) is invisible to
-    HAS_PERMS_BY_NAME at the database level."""
+    """The writing permissions the login holds on the database, on any user schema
+    or on any user object, by grant or by ownership — none of them visible to
+    HAS_PERMS_BY_NAME at the database level. A grant goes by what the login can
+    effectively do, so the DENY of `_sqlserver_remedy` clears it."""
     inner = (
         "SELECT DISTINCT permission_name FROM ("
-        "SELECT permission_name FROM fn_my_permissions(NULL, 'DATABASE') "
-        "UNION ALL SELECT p.permission_name FROM sys.schemas s "
+        "SELECT permission_name COLLATE DATABASE_DEFAULT AS permission_name FROM fn_my_permissions(NULL, 'DATABASE') "
+        "UNION ALL SELECT p.permission_name COLLATE DATABASE_DEFAULT FROM sys.schemas s "
         "CROSS APPLY fn_my_permissions(s.name, 'SCHEMA') p "
-        "WHERE s.name NOT IN ('sys', 'INFORMATION_SCHEMA')) perms"
+        "WHERE s.name NOT IN ('sys', 'INFORMATION_SCHEMA') "
+        "UNION ALL SELECT dp.permission_name COLLATE DATABASE_DEFAULT FROM sys.database_permissions dp "
+        "JOIN sys.objects o ON o.object_id = dp.major_id "
+        "WHERE dp.class = 1 AND dp.state IN ('G', 'W') AND o.is_ms_shipped = 0 "
+        "AND HAS_PERMS_BY_NAME(QUOTENAME(SCHEMA_NAME(o.schema_id)) + '.' + QUOTENAME(o.name), 'OBJECT', "
+        "dp.permission_name, COL_NAME(dp.major_id, NULLIF(dp.minor_id, 0)), "
+        "CASE WHEN dp.minor_id = 0 THEN NULL ELSE 'COLUMN' END) = 1 "
+        "UNION ALL SELECT 'CONTROL' COLLATE DATABASE_DEFAULT FROM sys.objects o "
+        "WHERE o.principal_id = DATABASE_PRINCIPAL_ID() AND o.is_ms_shipped = 0) perms"
     ).replace("'", "''")
     rows = con.execute(f"SELECT * FROM mssql_scan('{alias}', '{inner}')").fetchall()
     return sorted({str(r[0]).strip().upper() for r in rows if r and r[0] and _is_sqlserver_write_permission(str(r[0]))})

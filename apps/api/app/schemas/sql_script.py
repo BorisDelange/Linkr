@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from app.core.path_ids import SafeId
+from app.core.path_ids import SafeId, SegmentId
 from app.schemas.base import CamelModel
 
 
@@ -90,7 +90,7 @@ class SqlScriptCollectionResponse(CamelModel):
 
 
 class SqlScriptFileCreate(CamelModel):
-    id: str
+    id: SegmentId
     collection_id: str
     name: str
     type: str = "file"  # 'file' | 'folder'

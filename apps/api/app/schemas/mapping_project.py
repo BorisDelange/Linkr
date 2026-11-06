@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import Field, field_validator
 
-from app.core.path_ids import SafeId
+from app.core.path_ids import SafeId, SegmentId
 from app.schemas.base import CamelModel
 
 
@@ -178,7 +178,7 @@ class ConceptMappingBase(CamelModel):
 
 
 class ConceptMappingCreate(ConceptMappingBase):
-    id: str
+    id: SegmentId
     project_id: str
     # Creation date preserved on import round-trip; absent → server_default now.
     created_at: datetime | None = None
@@ -205,7 +205,7 @@ MAX_BATCH = 5000
 
 
 class ConceptMappingPatch(ConceptMappingUpdate):
-    id: str
+    id: SegmentId
 
 
 class ConceptMappingBatchUpdate(CamelModel):
@@ -227,7 +227,7 @@ class ConceptMappingDeleteOrphans(CamelModel):
 # --- Service mappings ------------------------------------------------------
 
 class ServiceMappingCreate(CamelModel):
-    id: str
+    id: SegmentId
     workspace_id: str
     name: str = ""
     description: str = ""

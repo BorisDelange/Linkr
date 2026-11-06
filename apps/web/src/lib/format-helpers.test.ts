@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { escSql, isSafeIdentifier, quoteTableRef, validateIntegerIds, columnLabel, capitalize, daysBetween, humanBytes, compactCount, formatDateTimeLocale, formatTimeLocale, formatStayDuration, formatSqlCell } from './format-helpers'
+import { escSql, isOnePathSegment, isSafeIdentifier, quoteTableRef, validateIntegerIds, columnLabel, capitalize, daysBetween, humanBytes, compactCount, formatDateTimeLocale, formatTimeLocale, formatStayDuration, formatSqlCell } from './format-helpers'
 import type { TFunction } from 'i18next'
 
 // These are security-critical: escSql / isSafeIdentifier / validateIntegerIds
@@ -363,5 +363,14 @@ describe('formatSqlCell bigint', () => {
     expect(formatSqlCell({ a: 9007199254740993n })).toBe('{"a":9007199254740993}')
     expect(formatSqlCell([-9007199254740993n, 'x'])).toBe('[-9007199254740993,"x"]')
     expect(formatSqlCell(9007199254740993n)).toBe('9007199254740993')
+  })
+})
+
+describe('isOnePathSegment', () => {
+  it('accepts the ids the app mints', () => {
+    for (const id of ['6f1c2d3e-1111-4222-8333-abcdefabcdef', 'tab_1', 'a.b-c', 'col:x y']) expect(isOnePathSegment(id)).toBe(true)
+  })
+  it('refuses what would leave its segment', () => {
+    for (const id of ['..', '.', '../users/5', 'a/b', 'a\\b', 'a?b', 'a#b', '%2e%2e', 'a\tb']) expect(isOnePathSegment(id)).toBe(false)
   })
 })

@@ -2,11 +2,12 @@ from datetime import datetime
 
 from pydantic import Field
 
+from app.core.path_ids import SegmentId
 from app.schemas.base import CamelModel
 
 
 class DatasetFileCreate(CamelModel):
-    id: str | None = None  # client-supplied uuid
+    id: SegmentId | None = None  # client-supplied uuid
     project_uid: str
     name: str
     type: str = "file"  # 'file' | 'folder'
@@ -114,7 +115,7 @@ class DatasetDataWrite(CamelModel):
 
 
 class DatasetAnalysisCreate(CamelModel):
-    id: str | None = None
+    id: SegmentId | None = None
     project_uid: str
     dataset_path: str
     name: str
