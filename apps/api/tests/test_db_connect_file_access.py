@@ -4,16 +4,21 @@ It used to run `COPY (…) TO '/any/path'` and `read_csv('/etc/passwd')` as the
 server's user. An agent driving the MCP relays whatever SQL it is talked into, so
 the guard lives on the connection, not in a statement blacklist."""
 
+import sqlite3
+
 import duckdb
 import pytest
 
-from app.services.data import connection_pool
+from app.services.data import cohort_derive, connection_pool
 from app.services.data.db_connect import (
+    _ext_dir,
+    _reject_session_statements,
     materialize_parquet,
     query_cached_parquet,
     query_file,
     query_file_source,
     query_parquet_folder,
+    run_etl_sql,
 )
 
 
@@ -322,3 +327,96 @@ def test_lookalikes_of_a_log_call_still_run(tmp_path, sql):
     db = tmp_path / "src.duckdb"
     duckdb.connect(str(db)).close()
     assert len(query_file("duckdb", str(db), sql)) == 1
+
+
+def _sqlite_file(path, table: str, value: str) -> str:
+    con = sqlite3.connect(path)
+    con.execute(f"CREATE TABLE {table}(a TEXT)")
+    con.execute(f"INSERT INTO {table} VALUES (?)", (value,))
+    con.commit()
+    con.close()
+    return str(path)
+
+
+@pytest.fixture
+def two_sqlite_files(tmp_path):
+    return (
+        _sqlite_file(tmp_path / "own.sqlite", "mine", "own-row"),
+        _sqlite_file(tmp_path / "other.sqlite", "theirs", "other-file-row"),
+    )
+
+
+@pytest.mark.parametrize("template", [
+    "SELECT * FROM sqlite_scan('{other}', 'theirs')",
+    "SELECT * FROM SQLITE_SCAN('{other}', 'theirs')",
+    "SELECT * FROM \"sqlite_scan\"('{other}', 'theirs')",
+    "SELECT * FROM system.main.sqlite_scan('{other}', 'theirs')",
+    "SELECT * FROM sqlite_scan /* c */ ('{other}', 'theirs')",
+    "SELECT * FROM query('SELECT * FROM sqlite_scan(''{other}'', ''theirs'')')",
+    "CREATE TEMP MACRO m() AS TABLE SELECT * FROM sqlite_scan('{other}', 'theirs'); SELECT * FROM m()",
+    "CALL sqlite_attach('{other}')",
+    "SELECT * FROM sqlite_query('ext', 'SELECT 1')",
+])
+def test_user_sql_on_a_sqlite_database_reads_only_that_database(two_sqlite_files, template):
+    own, other = two_sqlite_files
+    with pytest.raises(ValueError, match="not allowed"):
+        query_file("sqlite", own, template.format(other=other))
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM mine",
+    "SELECT 1 AS sqlite_scan",
+    "SELECT 'sqlite_scan(x)' AS text",
+])
+def test_a_sqlite_database_still_answers_its_own_queries(two_sqlite_files, sql):
+    assert len(query_file("sqlite", two_sqlite_files[0], sql)) == 1
+
+
+def test_a_pipeline_script_reads_only_its_roles(two_sqlite_files, tmp_path):
+    own, other = two_sqlite_files
+    with pytest.raises(ValueError, match="not allowed"):
+        run_etl_sql(
+            str(tmp_path / "target.duckdb"),
+            f"CREATE TABLE copied AS SELECT * FROM sqlite_scan('{other}', 'theirs')",
+            {"source": {"kind": "file", "engine": "sqlite", "path": own}},
+        )
+
+
+def test_a_view_stored_beside_a_sqlite_role_reads_only_the_roles(two_sqlite_files, tmp_path):
+    own, other = two_sqlite_files
+    stored = tmp_path / "stored.duckdb"
+    con = duckdb.connect(str(stored))
+    con.execute(f"SET extension_directory = '{_ext_dir()}'")
+    con.execute("INSTALL sqlite")
+    con.execute("LOAD sqlite")
+    con.execute(f"CREATE VIEW copied AS SELECT * FROM sqlite_scan('{other}', 'theirs')")
+    con.close()
+    with pytest.raises(ValueError, match="not allowed"):
+        run_etl_sql(
+            str(tmp_path / "target.duckdb"),
+            "SELECT 1",
+            {
+                "source": {"kind": "file", "engine": "sqlite", "path": own},
+                "stored": {"kind": "file", "engine": "duckdb", "path": str(stored)},
+            },
+        )
+
+
+def test_a_cohort_query_reads_only_its_source(two_sqlite_files):
+    own, other = two_sqlite_files
+    with pytest.raises(ValueError, match="not allowed"):
+        cohort_derive.compute_members(
+            cohort_derive.SourceSpec(spec={"kind": "file", "engine": "sqlite", "path": own}),
+            f"SELECT 1 AS id, 1 AS patient_id FROM sqlite_scan('{other}', 'theirs')",
+        )
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM postgres_scan('host=elsewhere dbname=x', 'public', 't')",
+    "SELECT * FROM postgres_scan_pushdown('host=elsewhere dbname=x', 'public', 't')",
+    "CALL postgres_attach('host=elsewhere dbname=x')",
+    "SELECT * FROM read_postgres_binary('/some/file', columns={a: 'INTEGER'})",
+])
+def test_user_sql_opens_no_connection_or_file_of_its_own(sql):
+    with pytest.raises(ValueError, match="not allowed"):
+        _reject_session_statements(sql)

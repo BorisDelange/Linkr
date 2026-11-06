@@ -568,6 +568,10 @@ _FORBIDDEN_IN_USER_SQL = re.compile(
 # from a string.
 _PASSTHROUGH_CALL = re.compile(r"(MSSQL_|ORACLE_)\w+|POSTGRES_EXECUTE|MYSQL_EXECUTE|JSON_EXECUTE_SERIALIZED_SQL")
 _DYNAMIC_SQL_CALL = re.compile(r"QUERY|QUERY_TABLE")
+# Extension functions that open the file or the connection named in their arguments
+# themselves, so neither allowed_paths nor the host check applies. A query reads the
+# databases Linkr attached for it, nothing else.
+_OWN_ACCESS_CALL = re.compile(r"SQLITE_\w+|POSTGRES_SCAN|POSTGRES_SCAN_PUSHDOWN|POSTGRES_ATTACH|READ_POSTGRES_BINARY")
 # The stream of the institution's collector holds only what Linkr writes to it.
 _SERVER_LOG_CALL = re.compile(r"ENABLE_LOGGING|DISABLE_LOGGING|TRUNCATE_DUCKDB_LOGS|WRITE_LOG")
 _PLAIN_STRING = re.compile(r"'((?:[^']|'')*)'")
@@ -627,6 +631,8 @@ def _reject_passthrough_calls(stmt: str, dynamic_sql: bool = False, dynamic_hint
             raise ValueError(f"{text.lower()}() is not allowed: only Linkr writes to the server's log")
         if _PASSTHROUGH_CALL.fullmatch(text):
             raise ValueError(f"{text.lower()}() is not allowed: it would run SQL on the database past Linkr's read-only guard")
+        if _OWN_ACCESS_CALL.fullmatch(text):
+            raise ValueError(f"{text.lower()}() is not allowed: a query reads only the databases Linkr attached for it")
         if dynamic_sql and _DYNAMIC_SQL_CALL.fullmatch(text):
             raise ValueError(
                 f"{text.lower()}() is not allowed: it runs SQL built from text, "
@@ -663,8 +669,12 @@ def _statements_to_run(con: duckdb.DuckDBPyConnection, sql: str) -> list[str]:
 def _reject_stored_passthrough(con: duckdb.DuckDBPyConnection, databases: list[str]) -> None:
     """A macro or a view stored in a file a script attaches runs under the script's
     guard without appearing in its text, so beside a database that runs SQL handed
-    to it as text, those definitions are held to the same check."""
-    if not _has_passthrough_attach(con):
+    to it as text, or beside a SQLite database, whose extension brings functions that
+    open files, those definitions are held to the same check."""
+    sqlite_attached = con.execute(
+        "SELECT COUNT(*) FROM duckdb_databases() WHERE type = 'sqlite'"
+    ).fetchall()[0][0]
+    if not (sqlite_attached or _has_passthrough_attach(con)):
         return
     rows = con.execute(
         "SELECT macro_definition FROM duckdb_functions() "

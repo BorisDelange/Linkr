@@ -33,6 +33,37 @@ def _source_body(ws: str, path) -> dict:
     }
 
 
+async def test_a_workspace_viewer_reads_only_the_sqlite_database_it_was_given(client, seed_roles, tmp_path_factory):
+    folder = tmp_path_factory.mktemp("server")
+    own = folder / "own.db"
+    _sqlite_with_users(own)
+    other = folder / "other.db"
+    _sqlite_with_users(other)
+    settings.data_path.mkdir(parents=True, exist_ok=True)
+    h = await _admin_headers(client)
+    ws = await _workspace(client, h)
+    source = (await client.post(f"{API}/data-sources", headers=h, json=_source_body(ws, own))).json()["id"]
+    viewer = (await client.post(
+        f"{API}/users", headers=h, json={"username": "reader", "password": "pw-for-tests-only-b"}
+    )).json()["id"]
+    assert (await client.put(
+        f"{API}/workspaces/{ws}/members", headers=h, json={"userId": viewer, "role": "viewer"}
+    )).status_code == 200
+    token = (await client.post(
+        f"{API}/auth/login", json={"username": "reader", "password": "pw-for-tests-only-b"}
+    )).json()["access_token"]
+    reader = {"Authorization": f"Bearer {token}"}
+
+    query = f"{API}/data-sources/{source}/query"
+    assert (await client.post(query, headers=reader, json={"sql": "SELECT username FROM users"})).status_code == 200
+    for path in (other, settings.data_path / "linkr.db"):
+        refused = await client.post(
+            query, headers=reader, json={"sql": f"SELECT * FROM sqlite_scan('{path}', 'users')"}
+        )
+        assert refused.status_code == 400
+        assert "secret" not in refused.text
+
+
 async def test_a_database_cannot_point_inside_linkrs_data_folder(client, seed_roles, tmp_path_factory):
     settings.data_path.mkdir(parents=True, exist_ok=True)
     victim = settings.data_path / "linkr-copy.db"

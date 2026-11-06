@@ -40,6 +40,9 @@ in WAL mode, as in production (`tests/conftest.py`, `engine`): one shared
 in-memory connection let a request's closing rollback undo a background job's
 writes, and lost its tables when a job's cancellation invalidated it.
 
+DuckDB extensions are downloaded once into `.cache/duckdb-extensions/`, which every
+test's data folder links to: the first run needs the network, the next ones do not.
+
 ## End-to-end (Playwright)
 
 `apps/web/playwright.config.ts`, journeys in `apps/web/e2e/`:

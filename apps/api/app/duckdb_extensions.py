@@ -14,6 +14,7 @@ From the repo root, `npm run duckdb:extensions -- [options]` runs it in apps/api
 
 import argparse
 import sys
+import time
 
 import duckdb
 
@@ -28,20 +29,32 @@ def _literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def _install(con: duckdb.DuckDBPyConnection, statement: str, attempts: int = 4) -> None:
+    """A download that stops midway is common enough to fail an image build: try again."""
+    for attempt in range(1, attempts + 1):
+        try:
+            con.execute(statement)
+            return
+        except duckdb.IOException:
+            if attempt == attempts:
+                raise
+            time.sleep(5 * attempt)
+
+
 def install(directory: str, repository: str | None = None, community: bool = False,
             community_repository: str | None = None) -> None:
     con = duckdb.connect()
     con.execute(f"SET extension_directory = {_literal(directory)}")
     source = f" FROM {_literal(repository)}" if repository else ""
     for ext in EXTENSIONS:
-        con.execute(f"INSTALL {ext}{source}")
+        _install(con, f"INSTALL {ext}{source}")
         con.execute(f"LOAD {ext}")
         print(f"  {ext}: ok", flush=True)
     if not community:
         return
     source = f" FROM {_literal(community_repository)}" if community_repository else " FROM community"
     for ext in COMMUNITY_EXTENSIONS:
-        con.execute(f"INSTALL {ext}{source}")
+        _install(con, f"INSTALL {ext}{source}")
         con.execute(f"LOAD {ext}")
         print(f"  {ext} (community): ok", flush=True)
 

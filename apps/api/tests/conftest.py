@@ -77,12 +77,19 @@ def _own_app_ports(monkeypatch):
     monkeypatch.setattr(settings, "app_port_range", f"{lo}-{lo + 9}")
 
 
+_SHARED_DUCKDB_EXTENSIONS = Path(__file__).resolve().parents[3] / ".cache" / "duckdb-extensions"
+
+
 @pytest.fixture(autouse=True)
 def _isolate_data_dir(tmp_path, monkeypatch):
     """Point blob/upload storage at a temp dir so tests never touch ~/.linkr."""
     monkeypatch.setattr(settings, "data_dir", str(tmp_path))
     # data_path is a cached_property; drop any cached value so it re-resolves.
     settings.__dict__.pop("data_path", None)
+    # A fresh data folder per test would download every DuckDB extension again, and a
+    # test would then fail with the network: one folder, filled once, for all of them.
+    _SHARED_DUCKDB_EXTENSIONS.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "_duckdb_ext").symlink_to(_SHARED_DUCKDB_EXTENSIONS, target_is_directory=True)
     # The free space of the machine running the tests is not what they test.
     monkeypatch.setattr(settings, "upload_free_space_reserve_mb", 0)
     # The encryption key lives in data_dir: each test gets its own.

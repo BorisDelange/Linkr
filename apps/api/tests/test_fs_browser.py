@@ -24,15 +24,15 @@ def _set_roots(monkeypatch, roots: str):
     monkeypatch.setattr(settings, "fs_browse_roots", roots)
 
 
-def test_list_dir_lists_subdirs_only(tmp_path):
-    (tmp_path / "sub_a").mkdir()
-    (tmp_path / "sub_b").mkdir()
-    (tmp_path / ".hidden").mkdir()
-    (tmp_path / "file.txt").write_text("x")
-    res = fs_browser.list_dir(str(tmp_path))
+def test_list_dir_lists_subdirs_only(server_dir):
+    (server_dir / "sub_a").mkdir()
+    (server_dir / "sub_b").mkdir()
+    (server_dir / ".hidden").mkdir()
+    (server_dir / "file.txt").write_text("x")
+    res = fs_browser.list_dir(str(server_dir))
     names = [e["name"] for e in res["entries"]]
     assert names == ["sub_a", "sub_b"]  # sorted, no files, no dotfiles
-    assert res["path"] == str(tmp_path.resolve())
+    assert res["path"] == str(server_dir.resolve())
 
 
 def test_list_dir_missing_raises(tmp_path):
@@ -181,12 +181,12 @@ def test_validate_binding_path_blocked_when_code_execution_disabled(monkeypatch,
 # --- File listing (the database picker) --------------------------------------
 
 
-def test_list_dir_includes_files_when_asked(tmp_path):
-    (tmp_path / "sub").mkdir()
-    (tmp_path / "b.parquet").write_text("x")
-    (tmp_path / "a.duckdb").write_text("x")
-    (tmp_path / ".hidden.parquet").write_text("x")
-    res = fs_browser.list_dir(str(tmp_path), include_files=True)
+def test_list_dir_includes_files_when_asked(server_dir):
+    (server_dir / "sub").mkdir()
+    (server_dir / "b.parquet").write_text("x")
+    (server_dir / "a.duckdb").write_text("x")
+    (server_dir / ".hidden.parquet").write_text("x")
+    res = fs_browser.list_dir(str(server_dir), include_files=True)
     # Directories first, then files, each sorted case-insensitively; no dotfiles.
     assert [e["name"] for e in res["entries"]] == ["sub", "a.duckdb", "b.parquet"]
     assert [e["isDir"] for e in res["entries"]] == [True, False, False]
@@ -194,21 +194,21 @@ def test_list_dir_includes_files_when_asked(tmp_path):
     assert res["entries"][1]["readable"] is True
 
 
-def test_list_dir_filters_by_extension(tmp_path):
-    (tmp_path / "keep.parquet").write_text("x")
-    (tmp_path / "KEEP2.PARQUET").write_text("x")
-    (tmp_path / "drop.csv").write_text("x")
-    (tmp_path / "sub").mkdir()
-    res = fs_browser.list_dir(str(tmp_path), include_files=True, extensions=["parquet"])
+def test_list_dir_filters_by_extension(server_dir):
+    (server_dir / "keep.parquet").write_text("x")
+    (server_dir / "KEEP2.PARQUET").write_text("x")
+    (server_dir / "drop.csv").write_text("x")
+    (server_dir / "sub").mkdir()
+    res = fs_browser.list_dir(str(server_dir), include_files=True, extensions=["parquet"])
     # Bare suffixes are accepted, matching is case-insensitive, and dirs are never
     # filtered out — navigation must survive any file filter.
     assert [e["name"] for e in res["entries"]] == ["sub", "keep.parquet", "KEEP2.PARQUET"]
 
 
-def test_list_dir_hides_files_by_default(tmp_path):
-    (tmp_path / "a.parquet").write_text("x")
-    (tmp_path / "sub").mkdir()
-    assert [e["name"] for e in fs_browser.list_dir(str(tmp_path))["entries"]] == ["sub"]
+def test_list_dir_hides_files_by_default(server_dir):
+    (server_dir / "a.parquet").write_text("x")
+    (server_dir / "sub").mkdir()
+    assert [e["name"] for e in fs_browser.list_dir(str(server_dir))["entries"]] == ["sub"]
 
 
 def test_validate_file_semantics(tmp_path):
