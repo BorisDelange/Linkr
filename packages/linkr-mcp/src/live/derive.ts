@@ -4,12 +4,12 @@
  * `lib/cohort-derive`, the row of a new database from `derivedDatabaseRow`.
  * Pure: the tool fetches, this decides.
  */
-import type { DerivePlanTable, DeriveRequest, DeriveScope } from '@/lib/api/data-sources'
+import type { DerivePlanTable, DeriveRequest, DeriveScope, DeriveTableRef } from '@/lib/api/data-sources'
 import type { DerivationJobResult, Job } from '@/lib/api/environments'
 import { buildCohortKeyMap, cohortKey } from '@/lib/cohort-key'
 import {
   DERIVE_SCHEMA_NAME, copyableTables, criteriaConcepts, defaultDeriveSchemaName, derivableReason, derivationRequest,
-  derivationScopes, derivedDatabaseRow, isWritableTarget, personlessTables, planTableName, type NotDerivable,
+  derivationScopes, derivedDatabaseRow, isWritableTarget, personlessTables, planTableName, unprovenTables, type NotDerivable,
 } from '@/lib/cohort-derive'
 import type { Cohort, DataSource, DatabaseConnectionConfig, DerivationOptions } from '@/types'
 
@@ -39,6 +39,8 @@ export interface DeriveOptionsInput {
   /** Table names as the plan lists them; absent: every copyable one. */
   tables?: string[]
   copyPersonless?: boolean
+  /** The `unproven` tables copied whole, each named on purpose, as the plan lists them. */
+  copyUnprovenTables?: string[]
   /** `criteria`: the concepts the cohort's criteria name; a selection: kept as recorded. */
   variables?: 'all' | 'criteria' | number[] | NonNullable<DerivationOptions['variables']>
   birthPrecision?: 'year' | 'month' | 'day'
@@ -59,17 +61,26 @@ export function derivationOptions(
   cohort: Pick<Cohort, 'level' | 'criteriaTree'>,
   plan: readonly DerivePlanTable[],
   input: DeriveOptionsInput,
-): { options: DerivationOptions; copyPersonless: boolean } | { error: string } {
+): { options: DerivationOptions; copyPersonless: boolean; copyUnprovenTables: DeriveTableRef[] } | { error: string } {
   const scope = input.scope ?? (cohort.level as DeriveScope)
   if (!derivationScopes(cohort.level).includes(scope)) {
     return { error: `A ${cohort.level} cohort keeps its ${cohort.level}s or a wider scope: ${derivationScopes(cohort.level).join(', ')}.` }
   }
   const copyable = copyableTables(plan)
   const personless = new Set(personlessTables(plan).map(planTableName))
+  const unproven = new Map(unprovenTables(plan).map((p) => [planTableName(p).toLowerCase(), p]))
+  const notUnproven = (input.copyUnprovenTables ?? []).filter((n) => !unproven.has(n.toLowerCase()))
+  if (notUnproven.length) {
+    return { error: `copy_unproven_tables only takes tables plan_cohort_derivation lists as not shown to be personless: ${notUnproven.join(', ')}.` }
+  }
   let kept = copyable
   if (input.tables) {
     const known = new Map(copyable.map((p) => [planTableName(p).toLowerCase(), p]))
     const unknown = input.tables.filter((n) => !known.has(n.toLowerCase()))
+    const optIn = unknown.filter((n) => unproven.has(n.toLowerCase()))
+    if (optIn.length) {
+      return { error: `${optIn.join(', ')}: nothing shows these tables hold no patient data, so \`tables\` does not take them. Only copy_unproven_tables does, on the user's explicit choice.` }
+    }
     if (unknown.length) return { error: `Not a table this derivation can copy: ${unknown.join(', ')} (see plan_cohort_derivation).` }
     const wanted = new Set(input.tables.map((n) => n.toLowerCase()))
     kept = copyable.filter((p) => wanted.has(planTableName(p).toLowerCase()) || (input.copyPersonless && personless.has(planTableName(p))))
@@ -100,6 +111,10 @@ export function derivationOptions(
   }
   return {
     copyPersonless: [...personless].every((n) => kept.some((p) => planTableName(p) === n)),
+    copyUnprovenTables: (input.copyUnprovenTables ?? []).map((n) => {
+      const p = unproven.get(n.toLowerCase())!
+      return { schemaName: p.schema, table: p.table }
+    }),
     options: {
       scope,
       tables: kept.map((p) => ({ schema: p.schema, table: p.table })),
@@ -119,7 +134,7 @@ export function derivationOptions(
 
 /** The derive tool's arguments for what is kept and how it is pseudonymised. */
 export interface DeriveChoiceArgs {
-  scope?: DeriveScope; tables?: string[]; copy_personless?: boolean
+  scope?: DeriveScope; tables?: string[]; copy_personless?: boolean; copy_unproven_tables?: string[]
   variables?: 'all' | 'criteria' | 'concepts'; concept_ids?: number[]
   birth_precision?: 'year' | 'month' | 'day'; pseudonymize?: boolean; method?: 'hmac' | 'random'; keep_key?: boolean
   reuse_key_of?: string; correspondence_database_id?: string; correspondence_schema?: string; correspondence_table?: string
@@ -135,7 +150,7 @@ export function deriveChoices(args: DeriveChoiceArgs): DeriveOptionsInput | { er
   }
   const variables = args.concept_ids ?? (args.variables === 'concepts' ? [] : args.variables)
   const choices: DeriveOptionsInput = {
-    scope: args.scope, tables: args.tables, copyPersonless: args.copy_personless, variables,
+    scope: args.scope, tables: args.tables, copyPersonless: args.copy_personless, copyUnprovenTables: args.copy_unproven_tables, variables,
     birthPrecision: args.birth_precision, pseudonymize: args.pseudonymize, method: args.method, keepKey: args.keep_key,
     reuseKeyOf: args.reuse_key_of,
     ...(args.correspondence_database_id ? {
@@ -152,6 +167,8 @@ export interface PreviousDerivation {
   /** Absent on one recorded before the options were: everything, as it was. */
   options?: DerivationOptions
   copyPersonless?: boolean
+  /** Copied whole on an explicit opt-in: a rebuild has to be told again. */
+  copiedUnproven?: string[]
 }
 
 /** The derivation `target` rebuilds, when it rebuilds a recorded one: a new
@@ -161,13 +178,13 @@ export function previousDerivation(
 ): PreviousDerivation | undefined {
   if (target.kind === 'new-database') {
     const from = target.rebuildId ? databases.find((d) => d.id === target.rebuildId)?.derivedFrom : undefined
-    return from?.target === 'new-database' ? { options: from.options, copyPersonless: from.copyPersonless } : undefined
+    return from?.target === 'new-database' ? { options: from.options, copyPersonless: from.copyPersonless, copiedUnproven: from.copiedUnproven } : undefined
   }
   if (!target.replace) return undefined
   const databaseId = target.databaseId ?? source.id
   const schemaName = target.schemaName ?? defaultDeriveSchemaName(cohort)
   const recorded = cohort.derivations?.find((d) => d.kind === 'schema' && d.targetId === databaseId && d.schemaName === schemaName)
-  return recorded && { options: recorded.options }
+  return recorded && { options: recorded.options, copiedUnproven: recorded.copiedUnproven }
 }
 
 /**
@@ -213,6 +230,7 @@ export function planDerivation(input: {
   copyPersonless: boolean
   /** What is kept and how it is pseudonymised (`derivationOptions`); absent: everything, as it is. */
   options?: DerivationOptions
+  copyUnprovenTables?: DeriveTableRef[]
   /** Ids for a new database row. */
   newId: string
   lineageId: string
@@ -234,6 +252,7 @@ export function planDerivation(input: {
     copyPersonless: input.copyPersonless,
     target: target.kind,
     options: input.options,
+    copyUnprovenTables: input.copyUnprovenTables,
   })
 
   const correspondence = input.options?.pseudonymization?.correspondence?.dataSourceId
@@ -319,8 +338,9 @@ export function formatDerivePlan(tables: DerivePlanTable[], copyPersonless: bool
   const filtered = tables.filter((t) => t.filter)
   const whole = tables.filter((t) => !t.filter && !t.unresolved && !t.unfilterable)
   const unresolved = tables.filter((t) => !t.filter && t.unresolved)
-  const unfilterable = tables.filter((t) => t.unfilterable && !t.unresolved)
-  const lines = [`${filtered.length} table(s) filtered on the cohort, ${whole.length} without a patient id:`]
+  const unfilterable = tables.filter((t) => t.unfilterable && !t.unresolved && !t.unproven)
+  const unproven = unprovenTables(tables)
+  const lines = [`${filtered.length} table(s) filtered on the cohort, ${whole.length} known to hold no patient data:`]
   for (const t of filtered) lines.push(`- ${tableName(t)}: ${FILTER_WORDS[t.filter!]} (${t.column})`)
   for (const t of whole) lines.push(`- ${tableName(t)}: ${copyPersonless ? 'copied whole' : 'skipped'}`)
   for (const t of unresolved) {
@@ -328,6 +348,10 @@ export function formatDerivePlan(tables: DerivePlanTable[], copyPersonless: bool
   }
   for (const t of unfilterable) {
     lines.push(`- ${tableName(t)}: skipped — it carries ${t.unfilterable}, which this scope keeps no set of, so it cannot be filtered`)
+  }
+  for (const t of unproven) {
+    lines.push(`- ${tableName(t)}: skipped unless named in copy_unproven_tables — nothing shows it holds no patient data. `
+      + 'If named, copied whole: it may hold rows of patients outside the cohort, and it is not pseudonymised. Only on the user\'s explicit choice.')
   }
   const ids = [...new Set(tables.filter((t) => !t.unresolved && !t.unfilterable).flatMap((t) => t.pseudonymized ?? []))]
   if (ids.length) lines.push('', `Id columns a pseudonymised derivation replaces: ${ids.join(', ')}.`)
@@ -359,7 +383,7 @@ export async function waitForJob(
 /** A job as the agent reads it: where it is, and on success what it produced. */
 export function formatJob(job: Job): string {
   const lines = [`Job ${job.id} (${job.kind}) "${job.label}": ${job.status}, ${job.progress}%`]
-  const result = job.result as unknown as (DerivationJobResult & { tables?: { skipped: boolean }[] }) | null | undefined
+  const result = job.result as unknown as (DerivationJobResult & { tables?: { skipped: boolean; table: string; unproven?: boolean }[] }) | null | undefined
   if (job.status === 'done' && job.kind === 'derive' && result) {
     const copied = result.tables?.filter((t) => !t.skipped).length
     lines.push(
@@ -367,6 +391,10 @@ export function formatJob(job: Job): string {
         + `${result.unitCount} cohort row(s)${copied != null ? `, ${copied} table(s) copied` : ''}.`,
       'Query it with describe_database / run_sql.',
     )
+    const unfiltered = result.tables?.filter((t) => t.unproven).map((t) => t.table) ?? []
+    if (unfiltered.length) {
+      lines.push(`Copied whole on the explicit opt-in, not filtered and not pseudonymised: ${unfiltered.join(', ')}.`)
+    }
   } else if (job.status === 'queued' || job.status === 'running') {
     lines.push(`Still in progress${job.kind === 'derive' ? ' (a copy of a large database takes minutes)' : ''}: `
       + `call get_job_status again with wait_seconds: ${MAX_JOB_WAIT_SECONDS} to wait for it in one call.`)

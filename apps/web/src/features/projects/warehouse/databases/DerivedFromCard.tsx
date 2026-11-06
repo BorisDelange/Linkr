@@ -101,6 +101,9 @@ export function DerivedFromCard({ source }: { source: DataSource }) {
     ...(from.patientCount != null
       ? [{ label: t('cohort_derive.provenance_patients'), value: <span className="truncate font-medium tabular-nums">{from.patientCount.toLocaleString()}</span> }]
       : []),
+    ...(from.copiedUnproven?.length
+      ? [{ label: t('cohort_derive.provenance_unproven'), value: <span className="truncate font-medium text-warning-foreground">{from.copiedUnproven.join(', ')}</span> }]
+      : []),
   ]
 
   return (
@@ -140,6 +143,7 @@ export function DerivedFromCard({ source }: { source: DataSource }) {
             <AlertDialogTitle>{t('cohort_derive.rebuild_title')}</AlertDialogTitle>
             <AlertDialogDescription>
               {t('cohort_derive.provenance_rebuild_description', { database: parentName })}
+              {!!from.copiedUnproven?.length && ` ${t('cohort_derive.rebuild_unproven_dropped', { tables: from.copiedUnproven.join(', ') })}`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

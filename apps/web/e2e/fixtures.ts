@@ -42,6 +42,9 @@ export async function bootDemo(page: Page) {
 /** The administrator the server journeys create on a fresh instance (server/first-run.spec.ts). */
 export const ADMIN = { username: 'e2e-admin', password: 'e2e-journey-password-2026' }
 
+/** LINKR_SETUP_TOKEN of the instances the journeys start (scripts/test-spe.mjs, test-versioning.mjs). */
+export const SETUP_TOKEN = 'e2e-setup-token'
+
 /** Signs the administrator in on a server instance whose first run is done. */
 export async function signIn(page: Page) {
   await page.goto('./')

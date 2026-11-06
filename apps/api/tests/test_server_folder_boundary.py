@@ -6,6 +6,9 @@ import sqlite3
 
 from app.config import settings
 from app.models.project import Project
+from app.models.role import Role
+from app.models.user import User
+from app.models.workspace_member import WorkspaceMember
 from tests.test_ide_files import _admin_headers, _project, _user_with_global_role
 
 API = "/api/v1"
@@ -84,7 +87,7 @@ async def test_a_binding_cannot_reach_linkrs_data_folder_or_another_projects_fol
     await db.commit()
 
     def bind(headers, key, path):
-        return client.patch(f"{API}/projects/{uid}", headers=headers, json={key: str(path)})
+        return client.patch(f"{API}/projects/{uid}/folder-bindings", headers=headers, json={key: str(path)})
 
     settings.data_path.mkdir(parents=True, exist_ok=True)
     for key in ("idePath", "scriptsPath", "datasetsPath"):
@@ -136,3 +139,72 @@ async def test_a_vocabulary_import_cannot_read_linkrs_data_folder(client, seed_r
         "serverPaths": [str(settings.data_path)],
     })
     assert r.status_code == 403
+
+
+async def test_a_generic_project_update_never_sets_a_folder_binding(client, seed_roles, db, tmp_path_factory):
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    bound = tmp_path_factory.mktemp("bound")
+    updated = await client.patch(f"{API}/projects/{uid}", headers=h, json={
+        "description": {"en": "edited"},
+        "idePath": str(bound), "scriptsPath": str(bound), "datasetsPath": str(bound),
+    })
+    assert updated.status_code == 200
+    assert updated.json()["description"] == {"en": "edited"}
+    assert updated.json()["idePath"] is None
+    assert updated.json()["scriptsPath"] is None
+    assert updated.json()["datasetsPath"] is None
+
+
+async def test_the_folder_binding_route_sets_and_clears_a_binding(client, seed_roles, tmp_path_factory):
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    bound = tmp_path_factory.mktemp("bound")
+    url = f"{API}/projects/{uid}/folder-bindings"
+    assert (await client.patch(url, headers=h, json={"idePath": str(bound)})).json()["idePath"] == str(bound)
+    other = await client.patch(url, headers=h, json={"datasetsPath": str(bound)})
+    assert other.json()["idePath"] == str(bound)
+    assert other.json()["datasetsPath"] == str(bound)
+    assert (await client.patch(url, headers=h, json={"idePath": None})).json()["idePath"] is None
+
+
+async def _member_with_role(client, db, admin, uid: str, username: str, permissions: list[str]) -> dict:
+    from app.core.security import hash_password
+
+    db.add(Role(name=f"{username}-role", label={}, scope="workspace", permissions=permissions))
+    user = User(username=username, password_hash=hash_password("pw-for-tests-only"), role="user")
+    db.add(user)
+    await db.flush()
+    project = await db.get(Project, uid)
+    db.add(WorkspaceMember(workspace_id=project.workspace_id, user_id=user.id, role=f"{username}-role"))
+    await db.commit()
+    r = await client.post(f"{API}/auth/login", json={"username": username, "password": "pw-for-tests-only"})
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+async def test_binding_a_folder_with_no_browse_roots_needs_code_execution_rights(
+    client, seed_roles, db, tmp_path_factory, monkeypatch,
+):
+    monkeypatch.setattr(settings, "fs_browse_roots", "")
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    bound = tmp_path_factory.mktemp("bound")
+    url = f"{API}/projects/{uid}/folder-bindings"
+
+    no_exec = await _member_with_role(client, db, h, uid, "binder", ["project-settings:read", "project-settings:write"])
+    assert (await client.patch(url, headers=no_exec, json={"idePath": str(bound)})).status_code == 403
+    assert (await client.patch(url, headers=no_exec, json={"idePath": None})).status_code == 200
+
+    with_exec = await _member_with_role(
+        client, db, h, uid, "runner", ["project-settings:read", "project-settings:write", "ide:execute"],
+    )
+    assert (await client.patch(url, headers=with_exec, json={"idePath": str(bound)})).status_code == 200
+
+
+async def test_binding_needs_project_settings_write(client, seed_roles, db, tmp_path_factory):
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    bound = tmp_path_factory.mktemp("bound")
+    reader = await _member_with_role(client, db, h, uid, "reader", ["project-settings:read", "ide:execute"])
+    url = f"{API}/projects/{uid}/folder-bindings"
+    assert (await client.patch(url, headers=reader, json={"idePath": str(bound)})).status_code == 403

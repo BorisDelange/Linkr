@@ -524,3 +524,21 @@ async def test_clone_never_returns_the_target_of_a_committed_symlink(client, db,
     with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
         assert zf.namelist() == ["README.md"]
         assert all(b"SERVER-ONLY" not in zf.read(n) for n in zf.namelist())
+
+
+async def test_an_uploaded_export_past_the_size_bound_is_refused_on_a_read_route(client, tmp_path, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "max_export_tree_mb", 1)
+    headers = await _bootstrap_admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "W"}})).json()["id"]
+    uid = (await client.post(f"{API}/projects", headers=headers, json={"name": {"en": "P"}, "workspaceId": ws})).json()["uid"]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("data.bin", b"\0" * (2 * 1024 * 1024))
+    r = await client.post(
+        f"{API}/git/projects/{uid}/status", headers=headers,
+        files={"file": ("export.zip", buf.getvalue(), "application/zip")},
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "archive_too_large"

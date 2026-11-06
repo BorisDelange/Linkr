@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { databaseOptions } from './use-database-options'
+import { databaseOptions, isForeignDatabase } from './use-database-options'
 import type { DataSource } from '@/types'
 
 const ds = (over: Partial<DataSource>): DataSource =>
@@ -16,6 +16,18 @@ const ds = (over: Partial<DataSource>): DataSource =>
     updatedAt: '',
     ...over,
   }) as DataSource
+
+describe('isForeignDatabase', () => {
+  const rows = [ds({ id: 'here', workspaceId: 'w1' }), ds({ id: 'there', workspaceId: 'w2' })]
+
+  it('flags only a known database of another workspace', () => {
+    expect(isForeignDatabase(rows, 'there', 'w1')).toBe(true)
+    expect(isForeignDatabase(rows, 'here', 'w1')).toBe(false)
+    expect(isForeignDatabase(rows, 'unknown', 'w1')).toBe(false)
+    expect(isForeignDatabase(rows, '', 'w1')).toBe(false)
+    expect(isForeignDatabase(rows, undefined, 'w1')).toBe(false)
+  })
+})
 
 describe('useDatabaseOptions', () => {
   it('offers only the given workspace’s databases', () => {

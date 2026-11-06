@@ -42,6 +42,7 @@ import {
   childPath, copyContentTree, irregularEntries, writeGeneratedFile,
 } from '../packages/linkr-format/src/node/content-copy.js'
 import { isAppTooOld } from '../packages/linkr-format/src/app-version.js'
+import { isCloneableRemoteUrl, isSafeGitRef, lfsEndpoint } from '../packages/linkr-format/src/remote-url.js'
 import { ENTITY_MANIFEST, MANIFEST } from '../packages/linkr-format/src/layout.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -92,8 +93,13 @@ function cacheKey(url, ref) {
  * would keep shipping that old snapshot forever. `--offline` refuses to reach the
  * network at all, which is what makes an offline build fail loudly instead of
  * silently producing an app with no default data.
+ *
+ * `operatorChosen`: the workspace named by this build's own environment, which may
+ * be a local mirror. Everything a repo's content names is held to remote transports.
  */
-function cloneCached(url, ref, label) {
+function cloneCached(url, ref, label, operatorChosen = false) {
+  if (!isSafeGitRef(ref)) fail(`${label}: invalid ref ${JSON.stringify(ref)}`)
+  const transport = operatorChosen ? [] : ['-c', 'protocol.file.allow=never']
   const dest = join(CACHE_DIR, cacheKey(url, ref))
   if (existsSync(join(dest, '.git')) && !(isPlainClone(dest) && cachedCloneMatches(dest, url))) {
     log(`${label}: cached clone does not point at ${url}, cloning afresh`)
@@ -108,7 +114,7 @@ function cloneCached(url, ref, label) {
     try {
       // Fetch by URL, not through the clone's own remote, then leave the
       // checkout exactly at what was fetched, with nothing else in it.
-      git(dest, ['fetch', '--depth', '1', url, ref])
+      git(dest, [...transport, 'fetch', '--depth', '1', '--', url, ref])
       git(dest, ['reset', '--hard', 'FETCH_HEAD'])
       git(dest, ['clean', '-ffdx'])
       if (git(dest, ['rev-parse', 'HEAD']) !== git(dest, ['rev-parse', 'FETCH_HEAD'])) {
@@ -125,7 +131,7 @@ function cloneCached(url, ref, label) {
     rmSync(dest, { recursive: true, force: true })
     mkdirSync(dirname(dest), { recursive: true })
     try {
-      execFileSync('git', ['clone', '--depth', '1', '--branch', ref, url, dest], { stdio: 'pipe' })
+      execFileSync('git', [...transport, 'clone', '--depth', '1', '--branch', ref, '--', url, dest], { stdio: 'pipe', env: NO_SMUDGE })
     } catch (e) {
       fail(`could not clone ${label} (${url}@${ref})\n${e.stderr?.toString() ?? e.message}`)
     }
@@ -135,7 +141,8 @@ function cloneCached(url, ref, label) {
   if (existsSync(join(dest, '.gitattributes'))
     && readFileSync(join(dest, '.gitattributes'), 'utf-8').includes('filter=lfs')) {
     try {
-      git(dest, ['lfs', 'pull'])
+      const endpoint = lfsEndpoint(url)
+      execFileSync('git', [...HARDENED, '-c', `lfs.url=${endpoint}`, '-c', `lfs.pushurl=${endpoint}`, 'lfs', 'pull'], { cwd: dest, stdio: 'pipe' })
     } catch (e) {
       fail(`${label} tracks files with git-lfs, but \`git lfs pull\` failed. `
         + `Install git-lfs, or its Parquet will be pointer files.\n${e.stderr?.toString() ?? e.message}`)
@@ -144,15 +151,17 @@ function cloneCached(url, ref, label) {
   return dest
 }
 
+const HARDENED = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-c', 'core.attributesFile=/dev/null']
+/** A checkout's LFS filter reads a committed `.lfsconfig`: LFS content comes only from the pinned pull. */
+const NO_SMUDGE = { ...process.env, GIT_LFS_SKIP_SMUDGE: '1' }
+
 /**
  * Git in a cached clone, with the options a clone's own config could use to run
  * commands switched off. The cache may be restored from elsewhere (CI), so its
  * `.git/config` is not trusted.
  */
 function git(cwd, args) {
-  return execFileSync('git', [
-    '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-c', 'core.attributesFile=/dev/null', ...args,
-  ], { cwd, stdio: 'pipe', encoding: 'utf-8' }).trim()
+  return execFileSync('git', [...HARDENED, ...args], { cwd, stdio: 'pipe', encoding: 'utf-8', env: NO_SMUDGE }).trim()
 }
 
 /** Whether `dest` and its `.git` are real folders, not links to elsewhere. */
@@ -212,7 +221,7 @@ function main() {
     return
   }
 
-  const wsRepo = cloneCached(WORKSPACE_URL, WORKSPACE_REF, 'workspace')
+  const wsRepo = cloneCached(WORKSPACE_URL, WORKSPACE_REF, 'workspace', true)
   const target = join(SEED_DIR, WORKSPACE_FOLDER)
   copyTree(wsRepo, target, 'workspace')
 
@@ -240,6 +249,7 @@ function main() {
       fail(`git-links.json: ${link.type} link: ${e.message}`)
     }
     const label = `${link.type}/${link.folder}`
+    if (!isCloneableRemoteUrl(link.url)) fail(`git-links.json: ${label}: only https or ssh remotes can be linked`)
     const child = cloneCached(link.url, link.branch || 'main', label)
     copyTree(child, dest, label)
   }

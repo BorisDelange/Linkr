@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { idLiteral } from './warehouse-plugin-executor'
+import { idLiteral, idValue } from './warehouse-plugin-executor'
 
 describe('idLiteral', () => {
   it('keeps a numeric id a number', () => {
@@ -26,5 +26,15 @@ describe('idLiteral', () => {
   it('writes each language\'s null', () => {
     expect(idLiteral(null, 'None')).toBe('None')
     expect(idLiteral(null, 'NULL')).toBe('NULL')
+  })
+})
+
+describe('idValue', () => {
+  it('sends a number only where idLiteral writes one', () => {
+    expect(idValue('10002495')).toBe(10002495)
+    expect(idValue('007')).toBe('007')
+    expect(idValue('12345678901234567890')).toBe('12345678901234567890')
+    expect(idValue('1; import os')).toBe('1; import os')
+    expect(idValue(null)).toBeNull()
   })
 })

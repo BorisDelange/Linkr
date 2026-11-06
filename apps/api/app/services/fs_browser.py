@@ -656,19 +656,27 @@ def validate_dir(path: str) -> dict:
     return {"ok": True, "path": str(target)}
 
 
-def copy_tree(src: str, dst: str, on_conflict: str) -> dict:
+def _link_refused(path: Path, scope: FolderScope) -> bool:
+    return path.is_symlink() and _overlap_refusal(path.resolve(), scope) is not None
+
+
+def copy_tree(src: str, dst: str, on_conflict: str, scope: FolderScope) -> dict:
     """Copy the contents of `src` into `dst` (used on re-bind to carry the old
     folder's files over). `on_conflict` ∈ {ignore, overwrite, keep_both}: per file,
     ignore keeps dst's version, overwrite replaces it, keep_both writes a suffixed
-    copy. Both paths are validated against the browse roots. Returns counts."""
+    copy. Returns counts.
+
+    The copy runs in the API process, which reads what kernels cannot, so both
+    folders answer to the binding rule, and so does whatever a link inside them
+    leads to: a link into a refused place is skipped, on either side."""
     if on_conflict not in ("ignore", "overwrite", "keep_both"):
         raise FsBrowseError("Invalid conflict strategy")
+    if not src or not dst:
+        raise FsBrowseError("Source and destination folders are required")
+    validate_binding_path(src, scope)
+    validate_binding_path(dst, scope)
     src_p = _resolve(src)
     dst_p = _resolve(dst)
-    if not src_p.is_dir():
-        raise FsBrowseError("Source folder not found")
-    if not dst_p.is_dir():
-        raise FsBrowseError("Destination folder not found")
     if src_p == dst_p or src_p in dst_p.parents:
         raise FsBrowseError("Destination is inside the source folder")
 
@@ -688,10 +696,16 @@ def copy_tree(src: str, dst: str, on_conflict: str) -> dict:
     for root, _dirs, files in os.walk(src_p):
         rel = Path(root).relative_to(src_p)
         out_dir = dst_p / rel
+        if _overlap_refusal(out_dir.resolve(), scope):
+            skipped += len(files)
+            continue
         out_dir.mkdir(parents=True, exist_ok=True)
         for name in files:
             src_file = Path(root) / name
             dst_file = out_dir / name
+            if _link_refused(src_file, scope) or _link_refused(dst_file, scope):
+                skipped += 1
+                continue
             if dst_file.exists():
                 if on_conflict == "ignore":
                     skipped += 1

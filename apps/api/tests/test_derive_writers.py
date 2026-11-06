@@ -166,3 +166,21 @@ def test_sqlserver_delete_where_sends_tsql_with_a_literal():
 def test_sqlserver_delete_where_refuses_a_name_that_is_not_an_identifier():
     with pytest.raises(ValueError):
         derive_writers.SqlServerWriter(_Recorder(), "dst").delete_where("linkr]; DROP TABLE x;--", "t", "c", "v")
+
+
+def test_oracle_writer_checks_every_column_name_before_any_statement():
+    writer = _oracle_writer()
+
+    class Cursor:
+        statements: list[str] = []
+
+        def execute(self, sql, **_):
+            self.statements.append(sql)
+
+    writer.cur = Cursor()
+    select = 'SELECT 1::BIGINT AS "a"" NUMBER, b", \'x\' AS code'
+    with pytest.raises(ValueError, match="invalid column name"):
+        writer.create_table_as("cohort", "person", select)
+    with pytest.raises(ValueError, match="invalid column name"):
+        writer._columns(select)
+    assert Cursor.statements == []

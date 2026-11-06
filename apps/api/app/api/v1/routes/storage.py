@@ -24,6 +24,8 @@ class StorageGcResponse(CamelModel):
     orphan_blob_bytes: int
     orphan_project_dirs: int
     orphan_project_bytes: int
+    orphan_database_files: int
+    orphan_database_bytes: int
     total_bytes: int
     # Shas a row still points at but whose file is gone. GC cannot fix these —
     # surfaced so an admin sees the broken references rather than silently
@@ -42,6 +44,8 @@ def _to_response(report: storage_gc.GcReport, dry_run: bool) -> StorageGcRespons
         orphan_blob_bytes=report.orphan_blob_bytes,
         orphan_project_dirs=report.orphan_project_dirs,
         orphan_project_bytes=report.orphan_project_bytes,
+        orphan_database_files=report.orphan_database_files,
+        orphan_database_bytes=report.orphan_database_bytes,
         total_bytes=report.total_bytes,
         missing_blobs=report.missing_blobs,
         missing_blobs_total=report.missing_blobs_total,

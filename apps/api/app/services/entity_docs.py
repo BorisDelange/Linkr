@@ -15,6 +15,16 @@ callers (project_export_assemble / workspace_export_assemble).
 from typing import Any
 
 
+# What a README shows. Twin of DOCUMENT_ATTACHMENT_EXTENSIONS (entity-io.ts): an
+# attachment has no mark to version it by, so a data file attached to a README
+# stays on this instance.
+_DOCUMENT_ATTACHMENT_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".pdf")
+
+
+def is_document_attachment(file_name: str) -> bool:
+    return file_name.lower().endswith(_DOCUMENT_ATTACHMENT_EXTENSIONS)
+
+
 def to_localized(value: Any) -> dict:
     """Port of ``toLocalized``: dict stays, a non-empty string becomes
     ``{'en': value}``, empty/None becomes ``{}``."""

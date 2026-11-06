@@ -83,9 +83,9 @@ export function formatRunJob(job: Job, maxChars = 6000): string {
   return [head, ...body.split('\n\n').slice(1)].join('\n\n')
 }
 
-/** A URL with any `user:password@` part masked: an index URL may carry credentials. */
+/** A URL, or a comma-separated list of them, with every `user:password@` part masked: an index URL may carry credentials. */
 export function redactUrl(url: string): string {
-  return url.replace(/^(https?:\/\/)[^/@\s]+@/i, '$1***@')
+  return url.replace(/(https?:\/\/)(?:(?!https?:\/\/)\S)*@/gi, '$1***@')
 }
 
 export function formatOptions(options: EnvInstallOptions): string {

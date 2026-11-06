@@ -154,3 +154,19 @@ async def test_settings_pull_takes_a_colleagues_new_user_through_the_merged_tree
     r = await client.post(f"{API}/git/settings/account/import-file", headers=headers, files=files)
     assert r.json()["usersCreated"] == 1
     assert any(u["username"] == "colleague" for u in (await client.get(f"{API}/users", headers=headers)).json())
+
+
+async def test_settings_import_refuses_an_archive_past_its_bound(client, monkeypatch):
+    from app.api.v1.routes import git as git_routes
+
+    monkeypatch.setattr(git_routes, "_SETTINGS_ZIP_MAX_BYTES", 1024 * 1024)
+    headers = await _bootstrap_admin(client)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("users.json", b" " * (2 * 1024 * 1024))
+    r = await client.post(
+        f"{API}/git/settings/account/import-file", headers=headers,
+        files={"file": ("settings.zip", buf.getvalue(), "application/zip")},
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "archive_too_large"

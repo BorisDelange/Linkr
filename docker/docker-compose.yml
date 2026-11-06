@@ -18,7 +18,11 @@ services:
         # VITE_API_URL default, so drop the line above to inherit it.
         # BASE_PATH: /
     ports:
-      - "3000:80"
+      # This machine only by default: until the wizard's first step is done, the
+      # first client to reach this port becomes the administrator. To serve other
+      # hosts, set LINKR_WEB_BIND=0.0.0.0 (or an interface's address), with
+      # that step completed first, e.g. through `ssh -L 3000:localhost:3000`.
+      - "${LINKR_WEB_BIND:-127.0.0.1}:3000:80"
     depends_on:
       - api
 
@@ -36,6 +40,9 @@ services:
       - LINKR_SECRET_KEY=${LINKR_SECRET_KEY:?set LINKR_SECRET_KEY before up}
       - LINKR_CORS_ORIGINS=http://localhost:3000
       - LINKR_DEBUG=false
+      # Asked by the setup page to create the first administrator. Unset: generated
+      # at each boot and shown in this service's log (first_admin_setup_token).
+      - LINKR_SETUP_TOKEN=${LINKR_SETUP_TOKEN:-}
       # Sign-in by the SPE gateway's header (off unless all three are set). The
       # gateway must overwrite both headers on every request; the secret (≥ 32
       # chars) is what proves a request came through it — every request reaches

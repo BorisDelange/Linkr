@@ -1,4 +1,4 @@
-import { test, expect, ADMIN } from '../fixtures'
+import { test, expect, ADMIN, SETUP_TOKEN } from '../fixtures'
 
 // A fresh server instance (each SPE scenario starts from empty volumes): the
 // setup wizard creates the first administrator, then the instance starts empty —
@@ -8,6 +8,7 @@ test('the first visit creates the administrator and reaches the home page', asyn
   await expect(page.getByRole('heading', { name: 'Welcome to Linkr' })).toBeVisible({ timeout: 60_000 })
 
   await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByLabel('Setup token').fill(SETUP_TOKEN)
   await page.getByLabel('Username').fill(ADMIN.username)
   await page.getByLabel('Password', { exact: true }).fill(ADMIN.password)
   await page.getByLabel('Confirm password').fill(ADMIN.password)

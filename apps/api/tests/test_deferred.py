@@ -179,3 +179,38 @@ async def test_until_stopped_waits_for_the_stopped_work_to_end():
     with pytest.raises(asyncio.CancelledError):
         await caller
     assert ended.is_set()
+
+
+async def test_a_failure_with_a_client_waiting_is_not_logged(caplog):
+    async def failing():
+        raise ValueError("Conversion Error: DUMMY-NAME")
+
+    monkey_wait = deferred.WAIT_SECONDS
+    deferred.WAIT_SECONDS = 5
+    try:
+        with caplog.at_level("WARNING", logger="app.core.deferred"), pytest.raises(ValueError):
+            await deferred.respond("alice", failing)
+        await asyncio.sleep(0)
+    finally:
+        deferred.WAIT_SECONDS = monkey_wait
+    assert caplog.records == []
+
+
+async def test_a_failure_nobody_waits_for_logs_its_type_only(monkeypatch, caplog):
+    monkeypatch.setattr(deferred, "WAIT_SECONDS", 5)
+    gate = asyncio.Event()
+
+    async def failing():
+        await gate.wait()
+        raise ValueError("Conversion Error: DUMMY-NAME")
+
+    with caplog.at_level("WARNING", logger="app.core.deferred"):
+        request = asyncio.create_task(deferred.respond("alice", failing))
+        await asyncio.sleep(0)
+        request.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request
+        gate.set()
+        for _ in range(3):
+            await asyncio.sleep(0)
+    assert "ValueError" in caplog.text and "DUMMY-NAME" not in caplog.text

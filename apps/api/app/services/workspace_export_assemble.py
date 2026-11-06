@@ -28,8 +28,10 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import has_project_permission
 from app.models.mapping_project import MappingProject
 from app.models.project import Project
+from app.models.user import User
 from app.models.workspace import Workspace
 from app.schemas.concept_set import ConceptSetResponse
 from app.schemas.data_dictionary import DataDictionaryResponse
@@ -52,7 +54,7 @@ from app.schemas.patient_dashboard import (
     PatientDashboardWidgetResponse,
 )
 from app.export_version import EXPORT_APP_VERSION as APP_VERSION
-from app.services.entity_docs import license_meta
+from app.services.entity_docs import is_document_attachment, license_meta
 from app.services.dq_check_portable import portable_checks
 from app.services.export_layout import (
     CONTENT_PLUGIN_MANIFEST,
@@ -355,6 +357,16 @@ async def _list_workspace_projects(db: AsyncSession, workspace_id: str) -> list[
     return list(result.scalars().all())
 
 
+async def unreadable_project_uids(db: AsyncSession, workspace_id: str, user: User) -> set[str]:
+    """The workspace's projects `user` may not read: a workspace-level read never
+    carries their content, whatever the caller holds on the workspace."""
+    return {
+        project.uid
+        for project in await _list_workspace_projects(db, workspace_id)
+        if not await has_project_permission(db, project, user, "project-settings:read")
+    }
+
+
 def _project_folder(project: Project) -> str:
     """Port of ``folder = project.entityId || project.projectId || slugify(name)``.
 
@@ -488,7 +500,10 @@ async def _readme_attachment_files(
     """Server equivalent of ``writeAttachmentFiles`` (entity-io.ts): the owner's
     README images as ``attachments/_meta.json`` (exactly the five portable keys —
     the owner fields are re-stamped from context on import) plus one file per blob."""
-    attachments = await attachment_service.list_readme_by_owner(db, owner_type, owner_id)
+    attachments = [
+        att for att in await attachment_service.list_readme_by_owner(db, owner_type, owner_id)
+        if is_document_attachment(att.file_name)
+    ]
     if not attachments:
         return {}
     tree: dict[str, bytes] = {
@@ -559,14 +574,21 @@ async def _sql_collection_sub_tree(db: AsyncSession, collection) -> dict[str, by
     ]
     by_id = {f["id"]: f for f in files}
     # Per-file versioning marks (collection.config), mirroring
-    # buildSqlCollectionFolder: an excluded file leaves the tree as well as the
-    # zip. A _tree.json naming a file the repo cannot contain breaks re-import
-    # and makes every pull offer the phantom as an incoming change.
-    excluded = set((getattr(collection, "config", None) or {}).get("excludedFiles") or [])
+    # buildSqlCollectionFolder: an excluded file, or a data file nobody marked,
+    # leaves the tree as well as the zip. A _tree.json naming a file the repo cannot
+    # contain breaks re-import and makes every pull offer the phantom as an incoming
+    # change.
+    config = getattr(collection, "config", None) or {}
+    excluded = set(config.get("excludedFiles") or [])
+    marked = set(config.get("versionedDataFiles") or [])
+
+    def _is_versioned(path: str) -> bool:
+        return path in marked if _is_data_ext(path) else path not in excluded
+
     kept = [
         f
         for f in files
-        if f["type"] != "file" or _tree_path(f, by_id) not in excluded
+        if f["type"] != "file" or _is_versioned(_tree_path(f, by_id))
     ]
     tree[f"{SCRIPTS_DIR}/{SIDECAR_TREE}"] = _json(_to_path_tree(kept, "collectionId"))
     for f in kept:

@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.etl_pipeline import EtlFile, EtlPipeline, EtlRunHistory
-from app.services import attachment_service, git_secret
+from app.services import attachment_service, git_secret, stats_cache_service
 from app.schemas.etl_pipeline import (
     EtlFileCreate,
     EtlFileUpdate,
@@ -41,6 +41,8 @@ async def create(db: AsyncSession, data: EtlPipelineCreate) -> EtlPipeline:
     db.add(pipeline)
     await db.commit()
     await db.refresh(pipeline)
+    # Keyed by an id the client may choose, with no row to cascade from.
+    await stats_cache_service.delete(db, "etl-quality", pipeline.id)
     return pipeline
 
 
@@ -64,6 +66,7 @@ async def delete(db: AsyncSession, pipeline: EtlPipeline) -> None:
     await db.commit()
     # The README attachments' owner is polymorphic (no FK), so clean them here.
     await attachment_service.delete_readme_for_owner(db, "etl-pipeline", pipeline_id)
+    await stats_cache_service.delete(db, "etl-quality", pipeline_id)
     # Remove the on-disk versioning working tree so it doesn't linger as an orphan.
     git_service.remove_repo("etl-pipelines", pipeline_id)
 

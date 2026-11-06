@@ -165,10 +165,10 @@ async def delete_readme_batch(
     db: AsyncSession = Depends(get_db),
 ):
     if workspace_id is not None and owner_type is None:
-        # Wiping a whole workspace's attachments is a workspace-level operation
-        # regardless of which entity types own them.
+        # Every entity's attachments, those of projects hidden from the caller
+        # included: the workspace deletion's step, held to the same permission.
         await check_workspace_permission(
-            db, workspace_id, user, "workspace-summary:write"
+            db, workspace_id, user, "workspace-settings:delete"
         )
         await attachment_service.delete_readme_for_workspace(db, workspace_id)
         return

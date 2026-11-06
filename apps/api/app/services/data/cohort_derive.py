@@ -9,17 +9,25 @@ Two phases on two connections, and the order is the security boundary:
    `(id, patient_id)` rows come back.
 2. The copy runs with the target attached writable, and only statements this
    module generates: table names from the source catalog, id columns from the
-   schema mapping, all validated as identifiers.
+   schema mapping, all validated as identifiers. What it reads can still be a
+   view or a macro stored in the source's file, so once every database is attached
+   this connection is cut off the filesystem too (`_lock_down_copy`).
 
 So the client's SQL can never write anywhere — which matters most when the
 target is a production Postgres.
 
 Which rows a table keeps follows the scope — the cohort's level, or a wider one
 (every stay of the cohort's patients) — and the id the table carries that fits
-it best (see `classify`). A table carrying none (vocabulary, care_site…) is
-copied whole, or skipped when the caller asks — unless a patient relation reads
-it without a patient id column (`unresolved_tables`), or it carries an id no
-kept set lists: those are never copied.
+it best (see `classify`). A table carrying none is copied whole, or skipped when
+the caller asks, only when it is known to hold no patient row: a dictionary the
+mapping reads as concepts, or a reference table of OMOP or MIMIC
+(`proven_personless`). Never copied, whatever the caller asks: one a patient
+relation reads without a patient id column (`unresolved_tables`) and one carrying
+an id no kept set lists. One nothing says anything about (`unproven`: OMOP's
+note_nlp, cost or fact_relationship hold patient rows behind ids of another kind)
+is not copied either, unless the caller names that very table
+(`Minimization.copy_unproven`): it then comes whole, rows of patients outside the
+cohort included, with no id replaced.
 
 On top of that, what the caller minimises (`Minimization`): the tables copied,
 the variables an event table keeps, the precision of the birth dates. And the
@@ -56,6 +64,7 @@ from app.services.data.db_connect import (
     _group_parquet,
     _lock_down_user_sql,
     _reject_forbidden_statements,
+    _reject_stored_passthrough,
     _require_ident,
     _role_schema_path,
     _scope,
@@ -227,11 +236,7 @@ def unresolved_tables(mapping: dict, tables: list[tuple[str, str, list[str]]]) -
     if mapping.get("formatVersion") != 2:
         return {}
     # A dictionary a custom relation joins is personless by design: still copied.
-    dictionaries = {
-        str(t.get("table") or "").lower()
-        for key, spec in _v2_relations(mapping) if key == "concepts"
-        for t in [spec.get("from") or {}, *(spec.get("joins") or [])] if isinstance(t, dict)
-    }
+    dictionaries = _dictionary_tables(mapping)
     out: dict[tuple[str, str], str] = {}
     for key, spec in _v2_relations(mapping):
         if key == "concepts" or _field_column(spec, "patient_id"):
@@ -357,8 +362,47 @@ def classify(columns: list[str], scope: str, ids: IdColumns, keyed: set[str]) ->
 
 
 def _carried_id(columns: list[str], ids: IdColumns) -> str | None:
-    """An id column the table carries, whatever its level."""
-    return next((c for c in columns if id_level(c, ids)), None)
+    """An id column the table carries, whatever its level, under the mapping's
+    name or one naming an id of a level."""
+    return next((c for c in columns if pseudonym_level(c, ids)), None)
+
+
+# Tables whose rows describe the terminology, the health system or the dataset:
+# OMOP's and MIMIC's own, by the definition of these models. Not OMOP's `location`,
+# which `person.location_id` points at: a row there can be one patient's address.
+_REFERENCE_TABLES = frozenset({
+    "concept", "vocabulary", "domain", "concept_class", "concept_relationship", "relationship", "concept_synonym",
+    "concept_ancestor", "concept_recommended", "concept_cpt4", "concept_numeric", "drug_strength",
+    "source_to_concept_map", "attribute_definition", "cohort_definition", "cdm_source", "metadata",
+    "care_site", "provider",
+    "d_items", "d_labitems", "d_hcpcs", "d_cpt", "d_icd_diagnoses", "d_icd_procedures", "caregiver", "caregivers",
+})
+
+
+def _dictionary_tables(mapping: dict) -> set[str]:
+    """The tables the mapping reads as concept dictionaries, lower-cased."""
+    if mapping.get("formatVersion") != 2:
+        return {str(t.get("table") or "").lower() for t in mapping.get("conceptTables") or [] if isinstance(t, dict)}
+    return {
+        str(t.get("table") or "").lower()
+        for key, spec in _v2_relations(mapping) if key == "concepts"
+        for t in [spec.get("from") or {}, *(spec.get("joins") or [])] if isinstance(t, dict)
+    }
+
+
+def proven_personless(table: str, mapping: dict) -> bool:
+    """Whether a table carrying no id is known to hold no patient row. No id column
+    found proves nothing: a table can reach its patients through another table."""
+    return table.lower() in _REFERENCE_TABLES or table.lower() in _dictionary_tables(mapping)
+
+
+# What `unfilterable` says of a table carrying no id it could be filtered on.
+NO_KNOWN_ID = "no id Linkr can filter on"
+
+
+def _refused(table: str, columns: list[str], ids: IdColumns, mapping: dict) -> str | None:
+    """Why a table with no filter is never copied, or None when it may be whole."""
+    return _carried_id(columns, ids) or (None if proven_personless(table, mapping) else NO_KNOWN_ID)
 
 
 _FILTER_LEVEL = {"patient": "patient", "visit": "visit", "parent_visit": "visit", "visit_detail": "visit_detail"}
@@ -431,6 +475,20 @@ def _source_files(source: SourceSpec) -> list[str]:
     return [p for paths in groups.values() for p in paths]
 
 
+def _lock_down_copy(con: duckdb.DuckDBPyConnection, source: SourceSpec, writers: list, stored_in: list[str]) -> None:
+    """Cut the copy's connection off the server, every database it needs attached:
+    what it reads may be a view or a macro stored in the source's file, which runs
+    with this connection's rights. Stays readable: the source's own files, and the
+    scratch folder a writer sends rows through."""
+    _reject_stored_passthrough(con, stored_in)
+    scratch = [str(w.tmp) for w in writers if w is not None and getattr(w, "tmp", None)]
+    if scratch:
+        paths = ", ".join("'" + _sql_path(p) + "'" for p in scratch)
+        con.execute(f"SET allowed_directories=[{paths}]")
+    _forbid_file_access(con, _source_files(source))
+    _lock_down_user_sql(con)
+
+
 def compute_members(source: SourceSpec, membership_sql: str):
     """Phase 1: the cohort's `(id, patient_id)` rows, as an Arrow table."""
     stmt = _check_membership_sql(membership_sql)
@@ -461,6 +519,8 @@ def plan(source: SourceSpec, mapping: dict, level: str, scope: str | None = None
     con = _connect()
     try:
         _attach_role(con, "source", source.spec)
+        _forbid_file_access(con, _source_files(source))
+        _lock_down_user_sql(con)
         tables = _source_tables(con, source)
     finally:
         con.close()
@@ -468,13 +528,15 @@ def plan(source: SourceSpec, mapping: dict, level: str, scope: str | None = None
     out = []
     for schema, table, columns in tables:
         how = classify(columns, scope, ids, keyed)
+        refused = None if how or (schema, table) in unresolved else _refused(table, columns, ids, mapping)
         out.append({
             "schema": None if source.is_default(schema) else schema,
             "table": table,
             "filter": how[0] if how else None,
             "column": how[1] if how else None,
             "unresolved": None if how else unresolved.get((schema, table)),
-            "unfilterable": None if how or (schema, table) in unresolved else _carried_id(columns, ids),
+            "unfilterable": refused,
+            "unproven": refused == NO_KNOWN_ID,
             "columns": columns,
             "pseudonymized": [c for c in columns if pseudonym_level(c, ids)],
         })
@@ -579,7 +641,9 @@ class Minimization:
     them: `(schema or None for the default one, table)`, lower-cased.
 
     `tables`: the ones copied (None: every one, `copy_personless` deciding those
-    with no patient). `variables`: an event table's concept columns and the
+    with no patient). `copy_unproven`: the tables nothing shows to be personless the
+    caller explicitly asks for, the only way to get one: `tables` does not reach
+    them. `variables`: an event table's concept columns and the
     concepts it keeps (none: the table is created empty, so every relation of
     the mapping still binds). `dates`: column → `year`, `month` (truncated) or
     `null` (emptied) — a birth date kept to the precision asked; a date kept to
@@ -591,6 +655,7 @@ class Minimization:
 
     scope: str | None = None
     tables: set[TableKey] | None = None
+    copy_unproven: set[TableKey] = field(default_factory=set)
     variables: dict[TableKey, tuple[list[str], list[int]]] = field(default_factory=dict)
     dates: dict[TableKey, dict[str, str]] = field(default_factory=dict)
 
@@ -621,6 +686,7 @@ def _normalized(source: SourceSpec, minimization: Minimization) -> Minimization:
     return Minimization(
         scope=minimization.scope,
         tables=None if minimization.tables is None else {key(k) for k in minimization.tables},
+        copy_unproven={key(k) for k in minimization.copy_unproven},
         variables={key(k): v for k, v in minimization.variables.items()},
         dates={key(k): v for k, v in minimization.dates.items()},
     )
@@ -884,6 +950,12 @@ def derive(
         if pseudonyms is not None and pseudonyms.correspondence is not None:
             # Before anything is written: an unreachable one fails the build early.
             corr_writer = _open_writer(con, pseudonyms.correspondence, "corr")
+        # An external database's own views are its server's, not run by DuckDB.
+        stored_in = [
+            *(["source"] if source.spec.get("kind") != "external" else []),
+            *(["target"] if target.kind == "file" else []),
+        ]
+        _lock_down_copy(con, source, [writer, corr_writer], stored_in)
 
         tables = _source_tables(con, source)
         if target.schema is not None:
@@ -933,11 +1005,13 @@ def derive(
             if how is None and (schema, table) in unresolved:
                 written.append({**skipped, "unresolved": unresolved[(schema, table)]})
                 continue
-            if how is None and (orphan := _carried_id(columns, ids)):
-                written.append({**skipped, "unfilterable": orphan})
+            why = None if how else _refused(table, columns, ids, mapping)
+            opted_in = why == NO_KNOWN_ID and key in minimization.copy_unproven
+            if why and not opted_in:
+                written.append({**skipped, "unfilterable": why})
                 continue
             chosen = key in minimization.tables if minimization.tables is not None else (how is not None or copy_personless)
-            if not chosen:
+            if not (chosen or opted_in):
                 written.append({**skipped, "filter": how[0] if how else None})
                 continue
             dest_schema = target.schema or ("main" if source.is_default(schema) else schema)
@@ -949,6 +1023,7 @@ def derive(
                 "filter": how[0] if how else None,
                 "rows": int(rows),
                 "skipped": False,
+                **({"unproven": True} if opted_in else {}),
             })
         control.check()
         if corr_writer is not None:

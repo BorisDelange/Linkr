@@ -1,7 +1,7 @@
 import type { Plugin, PluginManifest } from '@/types/plugin'
 import type { LocalizedString } from '@/types'
 import { pluginFolder } from './plugin-readme'
-import { registerPlugin, getPlugin, getAllPlugins } from './registry'
+import { registerPlugin, getBuiltinPlugin, getAllPlugins } from './registry'
 import { registerComponent } from './component-registry'
 import { registerBuiltinWidgetPlugins, SYSTEM_PLUGIN_IDS } from './builtin-widget-plugins'
 import { getStorage } from '@/lib/storage'
@@ -161,10 +161,7 @@ export function registerDefaultPlugins() {
     if (readme) plugin.readme = readme
   }
 
-  // Snapshot the canonical built-ins now, before any workspace-scoped user plugin
-  // is registered on top (registerUserPlugins overwrites same-id entries with a
-  // workspaceId set). The seeder must not rely on the mutable registry, otherwise
-  // built-ins look "workspace-scoped" and stop being seeded from the 2nd workspace on.
+  // Snapshot the canonical built-ins now, for the seeder.
   builtinSnapshot = getAllPlugins()
     .filter((p) => !p.workspaceId)
     .map((p) => ({ manifest: p.manifest, templates: p.templates, readme: p.readme }))
@@ -214,8 +211,6 @@ export async function seedBuiltinPluginsForWorkspace(workspaceId: string): Promi
   } catch {
     seededManifestIds = new Set()
   }
-  // Iterate the frozen snapshot, not the live registry: once user plugins load,
-  // built-ins in the registry gain a workspaceId and would be skipped otherwise.
   const builtins = builtinSnapshot.length > 0
     ? builtinSnapshot
     : getAllPlugins().filter((p) => !p.workspaceId).map((p) => ({ manifest: p.manifest, templates: p.templates, readme: p.readme }))
@@ -262,8 +257,10 @@ export async function registerUserPlugins() {
         plugin.workspaceId = up.workspaceId
         plugin.readme = up.readme
         // Don't overwrite built-in component plugins with IDB copies that lack componentId
-        const existing = getPlugin(plugin.manifest.id)
+        const existing = getBuiltinPlugin(plugin.manifest.id)
         if (existing?.componentId && !plugin.componentId) continue
+        // A row outside any workspace never stands in for a bundled built-in.
+        if (existing && !up.workspaceId) continue
         // A built-in's manifest belongs to the BUNDLE, not to the workspace copy.
         //
         // The copy is a snapshot taken when the workspace was seeded and never

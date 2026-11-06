@@ -10,6 +10,8 @@ import base64
 import json
 from pathlib import Path
 
+import pytest
+
 from app.services.export_layout import ENTITY_MANIFEST
 from app.services.project_export import (
     _canonical_parse_options,
@@ -354,8 +356,8 @@ def test_computed_dataset_reconstructs_csv_when_no_raw_file():
 
 
 def test_reference_csv_under_scripts_ignored_unless_marked():
-    # A data file living under scripts/ (e.g. a reference CSV) is gitignored by
-    # default like any data file; marking its scripts/ tree path re-includes it.
+    # A data file living under scripts/ (e.g. a reference CSV) stays out like any
+    # data file; marking its scripts/ tree path brings it in, past the ignore rules.
     ref = {"id": "r1", "name": "concepts.csv", "type": "file", "parentId": "fold", "path": "reference/concepts.csv"}
     fold = {"id": "fold", "name": "reference", "type": "folder", "parentId": None, "path": "reference"}
     common = dict(
@@ -365,9 +367,8 @@ def test_reference_csv_under_scripts_ignored_unless_marked():
         dataset_files=[], dataset_analyses={}, dataset_data={}, dataset_raw_files={},
         attachments=[], attachment_blobs={},
     )
-    # Unmarked: the file is still written (it's IDE content) but ignored, no exception.
     unmarked = build_project_tree(ide_files=[fold, {**ref, "content": "a,b"}], versioned_data_files=set(), **common)
-    assert unmarked["scripts/reference/concepts.csv"] == b"a,b"
+    assert "scripts/reference/concepts.csv" not in unmarked
     assert "!scripts/reference/concepts.csv" not in unmarked[".gitignore"].decode()
     # Marked (key = scripts/ tree path): the !path exception is emitted.
     marked = build_project_tree(
@@ -375,6 +376,7 @@ def test_reference_csv_under_scripts_ignored_unless_marked():
         versioned_data_files={"scripts/reference/concepts.csv"},
         **common,
     )
+    assert marked["scripts/reference/concepts.csv"] == b"a,b"
     assert "!scripts/reference/concepts.csv" in marked[".gitignore"].decode()
 
 
@@ -574,3 +576,51 @@ def test_a_dashboard_without_events_exports_no_events_key():
         )
         out = json.loads(tree["dashboards/overview.json"].decode())["dashboard"]
         assert "events" not in out, events
+
+
+def _tree_with_script(name: str, versioned: set[str]) -> dict[str, bytes]:
+    data = json.loads((_GOLDEN / "input.json").read_text())
+    extra = {**next(f for f in data["ideFiles"] if f.get("type") == "file"), "id": "added", "name": name, "content": "DUMMY", "parentId": None}
+    return build_project_tree(
+        project=data["project"], organization=data["organization"], ide_files=[*data["ideFiles"], extra],
+        dataset_files=data["datasetFiles"], pipelines=data["pipelines"], cohorts=data["cohorts"],
+        connections=data["connections"], dashboards=data["dashboards"], dataset_analyses=data["datasetAnalyses"],
+        dataset_data=data["datasetData"], dataset_raw_files=data["datasetRawFiles"],
+        attachments=[], attachment_blobs={}, versioned_data_files=versioned,
+    )
+
+
+@pytest.mark.parametrize("name", ["reference.csv", "cohort.tsv", "results.json", "notes.txt", "noextension"])
+def test_an_unmarked_data_script_leaves_neither_the_tree_nor_the_listing(name):
+    tree = _tree_with_script(name, set())
+    assert f"scripts/{name}" not in tree
+    assert name not in tree["scripts/_tree.json"].decode()
+
+
+def test_a_marked_data_script_goes_with_its_listing_and_ignore_exception():
+    tree = _tree_with_script("cohort.tsv", {"scripts/cohort.tsv"})
+    assert tree["scripts/cohort.tsv"] == b"DUMMY"
+    assert "cohort.tsv" in tree["scripts/_tree.json"].decode()
+    assert "!scripts/cohort.tsv" in tree[".gitignore"].decode()
+
+
+@pytest.mark.parametrize("name", ["extra.sql", "extra.py", "extra.R", "extra.Rmd", "requirements.txt", "Makefile", "renv.lock"])
+def test_a_code_script_is_versioned_without_a_mark(name):
+    assert f"scripts/{name}" in _tree_with_script(name, set())
+
+
+def test_the_code_and_attachment_lists_match_their_browser_twin():
+    import re
+
+    from app.services.entity_docs import _DOCUMENT_ATTACHMENT_EXTENSIONS
+    from app.services.project_export import _CODE_EXTENSIONS, _CODE_NAMES
+
+    source = (Path(__file__).resolve().parents[2] / "web" / "src" / "lib" / "entity-io.ts").read_text()
+
+    def listed(name: str) -> set[str]:
+        block = re.search(rf"{name} = (?:new Set\()?\[(.*?)\]", source, re.DOTALL).group(1)
+        return set(re.findall(r"'([^']+)'", block))
+
+    assert listed("CODE_FILE_EXTENSIONS") == _CODE_EXTENSIONS
+    assert listed("CODE_FILE_NAMES") == _CODE_NAMES
+    assert listed("DOCUMENT_ATTACHMENT_EXTENSIONS") == set(_DOCUMENT_ATTACHMENT_EXTENSIONS)

@@ -245,6 +245,8 @@ class WebApp:
     task: asyncio.Task | None = None
     # The names of the cookies the app has set: the only ones the proxy hands back.
     cookie_names: set[str] = field(default_factory=set)
+    # A browser session opened before this instant (µs since the epoch) has ended.
+    sessions_from_us: int = 0
 
     def touch(self) -> None:
         self.last_seen = time.monotonic()
@@ -372,6 +374,18 @@ class AppManager:
             a for a in self._apps.values()
             if a.project_uid == project_uid and a.user_id == user_id
         ]
+
+    def end_sessions(self, user_id: int) -> list[WebApp]:
+        """End every browser session opened on a user's apps; returns those apps."""
+        apps = [a for a in self._apps.values() if a.user_id == user_id]
+        now = time.time_ns() // 1000
+        for app in apps:
+            app.sessions_from_us = now
+        return apps
+
+    def stop_for_user(self, user_id: int) -> None:
+        for app in [a for a in self._apps.values() if a.user_id == user_id]:
+            self.stop(app.app_id)
 
     def _count_for_user(self, user_id: int) -> int:
         return sum(1 for a in self._apps.values() if a.user_id == user_id)

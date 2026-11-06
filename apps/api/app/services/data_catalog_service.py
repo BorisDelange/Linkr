@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.data_catalog import DataCatalog
 from app.schemas.data_catalog import DataCatalogCreate, DataCatalogUpdate
-from app.services import attachment_service, git_secret
+from app.services import attachment_service, git_secret, stats_cache_service
 
 
 async def list_all(db: AsyncSession) -> list[DataCatalog]:
@@ -31,6 +31,8 @@ async def create(db: AsyncSession, data: DataCatalogCreate) -> DataCatalog:
     db.add(catalog)
     await db.commit()
     await db.refresh(catalog)
+    # Keyed by an id the client may choose, with no row to cascade from.
+    await stats_cache_service.delete(db, "catalog", catalog.id)
     return catalog
 
 
@@ -55,5 +57,6 @@ async def delete(db: AsyncSession, catalog: DataCatalog) -> None:
     # The README attachments' owner is polymorphic (no FK), so clean them here.
     await attachment_service.delete_readme_for_owner(db, "data-catalog", catalog_id)
     await attachment_service.delete_readme_for_owner(db, "data-catalog-site", catalog_id)
+    await stats_cache_service.delete(db, "catalog", catalog_id)
     # Remove the on-disk versioning working tree so it doesn't linger as an orphan.
     git_service.remove_repo("data-catalogs", catalog_id)

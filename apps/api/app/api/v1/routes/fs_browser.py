@@ -99,18 +99,21 @@ class RebindCopyBody(BaseModel):
 @router.post("/rebind-copy")
 async def rebind_copy(
     body: RebindCopyBody,
-    _project: Project = Depends(require_project_permission("project-settings:write")),
-    _user: User = Depends(get_current_user),
+    project: Project = Depends(require_project_permission("project-settings:write")),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Copy the old folder's files into the newly-bound folder (offered on re-bind).
-    The binding change itself is a normal project update; this only moves bytes."""
+    The binding change itself is a normal project update; this only moves bytes,
+    between folders the caller could bind."""
     _guard()
+    scope = await fs_browser.import_scope(db, project, user)
     try:
         # A folder of gigabytes takes minutes: off the event loop, or every other
         # request waits for it.
-        return await asyncio.to_thread(fs_browser.copy_tree, body.src, body.dst, body.on_conflict)
+        return await asyncio.to_thread(fs_browser.copy_tree, body.src, body.dst, body.on_conflict, scope)
     except fs_browser.FsBrowseError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        raise HTTPException(exc.status_code, str(exc)) from exc
 
 
 # --- Project-scoped browsing for an import (dataset / IDE upload from the server)

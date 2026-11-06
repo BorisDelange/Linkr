@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { setLocalized } from '@/lib/localized'
 import type { DataSource, Project, Workspace } from '@/types'
 import { ApiError } from './api.js'
-import { describeMapping } from './cohorts.js'
+import { describeMapping, FREE_SQL_HELD_BACK } from './cohorts.js'
 import { clip } from './helpers.js'
 import { READ, WRITE, api, failure, guard, text, type Server } from './shared.js'
 import {
@@ -91,6 +91,7 @@ export function registerDatabaseTools(server: Server): void {
         + `${db.schemaSource?.version ? ` v${db.schemaSource.version}` : ''}`
         + `${overrides.length ? ` · local overrides: ${overrides.join(', ')}` : ''}`)
       out.push(describeMapping(db.schemaMapping))
+      if (db.unacceptedFreeSql?.length) out.push(FREE_SQL_HELD_BACK)
     } else {
       out.push('', 'No schema mapping: SQL only (set one with set_database_schema).')
     }

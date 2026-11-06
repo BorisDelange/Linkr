@@ -16,13 +16,13 @@
  */
 
 import type JSZip from 'jszip'
-import { CONTENT_FILE, ENTITY_MANIFEST, isAppTooOld, MANIFEST } from '@linkr/format'
+import { CONTENT_FILE, ENTITY_MANIFEST, isAppTooOld, isCloneableRemoteUrl, MANIFEST } from '@linkr/format'
 import { assertEntityType, IncompatibleAppVersionError, requiredAppVersion, WrongEntityTypeError } from '@/lib/app-version-compat'
 import { APP_VERSION } from '@/lib/version'
 import i18n from '@/lib/i18n'
 import { applyClonedEntity, collectGitLinkedEntities, parseWorkspaceZip } from '@/lib/entity-io'
 import type { GitLinkedEntity, ParsedWorkspaceZip } from '@/lib/entity-io'
-import { findLineageMatch, type ImportTarget } from '@/lib/import-identity'
+import { findLineageMatch, workspaceLanding, type ImportTarget } from '@/lib/import-identity'
 import { importWorkspaceTree } from '@/lib/workspace-import'
 import { gitCloneToZip, gitSetSyncState } from '@/lib/api/git'
 import { anchorClonedEntity } from '@/lib/git-clone-anchor'
@@ -337,6 +337,14 @@ export async function prepareCatalogInstall(
       found && (!workspaceId || !found.workspaceId || found.workspaceId === workspaceId)
     const existing = inTargetWorkspace ? found : null
     const sameEntity = existing ? isSameEntity(existing, entry) : false
+    // A workspace import lands by the TREE's lineage, whatever id or lineage the
+    // entry declares, so that is what decides whether it would replace one.
+    const landing = entry.type === 'workspace'
+      ? workspaceLanding(await getStorage().workspaces.getAll().catch(() => []), {
+          id: repoId,
+          lineageId: typeof meta.lineageId === 'string' ? meta.lineageId : undefined,
+        })
+      : undefined
     return {
       ok: true,
       prepared: {
@@ -348,7 +356,9 @@ export async function prepareCatalogInstall(
         // Any row holding the id blocks reuse, wherever it lives.
         idCollision: found != null,
         collisionElsewhere: found != null && !inTargetWorkspace,
-        existingName: sameEntity ? (localizedName(existing?.name) ?? repoId) : undefined,
+        existingName: landing
+          ? (localizedName(landing.name) ?? repoId)
+          : sameEntity ? (localizedName(existing?.name) ?? repoId) : undefined,
       },
     }
   } catch (err) {
@@ -559,17 +569,8 @@ async function installWorkspaceEntry(
   }
 }
 
-const SCP_REMOTE = /^[\w.+-]+@[\w.-]+:(?!\/\/)\S+$/
-
-/**
- * Whether a git-linked child's `url` may be cloned. The URL comes from the
- * published repo, so it is untrusted: only https, ssh:// or scp-style
- * `user@host:path`, the forms the server's host check reads the way git does.
- */
-export function isCloneableChildUrl(url: unknown): url is string {
-  if (typeof url !== 'string') return false
-  return /^https:\/\/[^\s]+$/i.test(url) || /^ssh:\/\/[^\s]+$/i.test(url) || SCP_REMOTE.test(url)
-}
+/** Whether a git-linked child's `url` may be cloned: it comes from the published repo. */
+export const isCloneableChildUrl = isCloneableRemoteUrl
 
 /** Pull each git-linked child's content in. Returns the ones that did not make it. */
 export async function cloneWorkspaceChildren(

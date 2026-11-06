@@ -10,6 +10,7 @@
  */
 
 import type { DataCatalog, CatalogResultCache, CatalogConceptRow, SchemaMapping, AnonymizationMode, CatalogCounts } from '@/types'
+import { spreadsheetText } from '@/lib/csv-export'
 import { PUBLISHED } from '@/lib/data-catalog/suppression'
 import { catalogCounts } from '@/lib/data-catalog/config'
 import type { IntrospectedTable } from '@/lib/duckdb/engine'
@@ -529,7 +530,7 @@ function syntaxHighlight(json: string): string {
 
 function csvEscape(value: string | number | null | undefined): string {
   if (value == null) return ''
-  const str = String(value)
+  const str = spreadsheetText(String(value))
   if (str.includes(',') || str.includes('"') || str.includes('\n')) {
     return `"${str.replace(/"/g, '""')}"`
   }

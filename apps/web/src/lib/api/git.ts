@@ -206,7 +206,7 @@ export interface GitVerifyResult {
 // entity's export tree, so the operation never reached the remote. It is reported
 // as its own code because the git-flavoured wording sends the user to check a
 // token and a URL that had nothing to do with it.
-export type GitErrorCode = 'auth_required' | 'auth_failed' | 'not_found' | 'network' | 'pull_required' | 'export_failed' | 'unknown'
+export type GitErrorCode = 'auth_required' | 'auth_failed' | 'not_found' | 'network' | 'pull_required' | 'export_failed' | 'archive_too_large' | 'hidden_projects' | 'unknown'
 
 /** A git operation failed: `code` drives the friendly message, `rawMessage` is
  *  the underlying git output shown on demand. */

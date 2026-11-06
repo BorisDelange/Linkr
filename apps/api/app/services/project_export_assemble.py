@@ -58,6 +58,7 @@ from app.services import (
 )
 from app.schemas.data_source import DataSourceResponse
 from app.services.data import dataset_fs
+from app.services.entity_docs import is_document_attachment
 from app.services import concept_list_service
 from app.schemas.concept_list import ConceptListResponse
 from app.services.project_export import build_project_tree
@@ -270,6 +271,8 @@ async def build_project_tree_from_db(
     attachments = []
     attachment_blobs: dict[str, bytes] = {}
     for att in await attachment_service.list_readme_by_owner(db, "project", project.uid):
+        if not is_document_attachment(att.file_name):
+            continue
         attachments.append(
             {
                 # Owner fields are deliberately absent: they are re-stamped from

@@ -100,13 +100,16 @@ def _release(user_id: str) -> None:
 
 
 def _on_done(task: asyncio.Task) -> None:
-    if task.cancelled():
-        return
     # Retrieved here so a client that disconnected before the task was registered
     # (nobody will ever poll it) does not leave "exception never retrieved".
-    exc = task.exception()
-    if exc is not None and not any(e.task is task for e in _tasks.values()):
-        logger.warning("Deferred work failed with no client waiting: %r", exc)
+    if not task.cancelled():
+        task.exception()
+
+
+def _log_failure_left_behind(task: asyncio.Task) -> None:
+    # The type only: a database's error text quotes row values.
+    if not task.cancelled() and (exc := task.exception()) is not None:
+        logger.warning("Deferred work failed with no client waiting: %s", type(exc).__name__)
 
 
 def session():
@@ -202,6 +205,7 @@ async def respond(user_id: str, work: Callable[[], Awaitable[Any]], as_job: AsJo
         # query stopped by its client is (409).
         if task.cancelled() and not asyncio.current_task().cancelling():
             raise CancelledFromPanel() from None
+        task.add_done_callback(_log_failure_left_behind)
         raise
     except TimeoutError:
         # Only long work counts against the cap: every query goes through here,

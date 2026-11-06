@@ -584,3 +584,59 @@ async def test_a_first_build_cut_by_a_restart_is_settled_at_startup(client, db, 
     assert "building" not in (left.linkr_created or {})
     done = await db.get(DataSource, built)
     assert done.status == "connected" and done.linkr_created == {"file": True}
+
+
+async def _with_note_nlp(client, headers, ws) -> str:
+    src = await _managed(client, headers, ws, "src", seed=True)
+    con = duckdb.connect(str(managed_db.path_for(src)))
+    con.execute("CREATE TABLE note_nlp AS SELECT i AS note_nlp_id, i AS note_id, 'dummy ' || i AS snippet FROM range(1, 4) t(i)")
+    con.execute("CREATE TABLE fact_relationship AS SELECT i AS fact_id_1, i + 1 AS fact_id_2 FROM range(1, 4) t(i)")
+    con.close()
+    return src
+
+
+async def test_a_table_not_shown_personless_needs_its_own_explicit_opt_in(client):
+    from app.core import audit
+
+    headers = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    src = await _with_note_nlp(client, headers, ws)
+    cohort = (await client.post(f"{API}/cohorts", headers=headers, json={
+        "id": "c1", "ownerDataSourceId": src, "name": {"en": "Five"}, "level": "patient", "criteriaTree": {},
+    })).json()["id"]
+    base = {"membershipSql": MEMBERSHIP, "level": "patient", "cohortId": cohort, "derivedFrom": {"database": {"label": "src"}, "cohort": {"key": "five"}}}
+
+    # Listed in `tables` is no opt-in, and neither is a value the client writes on the record.
+    plain = await _managed(client, headers, ws, "plain", seed=False)
+    job = await _derive(client, headers, ws, src, {
+        **base, "target": {"kind": "new-database", "dataSourceId": plain},
+        "tables": [{"table": "person"}, {"table": "note_nlp"}],
+        "derivedFrom": {**base["derivedFrom"], "copiedUnproven": ["forged"]},
+    })
+    assert job["status"] == "done", job
+    assert next(t for t in job["result"]["tables"] if t["table"] == "note_nlp")["skipped"] is True
+    derived = (await client.get(f"{API}/data-sources/{plain}", headers=headers)).json()
+    assert "copiedUnproven" not in derived["derivedFrom"]
+
+    # Opted in: that table only, recorded on the database, on the cohort and in the log.
+    dst = await _managed(client, headers, ws, "opted", seed=False)
+    job = await _derive(client, headers, ws, src, {
+        **base, "target": {"kind": "new-database", "dataSourceId": dst},
+        "copyUnprovenTables": [{"table": "note_nlp"}],
+    })
+    assert job["status"] == "done", job
+    written = {t["table"]: t for t in job["result"]["tables"]}
+    assert written["note_nlp"]["skipped"] is False and written["note_nlp"]["unproven"] is True and written["note_nlp"]["rows"] == 3
+    assert written["fact_relationship"]["skipped"] is True
+    derived = (await client.get(f"{API}/data-sources/{dst}", headers=headers)).json()
+    assert derived["derivedFrom"]["copiedUnproven"] == ["note_nlp"]
+    recorded = next(d for d in (await client.get(f"{API}/cohorts/{cohort}", headers=headers)).json()["derivations"] if d["targetId"] == dst)
+    assert recorded["copiedUnproven"] == ["note_nlp"]
+    lines = [r for r in audit.query(filters={"action": ["derive"]})[0] if "note_nlp" in (r["detail"] or "")]
+    assert len(lines) == 1 and "fact_relationship" not in lines[0]["detail"]
+
+    # A rebuild that does not state it again drops it from what it records.
+    job = await _derive(client, headers, ws, src, {**base, "target": {"kind": "new-database", "dataSourceId": dst}})
+    assert job["status"] == "done", job
+    derived = (await client.get(f"{API}/data-sources/{dst}", headers=headers)).json()
+    assert "copiedUnproven" not in derived["derivedFrom"]

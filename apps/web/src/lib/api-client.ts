@@ -167,6 +167,18 @@ export interface FormattedError {
   detail: string | null
 }
 
+/** A refusal the server states by code (`{code, message, …}`) in the user's
+ *  language, its other fields as values; null when the code has no translation. */
+export function codedRefusal(raw: string): string | null {
+  try {
+    const detail = JSON.parse(raw)?.detail
+    const key = `api_errors.${detail?.code}`
+    return typeof detail?.code === 'string' && i18n.exists(key) ? String(i18n.t(key, detail)) : null
+  } catch {
+    return null
+  }
+}
+
 /**
  * Turn an arbitrary thrown value into a short summary + collapsible detail.
  * FastAPI validation errors arrive as `{"detail":[{loc,msg,...}, …]}` — a raw
@@ -175,6 +187,11 @@ export interface FormattedError {
  * to its (server-supplied or raw) message.
  */
 export function formatApiError(err: unknown): FormattedError {
+  const coded = codedRefusal(err instanceof Error ? err.message : String(err))
+  if (coded) {
+    const status = err instanceof ApiError ? ` (HTTP ${err.status})` : ''
+    return { summary: `${coded}${status}`, detail: null }
+  }
   const raw = err instanceof Error ? err.message : String(err)
   // A bare backend string ("Not found") reads the same for a missing row and a
   // broken route; the status is what separates them, and it was being dropped.

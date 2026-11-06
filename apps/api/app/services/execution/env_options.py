@@ -39,6 +39,10 @@ _R_METHODS = {"auto", "libcurl", "curl", "wget", "internal", "wininet"}
 # that could terminate the R string literal it lands in.
 _URL_KEYS = ("repos", "indexUrl")
 _URL_RE = re.compile(r"^https?://[^\s'\"\\`;]+$")
+# What a user:password@ part is shown as. Tempered so it stays inside one URL of a
+# list, and greedy within it because a password may itself hold `@`, `/` or `,`.
+_MASK = "***@"
+_USERINFO = re.compile(r"(https?://)(?:(?!https?://)\S)*@", re.IGNORECASE)
 
 
 def _options_path(project_uid: str, language: str) -> Path:
@@ -135,9 +139,62 @@ def _sanitize(language: str, data: dict) -> dict:
         # An unknown method would reach Rscript source — drop it, don't smuggle it.
         out.pop("method", None)
     for key in _URL_KEYS:
-        if out.get(key) and not _URL_RE.match(out[key]):
+        if out.get(key) and not (_every_url_valid(out[key]) and _MASK not in out[key]):
             out.pop(key, None)
     return out
+
+
+def _every_url_valid(value: str) -> bool:
+    parts = _url_parts(value)
+    return bool(parts) and all(_URL_RE.match(part) for part in parts)
+
+
+def _url_parts(value: str) -> list[str]:
+    return [part.strip() for part in value.split(",") if part.strip()]
+
+
+def _masked(url: str) -> str:
+    return _USERINFO.sub(rf"\g<1>{_MASK}", url)
+
+
+def mask_credentials(options: dict) -> dict:
+    """`options` as an API response shows them: a credential in a mirror's URL gives
+    read access to that mirror, and every reader of a project or workspace gets these."""
+    return {k: _masked(v) if k in _URL_KEYS and isinstance(v, str) else v for k, v in options.items()}
+
+
+def mask_workspace_credentials(default_options: dict | None) -> dict | None:
+    if not isinstance(default_options, dict):
+        return default_options
+    return {
+        language: mask_credentials(options) if isinstance(options, dict) else options
+        for language, options in default_options.items()
+    }
+
+
+def keep_masked(incoming: dict, stored: dict | None) -> dict:
+    """A form saves back the masked URL it was shown: that means the stored one, and
+    a mask that matches nothing stored is dropped."""
+    out = dict(incoming)
+    for key in _URL_KEYS:
+        url = out.get(key)
+        if not isinstance(url, str) or _MASK not in url:
+            continue
+        kept = (stored or {}).get(key)
+        if isinstance(kept, str) and _masked(kept) == url.strip():
+            out[key] = kept
+        else:
+            out.pop(key)
+    return out
+
+
+def keep_masked_workspace(incoming: dict | None, stored: dict | None) -> dict | None:
+    if not isinstance(incoming, dict):
+        return incoming
+    return {
+        language: keep_masked(options, (stored or {}).get(language)) if isinstance(options, dict) else options
+        for language, options in incoming.items()
+    }
 
 
 def _host(url: str) -> str:
@@ -145,11 +202,11 @@ def _host(url: str) -> str:
 
 
 def _url_hosts(value: str) -> set[str]:
-    return {_host(part.strip()) for part in value.split(",") if part.strip()}
+    return {_host(part) for part in _url_parts(value)}
 
 
-def _is_plain_http(url: str) -> bool:
-    return url.lower().startswith("http://")
+def _plain_http_hosts(value: str) -> set[str]:
+    return {_host(part) for part in _url_parts(value) if part.lower().startswith("http://")}
 
 
 def _confine_override(
@@ -165,13 +222,13 @@ def _confine_override(
     deployment names its own mirror (`mirror_hosts`), the project's index stays on
     the hosts the upper layers use, whatever the scheme."""
     http_hosts = {
-        _host(v) for layer in upper_layers for k, v in layer.items() if k in _URL_KEYS and _is_plain_http(v)
+        host for layer in upper_layers for k, v in layer.items() if k in _URL_KEYS for host in _plain_http_hosts(v)
     }
     trusted = {layer["trustedHost"].lower() for layer in upper_layers if layer.get("trustedHost")}
     out = dict(override)
     for key in _URL_KEYS:
         url = out.get(key, "")
-        downgraded = _is_plain_http(url) and _host(url) not in http_hosts
+        downgraded = not _plain_http_hosts(url) <= http_hosts
         off_mirror = bool(mirror_hosts and url) and not _url_hosts(url) <= mirror_hosts
         if downgraded or off_mirror:
             out.pop(key, None)

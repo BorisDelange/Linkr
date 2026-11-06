@@ -162,6 +162,8 @@ async def column_stats(
     if col is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Column not found")
     native_columns = res["columns"] if res.get("native") else None
+    audit.bind(action="preview", project_uid=project_uid,
+               detail=f"datasets/{path} {'all values' if full else 'stats'} of {col_id}")
     return dataset_rows.column_stats(res["parquet"], col_id, col["type"], columns=native_columns, full=full)
 
 

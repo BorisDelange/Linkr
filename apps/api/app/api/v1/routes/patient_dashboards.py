@@ -26,7 +26,7 @@ from app.schemas.patient_dashboard import (
     PatientDashboardWidgetResponse,
     PatientDashboardWidgetUpdate,
 )
-from app.services import change_tracking, notification_service, patient_dashboard_service
+from app.services import change_tracking, database_binding, notification_service, patient_dashboard_service
 
 router = APIRouter(prefix="/patient-dashboards", tags=["patient-dashboards"])
 
@@ -211,6 +211,11 @@ async def create_dashboard(
         if any(b.owner_cohort_id == cohort.id for b in boards):
             raise HTTPException(status.HTTP_409_CONFLICT, "this cohort already has its patient board")
         body.data_source_id = cohort.data_source_id or body.data_source_id
+    if body.project_uid:
+        project = await db.get(Project, body.project_uid)
+        await database_binding.require_bindable(
+            db, project.workspace_id, user, [body.data_source_id], project=project,
+        )
     board = await patient_dashboard_service.create(db, body)
     await _notify(db, request, user, board, "created")
     return board
@@ -234,6 +239,12 @@ async def update_dashboard(
     db: AsyncSession = Depends(get_db),
 ):
     dashboard = await _load_dashboard(db, dashboard_id, user, "patient-data:write")
+    if dashboard.project_uid:
+        project = await db.get(Project, dashboard.project_uid)
+        await database_binding.require_bindable(
+            db, project.workspace_id, user, database_binding.changed_ids(dashboard, body, "data_source_id"),
+            project=project,
+        )
     before = change_tracking.changed_values(dashboard, body.model_dump(exclude_unset=True))
     dashboard = await patient_dashboard_service.update(db, dashboard, body)
     if before:

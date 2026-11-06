@@ -81,10 +81,14 @@ branch — second. The `release` skill runs it at every release.
 ## 3. Full security audit
 
 `code-review` checks a diff against a short checklist (its §1). A whole-codebase audit
-is the job of the user-level `security-audit` skill (Cloudflare,
-<https://github.com/cloudflare/security-audit-skill>, installed in
-`~/.claude/skills/security-audit/`; on a new machine, install it there per its README,
-after scanning it as CLAUDE.md requires): multi-agent recon → hunting → adversarial validation →
+is the job of the local user-level `security-audit` skill (`~/.claude/skills/security-audit/`,
+outside every checkout, gitignored here should a copy land in `.claude/skills/`; Cloudflare's,
+MIT, copied unmodified from commit `c1c8a8c`): run that skill. On a new machine, or before
+replacing the copy, scan the new version as CLAUDE.md requires and read the diff. skillspector
+rates this copy DO_NOT_INSTALL (83/100); the user read the findings on 2026-11-06 and kept it:
+they are words of its checklists (`.env`, `*.pem`, keychain) and `/etc/passwd` in validator
+tests. Read a new score's findings again.
+It is a multi-agent recon → hunting → adversarial validation →
 schema-checked `findings.json`, each run building on the previous ones. It spawns many
 agents and is expensive — offer it, never start it unprompted, never at every review.
 

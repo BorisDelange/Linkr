@@ -1,7 +1,7 @@
 /** Databases derived from a cohort, and the jobs that build them. */
 import { fromJsonSchema } from '@modelcontextprotocol/server'
 import { randomUUID } from 'node:crypto'
-import { derivableReason } from '@/lib/cohort-derive'
+import { derivableReason, planTableName } from '@/lib/cohort-derive'
 import type { Cohort, DataSource as WebDataSource } from '@/types'
 import {
   MAX_JOB_WAIT_SECONDS, NOT_DERIVABLE, deriveChoices, derivationOptions, formatDerivePlan, formatJob, planDerivation,
@@ -25,6 +25,9 @@ async function cohortSource(cohort: Cohort): Promise<WebDataSource> {
 
 const SCOPE_DESCRIPTION = 'The individuals kept: the cohort\'s level (default) or a wider one — a visit cohort may keep '
   + 'its patients\' every visit (patient). Never a narrower one.'
+
+const COPY_PERSONLESS_DESCRIPTION = 'Copy whole the tables known to hold no patient data (vocabularies, care sites…). Default true. '
+  + 'It never reaches a table merely carrying no id: see copy_unproven_tables.'
 
 const siblingsOf = (cohort: Cohort) =>
   cohort.ownerDataSourceId ? api.listDatabaseCohorts(cohort.ownerDataSourceId)
@@ -52,7 +55,8 @@ export function registerDeriveTools(server: Server): void {
   server.registerTool('plan_cohort_derivation', {
     description:
       'Before derive_database_from_cohort: whether a cohort can be derived, and what the copy would do with each '
-      + 'table of its database (filtered on the cohort\'s patients / visits, copied whole, or skipped) and which id columns '
+      + 'table of its database (filtered on the cohort\'s patients / visits, copied whole, or skipped; a table nothing shows to '
+      + 'be personless is said so, and copied only if derive_database_from_cohort names it in copy_unproven_tables) and which id columns '
       + 'pseudonymisation replaces. The table names it lists are the ones derive_database_from_cohort\'s `tables` takes. '
       + 'Reads nothing but the schema.',
     annotations: READ,
@@ -61,7 +65,7 @@ export function registerDeriveTools(server: Server): void {
       properties: {
         cohort_id: { type: 'string' },
         scope: { type: 'string', enum: ['patient', 'visit', 'visit_detail'], description: SCOPE_DESCRIPTION },
-        copy_personless: { type: 'boolean', description: 'Copy the tables with no patient id (vocabularies…) whole. Default true.' },
+        copy_personless: { type: 'boolean', description: COPY_PERSONLESS_DESCRIPTION },
       },
       required: ['cohort_id'],
     }),
@@ -90,7 +94,7 @@ export function registerDeriveTools(server: Server): void {
     annotations: WRITE,
     inputSchema: fromJsonSchema<{
       cohort_id: string; target?: 'new-database' | 'schema'; name?: string; path?: string; rebuild_database_id?: string
-      target_database_id?: string; schema_name?: string; replace?: boolean; register?: boolean; copy_personless?: boolean
+      target_database_id?: string; schema_name?: string; replace?: boolean; register?: boolean; copy_personless?: boolean; copy_unproven_tables?: string[]
       scope?: 'patient' | 'visit' | 'visit_detail'; tables?: string[]; variables?: 'all' | 'criteria' | 'concepts'; concept_ids?: number[]
       birth_precision?: 'year' | 'month' | 'day'; pseudonymize?: boolean; method?: 'hmac' | 'random'; keep_key?: boolean
       reuse_key_of?: string; correspondence_database_id?: string; correspondence_schema?: string; correspondence_table?: string
@@ -125,7 +129,14 @@ export function registerDeriveTools(server: Server): void {
         },
         register: { type: 'boolean', description: 'schema outside DuckDB: also declare the schema as a Linkr database. Default true.' },
         copy_personless: {
-          type: 'boolean', description: 'Copy the tables with no patient id (vocabularies…) whole. Default true. With tables: true adds them to the list, false removes them.',
+          type: 'boolean', description: `${COPY_PERSONLESS_DESCRIPTION} With tables: true adds them to the list, false removes them.`,
+        },
+        copy_unproven_tables: {
+          type: 'array', items: { type: 'string' },
+          description: 'EXPLICIT OPT-IN, table by table: the tables plan_cohort_derivation lists as not shown to be personless, copied '
+            + 'whole. They may hold rows of patients OUTSIDE the cohort, and their ids and text are NOT pseudonymised. Default: none, '
+            + 'and they are then skipped. Never fill this on your own: name a table only when the user asked for that table after being '
+            + 'told this. Neither `tables` nor copy_personless reaches them, and a rebuild does not repeat them: list them again.',
         },
         scope: { type: 'string', enum: ['patient', 'visit', 'visit_detail'], description: SCOPE_DESCRIPTION },
         tables: {
@@ -179,6 +190,7 @@ export function registerDeriveTools(server: Server): void {
     const choices = previous ? rebuildChoices(previous, stated) : stated
     const kept = derivationOptions(cohort, await api.derivePlan(source.id, cohort.level, choices.scope), choices)
     if ('error' in kept) return failure(kept.error)
+    const droppedUnproven = args.copy_unproven_tables?.length ? [] : previous?.copiedUnproven ?? []
     const plan = planDerivation({
       cohort,
       source,
@@ -187,6 +199,7 @@ export function registerDeriveTools(server: Server): void {
       target,
       copyPersonless: kept.copyPersonless,
       options: kept.options,
+      copyUnprovenTables: kept.copyUnprovenTables,
       newId: randomUUID(),
       lineageId: randomUUID(),
     })
@@ -215,6 +228,12 @@ export function registerDeriveTools(server: Server): void {
           ? `ids pseudonymised (${kept.options.pseudonymization.method}${kept.options.pseudonymization.keepKey ? ', key kept' : ''}`
             + `${kept.options.pseudonymization.correspondence ? ', correspondence table written' : ''}).`
           : 'ids kept as they are.'),
+      ...(kept.copyUnprovenTables.length
+        ? [`Copied whole on the explicit opt-in, not filtered and not pseudonymised: ${kept.copyUnprovenTables.map((t) => planTableName({ schema: t.schemaName ?? null, table: t.table })).join(', ')}.`]
+        : []),
+      ...(droppedUnproven.length
+        ? [`The previous build also copied ${droppedUnproven.join(', ')} on an explicit opt-in: this one does not, unless copy_unproven_tables lists them.`]
+        : []),
       `job_id: ${job.id} (${job.status})`,
       'The copy runs on the server and can take several minutes. Call get_job_status with this job_id to follow it; '
         + 'when done it gives the database id to query. The user sees it in Linkr\'s jobs panel and notifications.',

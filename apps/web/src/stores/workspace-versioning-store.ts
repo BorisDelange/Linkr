@@ -39,7 +39,8 @@ interface WorkspaceVersioningState {
   loadRemoteConfig: (workspaceId: string) => Promise<void>
   setRemoteConfig: (workspaceId: string, config: GitRemoteConfig) => Promise<void>
   clearRemoteConfig: (workspaceId: string) => Promise<void>
-  exportZip: (workspaceId: string, options?: BuildWorkspaceZipOptions) => Promise<void>
+  /** How many projects the export left out for this user. */
+  exportZip: (workspaceId: string, options?: BuildWorkspaceZipOptions) => Promise<{ leftOutProjects: number }>
 }
 
 export const useWorkspaceVersioningStore = create<WorkspaceVersioningState>((set, get) => ({
@@ -95,17 +96,18 @@ export const useWorkspaceVersioningStore = create<WorkspaceVersioningState>((set
       // In server mode the backend builds the ZIP (offloads the browser); the front
       // only triggers + downloads. Front-only keeps the client builder.
       if (isServerMode()) {
-        const blob = await fetchWorkspaceExportZipFromServer(workspaceId, options)
-        if (!blob) return
+        const exported = await fetchWorkspaceExportZipFromServer(workspaceId, options)
+        if (!exported) return { leftOutProjects: 0 }
         const ws = await getStorage().workspaces.getById(workspaceId)
         const name = ws ? localized(ws.name, 'en') || workspaceId : workspaceId
-        downloadBlob(blob, `${slugify(name)}.zip`)
-        return
+        downloadBlob(exported.blob, `${slugify(name)}.zip`)
+        return { leftOutProjects: exported.leftOutProjects }
       }
       const result = await buildWorkspaceZip(workspaceId, getStorage(), options)
       if (result) {
         downloadBlob(result.blob, `${slugify(result.workspaceName)}.zip`)
       }
+      return { leftOutProjects: 0 }
     } finally {
       set({ loading: false })
     }

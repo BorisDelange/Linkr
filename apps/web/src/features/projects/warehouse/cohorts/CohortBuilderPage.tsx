@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { useCohortStore } from '@/stores/cohort-store'
+import { toCsv } from '@/lib/csv-export'
 import * as engine from '@/lib/duckdb/engine'
 import {
   ArrowLeft,
@@ -282,16 +283,10 @@ export function CohortBuilder() {
 
   const handleExportCsv = useCallback(() => {
     if (!result || result.rows.length === 0) return
-    const headers = Object.keys(result.rows[0])
-    const csv = [
-      headers.join(','),
-      ...result.rows.map((row) =>
-        headers.map((h) => {
-          const v = row[h]
-          return v == null ? '' : String(v)
-        }).join(','),
-      ),
-    ].join('\n')
+    const csv = toCsv(
+      result.rows,
+      Object.keys(result.rows[0]).map((h) => ({ header: h, value: (row: Record<string, unknown>) => row[h] })),
+    )
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')

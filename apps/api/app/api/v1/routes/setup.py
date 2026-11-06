@@ -1,9 +1,11 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core import trusted_header
+from app.core import setup_token, trusted_header
 from app.core.database import describe_app_database, get_db
 from app.core.deps import get_current_admin, get_current_user_optional
 from app.core.security import password_policy_error, set_password_async
@@ -20,6 +22,10 @@ from app.services import app_settings_service
 
 router = APIRouter(prefix="/setup", tags=["setup"])
 
+# The count and the commit stand apart by a slow hash, and one API process serves
+# an instance: without this, concurrent calls each find no user and each make an admin.
+_first_admin = asyncio.Lock()
+
 
 @router.get("/status", response_model=SetupStatusResponse)
 async def setup_status(db: AsyncSession = Depends(get_db)):
@@ -28,6 +34,7 @@ async def setup_status(db: AsyncSession = Depends(get_db)):
     count = result.scalar_one()
     return SetupStatusResponse(
         needs_setup=count == 0,
+        setup_token_required=count == 0 and setup_token.current() is not None,
         trusted_header_login=trusted_header.enabled(),
         export_min_count=settings.export_min_count,
         password_min_length=settings.password_min_length,
@@ -56,20 +63,23 @@ async def setup_initialize(
     db: AsyncSession = Depends(get_db),
 ):
     """Create the first admin user. Only works when no users exist."""
-    result = await db.execute(select(func.count(User.id)))
-    count = result.scalar_one()
-    if count > 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Setup already completed",
-        )
+    async with _first_admin:
+        result = await db.execute(select(func.count(User.id)))
+        count = result.scalar_one()
+        if count > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Setup already completed",
+            )
+        if not setup_token.matches(request.setup_token):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, {"code": "setup_token_invalid"})
 
-    if error := password_policy_error(request.password, request.username):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, error)
-    user = User(username=request.username, email=request.email, role="admin")
-    await set_password_async(user, request.password)
-    db.add(user)
-    await db.commit()
+        if error := password_policy_error(request.password, request.username):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, error)
+        user = User(username=request.username, email=request.email, role="admin")
+        await set_password_async(user, request.password)
+        db.add(user)
+        await db.commit()
     await db.refresh(user)
     return user
 

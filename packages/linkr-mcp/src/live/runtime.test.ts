@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { Job, ProjectEnvironment } from '@/lib/api/environments'
 import type { IdeConnection } from '@/types'
 import {
-  buildOptionsOverride, formatEnvironment, formatIdeConnections, formatJobList, formatRunJob, formatSessions,
+  buildOptionsOverride, formatEnvironment, formatIdeConnections, formatJobList, formatOptions, formatRunJob, formatSessions,
   parsePackages, redactUrl,
 } from './runtime'
 import { registerRuntimeTools } from './tools-runtime'
@@ -70,6 +70,13 @@ describe('redactUrl', () => {
   it('masks credentials in a URL', () => {
     expect(redactUrl('https://bob:s3cret@pypi.hospital.org/simple')).toBe('https://***@pypi.hospital.org/simple')
     expect(redactUrl('https://cloud.r-project.org')).toBe('https://cloud.r-project.org')
+  })
+
+  it('masks credentials in every URL of a list, whatever the password holds', () => {
+    expect(redactUrl('https://a.example/cran,https://u:s3cret@b.example/cran,http://x:p@ss@c.example'))
+      .toBe('https://a.example/cran,https://***@b.example/cran,http://***@c.example')
+    expect(formatOptions({ repos: 'https://a.example,https://u:s3cret@b.example' })).not.toContain('s3cret')
+    expect(redactUrl('https://***@b.example/cran')).toBe('https://***@b.example/cran')
   })
 })
 

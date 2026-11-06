@@ -81,6 +81,14 @@ def exists(source_id: str) -> bool:
     return path_for(source_id).exists()
 
 
+def file_left_behind(source_id: str) -> bool:
+    """A file (or its write-ahead log) already sits at this id's default path."""
+    if not isinstance(source_id, str) or not _SAFE_ID.match(source_id):
+        return False
+    path = path_for(source_id)
+    return path.exists() or path.with_name(path.name + ".wal").exists()
+
+
 def create_from_ddl(path: Path, ddl: str) -> str:
     """Create the managed file at `path` and run `ddl` in it. Returns the path.
 

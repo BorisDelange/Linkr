@@ -136,9 +136,28 @@ function mergeCells(into: Map<string, CatalogCrossingRow>, rows: readonly Catalo
   }
 }
 
+const INVALID_RESUME = 'Cannot resume this catalog: its saved run state is invalid. Reset the results to compute it again.'
+
+/**
+ * Anyone with catalog:write can store a run state, and a resume then runs under the
+ * resuming user's login: what it hands to the SQL builders is what a run saves, scalars only.
+ */
+function checkResumeState(cache: CatalogResultCache): void {
+  const isBound = (v: unknown) => v == null || typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v))
+  const isCount = (v: unknown) => typeof v === 'number' && Number.isFinite(v)
+  const { work, completedSteps } = cache
+  const valid = (completedSteps == null || (Number.isInteger(completedSteps) && completedSteps >= 0))
+    && (work?.slices == null || (Array.isArray(work.slices) && work.slices.every((s) => s != null && typeof s === 'object' && isBound(s.lo) && isBound(s.hi))))
+    && (work?.services == null || (Array.isArray(work.services) && work.services.every((r) => Array.isArray(r) && typeof r[0] === 'string' && isCount(r[1]))))
+    && (work?.concepts == null || (Array.isArray(work.concepts) && work.concepts.every((r) => Array.isArray(r) && typeof r[0] === 'string' && isCount(r[1]) && isCount(r[2]))))
+    && (work?.job == null || (typeof work.job.id === 'string' && (work.job.phase === 'base' || work.job.phase === 'crossings')))
+  if (!valid) throw new Error(INVALID_RESUME)
+}
+
 export function stateFromCache(cache: CatalogResultCache): CatalogRunState {
+  checkResumeState(cache)
   const state = emptyRunState()
-  state.slices = cache.work?.slices ?? [{}]
+  state.slices = cache.work?.slices?.map(({ lo, hi }) => ({ ...(lo != null ? { lo } : {}), ...(hi != null ? { hi } : {}) })) ?? [{}]
   for (const r of cache.concepts) state.concepts.set(conceptKey(r), { ...r })
   state.totals = { ...cache.grandTotal }
   for (const [name, patients] of cache.work?.services ?? []) state.serviceRank.set(name, patients)

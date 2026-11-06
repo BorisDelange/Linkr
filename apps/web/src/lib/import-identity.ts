@@ -138,6 +138,42 @@ export function resolveWorkspaceId(
 }
 
 /**
+ * The stored workspace an import of this tree would replace, or undefined for a
+ * fresh one. The landing rule itself, so an importer can ask before it commits.
+ */
+export function workspaceLanding<T extends ImportTarget>(
+  rows: T[],
+  candidate: ImportCandidate & { id: string },
+): T | undefined {
+  const { replaces } = resolveWorkspaceId(rows, candidate, false)
+  return replaces ? rows.find((w) => w.id === replaces) : undefined
+}
+
+/** What a workspace tree may say about the workspace it lands on: its description,
+ *  its identity and its provenance. Listed rather than denied, so a setting added to
+ *  the row later stays out until someone decides it can come from a repository. */
+const WORKSPACE_MANIFEST_FIELDS = [
+  'name', 'description', 'badges', 'badgeCategories', 'readme', 'readmeLang', 'license',
+  'organization', 'organizationId',
+  'lineageId', 'parentLineageId',
+  'createdAt', 'createdBy', 'createdByDetails',
+  'appVersion', 'minAppVersion',
+] as const
+
+/**
+ * A workspace manifest as far as an import may believe it. Package index, default
+ * packages, git remote and push policy are this instance's decisions, and the
+ * mirror confinement trusts the workspace layer they live on; the local key is this
+ * instance's too (a tree naming one would choose the row it overwrites). A caller
+ * that knows the real remote sets it afterwards.
+ */
+export function workspaceFromManifest(manifest: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    WORKSPACE_MANIFEST_FIELDS.filter((f) => f in manifest).map((f) => [f, manifest[f]]),
+  )
+}
+
+/**
  * The key an entity read out of an export tree is addressed by.
  *
  * An export carries **no primary key**: `uid`/`id` are the writing instance's

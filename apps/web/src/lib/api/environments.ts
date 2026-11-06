@@ -238,7 +238,7 @@ export function clearWorkspaceJobs(workspaceId: string): Promise<void> {
 }
 
 export function cancelJob(jobId: string): Promise<void> {
-  return apiRequest(`/jobs/${jobId}/cancel`, { method: 'POST' })
+  return apiRequest(`/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' })
 }
 
 /** Remove the project's finished jobs (done/error/cancelled); keeps active ones. */

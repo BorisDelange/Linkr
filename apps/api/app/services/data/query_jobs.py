@@ -16,7 +16,7 @@ the job reports how much of its data it has read (`query_cancel.progress`).
 
 Results live under `data_dir/job-results/<job id>/<key>.json`, the same body
 `/query` answers. They go when the job is cleared from the panel, or after
-`RESULTS_TTL_SECONDS` (swept at startup).
+`RESULTS_TTL_SECONDS` (swept at startup and by storage_gc's loop).
 """
 
 import asyncio
@@ -62,13 +62,13 @@ def drop_results(job_id: str) -> None:
 
 
 def sweep_results(max_age_seconds: float = RESULTS_TTL_SECONDS) -> None:
-    """Remove result folders older than `max_age_seconds`."""
+    """Remove result folders older than `max_age_seconds`, but a running job's."""
     root = settings.data_path / "job-results"
     if not root.is_dir():
         return
     cutoff = time.time() - max_age_seconds
     for folder in root.iterdir():
-        if folder.is_dir() and folder.stat().st_mtime < cutoff:
+        if folder.is_dir() and folder.stat().st_mtime < cutoff and not jobs.is_running(folder.name):
             shutil.rmtree(folder, ignore_errors=True)
 
 

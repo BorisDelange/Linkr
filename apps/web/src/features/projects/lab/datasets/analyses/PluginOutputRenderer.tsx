@@ -134,6 +134,19 @@ export function PluginOutputRenderer({ result, isExecuting, statusMessage, insta
     )
   }
 
+  if (result.notAccepted) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+        <p className="text-xs text-muted-foreground">{result.stderr}</p>
+        {onRerun && (
+          <Button size="sm-tight" variant="outline" onClick={onRerun}>
+            {t('code_acceptance.review')}
+          </Button>
+        )}
+      </div>
+    )
+  }
+
   const hasFigures = result.figures.length > 0
   const hasTable = result.table !== null
   const hasHtml = !!result.html

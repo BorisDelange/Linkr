@@ -97,3 +97,6 @@ config.local.json
 apps/web/test-results/
 apps/web/playwright-report/
 docker/spe-sim/matrix-work/
+
+# Third-party audit skill, kept at user level (see the security skill)
+.claude/skills/security-audit/

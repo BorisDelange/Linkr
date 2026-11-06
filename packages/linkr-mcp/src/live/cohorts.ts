@@ -351,6 +351,9 @@ export function renderTree(tree: CriteriaGroupNode, mapping: SchemaMapping): str
 }
 
 /** The schema mapping in plain words: which relation reads what, for a model that has never seen it. */
+/** Accepting takes a person in the app: an API key or an agent cannot do it. */
+export const FREE_SQL_HELD_BACK = 'Not listed: the relations written in SQL, which run under the user\'s login and which this user has not accepted yet. Ask them to open the database in Linkr and accept that SQL.'
+
 export function describeMapping(m: SchemaMapping): string {
   const q = (t?: { schema?: string; table: string }) => (t ? (t.schema ? `${t.schema}.${t.table}` : t.table) : '')
   const out: string[] = [

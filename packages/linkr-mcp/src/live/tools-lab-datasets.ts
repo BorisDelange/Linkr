@@ -429,8 +429,9 @@ export function registerLabDatasetTools(server: Server): void {
     description:
       'Attach an analysis to a dataset: a lab plugin (list_plugins / describe_plugin, or a workspace plugin from '
       + 'list_user_plugins) with its config — columns by name or id — or custom code (plugin_id "inline" with '
-      + 'language and code; the dataset is injected as `dataset`).',
-    annotations: WRITE,
+      + 'language and code; the dataset is injected as `dataset`). Ask the user first: its code runs on the server as '
+      + 'the member who opens the tab, by itself with no Run press once autoRun is set.',
+    annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{
       project_uid: string; path: string; name: string; plugin_id: string; config?: Record<string, unknown>
       language?: PluginLanguage; code?: string
@@ -475,8 +476,9 @@ export function registerLabDatasetTools(server: Server): void {
 
   server.registerTool('update_dataset_analysis', {
     description: 'Rename a dataset analysis or change its config (fields merged; null clears one; columns by name or '
-      + 'id). For inline code, config.code replaces the code.',
-    annotations: WRITE,
+      + 'id). For inline code, config.code replaces the code and config.autoRun true makes it run by itself when a '
+      + 'member opens the tab, on the server as that member, with no Run press. Ask the user first.',
+    annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{ project_uid: string; path: string; analysis_id: string; name?: string; config?: Record<string, unknown> }>({
       type: 'object',
       properties: {

@@ -1101,6 +1101,10 @@ class IDBProjectStorage implements ProjectStorage {
     await db.put('projects', { ...existing, ...changes, updatedAt: new Date().toISOString() })
   }
 
+  setFolderBindings(uid: string, bindings: Partial<Pick<Project, 'idePath' | 'scriptsPath' | 'datasetsPath'>>): Promise<void> {
+    return this.update(uid, bindings)
+  }
+
   async delete(uid: string): Promise<void> {
     const db = await getDB()
     await db.delete('projects', uid)

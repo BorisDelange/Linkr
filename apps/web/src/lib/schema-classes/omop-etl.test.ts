@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parseDdl } from '@/lib/ddl-parse'
 import { eavSource, omopDdl, omopTarget } from './__fixtures__/omop-etl'
 import { eventTargetChoices, generateOmopEtl, generatedScriptState } from './omop-etl'
+import { splitSqlStatements } from '@/lib/duckdb/sql-tokenizer'
 
 // The scripts below were also run end to end on DuckDB (synthetic EAV tables,
 // the OMOP DDL, a vocabulary with one 'Maps to'): every table filled as asserted.
@@ -82,5 +83,43 @@ describe('generatedScriptState', () => {
     expect(generatedScriptState(sql)).toBe('generated')
     expect(generatedScriptState(sql.replace('32817', '32818'))).toBe('modified')
     expect(generatedScriptState('SELECT 1')).toBe('foreign')
+  })
+})
+
+describe('generateOmopEtl only emits statements it composed', () => {
+  const statementsOf = (sql: string) => splitSqlStatements(sql.slice(sql.indexOf('\n\n'))).length
+
+  it('leaves out a target relation whose table is not an identifier', () => {
+    const target = { ...omopTarget, patient: { ...omopTarget.patient!, from: { ...omopTarget.patient!.from!, table: 'person; SELECT 1' } } }
+    const r = generateOmopEtl(eavSource, target, ddl, { sourceLabel: 'EAV' })
+    expect(r.scripts.some((s) => s.sql.includes('SELECT 1'))).toBe(false)
+    expect(r.warnings).toContainEqual({ kind: 'invalid-relation', relation: 'patient' })
+  })
+
+  it('leaves out a joined table that is not an identifier', () => {
+    const visit = omopTarget.visit!
+    const target = { ...omopTarget, visit: { ...visit, joins: visit.joins!.map((j) => ({ ...j, table: `${j.table}; SELECT 1` })) } }
+    const r = generateOmopEtl(eavSource, target, ddl, { sourceLabel: 'EAV' })
+    expect(r.scripts.some((s) => s.sql.includes('SELECT 1'))).toBe(false)
+  })
+
+  it('leaves out a source relation whose fragments add a statement', () => {
+    const source = { ...eavSource, patient: { ...eavSource.patient!, where: '1=1) ; SELECT 1 FROM (SELECT 1' } }
+    const r = generateOmopEtl(source, omopTarget, ddl, { sourceLabel: 'EAV' })
+    expect(r.scripts.some((s) => s.source === 'patient')).toBe(false)
+    expect(r.warnings).toContainEqual({ kind: 'invalid-relation', relation: 'patient' })
+  })
+
+  it('keeps every header entry on one comment line', () => {
+    const r = generateOmopEtl(eavSource, omopTarget, ddl, { sourceLabel: 'EAV\nSELECT 1;\r\u2028SELECT 2;' })
+    for (const { sql } of r.scripts) {
+      const header = sql.slice(0, sql.indexOf('-- linkr-generated: '))
+      for (const line of header.trimEnd().split(/[\r\n\u2028\u2029]/)) expect(line.startsWith('-- ')).toBe(true)
+    }
+  })
+
+  it('still generates the scripts of a sound pair', () => {
+    expect(run().scripts.every((s) => statementsOf(s.sql) >= 1)).toBe(true)
+    expect(run().warnings).toEqual([])
   })
 })

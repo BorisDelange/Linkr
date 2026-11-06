@@ -1,4 +1,4 @@
-import { test, expect, ADMIN } from '../fixtures'
+import { test, expect, ADMIN, SETUP_TOKEN } from '../fixtures'
 
 // The first run of a fresh instance WITH the default data: the state the
 // versioning journeys start from. Not a journey of its own (no .spec suffix):
@@ -10,6 +10,7 @@ test('the first visit creates the administrator and installs the demo workspace'
   await expect(page.getByRole('heading', { name: 'Welcome to Linkr' })).toBeVisible({ timeout: 60_000 })
 
   await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByLabel('Setup token').fill(SETUP_TOKEN)
   await page.getByLabel('Username').fill(ADMIN.username)
   await page.getByLabel('Password', { exact: true }).fill(ADMIN.password)
   await page.getByLabel('Confirm password').fill(ADMIN.password)

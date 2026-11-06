@@ -340,6 +340,8 @@ describe('database', () => {
       level: 'patient', criteriaTree: { id: 'root', type: 'group', operator: 'AND', children: [] }, target: 'new-database',
     })).toEqual([])
     expect(at({ database: 'p', cohort: {} }).some((i) => i.pointer === '/derivedFrom/database' && i.severity === 'error')).toBe(true)
+    expect(at({ database: {}, cohort: {}, copiedUnproven: 'x' }).some((i) => i.pointer === '/derivedFrom/copiedUnproven' && i.severity === 'error')).toBe(true)
+    expect(at({ database: {}, cohort: {}, copiedUnproven: ['x'] }).some((i) => i.pointer === '/derivedFrom/copiedUnproven')).toBe(false)
     expect(at('p').some((i) => i.severity === 'error')).toBe(true)
   })
 

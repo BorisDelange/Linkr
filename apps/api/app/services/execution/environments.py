@@ -186,13 +186,13 @@ def read_cached_updates(project_uid: str, language: str) -> dict | None:
         return None
 
 
-def check_updates(project_uid: str, language: str, checked_at: str) -> dict:
+def check_updates(project_uid: str, language: str, checked_at: str, opts: dict) -> dict:
     """Run the (batch) outdated query for `language`, cache it, and return
     {packages: {name: latest}, checkedAt}. On-demand ONLY — the caller (a route hit by
-    a user click) passes the timestamp; nothing here runs on modal open or install."""
+    a user click) passes the timestamp; nothing here runs on modal open or install.
+    `opts` is `resolve_options`' result: the override alone is not confined."""
     import json
 
-    opts = get_env_override(project_uid, language) or None
     updates = _provisioner(language).check_updates(project_uid, options=opts)
     # R: also check the shared kernel infra library (separate from the project lib),
     # so an outdated jsonlite/base64enc/svglite is flagged like a user package.
@@ -221,7 +221,8 @@ def set_env_override(project_uid: str, language: str, options: dict) -> dict:
     sanitised, stored override."""
     from app.services.execution import env_options
 
-    env_options.write_env_override(project_uid, language, options)
+    stored = env_options.read_env_override(project_uid, language)
+    env_options.write_env_override(project_uid, language, env_options.keep_masked(options, stored))
     return env_options.read_env_override(project_uid, language)
 
 

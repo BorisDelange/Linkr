@@ -7,11 +7,12 @@ import type { BuildWorkspaceZipOptions } from '@/lib/entity-io'
  * the browser triggers + downloads instead of assembling the ZIP from data it
  * would otherwise have to pull down (offloads the browser). The export dialog's
  * section / per-entity exclude toggles are forwarded as a JSON body. Returns null
- * on error so the caller can fall back to the client builder. */
+ * on error so the caller can fall back to the client builder. `leftOutProjects`:
+ * how many projects the caller may not read were left out, never which. */
 export async function fetchWorkspaceExportZipFromServer(
   workspaceId: string,
   options: BuildWorkspaceZipOptions = {},
-): Promise<Blob | null> {
+): Promise<{ blob: Blob; leftOutProjects: number } | null> {
   const res = await apiFetchFollowing(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/export-zip`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -21,7 +22,10 @@ export async function fetchWorkspaceExportZipFromServer(
     }),
   })
   if (!res.ok) return null
-  return await res.blob()
+  return {
+    blob: await res.blob(),
+    leftOutProjects: Number(res.headers.get('x-linkr-projects-left-out')) || 0,
+  }
 }
 
 /**

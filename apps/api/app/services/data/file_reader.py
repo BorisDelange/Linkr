@@ -16,9 +16,13 @@ under the shared extension directory.
 
 import os
 import tempfile
+import zipfile
 from pathlib import Path
 
 import duckdb
+
+from app.config import settings
+from app.core import safe_zip
 
 _EXCEL_EXT = {".xlsx", ".xls"}
 
@@ -111,6 +115,22 @@ def _sql_str(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def _check_excel_inflation(path: str, file_name: str | None) -> None:
+    """Refuse a workbook whose declared content exceeds the bound, before the reader
+    inflates it. Not a readable zip: left to the reader, which says so itself."""
+    limit = settings.max_excel_inflated_mb * 1024 * 1024
+    try:
+        with zipfile.ZipFile(path) as zf:
+            safe_zip.checked_members(zf, max_bytes=limit)
+            shared = next((i for i in zf.infolist() if i.filename == "xl/sharedStrings.xml"), None)
+    except zipfile.BadZipFile:
+        return
+    except safe_zip.ZipTooLarge as exc:
+        raise ValueError(f"'{file_name}' is too large to read once decompressed.") from exc
+    if shared is not None and shared.file_size > limit // 8:
+        raise ValueError(f"'{file_name}' is too large to read once decompressed.")
+
+
 def is_excel(file_name: str | None) -> bool:
     return Path(file_name or "").suffix.lower() in _EXCEL_EXT
 
@@ -174,6 +194,7 @@ def build_read_expr(
                     "Excel file (it looks like a CSV or text file renamed to "
                     ".xlsx). Rename it to .csv and import again."
                 )
+        _check_excel_inflation(path, file_name)
         try:
             con.execute("INSTALL excel; LOAD excel;")
         except duckdb.Error as e:

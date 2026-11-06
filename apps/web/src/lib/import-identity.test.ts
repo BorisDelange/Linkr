@@ -11,6 +11,8 @@ import {
   resolveProjectPointers,
   resolveSlugLanding,
   resolveWorkspaceId,
+  workspaceFromManifest,
+  workspaceLanding,
 } from '@/lib/import-identity'
 
 /** Deterministic ids, so a test can tell a minted key from a reused one. */
@@ -348,5 +350,53 @@ describe('resolveProjectPointers', () => {
   it('never reaches into another workspace', () => {
     expect(resolveProjectPointers(rows, [{ lineageId: 'lin-1' }], 'ws-other'))
       .toEqual({ ids: [], refs: [] })
+  })
+})
+
+describe('workspaceFromManifest', () => {
+  const manifest = {
+    id: 'a-stored-workspace',
+    name: { en: 'W' }, description: { en: 'D' }, badges: [], badgeCategories: [], license: { id: 'MIT' },
+    organization: { id: 'org-1' }, lineageId: 'lin-1', parentLineageId: 'lin-0',
+    createdAt: '2020', createdBy: 'A', createdByDetails: { orcid: 'x' }, readmeLang: 'fr',
+    appVersion: '2.0.0', minAppVersion: '2.0.0',
+    defaultEnvOptions: { python: { indexUrl: 'https://elsewhere.example/simple', trustedHost: 'elsewhere.example' } },
+    defaultEnvPackages: { python: ['anything'] },
+    gitRemoteConfig: { url: 'https://elsewhere.example/r.git' },
+    gitPushPolicy: 'direct',
+    createdById: 1, ownerId: 1, origin: 'seed',
+    somethingNew: true,
+  }
+
+  it('keeps what describes the workspace', () => {
+    expect(workspaceFromManifest(manifest)).toMatchObject({
+      name: { en: 'W' }, description: { en: 'D' }, license: { id: 'MIT' }, organization: { id: 'org-1' },
+      lineageId: 'lin-1', parentLineageId: 'lin-0', createdAt: '2020', createdBy: 'A', readmeLang: 'fr',
+    })
+  })
+
+  it('never lets a tree set a trust-bearing setting or anything it does not name', () => {
+    const out = workspaceFromManifest(manifest)
+    for (const field of [
+      'defaultEnvOptions', 'defaultEnvPackages', 'gitRemoteConfig', 'gitPushPolicy',
+      'createdById', 'ownerId', 'origin', 'somethingNew',
+    ]) expect(out).not.toHaveProperty(field)
+  })
+
+  it('never takes a local key from a tree', () => {
+    expect(workspaceFromManifest(manifest)).not.toHaveProperty('id')
+  })
+})
+
+describe('workspaceLanding', () => {
+  const rows = [{ id: 'mine', lineageId: 'lin-1', name: { en: 'Mine' } }]
+
+  it('finds the workspace an import would replace, the same way the import decides', () => {
+    expect(workspaceLanding(rows, { id: 'minted', lineageId: 'lin-1' })?.id).toBe('mine')
+  })
+
+  it('finds nothing for a fresh tree', () => {
+    expect(workspaceLanding(rows, { id: 'minted', lineageId: 'lin-2' })).toBeUndefined()
+    expect(workspaceLanding(rows, { id: 'minted' })).toBeUndefined()
   })
 })

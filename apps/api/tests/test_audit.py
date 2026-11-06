@@ -1,8 +1,11 @@
 """core/audit: one line per data access, chained, compacted to Parquet, readable
 through DuckDB — and written by the middleware without any route asking."""
 
+import errno
 import json
-from datetime import date, timedelta
+import os
+from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,6 +15,11 @@ from app.core.security import hash_password
 from app.models.user import User
 
 API = "/api/v1"
+
+
+def _today() -> date:
+    """The day the log's files are named after, which is UTC's."""
+    return datetime.now(timezone.utc).date()
 
 
 def _files(pattern: str):
@@ -51,13 +59,13 @@ def test_edited_line_breaks_the_chain():
 
 
 def test_lines_from_before_the_request_id_still_verify():
-    path = settings.data_path / "audit" / f"{date.today().isoformat()}.jsonl"
+    path = settings.data_path / "audit" / f"{_today().isoformat()}.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     prev = audit._GENESIS
     with path.open("w") as f:
         for seq in (1, 2):
             old = {k: None for k in audit.COLUMNS if k not in ("hash", "request_id")}
-            old.update(seq=seq, at=f"{date.today().isoformat()}T00:00:0{seq}.000+00:00", action="query")
+            old.update(seq=seq, at=f"{_today().isoformat()}T00:00:0{seq}.000+00:00", action="query")
             body = json.dumps(old, sort_keys=True, default=str)
             prev = audit._line_hash(prev, body)
             f.write(json.dumps({**old, "hash": prev}) + "\n")
@@ -85,7 +93,7 @@ def test_removed_line_breaks_the_chain():
 def test_compaction_keeps_entries_and_chain():
     for i in range(3):
         audit.write({"user_id": 1, "action": "query", "detail": f"SELECT {i}"})
-    today = date.today()
+    today = _today()
     [day] = _files("*.jsonl")
     yesterday = today - timedelta(days=1)
     day.rename(day.with_name(f"{yesterday.isoformat()}.jsonl"))
@@ -111,12 +119,12 @@ def test_compaction_waits_for_a_write_in_flight():
         audit.write({"user_id": 1, "action": "query", "detail": f"SELECT {i}"})
     [day] = _files("*.jsonl")
     first, late = day.read_text().splitlines(keepends=True)
-    yesterday = day.with_name(f"{(date.today() - timedelta(days=1)).isoformat()}.jsonl")
+    yesterday = day.with_name(f"{(_today() - timedelta(days=1)).isoformat()}.jsonl")
     day.unlink()
     yesterday.write_text(first)
 
     with audit._writer.lock:
-        worker = threading.Thread(target=audit.compact, args=(date.today(),))
+        worker = threading.Thread(target=audit.compact, args=(_today(),))
         worker.start()
         worker.join(0.3)
         assert worker.is_alive()
@@ -136,7 +144,7 @@ def test_a_missing_head_is_a_break_until_retention_explains_it():
     path.write_text("".join(path.read_text().splitlines(keepends=True)[1:]))
 
     assert audit.verify() == {"ok": False, "checked": 0, "brokenAtSeq": 2}
-    later = date.today() + timedelta(days=settings.audit_retention_days + 62)
+    later = _today() + timedelta(days=settings.audit_retention_days + 62)
     assert audit.verify(later) == {"ok": True, "checked": 2, "brokenAtSeq": None}
 
 
@@ -451,3 +459,215 @@ def test_a_logged_clone_url_carries_no_credentials():
     assert _without_credentials("git@framagit.org:g/r.git") == "git@framagit.org:g/r.git"
     assert _without_credentials("https://oauth2:tok@[fd00::1]:8443/g/r.git") == "https://[fd00::1]:8443/g/r.git"
     assert _without_credentials("https://gitlab.chu.local/g/r.git?private_token=glpat-x#frag") == "https://gitlab.chu.local/g/r.git"
+
+
+# --- When the local file cannot be written ---------------------------------------
+
+@pytest.fixture
+def stdout_copy(monkeypatch) -> list[dict]:
+    lines: list[dict] = []
+    monkeypatch.setattr(audit, "_logger", SimpleNamespace(
+        info=lambda event, **fields: lines.append(fields),
+        exception=lambda event, **fields: None,
+    ))
+    return lines
+
+
+def _disk_full(monkeypatch, written_before_failing: int = 0) -> None:
+    real = os.write
+    budget = {"left": written_before_failing}
+
+    def write(fd, data):
+        if budget["left"] <= 0:
+            raise OSError(errno.ENOSPC, "No space left on device")
+        n = real(fd, bytes(data)[: budget["left"]])
+        budget["left"] -= n
+        return n
+
+    monkeypatch.setattr(audit.os, "write", write)
+
+
+def test_a_full_disk_still_gives_the_collector_who_did_what(monkeypatch, stdout_copy):
+    _disk_full(monkeypatch)
+    audit.write({"user_id": 7, "username": "dummy", "action": "preview", "route": "/r", "detail": "datasets/d.csv"})
+    [line] = stdout_copy
+    assert line["user_id"] == 7 and line["action"] == "preview" and line["route"] == "/r"
+    assert line["local_log"] == "failed" and line["at"]
+
+
+def test_a_line_cut_by_a_full_disk_leaves_the_file_whole_and_the_chain_verifying(monkeypatch):
+    audit.write({"user_id": 1, "action": "query", "detail": "before"})
+    with monkeypatch.context() as full:
+        _disk_full(full, written_before_failing=20)
+        audit.write({"user_id": 1, "action": "query", "detail": "during"})
+    [day] = _files("*.jsonl")
+    assert day.read_bytes().endswith(b"\n") and len(day.read_text().splitlines()) == 1
+
+    audit.write({"user_id": 1, "action": "query", "detail": "after"})
+    assert audit.verify()["ok"] is True
+    rows, total = audit.query(sort="seq", desc=False)
+    assert total == 3 and [r["detail"] for r in rows if r["action"] == "query"] == ["before", "after"]
+
+
+def test_lines_the_file_missed_are_stated_in_the_chain(monkeypatch, stdout_copy):
+    audit.write({"user_id": 1, "action": "query"})
+    with monkeypatch.context() as full:
+        _disk_full(full)
+        for _ in range(3):
+            audit.write({"user_id": 1, "action": "query"})
+    stdout_copy.clear()
+    audit.write({"user_id": 1, "action": "query"})
+    [gap] = audit.query(filters={"action": ["audit_gap"]})[0]
+    assert gap["detail"].startswith("3 ")
+    assert [e["action"] for e in stdout_copy] == ["audit_gap", "query"]
+    assert audit.verify() == {"ok": True, "checked": 3, "brokenAtSeq": None}
+
+
+def test_a_write_the_system_cuts_short_is_finished(monkeypatch):
+    real = os.write
+    monkeypatch.setattr(audit.os, "write", lambda fd, data: real(fd, bytes(data)[:7]))
+    audit.write({"user_id": 1, "action": "query", "detail": "SELECT 1"})
+    monkeypatch.undo()
+    assert audit.query()[0][0]["detail"] == "SELECT 1"
+    assert audit.verify()["ok"] is True
+
+
+@pytest.mark.parametrize("tail", [b'{"seq": 3, "at": "2026', b"not json\n", b'{"seq": 3}\n'], ids=["cut", "garbage", "no-hash"])
+def test_a_damaged_tail_never_stops_the_log_after_a_restart(tail):
+    for i in range(2):
+        audit.write({"user_id": 1, "action": "query", "detail": f"SELECT {i}"})
+    [day] = _files("*.jsonl")
+    whole = day.read_bytes()
+    day.write_bytes(whole + tail)
+
+    audit.reset()
+    audit.write({"user_id": 1, "action": "query", "detail": "SELECT 2"})
+
+    assert day.read_bytes().startswith(whole)
+    assert audit.verify() == {"ok": True, "checked": 4, "brokenAtSeq": None}
+    [note] = audit.query(filters={"action": ["audit_tail_set_aside"]})[0]
+    [kept] = list(day.parent.glob("*.quarantine"))
+    assert kept.read_bytes() == tail and kept.name in note["detail"]
+    assert audit.query(sort="seq")[0][0]["detail"] == "SELECT 2"
+
+
+def test_a_damaged_tail_is_found_under_a_line_longer_than_the_read_window():
+    audit.write({"user_id": 1, "action": "query", "detail": "SELECT 0"})
+    [day] = _files("*.jsonl")
+    day.write_bytes(day.read_bytes() + b'{"seq": 2, "detail": "' + b"x" * (128 * 1024))
+    audit.reset()
+    audit.write({"user_id": 1, "action": "query", "detail": "SELECT 1"})
+    assert audit.verify()["ok"] is True
+    assert [r["seq"] for r in audit.query(sort="seq", desc=False)[0]] == [1, 2, 3]
+
+
+def test_a_damaged_line_inside_a_day_leaves_the_rest_readable_and_shows_as_a_break():
+    for i in range(3):
+        audit.write({"user_id": 1, "action": "query", "detail": f"SELECT {i}"})
+    [day] = _files("*.jsonl")
+    lines = day.read_text().splitlines()
+    day.write_text("\n".join([lines[0], lines[1][:30], lines[2]]) + "\n")
+
+    assert audit.query()[1] == 2
+    assert audit.verify() == {"ok": False, "checked": 1, "brokenAtSeq": 3}
+
+
+def test_compaction_folds_a_day_with_a_damaged_tail_after_a_restart():
+    for i in range(2):
+        audit.write({"user_id": 1, "action": "query", "detail": f"SELECT {i}"})
+    [day] = _files("*.jsonl")
+    today = _today()
+    yesterday = day.with_name(f"{(today - timedelta(days=1)).isoformat()}.jsonl")
+    day.rename(yesterday)
+    with yesterday.open("ab") as f:
+        f.write(b'{"seq": 3, "at"')
+
+    audit.reset()
+    audit.compact(today)
+    assert _files("*.jsonl") == []
+    audit.write({"user_id": 1, "action": "query", "detail": "SELECT 2"})
+    assert audit.verify()["ok"] is True
+    assert audit.query(filters={"action": ["audit_tail_set_aside"]})[1] == 1
+
+
+def test_a_set_aside_tail_goes_with_retention(monkeypatch):
+    monkeypatch.setattr(settings, "audit_retention_days", 30)
+    root = settings.data_path / "audit"
+    root.mkdir(parents=True, exist_ok=True)
+    old = root / "2020-01-02.jsonl.1.quarantine"
+    recent = root / f"{_today().isoformat()}.jsonl.2.quarantine"
+    old.write_bytes(b"x")
+    recent.write_bytes(b"x")
+    audit.compact(_today())
+    assert not old.exists() and recent.exists()
+
+
+# --- Exports, long statements, values in errors -----------------------------------
+
+def test_export_writes_log_text_as_text_and_leaves_the_log_alone(tmp_path):
+    import csv
+
+    planted = {
+        "detail": "=SUM(1,2)", "username": "@you", "error": "+1+1", "client": "-1-1", "action": "\tx", "route": "\ry",
+    }
+    audit.write({"user_id": 1, "status": 200, **planted})
+    audit.write({"user_id": 1, "status": 200, "detail": "SELECT 1", "action": "query", "username": "alice", "route": "/api/x"})
+    out = tmp_path / "log.csv"
+    assert audit.export_csv(out) == 2
+    second, first = list(csv.DictReader(out.open(newline="")))
+    for column, value in planted.items():
+        assert first[column] == "'" + value
+    assert (second["detail"], second["username"], second["route"]) == ("SELECT 1", "alice", "/api/x")
+    stored, _ = audit.query(sort="seq", desc=False)
+    assert stored[0]["detail"] == "=SUM(1,2)"
+    assert audit.verify()["ok"] is True
+
+
+def _bound(**fields) -> dict:
+    token = audit._current.set({})
+    try:
+        audit.bind(**fields)
+        return audit._current.get()
+    finally:
+        audit._current.reset(token)
+
+
+def test_a_long_detail_keeps_both_ends_and_names_the_whole():
+    import hashlib
+
+    statement = "/*" + "x" * 3000 + "*/ SELECT name FROM person"
+    detail = _bound(detail=statement)["detail"]
+    assert len(detail) <= 2000
+    assert detail.startswith("/*x") and detail.endswith("SELECT name FROM person")
+    assert hashlib.sha256(statement.encode()).hexdigest() in detail
+    assert f"{len(statement):,}" in detail
+    assert _bound(detail="SELECT 1")["detail"] == "SELECT 1"
+
+
+def test_a_value_quoted_by_an_error_stays_out_of_the_log():
+    error = _bound(error="Conversion Error: Could not convert string 'DUMMY-NAME' to INT32")["error"]
+    assert "DUMMY-NAME" not in error
+    assert error.startswith("Conversion Error") and "INT32" in error
+
+
+async def test_a_failing_block_keeps_values_out_of_its_line():
+    with pytest.raises(ValueError):
+        with audit.event_scope(action="query"):
+            raise ValueError("Conversion Error: Could not convert string 'DUMMY-NAME' to INT32")
+    rows, _ = audit.query()
+    assert "DUMMY-NAME" not in rows[0]["error"] and "Conversion Error" in rows[0]["error"]
+
+
+async def test_exporting_the_log_writes_a_line_of_its_own(client):
+    headers = await _admin(client)
+    assert (await client.get(f"{API}/audit-log/export", headers=headers)).status_code == 200
+    rows, _ = audit.query(filters={"what": ["export"]})
+    assert any(r["route"].endswith("/audit-log/export") for r in rows)
+
+
+async def test_a_query_on_the_app_database_logs_its_statement(client):
+    headers = await _admin(client)
+    r = await client.post(f"{API}/database/query", headers=headers, json={"sql": "SELECT 41 + 1 AS n"})
+    assert r.status_code == 200
+    rows, _ = audit.query(filters={"route": "database/query"})
+    assert rows[0]["detail"] == "SELECT 41 + 1 AS n" and rows[0]["row_count"] == 1

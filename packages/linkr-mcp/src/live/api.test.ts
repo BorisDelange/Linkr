@@ -2,6 +2,22 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LinkrApi, withV2Mapping, type DataSource } from './api'
 
 describe('withV2Mapping', () => {
+  it('leaves the relations written in SQL out while their SQL is unaccepted, the base keeps them', () => {
+    const base = {
+      formatVersion: 2, presetId: 'p', presetLabel: { en: 'P' },
+      patient: { from: { table: 'person', alias: 'p' }, fields: { patient_id: 'p.person_id' } },
+      visit: { customSql: 'SELECT 1' },
+      events: [{ label: 'a', from: { table: 't', alias: 't' }, where: 't.x = 1' }, { label: 'b', from: { table: 't', alias: 't' } }],
+    } as unknown as DataSource['schemaMapping']
+    const ds = { id: 'x', alias: 'x', name: 'x', sourceType: 'database', status: 'connected', schemaMapping: base } as DataSource
+    const held = withV2Mapping({ ...ds, unacceptedFreeSql: ['SELECT 1', 't.x = 1'] })
+    expect(held.schemaMapping?.visit).toBeUndefined()
+    expect(held.schemaMapping?.patient).toBeDefined()
+    expect(held.schemaMapping?.events?.map((e) => e.label)).toEqual(['b'])
+    expect(held.schemaBaseMapping?.visit).toBeDefined()
+    expect(withV2Mapping(ds).schemaMapping?.visit).toBeDefined()
+  })
+
   it('reads malformed overrides as none, as the app does', () => {
     const base = { knownTables: ['person'] }
     const ds = { id: 'db', schemaMapping: base, schemaOverrides: { relations: { 'events.Lab': null }, removed: [3] } } as unknown as DataSource

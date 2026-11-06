@@ -45,6 +45,9 @@ const wiki = {
   deleteAttachments: (pageId: string) => api.request<void>('DELETE', `/wiki-attachments?pageId=${encodeURIComponent(pageId)}`),
 }
 
+const FOREIGN_DATABASE = 'This catalog points at a database of another workspace: nothing is run on it. '
+  + 'Choose a database of its workspace with update_data_catalog (database_id).'
+
 const catalogs = {
   list: (workspaceId?: string) => api.request<DataCatalog[]>('GET', `/data-catalogs${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ''}`),
   get: (id: string) => api.request<DataCatalog>('GET', `/data-catalogs/${encodeURIComponent(id)}`),
@@ -330,7 +333,9 @@ export function registerWikiTools(server: Server): void {
     if (!c) return failure(`No data catalog ${catalog_id} (list_data_catalogs lists them).`)
     const ds = c.dataSourceId ? await api.getDataSource(c.dataSourceId).catch(() => null) : null
     const out = [describeCatalog(c, ds ? loc(ds.name) : '(not found)')]
-    if (options && ds?.schemaMapping) {
+    if (options && ds && ds.workspaceId !== c.workspaceId) {
+      out.push(FOREIGN_DATABASE)
+    } else if (options && ds?.schemaMapping) {
       const mapping = ds.schemaMapping
       out.push(`Variables: ${CATALOG_VARIABLES.join(', ')} (a crossing is 1 to 3 of them)`)
       out.push(`Age bracket presets: ${Object.entries(AGE_BRACKET_PRESETS).map(([k, v]) => `${k} [${v.join(', ')}]`).join(' · ')}`)
@@ -521,6 +526,7 @@ export function registerWikiTools(server: Server): void {
       return failure(`The catalog was being computed ${Math.round(sinceUpdate / 1000)} s ago, probably in an open Linkr tab: two runs would interleave their writes. Wait, or pass force: true.`)
     }
     const ds = await api.getDataSource(catalog.dataSourceId).catch(() => null)
+    if (ds && ds.workspaceId !== catalog.workspaceId) return failure(FOREIGN_DATABASE)
     if (!ds?.schemaMapping) return failure(`The catalog's database ${catalog.dataSourceId || '(none)'} is missing or has no schema mapping.`)
     const budget = Math.min(Math.max(time_budget_seconds ?? 50, 5), 600) * 1000
     const startedAt = Date.now()

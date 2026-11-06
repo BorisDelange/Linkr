@@ -25,6 +25,7 @@ from app.schemas.data_source import (
     ParquetTablePath,
 )
 from app.services import (
+    attachment_service,
     author_provenance,
     blob_cleanup,
     blob_store,
@@ -94,6 +95,25 @@ async def _source_files(db: AsyncSession, source: DataSource) -> list[tuple[str,
         return _server_path_files(path)
     files = await list_files(db, source.id)
     return [(f.file_name, str(blob_store.path_for(f.content_hash))) for f in files]
+
+
+_FREE_SQL_KEYS = frozenset({"customSql", "expr", "where"})
+
+
+def free_sql_fragments(mapping: object) -> set[str]:
+    """The SQL a schema mapping or its overrides hold as text (lib/schema-classes)."""
+    if isinstance(mapping, list):
+        return {fragment for item in mapping for fragment in free_sql_fragments(item)}
+    if not isinstance(mapping, dict):
+        return set()
+    found: set[str] = set()
+    for key, value in mapping.items():
+        if key in _FREE_SQL_KEYS and isinstance(value, str):
+            if value.strip():
+                found.add(value.strip())
+        else:
+            found |= free_sql_fragments(value)
+    return found
 
 
 async def source_files(db: AsyncSession, source: DataSource) -> list[tuple[str, str]]:
@@ -233,6 +253,27 @@ async def enforce_server_path(db: AsyncSession, config: dict | None, user: User 
     fs_browser.validate_source_path(path, scope)
 
 
+async def enforce_root_cert(db: AsyncSession, config: dict | None, user: User | None, stored: dict | None = None) -> None:
+    """`sslrootcert` names a file this server reads whenever the source is opened,
+    so it stays within what the writer may read, as `serverPath` does. An instance
+    admin may name one outside the browse roots (the system's CA folder). A value
+    already stored stays editable around. Raises FsBrowseError."""
+    path = (config or {}).get("sslrootcert")
+    if not path or path == (stored or {}).get("sslrootcert"):
+        return
+    if not isinstance(path, str) or "\0" in path:
+        raise fs_browser.FsBrowseError("sslrootcert is not a file path")
+    if user is None or user.role != "admin":
+        scope = (
+            await fs_browser.import_scope(db, None, user)
+            if user is not None
+            else fs_browser.FolderScope(whole_fs_allowed=False)
+        )
+        fs_browser.validate_source_path(path, scope)
+    if not Path(path).is_file():
+        raise fs_browser.FsBrowseError("sslrootcert is not a file on this server")
+
+
 def _extract_secret(config: dict | None) -> str | None:
     """The first secret credential present in the config (password or token)."""
     if not config:
@@ -308,6 +349,23 @@ async def _commit_alias(db: AsyncSession, alias: str) -> None:
         raise AliasTaken(f"Another database of this workspace already uses the alias '{alias}'.") from exc
 
 
+def _refuse_file_left_behind(source_id: str | None) -> None:
+    """A new database never opens a file it did not build: whatever sits at its
+    default path belongs to a database that no longer exists."""
+    if source_id and managed_db.file_left_behind(source_id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {
+                "code": "database_file_left_behind",
+                "message": (
+                    "A file left by a deleted database still occupies this id. It is removed automatically "
+                    "by the storage sweep, once it is over an hour old (several hours at most): "
+                    "try again later, or choose another id."
+                ),
+            },
+        )
+
+
 async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataSource:
     payload = data.model_dump(exclude_none=True)
     await ensure_alias_free(db, payload.get("workspace_id"), payload["alias"], payload.get("id"))
@@ -316,6 +374,9 @@ async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataS
     payload.pop("created_by_id", None)
     config = payload.get("connection_config")
     await enforce_server_path(db, config, owner)
+    await enforce_root_cert(db, config, owner)
+    if (config or {}).get("managed"):
+        _refuse_file_left_behind(payload.get("id"))
     if config is not None:
         config = _keep_managed_path(config, None)
     payload["connection_config"], login = _split_login(config)
@@ -327,6 +388,10 @@ async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataS
     db.add(source)
     await _commit_alias(db, source.alias)
     await db.refresh(source)
+    # Keyed by an id the client may choose, with no row to cascade from.
+    concept_cache_fs.invalidate(source.id)
+    await stats_cache_service.delete_with_prefix(db, "database", source.id)
+    await attachment_service.delete_readme_for_owner(db, "data-source", source.id)
     if login and database_credential_service.is_external(source):
         await database_credential_service.save(db, source, owner.id, *login, remember=True)
     return source
@@ -353,9 +418,11 @@ async def update(
     *,
     editor_id: int | None = None,
     managed_path_set: str | None = None,
+    built_managed_file: bool = False,
 ) -> DataSource:
     """`managed_path_set` is create-from-ddl's alone: the validated location of the
-    file it just created. Every other caller keeps the stored one.
+    file it just created. Every other caller keeps the stored one. So is
+    `built_managed_file`: the file at the default path is the one it just built.
 
     A login typed in the edit form becomes the editor's own (`editor_id`).
     Changing where the database points drops every user's login to it."""
@@ -367,6 +434,9 @@ async def update(
     if "connection_config" in changes:
         editor = await db.get(User, editor_id) if editor_id is not None else None
         await enforce_server_path(db, changes["connection_config"], editor)
+        await enforce_root_cert(db, changes["connection_config"], editor, source.connection_config)
+        if (changes["connection_config"] or {}).get("managed") and not before.get("managed") and not built_managed_file:
+            _refuse_file_left_behind(source.id)
         changes["connection_config"] = _keep_managed_path(
             changes["connection_config"] or {}, source.connection_config
         )
@@ -501,6 +571,10 @@ async def delete(
     # the same id must start empty, not read what this one computed.
     await invalidate_concept_caches(db, source_id)
     await stats_cache_service.delete_with_prefix(db, "database", source_id)
+    await attachment_service.delete_readme_for_owner(db, "data-source", source_id)
+    from app.services import git_service
+
+    git_service.remove_repo("databases", source_id)
     # A managed file is owned by this source alone — nothing else references it.
     if owns_default_file:
         managed_db.delete(source_id)

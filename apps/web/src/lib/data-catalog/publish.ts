@@ -1,3 +1,4 @@
+import { spreadsheetText } from '@/lib/csv-export'
 import {
   CATALOG_VARIABLE_ORDER,
   type AnonymizationConfig,
@@ -543,7 +544,7 @@ export function buildPublishedCatalog(
 
 export function csvField(value: string | number | null | undefined): string {
   if (value == null) return ''
-  const s = String(value)
+  const s = spreadsheetText(String(value))
   return /[",\r\n]/.test(s) || s !== s.trim() ? `"${s.replace(/"/g, '""')}"` : s
 }
 

@@ -32,7 +32,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from app.services import blob_store, change_tracking, fs_browser, notification_service, scores_export
+from app.services import blob_store, change_tracking, database_binding, fs_browser, notification_service, scores_export
 from app.services import mapping_project_service as svc
 from app.services import source_concept_id_service as sci_svc
 from app.services.data.global_table_service import _localized
@@ -177,6 +177,10 @@ async def create_project(
     await check_workspace_permission(
         db, body.workspace_id, user, "concept-mapping:write"
     )
+    await database_binding.require_bindable(db, body.workspace_id, user, [body.data_source_id])
+    await database_binding.require_bindable(
+        db, body.workspace_id, user, [body.vocabulary_data_source_id], allow_vocabulary=True
+    )
     project = await svc.create(db, body, user)
     await _notify(db, request, user, "created", project)
     return project
@@ -200,6 +204,13 @@ async def update_project(
     db: AsyncSession = Depends(get_db),
 ):
     project = await _load_project(db, project_id, user, "concept-mapping:write")
+    await database_binding.require_bindable(
+        db, project.workspace_id, user, database_binding.changed_ids(project, body, "data_source_id")
+    )
+    await database_binding.require_bindable(
+        db, project.workspace_id, user, database_binding.changed_ids(project, body, "vocabulary_data_source_id"),
+        allow_vocabulary=True,
+    )
     before = change_tracking.changed_values(project, body.model_dump(exclude_unset=True))
     project = await svc.update(db, project, body)
     if before:

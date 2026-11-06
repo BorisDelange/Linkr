@@ -17,6 +17,7 @@ import { executeOnServer } from '@/lib/api/execution'
 import { useAppStore } from '@/stores/app-store'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { ExecuteNotPermitted } from '@/components/ui/execute-not-permitted'
+import { localized } from '@/lib/localized'
 
 interface PluginWidgetRendererProps {
   widget: DashboardWidget
@@ -45,7 +46,7 @@ export function PluginWidgetRenderer({ widget }: PluginWidgetRendererProps) {
 }
 
 function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { filteredRows, columns, reloadOnTabSwitch, dataSignature, datasetFileId, filters } = useDashboardData()
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
   // Script widgets run R/Python → need dashboards:execute (editor+). A read-only
@@ -85,6 +86,7 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
           purpose: 'dashboards',
           // Each widget run gets its own isolated process → widgets execute in parallel.
           ephemeral: true,
+          review: { source: template, label: localized(widget.name, i18n.language) },
         })
       }
       // Ensure plugin dependencies are installed (cached per session) — WASM only.

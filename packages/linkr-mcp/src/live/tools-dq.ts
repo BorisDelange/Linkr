@@ -115,11 +115,16 @@ async function translator(language: ReportLanguage = 'en') {
   return (key: string, vars?: Record<string, unknown>) => t(key, vars ?? {}) as string
 }
 
+const FOREIGN_DATABASE = 'This rule set points at a database of another workspace: nothing is run. '
+  + 'Choose a database of its workspace with update_dq_rule_set (database_id).'
+
 /** The server runs SQL as sent: `linkr_*` relations are resolved here, with the
  *  database's mapping read once per call. A generated check may be computed by
  *  an external database itself (`pushdown`); a hand-written one is run as written. */
-async function querier(databaseId: string) {
-  const ds = await api.getDataSource(databaseId)
+async function querier(rs: DqRuleSet) {
+  const ds = await api.getDataSource(needDatabase(rs))
+  // A row stored before the server refused it: a rule set runs only in its workspace.
+  if (ds.workspaceId !== rs.workspaceId) throw new Error(FOREIGN_DATABASE)
   if (ds.status && ds.status !== 'connected') throw new Error(`Database ${ds.id} is ${ds.status}: it cannot be queried.`)
   const mapping: SchemaMapping | null | undefined = ds.schemaMapping
   return async (sql: string, pushdown = false) => (await api.request<{ rows: Record<string, unknown>[] }>(
@@ -135,7 +140,7 @@ function needDatabase(rs: DqRuleSet): string {
 
 /** The Test button: the check's SQL on the rule set's database, and what it says. */
 async function testCheck(rs: DqRuleSet, sql: string, threshold: number): Promise<{ problem: string | null; line: string }> {
-  const query = await querier(needDatabase(rs))
+  const query = await querier(rs)
   let rows: Record<string, unknown>[]
   try {
     rows = await query(sql)
@@ -801,7 +806,7 @@ export function registerDqTools(server: Server): void {
         ? `Only disabled checks picked (${disabledAsked.map((c) => c.id).join(', ')}): enable them with set_dq_checks_enabled.`
         : stored.length ? 'No enabled check matches.' : 'The rule set has no check yet: add_dq_schema_checks or create_dq_check.')
     }
-    const query = await querier(dataSourceId)
+    const query = await querier(rs)
     const computedAt = new Date().toISOString()
     const results = await runChecks(query, checks)
     const report: DqReport = makeReport(dataSourceId, checks, results, computedAt)
@@ -837,7 +842,7 @@ export function registerDqTools(server: Server): void {
   }, guard(async ({ rule_set_id, check_id, rows, limit, sample }) => {
     const rs = await ruleSetOrFail(rule_set_id)
     const { check } = await checkOrFail(rs, check_id)
-    const query = await querier(needDatabase(rs))
+    const query = await querier(rs)
     const out = [describeCheck(check)]
     const start = performance.now()
     try {

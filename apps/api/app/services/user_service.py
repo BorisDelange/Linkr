@@ -7,7 +7,8 @@ from app.core.security import password_policy_error, set_password_async
 from app.models.base import Base
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate
-from app.services import database_credential_service, notification_hub
+from app.services import api_token_service, database_credential_service, notification_hub
+from app.services.execution import web_apps
 
 
 async def list_all(db: AsyncSession) -> list[User]:
@@ -94,8 +95,13 @@ async def update(
         setattr(user, key, value)
     if data.password is not None:
         await set_password_async(user, data.password)
+        await api_token_service.revoke_all(db, user.id)
     await db.commit()
     await db.refresh(user)
+    if data.password is not None or changes.get("is_active") is False:
+        database_credential_service.forget_session_logins(user.id)
+    if changes.get("is_active") is False:
+        web_apps.manager.stop_for_user(user.id)
     return user
 
 
@@ -116,6 +122,7 @@ async def delete(db: AsyncSession, user: User, acting_user: User | None = None) 
     await db.commit()
     await database_credential_service.forget_user(db, user_id)
     notification_hub.drop_user(user_id)
+    web_apps.manager.stop_for_user(user_id)
 
 
 async def _detach_authored_rows(db: AsyncSession, user_id: int) -> None:

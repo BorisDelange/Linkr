@@ -43,6 +43,13 @@ export const apiProjectStorage: ProjectStorage = {
     })
   },
 
+  setFolderBindings: async (uid, bindings) => {
+    await apiRequest(`/projects/${uid}/folder-bindings`, {
+      method: 'PATCH',
+      body: JSON.stringify(bindings),
+    })
+  },
+
   delete: async (uid) => {
     await apiRequest(`/projects/${uid}`, { method: 'DELETE' })
   },

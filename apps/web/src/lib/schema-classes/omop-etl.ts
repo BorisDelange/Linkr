@@ -1,6 +1,7 @@
 import type { ParsedColumn, ParsedTable } from '@/lib/ddl-parse'
 import type { RelationSpec, SchemaMapping } from '@/types/schema-mapping'
-import { escSql } from '@/lib/format-helpers'
+import { escSql, isSafeIdentifier } from '@/lib/format-helpers'
+import { splitSqlStatements } from '@/lib/duckdb/sql-tokenizer'
 import { sourceConceptKeyExprs } from '@/lib/concept-mapping/mapping-queries'
 import { SOURCE_CONCEPT_ID_BASE } from '@/lib/concept-mapping/source-concept-ids'
 import type { ClassName } from './contracts'
@@ -48,6 +49,9 @@ export type OmopEtlWarning =
   | { kind: 'no-target-relation'; relation: string }
   /** `label`: the event or drug table's name, as the mapping calls it. */
   | { kind: 'no-target-table'; relation: string; label: string }
+  /** Its strings would add to the script something other than the generator's
+   *  statements: a table that is no identifier, a fragment closing its statement. */
+  | { kind: 'invalid-relation'; relation: string }
 
 export interface OmopEtlResult {
   scripts: GeneratedEtlScript[]
@@ -86,7 +90,7 @@ function invert(cls: ClassName, specKey: string, spec: RelationSpec): InvertedRe
   const contractOf = (column: string) => [...columns].find(([, c]) => c === column)?.[0]
   const joins = (spec.joins ?? []).flatMap((j) => {
     const own = byAlias.get(j.alias.toLowerCase())
-    if (!own) return []
+    if (!own || !isSafeIdentifier(j.table)) return []
     const keys: [string, string][] = []
     for (const pair of j.on ?? []) {
       const [a, b] = pair.map(fieldRef)
@@ -101,9 +105,18 @@ function invert(cls: ClassName, specKey: string, spec: RelationSpec): InvertedRe
   return { cls, specKey, table: spec.from.table, columns, joins, genderValues }
 }
 
-/** Every invertible relation of the target mapping. */
+/** Every invertible relation of the target mapping whose table can be written. */
 function targetRelations(target: SchemaMapping): InvertedRelation[] {
-  return specEntries(target).flatMap(({ cls, specKey, spec }) => invert(cls, specKey, spec) ?? [])
+  return specEntries(target).flatMap(({ cls, specKey, spec }) => {
+    const inverted = invert(cls, specKey, spec)
+    return inverted && isSafeIdentifier(inverted.table) ? inverted : []
+  })
+}
+
+/** Target relations the generator refuses to write into, by class and table. */
+function invalidTargets(target: SchemaMapping): Set<ClassName> {
+  return new Set(specEntries(target).flatMap(({ cls, spec }) =>
+    !spec.customSql?.trim() && spec.from?.table && !isSafeIdentifier(spec.from.table) ? [cls] : []))
 }
 
 /** The OMOP tables a source event/drug relation can go to, and the default. */
@@ -227,9 +240,12 @@ function hash(text: string): string {
 
 const MARK = '-- linkr-generated: '
 
+/** One comment's text: preset strings never start a line of their own. */
+const oneLine = (text: string) => text.replace(/[\r\n\f\v\u0085\u2028\u2029]+/g, ' ')
+
 /** A generated script: its header ends with the hash of the body below it. */
 function stamp(header: string[], body: string): string {
-  return `${header.map((l) => `-- ${l}`).join('\n')}\n${MARK}${hash(body)}\n${body}`
+  return `${header.map((l) => `-- ${oneLine(l)}`).join('\n')}\n${MARK}${hash(body)}\n${body}`
 }
 
 /**
@@ -264,6 +280,7 @@ export function generateOmopEtl(
   const mode = options.conceptMode ?? 'ccr'
   const tables = new Map(ddl.map((t) => [t.bareName.toLowerCase(), t]))
   const targets = targetRelations(target)
+  const refusedTargets = invalidTargets(target)
   const warnings: OmopEtlWarning[] = []
   const scripts: GeneratedEtlScript[] = []
   const cleared = new Set<string>()
@@ -282,10 +299,17 @@ export function generateOmopEtl(
     orIgnore &&= !!tables.get(table.toLowerCase())?.pkColumns.length
     const clear = cleared.has(table) ? '' : `TRUNCATE ${TARGET}.${table};\n\n`
     cleared.add(table)
-    const todos = e.todos.map((t) => `-- TODO(etl): ${t}\n`).join('')
+    const todos = e.todos.map((t) => `-- TODO(etl): ${oneLine(t)}\n`).join('')
     return `${clear}${todos}INSERT${orIgnore ? ' OR IGNORE' : ''} INTO ${TARGET}.${table} (${e.exprs.map(([c]) => c).join(', ')})\n${withClassRelations(select, source)};`
   }
   const push = (rel: ClassRelation, table: string, order: number, body: string[]) => {
+    // Each entry is a TRUNCATE at most and one INSERT: one more is a fragment of
+    // the mapping that closed its statement.
+    const composed = body.every((part) => splitSqlStatements(part).length <= (part.startsWith('TRUNCATE ') ? 2 : 1))
+    if (!composed) {
+      warnings.push({ kind: 'invalid-relation', relation: rel.specKey })
+      return
+    }
     let name = `${order}_${table}.sql`
     if (names.has(name)) name = `${order}_${table}_${(rel.key ?? rel.cls).toLowerCase().replace(/[^a-z0-9]+/g, '_')}.sql`
     names.add(name)
@@ -315,7 +339,7 @@ export function generateOmopEtl(
     const t = targets.find((x) => x.cls === cls)
     if (!rel) continue
     if (!t) {
-      warnings.push({ kind: 'no-target-relation', relation: rel.specKey })
+      warnings.push({ kind: refusedTargets.has(cls) ? 'invalid-relation' : 'no-target-relation', relation: rel.specKey })
       continue
     }
     const direct = new Map<string, string>()

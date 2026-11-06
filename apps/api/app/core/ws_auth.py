@@ -13,6 +13,7 @@ hours, which is the exposure the browser path accepts.
 """
 
 import asyncio
+from collections.abc import Awaitable, Callable
 
 from jose import JWTError
 from starlette.websockets import WebSocket
@@ -27,12 +28,14 @@ from app.services import api_token_service
 # shows an error and must NOT reconnect.
 WS_AUTH_FAILED = 4401
 WS_FORBIDDEN = 4403
+_REFUSED_AS_HTTP = {WS_AUTH_FAILED: 401, WS_FORBIDDEN: 403}
 
 
 async def refuse(websocket: WebSocket, code: int) -> None:
     """Close a socket not yet accepted with `code`. Accepted first: a close during
     the handshake reaches the browser as 1006, the same code as a reverse proxy
     that drops WebSocket upgrades, so the client could only guess why."""
+    audit.bind(status=_REFUSED_AS_HTTP.get(code))
     await websocket.accept()
     await websocket.close(code=code)
 
@@ -78,15 +81,20 @@ async def authenticate_ws(websocket: WebSocket) -> User | None:
     return user
 
 
-async def watch_credentials(websocket: WebSocket, interval: float) -> None:
-    """Return once the credentials the socket opened with stop being valid — the
-    session expired, the password changed, the account or API token was revoked.
-    A long-lived socket must not outlive the session that opened it."""
+async def watch_credentials(
+    websocket: WebSocket, interval: float, allowed: Callable[[User], Awaitable[bool]] | None = None
+) -> int:
+    """Return the code to close with, once the credentials the socket opened with
+    stop being valid — the session expired, the password changed, the account or
+    API token was revoked — or `allowed` no longer lets their user keep it. A
+    long-lived socket must not outlive the session or the right that opened it."""
     while True:
         await asyncio.sleep(interval)
         try:
             user, _ = await _resolve(websocket)
+            if user is None:
+                return WS_AUTH_FAILED
+            if allowed is not None and not await allowed(user):
+                return WS_FORBIDDEN
         except Exception:  # noqa: BLE001 — a failed lookup is not a revoked session: try again next time
             continue
-        if user is None:
-            return

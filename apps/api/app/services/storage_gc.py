@@ -10,6 +10,9 @@ points at:
   deref their own blobs, so this only catches what escaped them (a crash between
   the commit and the unlink, or rows removed before that wiring existed).
 * ``projects/<uid>/`` — a project working directory with no row in ``projects``.
+* ``_databases/<id>.*`` and ``_cache/concept-lists/<id>.*`` — a managed database's
+  file and concept list with no row in ``data_sources``: they hold patient data,
+  and a database created later under that id must not find them.
 
 Sweeping runs at startup and then periodically (see ``run_periodic``). Age is
 what makes every sweep safe: on-disk state is created before the row that claims
@@ -40,6 +43,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.core.database import async_session
+from app.models.data_source import DataSource
 from app.models.project import Project
 from app.services import blob_cleanup, blob_store
 
@@ -78,6 +82,8 @@ class GcReport:
     orphan_blob_bytes: int = 0
     orphan_project_dirs: int = 0
     orphan_project_bytes: int = 0
+    orphan_database_files: int = 0
+    orphan_database_bytes: int = 0
     # Capped: an unmounted volume makes EVERY referenced sha "missing", and the
     # uncapped list put hundreds of thousands of 64-char strings in one JSON
     # response (and held them in memory on every periodic sweep). The count is
@@ -87,7 +93,7 @@ class GcReport:
 
     @property
     def total_bytes(self) -> int:
-        return self.upload_bytes + self.orphan_blob_bytes + self.orphan_project_bytes
+        return self.upload_bytes + self.orphan_blob_bytes + self.orphan_project_bytes + self.orphan_database_bytes
 
 
 def _dir_size(path: Path) -> int:
@@ -240,6 +246,50 @@ async def _sweep_project_dirs(report: GcReport, dry_run: bool, now: float) -> No
             shutil.rmtree(d, ignore_errors=True)
 
 
+async def _sweep_database_files(report: GcReport, dry_run: bool, now: float) -> None:
+    roots = (settings.data_path / "_databases", settings.data_path / "_cache" / "concept-lists")
+    # The id ends at the first `.` or `~`, which no id holds: `<id>.duckdb.wal`,
+    # `<id>.compacting-1.duckdb`, `<id>.run`, `<id>~user.parquet`.
+    entries = [
+        (entry, entry.name.split("~")[0].split(".")[0])
+        for root in roots if root.is_dir()
+        for entry in root.iterdir()
+    ]
+    if not entries:
+        return
+
+    async with async_session() as db:
+        live = set((await db.scalars(select(DataSource.id))).all())
+
+    # Same refusal as the project sweep: no row at all means the wrong database,
+    # not every managed database gone.
+    if not live:
+        logger.error(
+            "storage_gc_skipped_database_sweep",
+            reason="no live databases but database files exist — refusing to delete",
+            candidates=len(entries),
+        )
+        return
+
+    for entry, source_id in entries:
+        if source_id in live:
+            continue
+        try:
+            if now - _newest_mtime(entry) < BLOB_MIN_AGE_SECONDS:
+                continue
+        except OSError:
+            continue
+        report.orphan_database_files += 1
+        report.orphan_database_bytes += _entry_size(entry)
+        if dry_run:
+            continue
+        if entry.is_dir():
+            shutil.rmtree(entry, ignore_errors=True)
+        else:
+            with contextlib.suppress(OSError):
+                entry.unlink()
+
+
 async def sweep(dry_run: bool = False) -> GcReport:
     """Run every sweep. With `dry_run`, only measure — nothing is deleted.
 
@@ -253,6 +303,7 @@ async def sweep(dry_run: bool = False) -> GcReport:
         await asyncio.to_thread(_sweep_uploads, report, dry_run, now)
         await _sweep_blobs(report, dry_run, now)
         await _sweep_project_dirs(report, dry_run, now)
+        await _sweep_database_files(report, dry_run, now)
         return report
 
 
@@ -265,6 +316,7 @@ async def sweep_and_log(dry_run: bool = False) -> GcReport:
             upload_sessions=report.upload_sessions,
             orphan_blobs=report.orphan_blobs,
             orphan_project_dirs=report.orphan_project_dirs,
+            orphan_database_files=report.orphan_database_files,
             reclaimed_mb=round(report.total_bytes / (1024 * 1024), 1),
             missing_blobs=len(report.missing_blobs),
         )

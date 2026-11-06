@@ -14,7 +14,7 @@ from app.schemas.sql_script import (
     SqlScriptFileResponse,
     SqlScriptFileUpdate,
 )
-from app.services import change_tracking, notification_service, sql_script_service
+from app.services import change_tracking, database_binding, notification_service, sql_script_service
 
 router = APIRouter(tags=["sql-scripts"])
 
@@ -111,6 +111,7 @@ async def create_collection(
     db: AsyncSession = Depends(get_db),
 ):
     await check_workspace_permission(db, body.workspace_id, user, "sql-scripts:write")
+    await database_binding.require_bindable(db, body.workspace_id, user, [body.default_data_source_id])
     collection = await sql_script_service.create(db, body)
     await _notify(db, request, user, "created", collection)
     return collection
@@ -134,6 +135,9 @@ async def update_collection(
     db: AsyncSession = Depends(get_db),
 ):
     collection = await _load_collection(db, collection_id, user, "sql-scripts:write")
+    await database_binding.require_bindable(
+        db, collection.workspace_id, user, database_binding.changed_ids(collection, body, "default_data_source_id")
+    )
     before = change_tracking.changed_values(collection, body.model_dump(exclude_unset=True))
     collection = await sql_script_service.update(db, collection, body)
     if before:
@@ -189,6 +193,7 @@ async def create_file(
     db: AsyncSession = Depends(get_db),
 ):
     collection = await _load_collection(db, body.collection_id, user, "sql-scripts:write")
+    await database_binding.require_bindable(db, collection.workspace_id, user, [body.data_source_id])
     node = await sql_script_service.create_file(db, body)
     await _notify(
         db, request, user, "updated", collection,
@@ -206,6 +211,10 @@ async def update_file(
     db: AsyncSession = Depends(get_db),
 ):
     node = await _load_file(db, file_id, user, "sql-scripts:write")
+    owner = await sql_script_service.get(db, node.collection_id)
+    await database_binding.require_bindable(
+        db, owner.workspace_id, user, database_binding.changed_ids(node, body, "data_source_id")
+    )
     before = change_tracking.changed_values(node, body.model_dump(exclude_unset=True))
     node = await sql_script_service.update_file(db, node, body)
     if before:

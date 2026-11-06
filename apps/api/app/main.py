@@ -5,16 +5,19 @@ import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
-from app.core import audit, hardening, trusted_header
+from app.core import audit, hardening, setup_token, trusted_header
+from app.core.body_limit import BodySizeLimitMiddleware
 from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.database import async_session
 from app.core.logging import setup_logging
 from app.core.migrations import run_migrations
 from app.core.permissions import seed_default_roles
+from app.models.user import User
 from app.api.v1.routes.apps import router as apps_router
 from app.api.v1.routes.audit_log import router as audit_log_router
 from app.api.v1.routes.auth import router as auth_router
@@ -30,6 +33,7 @@ from app.api.v1.routes.patient_dashboards import router as patient_dashboards_ro
 from app.api.v1.routes.attachments import readme_router, wiki_router as wiki_attachments_router
 from app.api.v1.routes.ide_connections import router as ide_connections_router
 from app.api.v1.routes.user_plugins import router as user_plugins_router
+from app.api.v1.routes.code_acceptances import router as code_acceptances_router
 from app.api.v1.routes.mapping_projects import router as mapping_projects_router
 from app.api.v1.routes.source_concept_ids import router as source_concept_ids_router
 from app.api.v1.routes.data_catalogs import router as data_catalogs_router
@@ -60,23 +64,30 @@ from app.api.v1.routes.storage import router as storage_router
 from app.api.v1.routes.uploads import router as uploads_router
 from app.api.v1.routes.users import router as users_router
 from app.api.v1.routes.wiki_pages import router as wiki_pages_router
-from app.api.v1.routes.workspaces import router as workspaces_router
+from app.api.v1.routes.workspaces import PROJECTS_LEFT_OUT_HEADER, router as workspaces_router
 
 logger = structlog.get_logger()
 
 
-_INSECURE_SECRET = "dev-secret-change-in-production"
+_MIN_SECRET_LENGTH = 32
+_KNOWN_SECRETS = {"dev-secret-change-in-production", "change-me", "changeme"}
+
+
+def weak_secret_key(key: str) -> bool:
+    """Whether `key` is one a shipped example names, or short enough to guess."""
+    return key.strip().lower() in _KNOWN_SECRETS or len(key) < _MIN_SECRET_LENGTH
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging(debug=settings.debug)
     hardening.forbid_same_user_inspection()
-    # The secret_key signs every JWT. Booting with the shipped default in a real
+    # The secret_key signs every JWT. Booting with a known or guessable key in a real
     # deployment would let anyone forge admin tokens.
-    if settings.secret_key == _INSECURE_SECRET and not settings.debug:
+    if weak_secret_key(settings.secret_key) and not settings.debug:
         raise RuntimeError(
-            "LINKR_SECRET_KEY is still the insecure default. Set a strong secret "
+            f"LINKR_SECRET_KEY is a known example value or shorter than {_MIN_SECRET_LENGTH} "
+            "characters. Set a strong secret "
             "(python3 -c 'import secrets; print(secrets.token_urlsafe(48))') "
             "or run with LINKR_DEBUG=true for local development."
         )
@@ -98,7 +109,10 @@ async def lifespan(app: FastAPI):
     # Run in a worker thread: Alembic's async env.py calls asyncio.run(), which
     # cannot run inside the already-running lifespan event loop.
     await asyncio.to_thread(run_migrations)
+    generated_setup_token = setup_token.arm()
     async with async_session() as db:
+        if generated_setup_token and not await db.scalar(select(func.count(User.id))):
+            logger.warning("first_admin_setup_token", token=setup_token.current())
         await seed_default_roles(db)
         # The schema-preset key moved from preset_id to id (revision
         # e6f7a8b9c0d1). The repo path embeds that key, so any tree still under
@@ -197,8 +211,9 @@ app.add_middleware(
     #                        anchor never moved, so a completed pull still reported
     #                        "behind" and blocked the next push with "pull first".
     #   x-request-id       — see core/audit.request_id.
-    expose_headers=["x-file-name", "x-git-cloned-oid", audit.REQUEST_ID_HEADER],
+    expose_headers=["x-file-name", "x-git-cloned-oid", audit.REQUEST_ID_HEADER, PROJECTS_LEFT_OUT_HEADER],
 )
+app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 # Outermost, so a request refused by any layer below is still logged.
 app.add_middleware(audit.AuditMiddleware)
@@ -240,6 +255,7 @@ app.include_router(source_concept_ids_router, prefix="/api/v1")
 app.include_router(mapping_projects_router, prefix="/api/v1")
 app.include_router(ide_connections_router, prefix="/api/v1")
 app.include_router(user_plugins_router, prefix="/api/v1")
+app.include_router(code_acceptances_router, prefix="/api/v1")
 app.include_router(data_sources_router, prefix="/api/v1")
 app.include_router(client_lib_router, prefix="/api/v1")
 app.include_router(pipelines_router, prefix="/api/v1")

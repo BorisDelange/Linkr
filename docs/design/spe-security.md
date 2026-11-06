@@ -68,6 +68,25 @@ stdout copy the SIEM collects is out of reach). The docs state it as
 "`ide:execute` means: trusted with the instance". Running kernels under their own system
 identity is parked (see *Not built*).
 
+**Stored code that starts on its own waits for its reader.** That trust covers code a
+user chose to run, not code the app starts because a page opened: dashboard widgets,
+dataset analyses, patient-board and user plugins. `POST /execute` and `/execute/run-as-job`
+with any purpose but `ide` refuse (428 `code_acceptance_required`) a text the calling user
+has not accepted (`services/code_acceptance_service.py`, `code_acceptances`: user + SHA-256
+of the code), whoever stored it and by whatever route: an edit, a pull and an import are all
+a new text. Accepting takes a session token (`get_session_user`), never an API key or a
+kernel token, since neither means a person read it. The client shows the code in a dialog
+on that refusal (`CodeAcceptancePromptHost`). What varies per run travels as values
+(`contextVars`), outside the accepted text. The client still chooses the purpose, so this
+protects a user from stored content, not from their own modified client, which `ide:execute`
+lets run anything anyway. Client-only (WASM) deployments have no such gate: code runs in the
+visitor's browser and no server holds a kernel or a secret.
+
+**A tree does not set trust-bearing workspace settings.** `workspaceFromManifest` lists what
+a workspace manifest may say; package index, default packages, git remote, push policy and
+the local key are out. Landing on an existing workspace by lineage asks first
+(`workspaceLanding`, used by the ZIP/git import page and by catalog install).
+
 ## 2. Outbound connections
 
 **External databases: an allowlist of hosts.** Every external DSN is built by
@@ -160,14 +179,29 @@ DBI / dbplyr handles from user code, for a need nobody has yet.
 action, a refusal, or a mutation with a known actor), to standard output for the SIEM
 and to daily files in `data_dir/audit/`, compacted per month and chained by hash.
 Actions bound at the choke points: `login` and `login_failed` (attempted username in
-`detail`), `password_change` / `password_change_failed`, `download` (dataset raw file,
+`detail`), `logout`, `password_change` / `password_change_failed`, `download` (dataset raw file,
 database file blob, mapping-project source file and scores file, a file pulled from a
 mapping project's remote, README and wiki attachments, a server-side git clone — its URL
 without credentials —, with size), `export` (project,
 workspace, mapping-project ZIPs, settings, with size), `preview` (dataset rows with
-`row_count`, distinct values), plus queries and code runs. Downloads and exports carry
-author and size because that is what the SPE's export checkpoint matches against the
-files submitted to it.
+`row_count`, distinct values, a built-in render of a dataset with its kind), plus queries
+and code runs. Downloads and exports carry author and size because that is what the SPE's
+export checkpoint matches against the files submitted to it.
+
+Code runs are logged whatever carries them: `/execute`, jobs, web app starts (file and
+command), and over the terminal WebSocket one `run_code` line per run, written before it
+starts, each `sql_query()` on its own line. `/execute` and jobs write two lines: a
+`run_code_start` before the code runs, so a run that takes the API down still leaves its
+trace, and `run_code` with the outcome. A Bash terminal logs `terminal_open` and
+`terminal_close` only: what is typed into a shell is not logged, since it includes what
+the shell does not echo.
+
+When the local file cannot be written (full volume), the line still reaches stdout, marked
+`local_log: failed` and outside the chain, and the request is still answered: the log fails
+open. The next line that fits is preceded by an `audit_gap` line counting those the file
+missed, so the chain verifies and says what it lacks; a restart in between loses that count,
+not the lines on stdout. A damaged tail is moved to `*.quarantine` at recovery, noted by an
+`audit_tail_set_aside` line, and goes with the retention.
 
 Retention is `LINKR_AUDIT_RETENTION_DAYS`, 365 by default, at least 1 (0 would empty the
 log at the next compaction). No other bound and no warning: the right duration is each
@@ -194,6 +228,17 @@ pass, `services/export_masking.py` and its byte-identical twin
   integer of at least k. A missing total, `"2e0"`, `-1` or an `n/a`/empty count
   cell is no total, so the profile is withheld (fail closed) — otherwise the
   mean, median and quartiles of one patient would leave;
+- a numeric block, and the histogram of the same values, leave only when
+  `numeric_data.numeric_patients_count` reads as at least k (and `numeric_count`,
+  when given): a concept can reach k with its values held by one patient. A profile
+  without that count (shipped in a file, or computed before the field existed)
+  loses its numeric block until it is recomputed in the app. A block that is not
+  an object is withheld, and so is a `missing_rate` that gives back a count of
+  records under k or that cannot be read over a known total;
+- only the fields a rule below judges may leave (`PROFILE_FIELDS` and its neighbours in
+  `export_masking.py`): anything else in a profile, at its top, in a block or in a cell,
+  stays behind whatever its name. A `masked_k` stamp is believed only over a profile
+  holding nothing a pass removes, and then only to skip the regrid and the edge trim;
 - other profiles lose their extremes (`min`, `max`, `range`, per-patient min/max,
   `temporal_distribution.start_date`/`end_date`) and `p1`/`p5`/`p95`/`p99` under
   100 values;
@@ -213,7 +258,15 @@ pass, `services/export_masking.py` and its byte-identical twin
   bin width;
 - a cell's `patients_count` only decides whether it stays: the exported cell
   keeps `count` and drops it;
-- a mapping's `sourceFrequency` under k becomes null (the field is a number).
+- a mapping's `sourceFrequency` under k becomes null (the field is a number);
+- every column is judged, not only those holding a role. The concept's own columns
+  (code, name, vocabulary… named by the mapping or by their usual header) stay. In
+  any other, a column named after a value of the data (sample, min, first, mean…)
+  is emptied; a count cell (of a role, or of a column named as a count) under k or
+  that is no plain number becomes `<k` and withholds the row's profiles; a cell
+  holding JSON is masked as a profile or emptied; any other number under k, or text
+  starting as a number, becomes `<k`; other text stays only in a column the project
+  chose (`extraColumns`) and never on a row under k.
 
 Profiles the app computes (`concept-profile.ts`) give every histogram bin,
 category, year and ward its `count` and `patients_count`. Profiles shipped in a
@@ -230,7 +283,10 @@ enough to compare two sites, not enough to find a patient. The source file insid
 the instance is untouched, and duplicating a mapping project inside the instance
 copies it unmasked. A source file that is neither UTF-8 nor Windows-1252 text (a
 leading BOM is dropped) nor readable Parquet, or that the CSV reader refuses,
-stops the export: it is never shipped as it is (the server raises the csv
+stops the export, and so does a file not read row for row as the app reads it (an
+unbalanced quote, a row of another width, lines to skip that it does not have; both
+sides read every line ending alike, the browser with a reader written to refuse
+what the server's strict csv module refuses): it is never shipped as it is (the server raises the csv
 module's 128 KiB field limit, process-wide, so a large profile cell is read and
 masked). k is `LINKR_EXPORT_MIN_COUNT` (default 11, ≤ 1 masks nothing); the front
 reads it from `/setup/status`, so exports built in the browser mask like the
@@ -242,7 +298,11 @@ and a plain-decimal count parser on both.
 A repository pushed before these rules keeps the earlier `source-concepts.csv` in
 its history; masking applies to what is pushed from now on.
 
-Quality rule sets and SQL collections export definitions only. The wiki is free text
+Quality rule sets and SQL collections export definitions only: a file of an entity leaves
+only when it is known as code or a document, or when its path is marked for versioning,
+in a ZIP as in a push (`isDataExtension`, `_is_data_ext`), and a README attachment only
+when it is an image or a PDF. The duplicate of a project is built with both kept, and
+stays on the instance. The wiki is free text
 that Linkr cannot check; the checklist says to read it before it leaves. Projects and
 workspaces with their data files hold patient data and do not go to the global instance.
 
@@ -264,6 +324,21 @@ session alive for ever. The caller of `change-password` gets fresh tokens back. 
 whole-second resolution, so a token issued in the very second of the change survives.
 Kernel tokens are not checked — they live in a running kernel's environment and expire
 within `kernel_token_expire_minutes` (12 h).
+
+**What ends with a session.** A personal API token older than the password is refused
+(`api_token_service.authenticate`) and shown as revoked. Long-lived channels re-check
+while open, every 30 s: the terminal and notification sockets their credentials
+(`ws_auth.watch_credentials`), the terminal also `ide:execute`, and a web app's cookie
+(`apps._session_open`, on each request too) its owner's account, password and
+`ide:execute`. Disabling or deleting an account stops its web apps; running kernels stay
+until idle, and their token is refused once the account is inactive. A password change,
+a disable and a logout forget session-only database logins. `POST /auth/logout`, which
+the client calls before reloading the page, also ends the user's web-app sessions in
+every browser; session JWTs themselves stay stateless. The reload drops every in-tab
+cache, so nothing fetched for one user is shown to the next (another tab that sees the
+token removed or owned by someone else reloads too). API responses carry
+`Cache-Control: no-store`; a proxied app keeps its own policy and defaults to
+`private, no-cache`, so a stored page still goes through the session check.
 
 **Sign-in through the SPE's proxy.** With `LINKR_TRUSTED_HEADER`,
 `LINKR_TRUSTED_PROXIES` and `LINKR_TRUSTED_PROXY_SECRET` set, the app calls
@@ -295,6 +370,14 @@ HSTS belongs to the TLS proxy.
 
 Upload sessions are bound to their uploader (`routes/uploads.py`, `_own_session`): anyone
 else gets 404.
+
+FastAPI reads a route's whole body before its dependencies, so size is checked on the raw
+request (`core/body_limit.py`): 1 MB under `/auth` and `/setup` (nginx refuses it first),
+`LINKR_MAX_JSON_BODY_MB` (64) on any route with a JSON body. Form uploads and raw streams
+pass, and enforce their own limits.
+
+The compose files publish the web port on loopback unless `LINKR_WEB_BIND` says otherwise:
+until `/setup/initialize` has run, whoever reaches that port can claim the instance.
 
 ## Not built, by decision
 

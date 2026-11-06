@@ -44,6 +44,8 @@ export interface ProjectStorage {
   getById(uid: string): Promise<Project | undefined>
   create(project: Project): Promise<void>
   update(uid: string, changes: Partial<Project>): Promise<void>
+  /** The server folder bindings, an explicit user action; `update` does not carry them in server mode. */
+  setFolderBindings(uid: string, bindings: Partial<Pick<Project, 'idePath' | 'scriptsPath' | 'datasetsPath'>>): Promise<void>
   delete(uid: string): Promise<void>
 }
 

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, it, expect, vi } from 'vitest'
 import JSZip from 'jszip'
-import { exportToJson, buildMappingProjectFolder, restoreFileSourceDataFromCsv, isParquetBuffer, maskedSourceConcepts } from './export'
+import { cleanMappingProjectMeta, exportToJson, buildMappingProjectFolder, restoreFileSourceDataFromCsv, isParquetBuffer, maskedSourceConcepts } from './export'
 import { SourceConceptsUnreadableError } from './export-masking'
 import type { Storage } from '@/lib/storage'
 import type { ConceptMapping, MappingProject } from '@/types'
@@ -295,5 +295,12 @@ describe('maskedSourceConcepts', () => {
     ]) {
       await expect(maskedSourceConcepts(bytes)).rejects.toBeInstanceOf(SourceConceptsUnreadableError)
     }
+  })
+})
+
+describe("an exported project's run", () => {
+  it('keeps its job ids on this instance', () => {
+    const paused = { id: 'p', sourceExtraction: { state: 'paused', jobIds: ['j1'], offset: 3 } } as unknown as MappingProject
+    expect(cleanMappingProjectMeta(paused).sourceExtraction).toEqual({ state: 'paused', offset: 3 })
   })
 })

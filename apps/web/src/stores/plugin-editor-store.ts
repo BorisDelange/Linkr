@@ -4,6 +4,7 @@ import type { UserPlugin } from '@/types'
 import { getStorage } from '@/lib/storage'
 import {
   getAllPlugins,
+  getBuiltinPlugin,
   getPlugin,
   registerPlugin,
   unregisterPlugin,
@@ -14,6 +15,8 @@ import { computePluginContentHash } from '@/lib/plugin-hash'
 import { useWorkspaceStore } from './workspace-store'
 import { useOrganizationStore } from './organization-store'
 import { stampAuthored, stampLineage } from './app-store'
+import { isServerMode } from '@/lib/api-client'
+import { acceptCode } from '@/lib/api/code-acceptance'
 
 /** Plugins are always workspace-scoped. Callers guard the UI so this only throws
  * as a backstop (e.g. a create attempted with no workspace open). */
@@ -257,7 +260,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     }
     // Built-in plugin not seeded as a row: reconstruct from registry (id = manifest id).
     const isSystem = SYSTEM_PLUGIN_IDS.has(id)
-    const plugin = getAllPlugins().find(p => p.manifest.id === id)
+    const plugin = getPlugin(id)
     if (!plugin) return
     const files: Record<string, string> = {
       'plugin.json': JSON.stringify(plugin.manifest, null, 2),
@@ -406,6 +409,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
       const rebuilt = buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null)
       const existing = getPlugin(manifest.id as string)
       if (existing?.componentId && !rebuilt.componentId) rebuilt.componentId = existing.componentId
+      rebuilt.workspaceId = useWorkspaceStore.getState().activeWorkspaceId ?? undefined
       registerPlugin(rebuilt)
     } catch { /* invalid json — still persisted */ }
     await get().refreshPluginList()
@@ -433,7 +437,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   },
 
   async addBuiltinPlugin(pluginId: string) {
-    const plugin = getAllPlugins().find(p => p.manifest.id === pluginId)
+    const plugin = getBuiltinPlugin(pluginId)
     if (!plugin) return null
     const now = new Date().toISOString()
     const wsId = requireActiveWorkspace()
@@ -452,7 +456,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     const userPlugin: UserPlugin = { id: rowId, entityId: pluginId, files, ...stampAuthored(), ...stampLineage(), createdAt: now, updatedAt: now, workspaceId: wsId }
     const storage = getStorage()
     await storage.userPlugins.create(userPlugin)
-    registerPlugin(plugin)
+    registerPlugin({ ...plugin, workspaceId: wsId })
     await get().refreshPluginList()
     return rowId
   },
@@ -467,7 +471,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
       sourceFiles = { ...userPlugin.files }
     } else {
       // Built-in: reconstruct from registry
-      const plugin = getAllPlugins().find(p => p.manifest.id === sourceId)
+      const plugin = getPlugin(sourceId)
       if (!plugin) return sourceId
       sourceFiles = { 'plugin.json': JSON.stringify(plugin.manifest, null, 2) }
       if (plugin.templates) {
@@ -529,7 +533,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     // entry is actually removed, not left dangling.
     const manifestId = get().pluginList.find((p) => p.id === id)?.manifestId ?? id
     await storage.userPlugins.delete(id)
-    unregisterPlugin(manifestId)
+    unregisterPlugin(manifestId, useWorkspaceStore.getState().activeWorkspaceId)
     if (get().editingPluginId === id) get().closeEditor()
     await get().refreshPluginList()
   },
@@ -606,8 +610,16 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
       // Look up by manifest id (registry key), not the storage row id.
       const existing = getPlugin(manifest.id as string)
       if (existing?.componentId && !rebuilt.componentId) rebuilt.componentId = existing.componentId
+      rebuilt.workspaceId = useWorkspaceStore.getState().activeWorkspaceId ?? undefined
       registerPlugin(rebuilt)
     } catch { /* invalid plugin.json — still saved to IDB */ }
+
+    // Templates edited here are the person's own: they need no review at their first run.
+    const { originalFiles } = get()
+    const edited = Object.entries(files)
+      .filter(([name, content]) => name.endsWith('.template') && content !== originalFiles[name])
+      .map(([, content]) => content)
+    if (edited.length && isServerMode()) void acceptCode(edited).catch(() => {})
 
     set({ isDirty: false, originalFiles: { ...files } })
     await get().refreshPluginList()

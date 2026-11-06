@@ -394,8 +394,9 @@ export function registerRuntimeTools(server: Server): void {
     description: 'Set where the project\'s R or Python environment downloads packages from (e.g. a hospital mirror). '
       + 'R: repos (CRAN-like URL) and method (download method). Python: index_url and trusted_host. Only the fields '
       + 'given change; "" clears one, falling back to the workspace default, then the server\'s. Versioned with the '
-      + 'project. URLs with credentials are refused.',
-    annotations: WRITE,
+      + 'project. URLs with credentials are refused. Ask the user first: the next install, by anyone, runs the code of '
+      + 'the packages it gets from there.',
+    annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{ project_uid: string; language: EnvLanguage } & OptionsInput>({
       type: 'object',
       properties: {

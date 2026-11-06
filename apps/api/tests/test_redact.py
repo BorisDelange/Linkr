@@ -5,7 +5,7 @@ import duckdb
 import pytest
 
 from app.core import audit
-from app.core.redact import redact_secrets
+from app.core.redact import redact_secrets, scrub_row_values
 from app.services.data import db_connect
 
 # What DuckDB's extensions actually raise when a server does not answer.
@@ -171,3 +171,40 @@ def test_uvicorn_tracebacks_and_access_lines_are_redacted():
     assert access.filter(record)
     assert record.args[2] == "/x?u=mysql://u:***@h/d" and record.args[4] == 200
 
+
+
+@pytest.mark.parametrize("error, kept", [
+    ("Conversion Error: Could not convert string 'DUMMY' to INT32", "to INT32"),
+    ("Conversion Error: Could not convert string 'O'DUMMY' to INT32", "Conversion Error"),
+    ("Conversion Error: Could not convert string 'DU\nMMY' to INT32", "Conversion Error"),
+    ('Invalid Input Error: invalid input syntax for type integer: "DUMMY"', "Invalid Input Error"),
+    ('Constraint Error: Duplicate key "id: DUMMY" violates primary key', "Constraint Error"),
+    ("DETAIL: Key (id)=(DUMMY) already exists.", "Key (id)"),
+    ("Conversion Error: Type VARCHAR with value DUMMY can't be cast", "Type VARCHAR"),
+    ("Out of Range Error: Overflow in multiplication of DUMMY", "Out of Range Error"),
+    ("Invalid Input Error: CSV Error\nOriginal Line: 1,DUMMY,x\nmore", "CSV Error"),
+    ("Incorrect value: 'DUMMY", "Incorrect value"),
+])
+def test_row_values_leave_an_error_its_class_stays(error, kept):
+    out = scrub_row_values(error)
+    assert "DUMMY" not in out and "MMY" not in out
+    assert kept in out
+
+
+def test_names_in_a_schema_error_stay_readable():
+    text = 'Binder Error: Referenced column "nom" not found in FROM clause!'
+    assert scrub_row_values(text) == text
+
+
+def test_scrubbing_follows_the_secret_redaction():
+    out = scrub_row_values("Could not connect to postgresql://u:pw@h/db: value 'DUMMY'")
+    assert "pw" not in out and "DUMMY" not in out
+
+
+def test_long_adversarial_error_is_scrubbed_in_linear_time():
+    import time
+
+    started = time.perf_counter()
+    scrub_row_values("'a" * 200_000)
+    scrub_row_values('"a' * 200_000)
+    assert time.perf_counter() - started < 1

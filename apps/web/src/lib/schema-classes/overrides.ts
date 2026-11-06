@@ -48,6 +48,32 @@ export function effectiveMapping(base: SchemaMapping, overrides: SchemaOverrides
 
 const LISTS = ['concepts', 'events', 'drugs'] as const
 
+const FREE_SQL_KEYS = new Set(['customSql', 'expr', 'where'])
+
+/** Twin of `free_sql_fragments` (data_source_service.py). */
+function holdsFreeSql(node: unknown): boolean {
+  if (Array.isArray(node)) return node.some(holdsFreeSql)
+  if (!node || typeof node !== 'object') return false
+  return Object.entries(node).some(([key, value]) =>
+    FREE_SQL_KEYS.has(key) && typeof value === 'string' ? !!value.trim() : holdsFreeSql(value))
+}
+
+/**
+ * The mapping without the relations written in SQL: what the queries of someone
+ * who has not accepted that SQL read. All of them rather than the unaccepted texts
+ * alone: two runtimes need not agree on what trimming a text leaves.
+ */
+export function withoutFreeSql(mapping: SchemaMapping): SchemaMapping {
+  const out = { ...mapping }
+  for (const key of ['patient', 'visit', 'visitDetail', 'note'] as const) {
+    if (holdsFreeSql(out[key])) delete out[key]
+  }
+  if (out.concepts) out.concepts = out.concepts.filter((spec) => !holdsFreeSql(spec))
+  if (out.events) out.events = out.events.filter((spec) => !holdsFreeSql(spec))
+  if (out.drugs) out.drugs = out.drugs.filter((spec) => !holdsFreeSql(spec))
+  return out
+}
+
 const listId = (list: (typeof LISTS)[number], spec: RelationSpec): string | undefined =>
   list === 'concepts' ? (spec as ConceptSpec).key : (spec as EventSpec).label
 

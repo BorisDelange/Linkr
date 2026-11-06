@@ -568,6 +568,9 @@ _FORBIDDEN_IN_USER_SQL = re.compile(
 # from a string.
 _PASSTHROUGH_CALL = re.compile(r"(MSSQL_|ORACLE_)\w+|POSTGRES_EXECUTE|MYSQL_EXECUTE|JSON_EXECUTE_SERIALIZED_SQL")
 _DYNAMIC_SQL_CALL = re.compile(r"QUERY|QUERY_TABLE")
+# The stream of the institution's collector holds only what Linkr writes to it.
+_SERVER_LOG_CALL = re.compile(r"ENABLE_LOGGING|DISABLE_LOGGING|TRUNCATE_DUCKDB_LOGS|WRITE_LOG")
+_PLAIN_STRING = re.compile(r"'((?:[^']|'')*)'")
 _PASSTHROUGH_ENGINES = frozenset({"postgres", "mysql", "mssql"})
 
 
@@ -604,11 +607,24 @@ def _materialization_left_to_duckdb(stmt: str) -> str:
     return stmt
 
 
+def _reject_query_text_unread(stmt: str, call: int) -> None:
+    """`query(...)` beside local databases: its text is checked like the statement's,
+    which takes a plain string literal as its only argument."""
+    tokens = _tokens(stmt)
+    ends = [pos for pos, _ in tokens[1:]] + [len(stmt)]
+    literal = _PLAIN_STRING.match(stmt[tokens[call + 2][0]:ends[call + 2]]) if call + 3 < len(tokens) else None
+    if literal is None or not stmt[tokens[call + 3][0]:].startswith(")"):
+        raise ValueError("query() is not allowed here unless its text is one plain string")
+    _reject_passthrough_calls(literal.group(1).replace("''", "'"))
+
+
 def _reject_passthrough_calls(stmt: str, dynamic_sql: bool = False, dynamic_hint: str = "") -> None:
     texts = [(t.strip('"'), kind) for t, kind in _token_texts(stmt)]
     for i, (text, kind) in enumerate(texts[:-1]):
         if kind not in (duckdb.token_type.identifier, duckdb.token_type.keyword) or not texts[i + 1][0].startswith("("):
             continue
+        if _SERVER_LOG_CALL.fullmatch(text):
+            raise ValueError(f"{text.lower()}() is not allowed: only Linkr writes to the server's log")
         if _PASSTHROUGH_CALL.fullmatch(text):
             raise ValueError(f"{text.lower()}() is not allowed: it would run SQL on the database past Linkr's read-only guard")
         if dynamic_sql and _DYNAMIC_SQL_CALL.fullmatch(text):
@@ -616,6 +632,8 @@ def _reject_passthrough_calls(stmt: str, dynamic_sql: bool = False, dynamic_hint
                 f"{text.lower()}() is not allowed: it runs SQL built from text, "
                 f"which Linkr's read-only guard cannot check{dynamic_hint}"
             )
+        if text == "QUERY":
+            _reject_query_text_unread(stmt, i)
 
 
 def _reject_hidden_statements(stmt: str) -> None:

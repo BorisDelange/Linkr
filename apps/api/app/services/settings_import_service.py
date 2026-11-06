@@ -10,6 +10,11 @@ Mirrors settings_export_assemble. Upsert by stable identity:
 before login. An *existing* user's ``password_hash`` and ``is_active`` are left
 untouched — re-importing never locks anyone out and never disables an active account.
 
+**An import never raises an account's rights.** System roles keep their permissions
+and scope, a local role can only lose permissions, a new role holds workspace-tier
+permissions only, and an account moves only to a role holding no more than its own.
+What a file asked for beyond that is reported as a warning.
+
 Only the files present in the tree are applied; the caller's checkbox selection
 decides which files the export wrote, so "import only what's checked" falls out for
 free (an absent file is simply skipped).
@@ -21,7 +26,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.permissions import ALL_PERMISSIONS
+from app.core.permissions import ALL_PERMISSIONS, GLOBAL_PERMISSIONS
 from app.models.organization import Organization
 from app.models.role import Role
 from app.models.user import User
@@ -100,19 +105,29 @@ async def _import_orgs(db: AsyncSession, rows: list[dict], report: SettingsImpor
             report.orgs_updated += 1
 
 
+def _warn_refused(report: SettingsImportReport, name: str, wanted: list[str], kept: list[str]) -> None:
+    refused = sorted(set(wanted) - set(kept))
+    if refused:
+        report.warnings.append(f"{name}: refused imported permissions: {', '.join(refused)}")
+
+
 async def _import_roles(db: AsyncSession, rows: list[dict], report: SettingsImportReport) -> None:
     for row in rows:
         name = row.get("name")
         if not name:
             continue
-        perms = [p for p in (row.get("permissions") or []) if p in ALL_PERMISSIONS]
+        wanted = [p for p in (row.get("permissions") or []) if p in ALL_PERMISSIONS]
         existing = await db.scalar(select(Role).where(Role.name == name))
         if existing is None:
+            perms = [p for p in wanted if p not in GLOBAL_PERMISSIONS]
+            _warn_refused(report, name, wanted, perms)
+            if row.get("scope") not in (None, "workspace"):
+                report.warnings.append(f"{name}: refused imported scope '{row.get('scope')}' → 'workspace'")
             db.add(
                 Role(
                     name=name,
                     label=row.get("label") or {},
-                    scope=row.get("scope") or "workspace",
+                    scope="workspace",
                     # An imported role is never granted system status; only the
                     # code-seeded roles are system, matched by name below.
                     is_system=False,
@@ -122,26 +137,30 @@ async def _import_roles(db: AsyncSession, rows: list[dict], report: SettingsImpo
             )
             report.roles_created += 1
         else:
-            # System roles: keep is_system + name; only label/permissions/scope update.
             existing.label = row.get("label") or existing.label
-            existing.scope = row.get("scope") or existing.scope
-            existing.permissions = perms
-            # Roles match by NAME, so the row we just found may be a code-seeded
-            # placeholder (seed_default_roles runs at first startup, before any
-            # import) whose date is this instance's install time, not provenance.
-            # Take the file's date in that case — otherwise every imported role
-            # reads as created at install. A role a human actually made here keeps
-            # its own date, like orgs and users do.
+            held = existing.permissions or []
             if existing.is_system:
+                if "permissions" in row and set(wanted) != set(held):
+                    report.warnings.append(f"{name}: system role kept its local permissions")
+                # Roles match by NAME, so the row we just found may be a code-seeded
+                # placeholder (seed_default_roles runs at first startup, before any
+                # import) whose date is this instance's install time, not provenance.
+                # Take the file's date in that case — otherwise every imported role
+                # reads as created at install. A role a human actually made here keeps
+                # its own date, like orgs and users do.
                 created = _created_at_kwarg(row)
                 if created:
                     existing.created_at = created["created_at"]
+            else:
+                perms = [p for p in wanted if p in held]
+                _warn_refused(report, name, wanted, perms)
+                existing.permissions = perms
             report.roles_updated += 1
 
 
-async def _known_role_names(db: AsyncSession) -> set[str]:
-    rows = (await db.execute(select(Role.name))).scalars().all()
-    return set(rows)
+async def _permissions_by_role(db: AsyncSession) -> dict[str, set[str]]:
+    rows = (await db.execute(select(Role.name, Role.permissions))).all()
+    return {name: set(perms or []) for name, perms in rows}
 
 
 async def _import_users(
@@ -150,7 +169,7 @@ async def _import_users(
     report: SettingsImportReport,
     acting_username: str | None,
 ) -> None:
-    role_names = await _known_role_names(db)
+    role_perms = await _permissions_by_role(db)
     for row in rows:
         username = row.get("username")
         if not username:
@@ -169,9 +188,19 @@ async def _import_users(
         if role == "admin":
             report.warnings.append(f"{username}: refused imported 'admin' role → 'user'")
             role = "user"
-        elif role not in role_names:
+        elif role not in role_perms:
             report.warnings.append(f"{username}: unknown role '{role}' → 'user'")
             role = "user"
+
+        existing = await db.scalar(select(User).where(User.username == username))
+        target = role_perms.get(role, set())
+        if existing is None:
+            if target & set(GLOBAL_PERMISSIONS):
+                report.warnings.append(f"{username}: refused role '{role}' holding global permissions → 'user'")
+                role = "user"
+        elif existing.role != "admin" and not target <= role_perms.get(existing.role, set()):
+            report.warnings.append(f"{username}: refused role '{role}' holding more than '{existing.role}'")
+            role = existing.role
 
         profile = dict(
             email=row.get("email"),
@@ -183,7 +212,6 @@ async def _import_users(
             role=role,
         )
 
-        existing = await db.scalar(select(User).where(User.username == username))
         if existing is None:
             # New account: no password → disabled until an admin sets one.
             db.add(User(

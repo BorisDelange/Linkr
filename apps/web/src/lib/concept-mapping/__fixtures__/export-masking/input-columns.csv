@@ -1,0 +1,6 @@
+concept_code,concept_name,record_count,patient_count,nb_rec,n_patients,specimen,free_note,sample_values,min_value,score,other_profile
+3,Small in every count column,4,6,3,2,blood,DUMMY-NOTE,DUMMY-S,1.5,3,"{""rows_count"":4,""numeric_data"":{""min"":1}}"
+4,Other count under k,500,50,3,20,urine,DUMMY-NOTE,DUMMY-S,1.5,40,
+5,Over k,500,50,300,20,serum,DUMMY-NOTE,DUMMY-S,1.5,40,"{""rows_count"":500,""patients_count"":50,""numeric_data"":{""median"":5,""min"":1,""numeric_patients_count"":30}}"
+6,Not plain,"5,0",~5,+5,1e0,plasma,,,,3 patients,"[1,2]"
+7,No total,,,,,csf,,,,2020-01-01,not json

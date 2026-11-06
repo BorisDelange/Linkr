@@ -33,6 +33,7 @@ import { useOrganizationStore } from '@/stores/organization-store'
 import { cn } from '@/lib/utils'
 import { useDqStore } from '@/stores/dq-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { isForeignDatabase } from '@/hooks/use-database-options'
 import { useDqRuleSetActions } from './use-dq-rule-set-actions'
 import { DqChecksTab } from './DqChecksTab'
 import { DqResultsView } from './DqResultsView'
@@ -71,6 +72,7 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
     loadRunHistory,
   } = useDqStore()
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
+  const dataSources = useDataSourceStore((s) => s.dataSources)
 
   const [activeTab, setActiveTab] = useUrlTab<TabId>({
     key: `dq:${ruleSetId}`,
@@ -177,6 +179,8 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
     )
   }
 
+  const runnableSourceId = isForeignDatabase(dataSources, ruleSet.dataSourceId, ruleSet.workspaceId) ? '' : ruleSet.dataSourceId
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <Tabs
@@ -266,13 +270,13 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
           )}
         >
           <div className={cn('h-full', activeTab !== 'checks' && 'hidden')}>
-            <DqChecksTab ruleSetId={ruleSet.id} dataSourceId={ruleSet.dataSourceId} onInvestigate={handleInvestigate} />
+            <DqChecksTab ruleSetId={ruleSet.id} dataSourceId={runnableSourceId} onInvestigate={handleInvestigate} />
           </div>
           <div className={cn('h-full', activeTab !== 'investigate' && 'hidden')}>
-            {ruleSet.dataSourceId ? (
+            {runnableSourceId ? (
               <DatabaseSqlTab
                 key={investigation?.n ?? 0}
-                dataSourceId={ruleSet.dataSourceId}
+                dataSourceId={runnableSourceId}
                 draftKey={`dq:${ruleSet.id}`}
                 initialSql={investigation?.sql}
                 runOnMount={!!investigation}
@@ -285,10 +289,10 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
             <DqResultsView
               ruleSetId={ruleSet.id}
               runLabel={t('data_quality.job_label', { name: localized(ruleSet.name, i18n.language) })}
-              dataSourceId={ruleSet.dataSourceId}
+              dataSourceId={runnableSourceId}
               customChecks={customChecks}
               onScanComplete={handleScanComplete}
-              onBeforeScan={() => ensureMounted(ruleSet.dataSourceId)}
+              onBeforeScan={() => ensureMounted(runnableSourceId)}
               onInvestigate={handleInvestigate}
             />
           </div>

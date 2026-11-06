@@ -496,7 +496,7 @@ export function ServerEnvironmentsPanel({
             </Tooltip>
           </div>
 
-          {env?.status === 'ready' && packages.length > 0 && (
+          {canInstall && env?.status === 'ready' && packages.length > 0 && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

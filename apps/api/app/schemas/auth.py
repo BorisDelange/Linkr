@@ -56,6 +56,8 @@ class TokenResponse(BaseModel):
 
 class SetupStatusResponse(BaseModel):
     needs_setup: bool
+    # Whoever creates the first administrator shows the token from the server's log.
+    setup_token_required: bool = False
     # The front proxy authenticates: try /auth/trusted-login before the form.
     trusted_header_login: bool = False
     # Small-count threshold of mapping exports, so the ones the browser builds
@@ -76,6 +78,7 @@ class SetupRequest(BaseModel):
     username: str
     email: str | None = None
     password: str
+    setup_token: str | None = None
 
 
 class DefaultDataRequest(BaseModel):

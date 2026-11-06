@@ -5,6 +5,7 @@ import { TerminalSocket, terminalFailureMessage } from '@/lib/api/terminal-ws'
 import type { RuntimeLanguage, RuntimeOutput, RuntimeFigure, RuntimeTable, CodeCompletionItem } from '@/lib/runtimes/types'
 import type { SessionLanguage } from '@/lib/api/execution-sessions'
 import type { Job } from '@/lib/api/environments'
+import { withCodeAcceptance, type CodeReview } from '@/lib/api/code-acceptance'
 
 /** The active session for (project, language) — but only R/Python carry sessions;
  *  anything else (sql) always runs in the implicit 'default' namespace.
@@ -45,6 +46,9 @@ export function executeOnServer(
      *  aborting only stops the client waiting. A caller that wants the kernel to
      *  actually stop must also call interruptServerKernel(). */
     signal?: AbortSignal
+    /** Variables the run starts with, sent as values so the code stays one text. */
+    contextVars?: Record<string, string | number | null>
+    review?: CodeReview
   },
 ): Promise<RuntimeOutput> {
   // The backend resolves a disk-source dataset (datasetFileId = its path) only
@@ -57,7 +61,7 @@ export function executeOnServer(
   // Default to the project's active session so runs land in the namespace the
   // user selected in the Session dropdown (unless a caller pins an explicit one).
   const sessionId = opts?.sessionId ?? activeSessionFor(projectUid, language)
-  return apiRequest<RuntimeOutput>('/execute', {
+  const send = () => apiRequest<RuntimeOutput>('/execute', {
     method: 'POST',
     body: JSON.stringify({
       language,
@@ -67,11 +71,13 @@ export function executeOnServer(
       datasetFileId: opts?.datasetFileId ?? null,
       connectionId: opts?.connectionId ?? null,
       datasetFilters: opts?.datasetFilters ?? null,
+      contextVars: opts?.contextVars ?? null,
       purpose: opts?.purpose ?? 'ide',
       ephemeral: opts?.ephemeral ?? false,
     }),
     signal: opts?.signal,
   })
+  return withCodeAcceptance(code, language, opts?.review, send)
 }
 
 /**

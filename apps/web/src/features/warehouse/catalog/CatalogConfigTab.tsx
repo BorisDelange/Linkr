@@ -80,7 +80,7 @@ export function CatalogConfigTab({ catalog }: Props) {
   const { updateCatalog, setResultCache } = useCatalogStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
-  const dataSource = dataSources.find((ds) => ds.id === catalog.dataSourceId)
+  const dataSource = dataSources.find((ds) => ds.id === catalog.dataSourceId && ds.workspaceId === catalog.workspaceId)
   const mapping = dataSource?.schemaMapping
 
   // The run lives in the registry, not here: leaving the tab must not stop a

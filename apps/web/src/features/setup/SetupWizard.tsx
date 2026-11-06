@@ -42,10 +42,19 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
       .catch(() => setDbInfo(null))
   }, [])
 
+  const [tokenRequired, setTokenRequired] = useState(false)
+  useEffect(() => {
+    fetch(`${getApiBaseUrl()}/api/v1/setup/status`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setTokenRequired(!!data?.setup_token_required))
+      .catch(() => setTokenRequired(false))
+  }, [])
+
   // Step 2: Admin account
   // In dev, prefill the account so first-run setup is one click. Empty in prod builds.
   const devUsername = import.meta.env.DEV ? 'admin' : ''
   const devPassword = import.meta.env.DEV ? 'linkr-dev-admin' : ''
+  const [setupToken, setSetupToken] = useState(import.meta.env.DEV ? 'dev-setup-token' : '')
   const [username, setUsername] = useState(devUsername)
   const [password, setPassword] = useState(devPassword)
   const [confirmPassword, setConfirmPassword] = useState(devPassword)
@@ -73,6 +82,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         body: JSON.stringify({
           username,
           password,
+          ...(tokenRequired ? { setup_token: setupToken.trim() } : {}),
         }),
       })
 
@@ -93,6 +103,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         const data = await res.json().catch(() => ({}))
         const policy = passwordErrorFromApi(data)
         if (policy) setPolicyError(policy)
+        else if (data.detail?.code === 'setup_token_invalid') setCreateError(t('setup.token_invalid'))
         else setCreateError(typeof data.detail === 'string' ? data.detail : t('setup.error_generic'))
       }
     } catch {
@@ -173,13 +184,28 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
               </p>
 
               <form onSubmit={handleCreateAdmin} className="space-y-4">
+                {tokenRequired && (
+                  <div className="space-y-2">
+                    <Label htmlFor="setup-token">{t('setup.token_label')}</Label>
+                    <Input
+                      id="setup-token"
+                      value={setupToken}
+                      onChange={(e) => setSetupToken(e.target.value)}
+                      autoComplete="off"
+                      spellCheck={false}
+                      className="font-mono"
+                      autoFocus
+                    />
+                    <p className="text-xs text-muted-foreground">{t('setup.token_hint')}</p>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label htmlFor="admin-username">{t('setup.admin_username')}</Label>
                   <Input
                     id="admin-username"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    autoFocus
+                    autoFocus={!tokenRequired}
                   />
                 </div>
 
@@ -208,7 +234,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                     type="submit"
                     size="sm"
                     className="ml-auto"
-                    disabled={creating || !username || !passwordReady}
+                    disabled={creating || !username || !passwordReady || (tokenRequired && !setupToken.trim())}
                   >
                     {creating && <Loader2 size={14} className="animate-spin" />}
                     {creating ? t('setup.creating') : t('setup.create_account')}

@@ -2,7 +2,7 @@ import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { describe, expect, it } from 'vitest'
 import type { CatalogCrossingResult, CatalogResultCache, DataCatalog } from '@/types'
 import { defaultCatalogVariables } from '@/lib/data-catalog/config'
-import { baseUnits, emptyRunState, orderModalities, planCrossings, planSlices, runUnit, SLICE_EVENT_ROWS, type CatalogQuery } from './catalog-compute'
+import { baseUnits, emptyRunState, orderModalities, planCrossings, planSlices, runUnit, SLICE_EVENT_ROWS, stateFromCache, type CatalogQuery } from './catalog-compute'
 import { CatalogPhaseCancelled, runCatalogComputation, type CatalogPhaseExecutor } from './catalog-run'
 import { getCatalogRunSnapshot, pauseCatalogRun, startCatalogRun, watchCatalogRun } from './catalog-runner'
 
@@ -98,6 +98,46 @@ const warehouse: CatalogQuery = async (sql, signal) => {
   if (sql.includes('AS v_sex')) return [{ v_sex: 'male', patients: 1, stays: 1 }]
   return []
 }
+
+describe('stateFromCache', () => {
+  const stored = (work: unknown, patch: Partial<CatalogResultCache> = {}) =>
+    ({ concepts: [], grandTotal: {}, completedSteps: 2, work, ...patch }) as unknown as CatalogResultCache
+  const good = { slices: [{ hi: 5 }, { lo: 5, hi: 'x' }, { lo: 'x' }], services: [['ICU', 3]], concepts: [['c:1', 2, 4]], job: { id: 'j', phase: 'base' } }
+
+  it('takes back a state as a run saved it', () => {
+    const state = stateFromCache(stored(good))
+    expect(state.slices).toEqual(good.slices)
+    expect(state.serviceRank.get('ICU')).toBe(3)
+    expect(state.conceptRank.get('c:1')).toEqual({ patients: 2, records: 4 })
+  })
+
+  it('takes back only the scalars a run saves', () => {
+    for (const work of [
+      { ...good, slices: 'x' },
+      { ...good, slices: [{ lo: ['1'] }] },
+      { ...good, slices: [{ hi: { a: 1 } }] },
+      { ...good, slices: [null] },
+      { ...good, services: [[['ICU'], 3]] },
+      { ...good, services: [['ICU', '3']] },
+      { ...good, concepts: [[{}, 1, 1]] },
+      { ...good, job: { id: ['j'], phase: 'base' } },
+      { ...good, job: { id: 'j', phase: 'other' } },
+    ]) expect(() => stateFromCache(stored(work))).toThrow()
+    expect(() => stateFromCache(stored(good, { completedSteps: -1 }))).toThrow()
+  })
+
+  it('stops a resume on such a state before any query', async () => {
+    const queries: string[] = []
+    const failed = runCatalogComputation({
+      catalog: catalog({ crossings: [['period']] }), mapping,
+      query: async (sql: string) => { queries.push(sql); return [] },
+      resumeFrom: stored({ ...good, slices: [{ lo: ['1'] }] }),
+      persist: async () => {},
+    } as unknown as Parameters<typeof runCatalogComputation>[0], new AbortController().signal)
+    await expect(failed).rejects.toThrow()
+    expect(queries).toEqual([])
+  })
+})
 
 describe('catalog run', () => {
   function run(resumeFrom: CatalogResultCache | null, pauseAfter?: number): Promise<CatalogResultCache> {

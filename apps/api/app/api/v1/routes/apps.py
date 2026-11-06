@@ -5,11 +5,16 @@ API, which forwards to 127.0.0.1:<port> (services/execution/web_apps.py).
 
 Only the user who started an app can open it. An iframe sends no Authorization
 header, so the IDE first calls `POST /apps/<id>/session`, which sets an HttpOnly
-cookie scoped to the app's proxy path, signed over (app id, user id, expiry).
-Every proxied request and WebSocket handshake must carry it; without it the app
-answers 404, as if it did not exist. An app cannot be shared with other users
+cookie scoped to the app's proxy path, signed over (app id, user id, expiry, issue
+time). Every proxied request and WebSocket handshake must carry it; without it the
+app answers 404, as if it did not exist. An app cannot be shared with other users
 while it is served from Linkr's own origin: its page script could act in Linkr
 as whoever opens it.
+
+A cookie stands for its owner's session and no longer: each request, and an open
+socket or stream at intervals, checks that the account is active, that the password
+is not newer than the cookie, that the owner still holds ide:execute on the project
+and has not logged out since.
 """
 
 import asyncio
@@ -29,9 +34,10 @@ from starlette.background import BackgroundTask
 from starlette.websockets import WebSocketDisconnect
 
 from app.config import settings
-from app.core import trusted_header
-from app.core.database import get_db
+from app.core import audit, trusted_header
+from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
+from app.core.security import predates_password_change
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.base import CamelModel
@@ -119,6 +125,10 @@ async def start_app(
         language = p.language
     language = language or "python"
 
+    audit.bind(
+        action="run_code", project_uid=body.project_uid,
+        detail=f"web app {body.path}: {command or preset_key}",
+    )
     environment = await environments.ensure_ready(db, body.project_uid, language, user.id)
     await kernel.manager._prepare_r_shared(language)
     spec = kernel.runtime_spec(language, body.project_uid, environment, _kernel_token(user, body.project_uid))
@@ -193,6 +203,7 @@ async def stop_app(app_id: str, user: User = Depends(get_current_user)):
 # ── Session ──────────────────────────────────────────────────────────────────
 
 _SESSION_SECONDS = 12 * 3600
+SESSION_RECHECK_SECONDS = 30.0
 
 
 def _session_cookie(app_id: str) -> str:
@@ -204,23 +215,58 @@ def _session_signature(payload: str) -> str:
 
 
 def session_token(app_id: str, user_id: int, expiry: int) -> str:
-    payload = f"{app_id}.{user_id}.{expiry}"
+    payload = f"{app_id}.{user_id}.{expiry}.{time.time_ns() // 1000}"
     return f"{payload}.{_session_signature(payload)}"
 
 
 def _session_valid(cookies, app: web_apps.WebApp) -> bool:
-    """The browser holds a session its app's owner opened, not yet expired."""
+    """The browser holds a session its app's owner opened, not yet expired, and
+    the owner has not logged out since."""
+    return _session_issued_us(cookies, app) is not None
+
+
+def _session_issued_us(cookies, app: web_apps.WebApp) -> int | None:
     token = cookies.get(_session_cookie(app.app_id)) or ""
     payload, _, signature = token.rpartition(".")
     if not payload or not hmac.compare_digest(signature.encode(), _session_signature(payload).encode()):
-        return False
-    app_id, user_id, expiry = (payload.split(".") + ["", "", ""])[:3]
-    return (
+        return None
+    app_id, user_id, expiry, issued = (payload.split(".") + ["", "", "", ""])[:4]
+    valid = (
         app_id == app.app_id
         and user_id == str(app.user_id)
         and expiry.isdigit()
         and int(expiry) > time.time()
+        and issued.isdigit()
+        and int(issued) >= app.sessions_from_us
     )
+    return int(issued) if valid else None
+
+
+async def _session_open(cookies, app: web_apps.WebApp) -> bool:
+    """`_session_valid`, and its owner may still run this code."""
+    issued_us = _session_issued_us(cookies, app)
+    return issued_us is not None and await _owner_may_run(app, issued_us)
+
+
+async def _owner_may_run(app: web_apps.WebApp, issued_us: int) -> bool:
+    # Its own database session: a proxied response can stay open for hours and must
+    # not hold one.
+    async with async_session() as db:
+        owner = await db.get(User, app.user_id)
+        if owner is None or not owner.is_active or predates_password_change({"iat_us": issued_us}, owner):
+            return False
+        try:
+            await _require_code_execution(db, app.project_uid, owner)
+        except HTTPException:
+            return False
+    return True
+
+
+def end_app_sessions(user_id: int, response: Response) -> None:
+    """A logout: ends the user's sessions on all their apps, here and in any other
+    browser, and has this browser drop its cookies."""
+    for app in web_apps.manager.end_sessions(user_id):
+        response.delete_cookie(_session_cookie(app.app_id), path=app.base_path, httponly=True, samesite="strict")
 
 
 # ── Proxy ────────────────────────────────────────────────────────────────────
@@ -367,6 +413,7 @@ def _rewrite_cookie(value: str, app: web_apps.WebApp) -> str | None:
 def _response_headers(upstream: httpx.Headers, app: web_apps.WebApp) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     has_csp = False
+    has_cache_policy = False
     for k, v in upstream.multi_items():
         name = k.lower()
         if name in _RESPONSE_DROP:
@@ -380,7 +427,13 @@ def _response_headers(upstream: httpx.Headers, app: web_apps.WebApp) -> list[tup
             v = cookie
         elif name == "content-security-policy":
             has_csp = True
+        elif name == "cache-control":
+            has_cache_policy = True
         out.append((k, v))
+    if not has_cache_policy:
+        # Left to the browser's own freshness guess, a page would be served again
+        # without reaching the session check.
+        out.append(("cache-control", "private, no-cache"))
     if not has_csp:
         # Framed by Linkr only: by its own origin, or the front's when it is served
         # apart from the API (development).
@@ -416,7 +469,7 @@ async def proxy_root(app_id: str):
 )
 async def proxy_http(app_id: str, path: str, request: Request):
     app = web_apps.manager.running(app_id)
-    if app is None or not _session_valid(request.cookies, app):
+    if app is None or not await _session_open(request.cookies, app):
         return Response("This app is not running.", status_code=status.HTTP_404_NOT_FOUND, media_type="text/plain")
     if request.method not in ("GET", "HEAD", "OPTIONS") and not _same_origin(request.headers, request.scope):
         return Response("Cross-origin request refused.", status_code=status.HTTP_403_FORBIDDEN, media_type="text/plain")
@@ -439,12 +492,17 @@ async def proxy_http(app_id: str, path: str, request: Request):
     except httpx.HTTPError:
         message = "The app is still starting." if app.status == "starting" else "The app did not answer."
         return Response(message, status_code=status.HTTP_502_BAD_GATEWAY, media_type="text/plain")
-    return _streamed(resp, app)
+    return _streamed(resp, app, request.cookies)
 
 
-def _streamed(resp: httpx.Response, app: web_apps.WebApp) -> StreamingResponse:
+def _streamed(resp: httpx.Response, app: web_apps.WebApp, cookies) -> StreamingResponse:
     async def body():
+        checked = time.monotonic()
         async for chunk in resp.aiter_raw():
+            if time.monotonic() - checked >= SESSION_RECHECK_SECONDS:
+                if not await _session_open(cookies, app):
+                    return
+                checked = time.monotonic()
             app.touch()
             yield chunk
 
@@ -459,7 +517,7 @@ def _streamed(resp: httpx.Response, app: web_apps.WebApp) -> StreamingResponse:
 @router.websocket("/{app_id}/proxy/{path:path}")
 async def proxy_ws(websocket: WebSocket, app_id: str, path: str):
     app = web_apps.manager.running(app_id)
-    if app is None or not _session_valid(websocket.cookies, app) or not _same_origin(websocket.headers, websocket.scope):
+    if app is None or not await _session_open(websocket.cookies, app) or not _same_origin(websocket.headers, websocket.scope):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     path = _upstream_path(websocket.scope, app_id)
@@ -505,15 +563,28 @@ async def proxy_ws(websocket: WebSocket, app_id: str, path: str):
             else:
                 await websocket.send_bytes(message)
 
-    tasks = [asyncio.create_task(to_app()), asyncio.create_task(to_browser())]
+    async def session_ended():
+        while True:
+            await asyncio.sleep(SESSION_RECHECK_SECONDS)
+            try:
+                if not await _session_open(websocket.cookies, app):
+                    return
+            except Exception:  # noqa: BLE001 — a failed lookup is not an ended session: try again next time
+                continue
+
+    watch = asyncio.create_task(session_ended())
+    tasks = [asyncio.create_task(to_app()), asyncio.create_task(to_browser()), watch]
+    code = 1000
     try:
         await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        if watch.done():
+            code = status.WS_1008_POLICY_VIOLATION
     finally:
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         await upstream.close()
         try:
-            await websocket.close()
+            await websocket.close(code=code)
         except (RuntimeError, WebSocketDisconnect):
             pass

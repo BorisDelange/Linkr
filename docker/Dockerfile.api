@@ -61,7 +61,7 @@ COPY apps/api/ ./
 # in editable afterwards, without re-resolving. Pinned uv: a different resolver
 # version would export a different list.
 RUN pip install --no-cache-dir "uv==0.10.2" \
-    && uv export --frozen --no-dev --no-emit-project --extra execution --extra doris \
+    && uv export --frozen --no-dev --no-emit-project --extra execution \
         --format requirements-txt -o /tmp/requirements.txt \
     && uv pip sync --no-cache /tmp/requirements.txt \
     && uv pip install --no-cache --no-deps -e . \

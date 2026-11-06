@@ -2,6 +2,7 @@
 materialize→status→commit→diff cycle must report changes correctly."""
 
 import io
+import os
 import shutil
 import subprocess
 import tempfile
@@ -1622,3 +1623,77 @@ async def test_a_proposal_on_an_empty_remote_leaves_its_base_branch_unborn(tmp_p
         ["git", "log", "--format=%s", "main"], cwd=remote, capture_output=True, text=True, check=True, env=g._git_env(),
     ).stdout.split()
     assert log == ["direct"]
+
+
+# --- Bounded decompression of a client-supplied export ---
+
+
+def _repo_getter(root: Path):
+    return lambda uid: root / uid
+
+
+def _inflating_zip(size: int) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("data.bin", b"\0" * size)
+    return buf.getvalue()
+
+
+async def test_status_refuses_an_export_past_the_size_bound_before_writing(tmp_path, monkeypatch):
+    monkeypatch.setattr(g.settings, "max_export_tree_mb", 1)
+    getter = _repo_getter(tmp_path)
+    await g.status(getter, "e1", _zip({"keep.txt": "kept"}), "main", None)
+    with pytest.raises(g.GitError) as err:
+        await g.status(getter, "e1", _inflating_zip(2 * 1024 * 1024), "main", None)
+    assert err.value.code == "archive_too_large"
+    assert (tmp_path / "e1" / "keep.txt").read_text() == "kept"
+    assert not (tmp_path / "e1" / "data.bin").exists()
+
+
+async def test_status_refuses_an_export_past_the_member_count_bound(tmp_path, monkeypatch):
+    monkeypatch.setattr(g.safe_zip, "MAX_MEMBERS", 2)
+    with pytest.raises(g.GitError) as err:
+        await g.status(_repo_getter(tmp_path), "e1", _zip({"a": "1", "b": "2", "c": "3"}), "main", None)
+    assert err.value.code == "archive_too_large"
+
+
+async def test_status_refuses_an_export_past_the_free_disk_space(tmp_path, monkeypatch):
+    monkeypatch.setattr(g.shutil, "disk_usage", lambda _p: shutil._ntuple_diskusage(10**9, 10**9, 1024))
+    with pytest.raises(g.GitError) as err:
+        await g.status(_repo_getter(tmp_path), "e1", _inflating_zip(1024 * 1024), "main", None)
+    assert err.value.code == "archive_too_large"
+
+
+async def test_status_answers_a_git_error_for_an_unreadable_export(tmp_path):
+    with pytest.raises(g.GitError):
+        await g.status(_repo_getter(tmp_path), "e1", b"not a zip", "main", None)
+
+
+async def test_status_accepts_an_export_within_the_bound(tmp_path, monkeypatch):
+    monkeypatch.setattr(g.settings, "max_export_tree_mb", 2)
+    result = await g.status(_repo_getter(tmp_path), "e1", _inflating_zip(1024 * 1024), "main", None)
+    assert [f["path"] for f in result["files"]] == ["data.bin"]
+
+
+def test_zip_files_refuses_past_the_memory_bound(monkeypatch):
+    monkeypatch.setattr(g.settings, "max_export_tree_memory_mb", 1)
+    with pytest.raises(g.GitError) as err:
+        g._zip_files(_inflating_zip(2 * 1024 * 1024))
+    assert err.value.code == "archive_too_large"
+    assert g._zip_files(_inflating_zip(1024)) == {"data.bin": b"\0" * 1024}
+
+
+async def test_clone_to_zip_refuses_past_the_memory_bound(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(source)], check=True, env=g._git_env())
+    (source / "data.bin").write_bytes(os.urandom(1024 * 1024 + 4096))
+    subprocess.run(["git", "-C", str(source), "add", "-A"], check=True, env=g._git_env())
+    subprocess.run(
+        ["git", "-C", str(source), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "c"],
+        check=True, env=g._git_env(),
+    )
+    monkeypatch.setattr(g.settings, "max_export_tree_memory_mb", 1)
+    with pytest.raises(g.GitError) as err:
+        await g.clone_to_zip(str(source), "main", None)
+    assert err.value.code == "archive_too_large"

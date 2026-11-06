@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { deleteProjectData } from '@/lib/entity-io'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
+import { setPluginWorkspaceResolver } from '@/lib/plugins/registry'
 import { isShellHtml, toLocalized, setLocalized, localized } from '@/lib/localized'
 import type { Workspace, GitRemoteConfig, Language, ProjectBadge, BadgeCategory, LocalizedString, EntityLicense } from '@/types'
 import { useAppStore, registerWorkspaceStore, stampAuthored, stampLineage } from './app-store'
@@ -397,3 +398,10 @@ useOrganizationStore.subscribe((state, prevState) => {
  *  checked against). */
 export const getActiveWorkspaceId = (): string | undefined =>
   useWorkspaceStore.getState().activeWorkspaceId ?? undefined
+
+// A widget runs in its project's workspace, whichever one the sidebar shows.
+setPluginWorkspaceResolver(() => {
+  const { activeProjectUid, _projectsRaw } = useAppStore.getState()
+  const project = activeProjectUid ? _projectsRaw.find((p) => p.uid === activeProjectUid) : undefined
+  return project?.workspaceId ?? useWorkspaceStore.getState().activeWorkspaceId
+})

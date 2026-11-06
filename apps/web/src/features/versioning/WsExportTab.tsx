@@ -19,6 +19,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
+import { NoticeBanner } from '@/components/ui/notice-banner'
 import {
   Card,
   CardContent,
@@ -115,6 +116,7 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
   const { wsUid: resolvedWsUid } = useResolvedParams()
   const wsUid = workspaceId ?? resolvedWsUid
   const { exportZip, loading } = useWorkspaceVersioningStore()
+  const [leftOutProjects, setLeftOutProjects] = useState(0)
   const [exporting, setExporting] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [counts, setCounts] = useState<Record<string, number>>({})
@@ -286,10 +288,12 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
     if (!wsUid) return
     setExporting(true)
     try {
-      await exportZip(wsUid, {
+      setLeftOutProjects(0)
+      const { leftOutProjects } = await exportZip(wsUid, {
         sections: Object.fromEntries(ALL_KEYS.map(k => [k, selected.has(k)])) as Record<string, boolean>,
         excludeEntities: Object.fromEntries([...excludedEntities].map(id => [id, true])),
       })
+      setLeftOutProjects(leftOutProjects)
     } finally {
       setExporting(false)
     }
@@ -481,6 +485,13 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
       <CardHeader className="shrink-0">
         <CardTitle className="text-sm">{t('versioning.export_title')}</CardTitle>
         <CardDescription>{t('app_versioning.export_description')}</CardDescription>
+        {leftOutProjects > 0 && (
+          <NoticeBanner
+            tone="warning"
+            title={t('app_versioning.export_left_out', { count: leftOutProjects })}
+            onDismiss={() => setLeftOutProjects(0)}
+          />
+        )}
         {/* Select all / none — kept in the (non-scrolling) header so they stay visible on scroll. */}
         <div className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
           <button type="button" className="underline hover:text-foreground" onClick={() => setAllSections(true)}>

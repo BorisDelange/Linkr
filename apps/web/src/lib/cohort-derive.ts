@@ -4,7 +4,7 @@
  * request the server runs (see `apps/api/app/services/data/cohort_derive.py`).
  */
 import { ensureUniqueAlias, generateAlias } from '@/lib/alias'
-import type { DerivePlanTable, DeriveRequest, DeriveScope } from '@/lib/api/data-sources'
+import type { DerivePlanTable, DeriveRequest, DeriveScope, DeriveTableRef } from '@/lib/api/data-sources'
 import { buildCohortMembershipSql, conceptEventTables, type RelationNarrowing } from '@/lib/duckdb/cohort-query'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import { eventRelations } from '@/lib/schema-classes/relations'
@@ -100,6 +100,12 @@ export function copyableTables(plan: readonly DerivePlanTable[]): DerivePlanTabl
 /** The tables holding no patient data (a vocabulary, the care sites): copied whole. */
 export function personlessTables(plan: readonly DerivePlanTable[]): DerivePlanTable[] {
   return copyableTables(plan).filter((p) => !p.filter)
+}
+
+/** The tables nothing shows to be personless: never copied unless the user ticks
+ *  each one, and then whole, with no filter on the cohort and no id replaced. */
+export function unprovenTables(plan: readonly DerivePlanTable[]): DerivePlanTable[] {
+  return plan.filter((p) => p.unproven && !p.unresolved)
 }
 
 export type VariableSelection = NonNullable<DerivationOptions['variables']>
@@ -228,6 +234,8 @@ export function derivationRequest(input: {
   narrowing?: RelationNarrowing
   /** What is kept and how it is pseudonymised; absent: everything, as it is. */
   options?: DerivationOptions
+  /** The caller's explicit opt-in for this build: stored nowhere a rebuild reads. */
+  copyUnprovenTables?: DeriveTableRef[]
 }): Omit<DeriveRequest, 'target'> {
   const { cohort, source } = input
   const built = source.schemaMapping ? buildCohortMembershipSql(cohort as Cohort, source.schemaMapping, input.narrowing) : null
@@ -255,6 +263,7 @@ export function derivationRequest(input: {
     ...(cohort.id ? { cohortId: cohort.id } : {}),
     derivedFrom,
     ...(input.options && source.schemaMapping ? optionFields(input.options, source.schemaMapping) : {}),
+    ...(input.copyUnprovenTables?.length ? { copyUnprovenTables: input.copyUnprovenTables } : {}),
   }
 }
 

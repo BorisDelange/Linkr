@@ -443,6 +443,11 @@ def test_websocket_needs_its_owners_session(monkeypatch):
         port = s.getsockname()[1]
     app = _app(app_id="wsapp", port=port, status="ready", base_path="/api/v1/apps/wsapp/proxy/")
     monkeypatch.setitem(web_apps.manager._apps, "wsapp", app)
+
+    async def owner_may_run(_app, _issued_us) -> bool:
+        return True
+
+    monkeypatch.setattr(apps_route, "_owner_may_run", owner_may_run)
     name = apps_route._session_cookie("wsapp")
     later = int(time.time()) + 60
     path = "/api/v1/apps/wsapp/proxy/ws"

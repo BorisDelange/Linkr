@@ -624,11 +624,26 @@ def _readme_files(readme: Any) -> dict[str, bytes]:
     return out
 
 
-_DATA_EXTENSIONS = (".csv", ".parquet", ".pq", ".xlsx", ".xls")
+# Twin of CODE_FILE_EXTENSIONS / CODE_FILE_NAMES (entity-io.ts), compared by the
+# tests of each side: what is not known as code or a document counts as data, so
+# a script's `cohort.tsv` or `results.json` leaves only when marked.
+_CODE_EXTENSIONS = frozenset({
+    ".sql", ".py", ".r", ".rmd", ".qmd", ".ipynb", ".rproj", ".jl", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ts",
+    ".jsx", ".tsx", ".css", ".html", ".md", ".markdown", ".rst", ".tex", ".bib", ".yml", ".yaml", ".toml", ".ini",
+    ".cfg", ".lock",
+})
+_CODE_NAMES = frozenset({
+    "makefile", "dockerfile", "license", "readme", "notice", ".gitignore", ".gitattributes", ".rprofile",
+    ".python-version", "requirements.txt",
+})
 
 
 def _is_data_ext(path: str) -> bool:
-    return path.lower().endswith(_DATA_EXTENSIONS)
+    name = path.lower().rsplit("/", 1)[-1]
+    if name in _CODE_NAMES:
+        return False
+    dot = name.rfind(".")
+    return dot <= 0 or name[dot:] not in _CODE_EXTENSIONS
 
 
 def _gitignore_escape(p: str) -> str:
@@ -786,15 +801,16 @@ def build_project_tree(
     if ide:
         by_id = {f["id"]: f for f in ide}
 
-        def _is_excluded_code(f: dict) -> bool:
+        def _left_out(f: dict) -> bool:
             # Code files are versioned by default; an excludedFiles entry omits the
-            # file from the tree entirely (data files opt IN via versioned_data_files).
+            # file from the tree entirely. Data files opt IN via versioned_data_files,
+            # on every exit: a .gitignore protects a push, not a downloaded ZIP.
             if f.get("type") != "file":
                 return False
             tp = _ide_path(f, by_id)
-            return not _is_data_ext(tp) and tp in excluded
+            return tp not in versioned_data_files if _is_data_ext(tp) else tp in excluded
 
-        tree_files = [f for f in ide if not _is_excluded_code(f)]
+        tree_files = [f for f in ide if not _left_out(f)]
         # Only emit the tree when something survives the exclusions — otherwise every
         # script is excluded and we'd version a useless `scripts/_tree.json: []`.
         if tree_files:
@@ -818,13 +834,12 @@ def build_project_tree(
             )
         for f in ide:
             if f.get("type") == "file" and f.get("content") is not None:
-                if _is_excluded_code(f):
+                if _left_out(f):
                     continue
                 tree_path = _ide_path(f, by_id)
                 tree[tree_path] = str(f["content"]).encode("utf-8")
-                # A data file under scripts/ (e.g. a reference CSV) is gitignored like
-                # any data file; re-include it when marked (key = its scripts/ path).
-                if _is_data_ext(tree_path) and tree_path in versioned_data_files:
+                # Marked (key = its scripts/ path): re-included past the ignore rules.
+                if _is_data_ext(tree_path):
                     included_data_paths.append(tree_path)
 
     # Managed-environment specs (manifest + lockfile) under environments/<lang>/.

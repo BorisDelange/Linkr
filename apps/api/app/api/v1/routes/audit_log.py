@@ -66,7 +66,8 @@ async def export_entries(
 ):
     """Every entry matching the filters, as CSV — not just the page on screen."""
     tmp = Path(tempfile.mkstemp(suffix=".csv")[1])
-    await asyncio.to_thread(audit.export_csv, tmp, sort, desc, parse_filters(filters))
+    rows = await asyncio.to_thread(audit.export_csv, tmp, sort, desc, parse_filters(filters))
+    audit.bind(action="export", row_count=rows, detail=f"access log, filters {filters or 'none'}")
     background.add_task(tmp.unlink, missing_ok=True)
     return FileResponse(tmp, media_type="text/csv", filename="linkr-access-log.csv")
 

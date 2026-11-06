@@ -88,9 +88,15 @@ def test_validate_not_writable(tmp_path):
         os.chmod(d, 0o700)
 
 
-def test_copy_tree_conflict_strategies(tmp_path):
-    src = tmp_path / "src"
-    dst = tmp_path / "dst"
+@pytest.fixture
+def outside_data_dir(tmp_path_factory):
+    """Each test's data folder is its tmp_path, which a copy refuses."""
+    return tmp_path_factory.mktemp("server")
+
+
+def test_copy_tree_conflict_strategies(outside_data_dir):
+    src = outside_data_dir / "src"
+    dst = outside_data_dir / "dst"
     (src / "sub").mkdir(parents=True)
     dst.mkdir()
     (src / "a.txt").write_text("from-src")
@@ -98,36 +104,36 @@ def test_copy_tree_conflict_strategies(tmp_path):
     (dst / "a.txt").write_text("from-dst")
 
     # ignore: keep dst's a.txt, still copy the new nested file.
-    res = fs_browser.copy_tree(str(src), str(dst), "ignore")
+    res = fs_browser.copy_tree(str(src), str(dst), "ignore", _open())
     assert (dst / "a.txt").read_text() == "from-dst"
     assert (dst / "sub" / "b.txt").read_text() == "nested"
     assert res["skipped"] == 1 and res["copied"] == 1
 
     # overwrite: replace a.txt.
-    fs_browser.copy_tree(str(src), str(dst), "overwrite")
+    fs_browser.copy_tree(str(src), str(dst), "overwrite", _open())
     assert (dst / "a.txt").read_text() == "from-src"
 
     # keep_both: write a suffixed copy alongside.
     (dst / "a.txt").write_text("from-dst-again")
-    fs_browser.copy_tree(str(src), str(dst), "keep_both")
+    fs_browser.copy_tree(str(src), str(dst), "keep_both", _open())
     assert (dst / "a.txt").read_text() == "from-dst-again"
     assert (dst / "a (2).txt").read_text() == "from-src"
 
 
-def test_copy_tree_rejects_dst_inside_src(tmp_path):
-    src = tmp_path / "src"
+def test_copy_tree_rejects_dst_inside_src(outside_data_dir):
+    src = outside_data_dir / "src"
     (src / "inner").mkdir(parents=True)
     with pytest.raises(fs_browser.FsBrowseError):
-        fs_browser.copy_tree(str(src), str(src / "inner"), "ignore")
+        fs_browser.copy_tree(str(src), str(src / "inner"), "ignore", _open())
 
 
-def test_copy_tree_invalid_strategy(tmp_path):
-    src = tmp_path / "src"
-    dst = tmp_path / "dst"
+def test_copy_tree_invalid_strategy(outside_data_dir):
+    src = outside_data_dir / "src"
+    dst = outside_data_dir / "dst"
     src.mkdir()
     dst.mkdir()
     with pytest.raises(fs_browser.FsBrowseError):
-        fs_browser.copy_tree(str(src), str(dst), "bogus")
+        fs_browser.copy_tree(str(src), str(dst), "bogus", _open())
 
 
 def test_validate_binding_path_enforces_browse_roots(monkeypatch, server_dir):

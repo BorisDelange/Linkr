@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import audit
 from app.core.database import describe_app_database, get_db
 from app.core.permissions import require_global_permission
 from app.models.user import User
@@ -112,6 +113,7 @@ async def query_app_database(
             status.HTTP_400_BAD_REQUEST,
             "Only a single read-only SELECT (or WITH … SELECT) statement is allowed.",
         )
+    audit.bind(action="query", detail=body.sql)
     # Start a fresh transaction: a READ ONLY mode must be set before its first query.
     await db.rollback()
     conn = await db.connection()
@@ -136,6 +138,7 @@ async def query_app_database(
             except Exception:  # noqa: BLE001
                 await conn.invalidate()
         await db.rollback()
+    audit.bind(row_count=len(rows))
     return QueryResult(rows=rows)
 
 

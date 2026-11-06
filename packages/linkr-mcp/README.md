@@ -39,7 +39,11 @@ about 6k tokens of definitions instead of ~40k for all ~230:
   annotation, so the client's approval still tells reads from writes from deletions.
   Tools that run code or SQL scripts (`run_code`, `run_script`, `run_as_job`,
   `install_packages`, `run_etl_pipeline`) count as deletions: they can overwrite or
-  delete data, so the client asks first. Arguments are validated against the tool's own schema.
+  delete data, so the client asks first. So do the tools that store code the app runs when
+  someone opens a page (`create_user_plugin`, `update_user_plugin`, `create_dataset_analysis`,
+  `update_dataset_analysis`) and the one choosing where installed code comes from
+  (`set_environment_options`): running it later is a code run all the same. Arguments are
+  validated against the tool's own schema.
 
 The list never changes, so nothing is configured in the client: add the server, done.
 `LINKR_MCP_TOOLSETS` exposes families directly on top of the core (`mapping`,
@@ -84,7 +88,7 @@ details, API keys, git host tokens) — see `docs/design/ai-agents-plan.md` §6.
 | `list_concept_sets`, `get_concept_set` | the workspace's imported data dictionaries (read-only): resolved concept ids, `uniqueId`, long description with its Mapping Notes |
 | `list_concept_lists`, `get_concept_list`, `create_concept_list`, `update_concept_list`, `delete_concept_list` | the project's hand-picked concept lists |
 | `list_database_cohorts`, `plan_cohort_derivation` | a database's own cohorts (and the derivations whose key can be reused); whether a cohort can be derived, what the copy does with each table at a scope, and the id columns pseudonymisation replaces |
-| `derive_database_from_cohort` | the app's *Derive*: a new database, or a SQL schema of a writable DuckDB, Postgres, SQL Server, Doris or Oracle database, restricted to a cohort — minimised (scope, tables, variables, birth-date precision) and pseudonymised as the dialog does by default (keyed hash, key kept; optional correspondence table); creates the managed target first, starts the server job, returns its `job_id` at once. A write account is entered by the user in Linkr, never through the agent |
+| `derive_database_from_cohort` | the app's *Derive*: a new database, or a SQL schema of a writable DuckDB, Postgres, SQL Server, Doris or Oracle database, restricted to a cohort — minimised (scope, tables, variables, birth-date precision) and pseudonymised as the dialog does by default (keyed hash, key kept; optional correspondence table); a table nothing shows to be personless is skipped unless `copy_unproven_tables` names it, the explicit opt-in that copies it whole, unfiltered and not pseudonymised; creates the managed target first, starts the server job, returns its `job_id` at once. A write account is entered by the user in Linkr, never through the agent |
 | `get_job_status`, `cancel_job` | a job's status, progress, log tail and, for a finished derivation, the database id to query |
 
 ### `dq` — data quality

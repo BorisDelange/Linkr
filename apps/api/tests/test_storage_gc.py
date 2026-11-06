@@ -316,3 +316,75 @@ async def test_sweep_on_empty_data_dir_is_a_noop():
 
     assert report.total_bytes == 0
     assert report.missing_blobs == []
+
+
+def _left_behind(*names: str):
+    root = settings.data_path / "_databases"
+    root.mkdir(parents=True, exist_ok=True)
+    paths = [root / name for name in names]
+    for path in paths:
+        path.write_bytes(b"z" * 8)
+        _age(path, storage_gc.BLOB_MIN_AGE_SECONDS + 60)
+    return paths
+
+
+async def _live_source(db, source_id: str) -> None:
+    from app.models.data_source import DataSource
+    from app.models.workspace import Workspace
+
+    workspace = Workspace(name={"en": "W"})
+    db.add(workspace)
+    await db.flush()
+    db.add(DataSource(
+        id=source_id, workspace_id=workspace.id, alias=source_id, name={"en": source_id},
+        source_type="database", connection_config={"engine": "duckdb", "managed": True},
+    ))
+    await db.commit()
+
+
+async def test_collects_the_database_files_and_concept_lists_of_a_database_with_no_row(db):
+    await _live_source(db, "live")
+    [dead, wal, live] = _left_behind("dead.duckdb", "dead.duckdb.wal", "live.duckdb")
+    concepts = settings.data_path / "_cache" / "concept-lists"
+    concepts.mkdir(parents=True)
+    dead_list = concepts / "dead.parquet"
+    dead_list.write_bytes(b"z")
+    _age(dead_list, storage_gc.BLOB_MIN_AGE_SECONDS + 60)
+    live_list = concepts / "live.parquet"
+    live_list.write_bytes(b"z")
+    _age(live_list, storage_gc.BLOB_MIN_AGE_SECONDS + 60)
+    dead_run = concepts / "dead.run"
+    dead_run.mkdir()
+    _age(dead_run, storage_gc.BLOB_MIN_AGE_SECONDS + 60)
+
+    measured = await storage_gc.sweep(dry_run=True)
+    assert measured.orphan_database_files == 4
+    assert dead.exists()
+
+    report = await storage_gc.sweep()
+    assert not dead.exists() and not wal.exists() and not dead_list.exists() and not dead_run.exists()
+    assert live.exists() and live_list.exists()
+    assert report.orphan_database_files == 4
+    assert report.total_bytes >= report.orphan_database_bytes > 0
+
+
+async def test_spares_a_young_database_file_with_no_row(db):
+    await _live_source(db, "live")
+    root = settings.data_path / "_databases"
+    root.mkdir(parents=True)
+    young = root / "young.duckdb"
+    young.write_bytes(b"z")
+
+    report = await storage_gc.sweep()
+
+    assert young.exists()
+    assert report.orphan_database_files == 0
+
+
+async def test_refuses_to_sweep_every_database_file_when_the_db_has_no_database():
+    [only] = _left_behind("only.duckdb")
+
+    report = await storage_gc.sweep()
+
+    assert only.exists()
+    assert report.orphan_database_files == 0

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import audit, deferred
 from app.core.database import get_db
 from app.core.deps import get_current_user, get_session_user
-from app.core.permissions import check_workspace_permission
+from app.core.permissions import check_workspace_permission, has_permission
 from app.core.redact import redact_secrets
 from app.models.cohort import Cohort
 from app.models.data_source import DataSource
@@ -74,6 +74,8 @@ from app.services import (
     concept_profile_service,
     concept_stats_cache_service,
     data_source_service,
+    database_binding,
+    code_acceptance_service,
     database_credential_service,
     fs_browser,
     notification_service,
@@ -104,6 +106,36 @@ async def _load_source(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     await _require_source_access(db, source, user, permission)
     return source
+
+
+async def _require_owner_for_new_free_sql(
+    db: AsyncSession, workspace_id: str | None, user: User, config: dict | None, after: set[str], held: set[str]
+) -> None:
+    """A schema mapping's SQL runs under the login of whoever reads the database,
+    and what it reads lands where its writer may read it. With per-user logins,
+    adding some is the owner's call (`databases:delete` is the owner-only grant
+    on a database); keeping or removing what is there stays an edit."""
+    if (config or {}).get("engine") not in database_credential_service.EXTERNAL_ENGINES or after <= held:
+        return
+    if not await has_permission(db, workspace_id, user, "databases:delete"):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only a workspace owner can add custom SQL to this database's schema mapping: it runs under each member's own login.",
+        )
+
+
+async def _mark_unaccepted_free_sql(db: AsyncSession, user: User, sources: list[DataSource]) -> None:
+    """Stored SQL runs under the reader's own login, whoever wrote it: each reader
+    accepts its text first, as with stored code (code_acceptance_service). Only the
+    clients compose queries from a mapping, so they hold the relations back on this."""
+    held = {
+        s.id: data_source_service.free_sql_fragments([s.schema_mapping, s.schema_overrides])
+        for s in sources if database_credential_service.is_external(s)
+    }
+    texts = set().union(*held.values())
+    accepted = await code_acceptance_service.accepted_among(db, user, texts) if texts else set()
+    for source in sources:
+        source.unaccepted_free_sql = sorted(held.get(source.id, set()) - accepted)
 
 
 async def _login(db: AsyncSession, source: DataSource, user: User):
@@ -160,7 +192,9 @@ async def list_data_sources(
 ):
     if workspace_id is not None:
         await check_workspace_permission(db, workspace_id, user, "databases:read")
-        return await data_source_service.list_for_workspace(db, workspace_id)
+        listed = list(await data_source_service.list_for_workspace(db, workspace_id))
+        await _mark_unaccepted_free_sql(db, user, listed)
+        return listed
     # No workspace filter: return sources the user can see (admin sees all).
     sources = await data_source_service.list_all(db)
     visible: list[DataSource] = []
@@ -170,6 +204,7 @@ async def list_data_sources(
             visible.append(s)
         except HTTPException:
             continue
+    await _mark_unaccepted_free_sql(db, user, visible)
     return visible
 
 
@@ -181,6 +216,10 @@ async def create_data_source(
     db: AsyncSession = Depends(get_db),
 ):
     await check_workspace_permission(db, body.workspace_id, user, "databases:write")
+    await _require_owner_for_new_free_sql(
+        db, body.workspace_id, user, body.connection_config,
+        data_source_service.free_sql_fragments([body.schema_mapping, body.schema_overrides]), set(),
+    )
     try:
         source = await data_source_service.create(db, body, user)
     except fs_browser.FsBrowseError as exc:
@@ -188,6 +227,7 @@ async def create_data_source(
     except data_source_service.AliasTaken as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     await _notify(db, request, user, "created", source, notify=not _awaiting_build(source))
+    await _mark_unaccepted_free_sql(db, user, [source])
     return source
 
 
@@ -287,7 +327,9 @@ async def get_data_source(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _load_source(db, source_id, user, "databases:read")
+    source = await _load_source(db, source_id, user, "databases:read")
+    await _mark_unaccepted_free_sql(db, user, [source])
+    return source
 
 
 @router.patch("/{source_id}", response_model=DataSourceResponse)
@@ -299,6 +341,21 @@ async def update_data_source(
     db: AsyncSession = Depends(get_db),
 ):
     source = await _load_source(db, source_id, user, "databases:write")
+    sent = body.model_fields_set
+    held_mapping = [source.schema_mapping, source.schema_overrides]
+    await _require_owner_for_new_free_sql(
+        db, source.workspace_id, user,
+        body.connection_config if "connection_config" in sent else source.connection_config,
+        data_source_service.free_sql_fragments([
+            body.schema_mapping if "schema_mapping" in sent else source.schema_mapping,
+            body.schema_overrides if "schema_overrides" in sent else source.schema_overrides,
+        ]),
+        data_source_service.free_sql_fragments(held_mapping) if database_credential_service.is_external(source) else set(),
+    )
+    # Counted without the relations held back: not the database's counts.
+    await _mark_unaccepted_free_sql(db, user, [source])
+    if source.unaccepted_free_sql:
+        body.model_fields_set.discard("stats")
     before = change_tracking.changed_values(source, body.model_dump(exclude_unset=True))
     try:
         source = await data_source_service.update(db, source, body, editor_id=user.id)
@@ -308,6 +365,7 @@ async def update_data_source(
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     if before:
         await _notify(db, request, user, "updated", source, notify=not before.keys() <= _SIDE_FIELDS)
+    await _mark_unaccepted_free_sql(db, user, [source])
     return source
 
 
@@ -637,6 +695,8 @@ async def _launch_derive(
         finally:
             cohort_derive_service.release(ids[1], handle.job_id)
         await handle.log(f"{result['patient_count']} patients, {len([t for t in result['tables'] if not t['skipped']])} tables")
+        if copied := cohort_derive_service.unproven_copied(result["tables"]):
+            audit.bind(detail=f"{label}; opted in, copied whole with no cohort filter: {', '.join(copied)}")
         await handle.set_result({
             "targetId": ids[1],
             "cohortId": ids[2],
@@ -721,12 +781,32 @@ async def create_from_ddl(
     config["managed"] = True
     config.pop("inMemory", None)
     source = await data_source_service.update(
-        db, source, DataSourceUpdate(connection_config=config), managed_path_set=new_location
+        db, source, DataSourceUpdate(connection_config=config), managed_path_set=new_location,
+        built_managed_file=True,
     )
     # A rebuild in place leaves the config as it was: `update` sees no change.
     await data_source_service.invalidate_concept_caches(db, source.id)
     await _notify(db, request, user, "created" if first_build else "updated", source)
     return source
+
+
+async def _etl_roles(
+    db: AsyncSession, target: DataSource, requested: dict[str, str] | None, user: User,
+) -> dict[str, DataSource]:
+    """The databases attached beside `target`, all of its workspace: a script's
+    output lands in the target, where that workspace's members read it. The `vocab`
+    role alone may reach further, a vocabulary reference being a lookup table."""
+    roles: dict[str, DataSource] = {}
+    for role, ds_id in (requested or {}).items():
+        if role == "target" or not ds_id:
+            continue
+        source = await _load_source(db, ds_id, user, "databases:read")
+        if database_binding.is_foreign(source, target.workspace_id, allow_vocabulary=role == "vocab"):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, database_binding.FOREIGN_DATABASE)
+        roles[role] = source
+    for role_source in roles.values():
+        await _login(db, role_source, user)
+    return roles
 
 
 @router.post("/{source_id}/etl-run", response_model=QueryResult)
@@ -739,13 +819,7 @@ async def etl_run(
     """Run ETL SQL: this source is the writable target, `roles` the databases
     attached read-only alongside it so one statement can span several."""
     target = await _load_source(db, source_id, user, "databases:write")
-    roles: dict[str, DataSource] = {}
-    for role, ds_id in (body.roles or {}).items():
-        if role == "target" or not ds_id:
-            continue
-        roles[role] = await _load_source(db, ds_id, user, "databases:read")
-    for role_source in roles.values():
-        await _login(db, role_source, user)
+    roles = await _etl_roles(db, target, body.roles, user)
 
     async def work() -> QueryResult:
         try:
@@ -802,13 +876,7 @@ async def start_etl_job(
     target = await _load_source(db, source_id, user, "databases:write")
     if not target.workspace_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "this database belongs to no workspace")
-    roles: dict[str, DataSource] = {}
-    for role, ds_id in (body.roles or {}).items():
-        if role == "target" or not ds_id:
-            continue
-        roles[role] = await _load_source(db, ds_id, user, "databases:read")
-    for role_source in roles.values():
-        await _login(db, role_source, user)
+    roles = await _etl_roles(db, target, body.roles, user)
     return await etl_jobs.start(db, target, roles, user.id, body.label, body.sql, body.mapping_data)
 
 
@@ -878,7 +946,10 @@ async def get_flight_status(
     # Tracked outside the conversion: the job keeps the text the caller may read.
     async with jobs.tracked(user.id, f"{_named(source)} · check Arrow Flight", workspace_id=source.workspace_id):
         try:
-            return await data_source_service.flight_status(source, login)
+            found = await data_source_service.flight_status(source, login)
+            if found.get("detail"):
+                found["detail"] = _connection_error(user, "flight_check", found["detail"], source)
+            return found
         except database_credential_service.CredentialRequired:
             raise
         except Exception as e:  # noqa: BLE001 — the database itself is unreachable: the page says so elsewhere

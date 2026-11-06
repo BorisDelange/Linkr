@@ -18,7 +18,7 @@ from app.schemas.etl_pipeline import (
     EtlRunHistoryUpdate,
 )
 from app.schemas.stats_cache import StatsCacheResponse, StatsCacheSave
-from app.services import change_tracking, etl_pipeline_service, notification_service, stats_cache_service, undo_service
+from app.services import change_tracking, database_binding, etl_pipeline_service, notification_service, stats_cache_service, undo_service
 
 router = APIRouter(tags=["etl-pipelines"])
 
@@ -137,6 +137,10 @@ async def create_pipeline(
     db: AsyncSession = Depends(get_db),
 ):
     await check_workspace_permission(db, body.workspace_id, user, "etl:write")
+    await database_binding.require_bindable(
+        db, body.workspace_id, user, [body.source_data_source_id, body.target_data_source_id]
+    )
+    await database_binding.require_mapping_project_local(db, body.workspace_id, body.mapping_project_id)
     pipeline = await etl_pipeline_service.create(db, body)
     await _notify(db, request, user, "created", pipeline, undo=undo_service.created("etl_pipeline", pipeline))
     return pipeline
@@ -160,6 +164,12 @@ async def update_pipeline(
     db: AsyncSession = Depends(get_db),
 ):
     pipeline = await _load_pipeline(db, pipeline_id, user, "etl:write")
+    await database_binding.require_bindable(
+        db, pipeline.workspace_id, user,
+        database_binding.changed_ids(pipeline, body, "source_data_source_id", "target_data_source_id"),
+    )
+    for mapping_project_id in database_binding.changed_ids(pipeline, body, "mapping_project_id"):
+        await database_binding.require_mapping_project_local(db, pipeline.workspace_id, mapping_project_id)
     before = change_tracking.changed_values(pipeline, body.model_dump(exclude_unset=True))
     pipeline = await etl_pipeline_service.update(db, pipeline, body)
     if before:
@@ -219,6 +229,7 @@ async def create_file(
     db: AsyncSession = Depends(get_db),
 ):
     pipeline = await _load_pipeline(db, body.pipeline_id, user, "etl:write")
+    await database_binding.require_bindable(db, pipeline.workspace_id, user, [body.data_source_id])
     node = await etl_pipeline_service.create_file(db, body)
     await _notify(
         db, request, user, "updated", pipeline,
@@ -237,6 +248,10 @@ async def update_file(
     db: AsyncSession = Depends(get_db),
 ):
     node = await _load_file(db, file_id, user, "etl:write")
+    owner = await etl_pipeline_service.get(db, node.pipeline_id)
+    await database_binding.require_bindable(
+        db, owner.workspace_id, user, database_binding.changed_ids(node, body, "data_source_id")
+    )
     before = change_tracking.changed_values(node, body.model_dump(exclude_unset=True))
     node = await etl_pipeline_service.update_file(db, node, body)
     if before:
@@ -290,7 +305,14 @@ async def create_run(
 ):
     # Authorized through the pipeline's workspace, which is why pipeline_id is
     # required on the schema rather than optional.
-    await _load_pipeline(db, body.pipeline_id, user, "etl:write")
+    pipeline = await _load_pipeline(db, body.pipeline_id, user, "etl:write")
+    # Every client records its run before the first script: refused here, a pipeline
+    # or a script still pointing at another workspace's database never starts.
+    scripts = await etl_pipeline_service.list_files(db, pipeline.id)
+    await database_binding.require_stored_local(
+        db, pipeline.workspace_id, pipeline.source_data_source_id, pipeline.target_data_source_id,
+        *{node.data_source_id for node in scripts},
+    )
     try:
         run = await etl_pipeline_service.create_run(db, body, user_id=user.id)
     except etl_pipeline_service.RunIdTaken as e:

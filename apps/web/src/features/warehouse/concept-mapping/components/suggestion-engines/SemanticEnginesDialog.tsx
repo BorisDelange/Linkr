@@ -4,6 +4,7 @@ import { Cpu, Download, FolderOpen, Hammer, Loader2, Pencil, Plus, RotateCw, Spa
 import { Badge } from '@/components/ui/badge'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { GatedButton } from '@/components/ui/gated-button'
+import { useAuthStore } from '@/stores/auth-store'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { FileSource } from '@/components/ui/file-source'
 import { Input } from '@/components/ui/input'
@@ -47,6 +48,7 @@ const STACKED = 'col-start-1 row-start-1 flex flex-col gap-6 data-[state=inactiv
  */
 export function SemanticEnginesDialog({ open, onOpenChange, workspaceId, engines, canWrite, reload }: Props) {
   const { t } = useTranslation()
+  const isAdmin = useAuthStore((s) => s.user?.role) === 'admin'
   const [tab, setTab] = useState<Tab>('models')
   const [error, setError] = useState<string | null>(null)
   const [setupJobId, setSetupJobId] = useState<string | null>(null)
@@ -111,8 +113,8 @@ export function SemanticEnginesDialog({ open, onOpenChange, workspaceId, engines
                 </div>
                 {!runtimeJob && (
                   <GatedButton
-                    allowed={canWrite && !setupJob}
-                    notAllowedReason={canWrite ? t('concept_mapping.engines_setup_running') : notAllowed}
+                    allowed={canWrite && isAdmin && !setupJob}
+                    notAllowedReason={!canWrite ? notAllowed : !isAdmin ? t('concept_mapping.engines_runtime_admin_only') : t('concept_mapping.engines_setup_running')}
                     size="xs"
                     variant="outline"
                     className="gap-1"
@@ -213,6 +215,7 @@ function ModelsSection({ workspaceId, engines, canWrite, setupJob, runtimeBusy, 
   onError: (e: string | null) => void
 }) {
   const { t } = useTranslation()
+  const isAdmin = useAuthStore((s) => s.user?.role) === 'admin'
   const [adding, setAdding] = useState<AddOption | null>(null)
   const [repoId, setRepoId] = useState('')
   const [upload, setUpload] = useState<{ done: number; total: number } | null>(null)
@@ -309,8 +312,8 @@ function ModelsSection({ workspaceId, engines, canWrite, setupJob, runtimeBusy, 
             <div className="flex items-center gap-3 rounded-md bg-muted/40 p-3">
               <p className="min-w-0 flex-1 text-xs text-muted-foreground">{t('concept_mapping.engines_default_desc', { repo: defaultRepo })}</p>
               <GatedButton
-                allowed={!runtimeBusy}
-                notAllowedReason={t('concept_mapping.engines_runtime_installing')}
+                allowed={!runtimeBusy && (engines.runtime.installed || isAdmin)}
+                notAllowedReason={runtimeBusy ? t('concept_mapping.engines_runtime_installing') : t('concept_mapping.engines_runtime_admin_only')}
                 size="sm"
                 className="gap-1.5"
                 onClick={() => add(onSetup)}

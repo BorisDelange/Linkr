@@ -241,9 +241,15 @@ def _minimization(body: DeriveRequest) -> cohort_derive.Minimization:
     return cohort_derive.Minimization(
         scope=body.scope,
         tables=None if body.tables is None else {_table_key(t) for t in body.tables},
+        copy_unproven={_table_key(t) for t in body.copy_unproven_tables},
         variables={_table_key(v): (v.columns, v.concept_ids) for v in body.variables},
         dates=dates,
     )
+
+
+def unproven_copied(tables: list[dict]) -> list[str]:
+    """The tables a build copied on the caller's explicit opt-in, where they landed."""
+    return [f"{t['schema']}.{t['table']}" if t.get("schema") else t["table"] for t in tables if t.get("unproven")]
 
 
 def _check_options(body: DeriveRequest) -> None:
@@ -531,8 +537,12 @@ async def _derive(
     patient_count = len(set(members.column("patient_id").to_pylist()))
     built_at = datetime.now(timezone.utc).isoformat()
     derivation = derivation_id(target, body)
+    # From what this build did: the client's `derived_from` says nothing about it.
+    copied_unproven = unproven_copied(tables)
     derived_from = {
-        **(body.derived_from or {}), "builtAt": built_at, "patientCount": patient_count, "derivationId": derivation,
+        **{k: v for k, v in (body.derived_from or {}).items() if k != "copiedUnproven"},
+        "builtAt": built_at, "patientCount": patient_count, "derivationId": derivation,
+        **({"copiedUnproven": copied_unproven} if copied_unproven else {}),
     }
     await _keep_key(db, source, derivation, body, pseudonyms, user_id)
 
@@ -614,6 +624,7 @@ async def _derive(
             "derivationId": derivation,
             # What it kept, so a rebuild from the dialog keeps the same.
             **({"options": derived_from["options"]} if derived_from.get("options") else {}),
+            **({"copiedUnproven": copied_unproven} if copied_unproven else {}),
         }
         kept = [
             d for d in (cohort.derivations or [])

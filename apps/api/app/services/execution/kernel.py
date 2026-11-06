@@ -126,6 +126,62 @@ ChunkHandler = Callable[[str, str], Awaitable[None] | None]
 # and the result table. Batch mode buffers everything and emits one result line
 # (the legacy contract, used by analyses/widgets). Capture mirrors the stateless
 # harness (matplotlib SVG figures, a `result`/last DataFrame as a table).
+# Saving a project file must not execute it. A user kernel's working directory holds
+# files anyone with ide:write can save, so it is searched last, and only a member's
+# code reaches it: not the kernel loop, nor installed code probing for an optional
+# module (pandas does, for a module absent from most environments), nor the names
+# the loop and the injected preambles import. Done here rather than with `-P`, which
+# Python 3.10 refuses and a project's environment may be 3.10. Goes first in the
+# program: `import sys` cannot be shadowed, and `site` ran before the cwd was added.
+_PY_PROJECT_IMPORTS = r'''
+import sys
+
+sys.path[:] = [p for p in sys.path if p]
+sys.path.append("")
+
+
+def _gate_project_imports():
+    import os
+    from importlib.machinery import PathFinder
+
+    kernel_imports = {"pandas", "numpy", "matplotlib", "plotly", "jedi"}
+    kernel_globals = sys.modules["__main__"].__dict__
+    installed = tuple({
+        os.path.join(os.path.realpath(p), "")
+        for p in (
+            sys.prefix, sys.exec_prefix, sys.base_prefix, sys.base_exec_prefix,
+            os.environ.get("LINKR_JEDI_PATH"), *os.environ.get("PYTHONPATH", "").split(os.pathsep),
+        )
+        if p
+    })
+    machinery = ("<frozen importlib", os.path.join(os.path.dirname(os.__file__), "importlib", ""))
+
+    def from_members_code(frame):
+        while frame and frame.f_code.co_filename.startswith(machinery):
+            frame = frame.f_back
+        if frame is None or frame.f_globals is kernel_globals:
+            return False
+        name = frame.f_code.co_filename
+        return name.startswith("<") or not os.path.realpath(name).startswith(installed)
+
+    class ProjectImportGate:
+        @staticmethod
+        def find_spec(name, path=None, target=None):
+            if path is not None or PathFinder.find_spec(name, [""]) is None:
+                return None
+            if PathFinder.find_spec(name, [p for p in sys.path if p]) is not None:
+                return None
+            if name not in kernel_imports and from_members_code(sys._getframe(1)):
+                return None
+            raise ModuleNotFoundError(f"No module named {name!r}", name=name)
+
+    sys.meta_path.insert(sys.meta_path.index(PathFinder), ProjectImportGate)
+
+
+_gate_project_imports()
+'''
+
+
 _PY_KERNEL_LOOP = r'''
 import sys, io, json, base64, signal, time, traceback
 
@@ -1347,7 +1403,11 @@ class KernelManager:
             jedi_site = _jedi_site()
             if jedi_site is not None:
                 env = {**env, "LINKR_JEDI_PATH": jedi_site}
-            argv = [spec.interpreter, *(["-P"] if server_owned else []), "-c", _PY_KERNEL_LOOP]
+            argv = (
+                [spec.interpreter, "-P", "-c", _PY_KERNEL_LOOP]
+                if server_owned
+                else [spec.interpreter, "-c", _PY_PROJECT_IMPORTS + _PY_KERNEL_LOOP]
+            )
             return Kernel(argv, cwd=cwd, owns_cwd=server_owned, env=env, env_stamp=stamp)
         # Run the loop from a file, not `-e`: `-e` silently truncates a long
         # program, and the loop is close enough to that limit that a few added

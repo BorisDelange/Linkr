@@ -77,7 +77,8 @@ export function registerIdeTools(server: Server) {
   }))
 
   server.registerTool('write_script', {
-    description: 'Create or overwrite an IDE script (folders are created as needed). It shows in the user\'s IDE. '
+    description: 'Create or overwrite an IDE script (folders are created as needed). It shows in the user\'s IDE and '
+      + 'nothing runs it until someone does (run_script needs its own approval). '
       + 'Overwriting replaces the whole file: read_script first to keep what is there.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{ project_uid: string; path: string; content: string }>({

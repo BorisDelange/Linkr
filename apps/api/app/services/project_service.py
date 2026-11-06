@@ -84,10 +84,17 @@ async def update(
     await author_provenance.relink_creator_on_update(db, project, changes)
     await db.commit()
     await db.refresh(project)
+    return project
+
+
+async def set_folder_bindings(db: AsyncSession, project: Project, changes: dict) -> Project:
+    for key, value in changes.items():
+        setattr(project, key, value)
+    await db.commit()
+    await db.refresh(project)
     # A re-pointed path binding must invalidate the cache so the next scan/kernel
     # resolves the new server dir.
-    if changes.keys() & {"ide_path", "scripts_path", "datasets_path"}:
-        project_fs.invalidate_binding(project.uid)
+    project_fs.invalidate_binding(project.uid)
     return project
 
 

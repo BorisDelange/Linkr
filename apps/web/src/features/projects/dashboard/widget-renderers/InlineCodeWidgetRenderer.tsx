@@ -11,6 +11,7 @@ import { executeOnServer } from '@/lib/api/execution'
 import { useAppStore } from '@/stores/app-store'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { ExecuteNotPermitted } from '@/components/ui/execute-not-permitted'
+import { localized } from '@/lib/localized'
 
 interface InlineCodeWidgetRendererProps {
   widget: DashboardWidget
@@ -23,7 +24,7 @@ export function InlineCodeWidgetRenderer({ widget }: InlineCodeWidgetRendererPro
 }
 
 function InlineCodeExecutor({ widget }: { widget: DashboardWidget }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { filteredRows, columns, reloadOnTabSwitch, dataSignature, datasetFileId, filters } = useDashboardData()
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
   const canExecute = useMyProjectRole(activeProjectUid ?? undefined).can('dashboards:execute')
@@ -46,6 +47,7 @@ function InlineCodeExecutor({ widget }: { widget: DashboardWidget }) {
           purpose: 'dashboards',
           // Each widget run gets its own isolated process → widgets execute in parallel.
           ephemeral: true,
+          review: { label: localized(widget.name, i18n.language) },
         })
       }
       const executor = await import('@/features/projects/lab/datasets/analysis-executor')

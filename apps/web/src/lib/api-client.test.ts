@@ -99,3 +99,17 @@ describe('an id never moves a request to another route', () => {
     expect(leavesItsRoute('/api/v1/a.b/c..d')).toBe(false)
   })
 })
+
+describe('formatApiError on a refusal with a translated code', () => {
+  it('reads the translation, not the server\'s sentence', () => {
+    const raw = JSON.stringify({ detail: { code: 'database_file_left_behind', message: 'server sentence' } })
+    const { summary } = formatApiError(new ApiError(409, raw))
+    expect(summary).toContain(i18n.t('api_errors.database_file_left_behind'))
+    expect(summary).not.toContain('server sentence')
+  })
+
+  it('keeps the server\'s sentence for a code with no translation', () => {
+    const raw = JSON.stringify({ detail: { code: 'something_else', message: 'server sentence' } })
+    expect(formatApiError(new ApiError(409, raw)).summary).toContain('server sentence')
+  })
+})

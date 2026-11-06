@@ -548,7 +548,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         p.uid === uid ? { ...p, ...patch } : p
       ),
     }))
-    await getStorage().projects.update(uid, patch)
+    await getStorage().projects.setFolderBindings(uid, patch)
   },
 
   setIdeDataSource: async (uid, dataSourceId) => {

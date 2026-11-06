@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { csvField, csvRow, toCsv } from './csv-export'
+import { csvField, csvHumanField, csvRow, spreadsheetText, toCsv } from './csv-export'
 import { parseCsvPreview } from './csv-preview'
 
 describe('csvField', () => {
@@ -78,21 +78,40 @@ describe('toCsv', () => {
   })
 })
 
-describe('csvField refuses spreadsheet formula triggers', () => {
-  // These rows carry names that came from the source data, and Excel/LibreOffice
-  // execute a field starting with = + - @. Quoting is lossless on the DuckDB
-  // read-back, so it costs nothing. The mapping export already did this; the
-  // shared module (used by the ETL quality export) did not.
-  it.each(['=1+1', '+1', '-1', '@SUM(A1)', '\tlead', '\rlead'])('quotes %j', (value) => {
+describe('csvField stays lossless', () => {
+  // Machine consumers (DuckDB read-back, OMOP loaders) must get the value unchanged.
+  // Quotes are CSV syntax a spreadsheet removes: they protect nothing, see csvHumanField.
+  it.each(['=1+1', '+1', '-1', '@SUM(A1)', '\tlead', '\rlead'])('quotes %j and keeps its text', (value) => {
     expect(csvField(value)).toBe(`"${value}"`)
-  })
-
-  it('quotes a formula trigger hidden behind the classic SUM payload', () => {
-    expect(csvField('=cmd|\' /c calc\'!A1')).toBe('"=cmd|\' /c calc\'!A1"')
   })
 
   it('still leaves an ordinary value bare', () => {
     expect(csvField('Heart rate')).toBe('Heart rate')
     expect(csvField('a-b')).toBe('a-b')
+  })
+})
+
+describe('a CSV for people holds text, never a formula', () => {
+  it.each(['=1+1', '+A1', '-A1', '@SUM(A1)', '\tlead', '\rlead', '\nlead', '=HYPERLINK("http://x","y")', '-1+1'])(
+    'prefixes %j with a quote', (value) => {
+      expect(spreadsheetText(value)).toBe(`'${value}`)
+    })
+
+  it.each(['-1', '+1', '-1.5', '-1,5', '+33612345678', '-1e5', '1+1', 'a=b', '-', '=', ''])('leaves %j alone', (value) => {
+    expect(spreadsheetText(value)).toBe(value)
+  })
+
+  it('reads the prefix back through the writer', () => {
+    expect(csvHumanField('=A1,B1')).toBe(`"'=A1,B1"`)
+    expect(csvHumanField(-3)).toBe('"-3"')
+    expect(csvHumanField(null)).toBe('')
+  })
+
+  it('toCsv guards headers and cells', () => {
+    const text = toCsv([{ a: '=A1', n: -2 }], [
+      { header: '@h', value: (r) => r.a },
+      { header: 'n', value: (r) => r.n },
+    ])
+    expect(text).toBe(`'@h,n\r\n'=A1,"-2"\r\n`)
   })
 })

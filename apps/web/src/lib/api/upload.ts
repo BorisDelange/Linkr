@@ -1,4 +1,4 @@
-import { apiFetch, apiRequest } from '@/lib/api-client'
+import { ApiError, apiFetch, apiRequest, codedRefusal } from '@/lib/api-client'
 
 const CHUNK_SIZE = 4 * 1024 * 1024 // 4 MiB
 
@@ -13,6 +13,15 @@ interface CompleteResponse {
   fileName: string
 }
 
+async function requestStating<T>(path: string, init: RequestInit): Promise<T> {
+  try {
+    return await apiRequest<T>(path, init)
+  } catch (e) {
+    const coded = e instanceof ApiError ? codedRefusal(e.message) : null
+    throw coded ? new ApiError((e as ApiError).status, coded) : e
+  }
+}
+
 /**
  * Upload a Blob to the backend in resumable chunks and return its content hash.
  * On a transient failure the caller can simply call this again with the same
@@ -25,7 +34,7 @@ export async function uploadFileInChunks(
 ): Promise<CompleteResponse> {
   const totalChunks = Math.max(1, Math.ceil(blob.size / CHUNK_SIZE))
 
-  const init = await apiRequest<InitResponse>('/uploads', {
+  const init = await requestStating<InitResponse>('/uploads', {
     method: 'POST',
     body: JSON.stringify({ fileName, totalChunks, fileSize: blob.size }),
   })
@@ -41,9 +50,12 @@ export async function uploadFileInChunks(
       body: slice,
       headers: { 'Content-Type': 'application/octet-stream' },
     })
-    if (!res.ok) throw new Error(`chunk ${i} upload failed (${res.status})`)
+    if (!res.ok) {
+      const coded = codedRefusal(await res.text())
+      throw coded ? new ApiError(res.status, coded) : new Error(`chunk ${i} upload failed (${res.status})`)
+    }
     onProgress?.((i + 1) / totalChunks)
   }
 
-  return apiRequest<CompleteResponse>(`/uploads/${uploadId}/complete`, { method: 'POST' })
+  return requestStating<CompleteResponse>(`/uploads/${uploadId}/complete`, { method: 'POST' })
 }

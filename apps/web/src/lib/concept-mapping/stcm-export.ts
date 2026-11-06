@@ -80,13 +80,8 @@ export function buildStcmCsv(
 /**
  * Quote a CSV field when it needs it: the usual separator / quote / newline
  * (concept names routinely contain commas — "Sodium [Moles/volume] in Serum,
- * Plasma"), plus leading/trailing whitespace and a leading spreadsheet
- * formula-trigger.
- *
- * Re-exported from `@/lib/csv-export`, which now carries that rule for every
- * CSV this app writes: the two implementations had drifted, and the shared one
- * — used by the ETL quality export, whose rows carry the same source-derived
- * names — was the weaker of the pair.
+ * Plasma"), plus leading/trailing whitespace. Lossless: this file feeds an OMOP
+ * load, so a value keeps its exact text (see `@/lib/csv-export`).
  */
 export { csvField } from '@/lib/csv-export'
 

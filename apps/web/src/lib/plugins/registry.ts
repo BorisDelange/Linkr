@@ -9,8 +9,21 @@ import {
   listRPackages,
 } from '@/lib/runtimes/webr-engine'
 
-/** Module-level plugin registry. Populated once at startup. */
-const plugins = new Map<string, Plugin>()
+/**
+ * Module-level plugin registry, populated once at startup. A manifest id is unique
+ * per workspace only, and a viewer loads the plugins of every workspace they can
+ * read: a plugin resolves within the workspace of the project at hand, or to the
+ * bundled built-in, never to another workspace's copy.
+ */
+const builtins = new Map<string, Plugin>()
+const byWorkspace = new Map<string, Map<string, Plugin>>()
+
+let currentWorkspace: () => string | null | undefined = () => null
+
+/** Set by the stores, which this module cannot import. */
+export function setPluginWorkspaceResolver(resolve: () => string | null | undefined) {
+  currentWorkspace = resolve
+}
 
 /** Legacy type-name → plugin-id mapping. */
 const LEGACY_IDS: Record<string, string> = {
@@ -22,39 +35,51 @@ const LEGACY_IDS: Record<string, string> = {
 const depsChecked = new Set<string>()
 
 export function registerPlugin(plugin: Plugin) {
-  plugins.set(plugin.manifest.id, plugin)
+  const { workspaceId } = plugin
+  if (!workspaceId) {
+    builtins.set(plugin.manifest.id, plugin)
+    return
+  }
+  let scoped = byWorkspace.get(workspaceId)
+  if (!scoped) byWorkspace.set(workspaceId, (scoped = new Map()))
+  scoped.set(plugin.manifest.id, plugin)
 }
 
-export function unregisterPlugin(id: string) {
-  plugins.delete(id)
+export function unregisterPlugin(id: string, workspaceId?: string | null) {
+  if (workspaceId) byWorkspace.get(workspaceId)?.delete(id)
+  else builtins.delete(id)
 }
 
-export function getPlugin(id: string): Plugin | undefined {
-  return plugins.get(id) ?? plugins.get(resolvePluginId(id))
+export function getPlugin(id: string, workspaceId: string | null | undefined = currentWorkspace()): Plugin | undefined {
+  const scoped = workspaceId ? byWorkspace.get(workspaceId) : undefined
+  const canonical = resolvePluginId(id)
+  return scoped?.get(id) ?? builtins.get(id) ?? scoped?.get(canonical) ?? builtins.get(canonical)
 }
 
+/** The bundled built-in of that id, whatever a workspace holds under it. */
+export function getBuiltinPlugin(id: string): Plugin | undefined {
+  return builtins.get(id)
+}
+
+/** Every registration: built-ins, then each workspace's copies. An id may repeat. */
 export function getAllPlugins(): Plugin[] {
-  return Array.from(plugins.values())
+  return [...builtins.values(), ...[...byWorkspace.values()].flatMap((scoped) => [...scoped.values()])]
 }
 
-/** Return only plugins scoped to Lab (datasets/dashboards).
- *  If workspaceId is provided, only include user plugins belonging to that workspace (built-ins always included). */
-export function getLabPlugins(workspaceId?: string): Plugin[] {
-  return Array.from(plugins.values()).filter(p => {
-    if ((p.manifest.scope ?? 'lab') !== 'lab') return false
-    if (workspaceId && p.workspaceId && p.workspaceId !== workspaceId) return false
-    return true
-  })
+/** What a workspace sees: the built-ins, with its own copies in their place. */
+function visiblePlugins(workspaceId: string | null | undefined): Plugin[] {
+  const scoped = workspaceId ? byWorkspace.get(workspaceId) : undefined
+  return [...new Map([...builtins, ...(scoped ?? [])]).values()]
 }
 
-/** Return only plugins scoped to Warehouse (patient data).
- *  If workspaceId is provided, only include user plugins belonging to that workspace (built-ins always included). */
-export function getWarehousePlugins(workspaceId?: string): Plugin[] {
-  return Array.from(plugins.values()).filter(p => {
-    if (p.manifest.scope !== 'warehouse') return false
-    if (workspaceId && p.workspaceId && p.workspaceId !== workspaceId) return false
-    return true
-  })
+/** Return only plugins scoped to Lab (datasets/dashboards), as a workspace sees them. */
+export function getLabPlugins(workspaceId: string | null | undefined = currentWorkspace()): Plugin[] {
+  return visiblePlugins(workspaceId).filter((p) => (p.manifest.scope ?? 'lab') === 'lab')
+}
+
+/** Return only plugins scoped to Warehouse (patient data), as a workspace sees them. */
+export function getWarehousePlugins(workspaceId: string | null | undefined = currentWorkspace()): Plugin[] {
+  return visiblePlugins(workspaceId).filter((p) => p.manifest.scope === 'warehouse')
 }
 
 /** Maps a legacy short name (e.g. 'table1') to its full plugin id. */

@@ -10,7 +10,7 @@ import base64
 import json
 from pathlib import Path
 
-from app.services.mapping_project_export import build_mapping_project_tree
+from app.services.mapping_project_export import _build_project_json, build_mapping_project_tree
 
 _GOLDEN = (
     Path(__file__).resolve().parents[2]
@@ -190,3 +190,9 @@ def test_concept_set_refs_twin_of_the_client():
         {"uniqueId": "u-2", "sourceRepo": "https://github.com/indicate-eu/data-dictionary"},
     ]
     assert _concept_set_refs(None, sets) == []
+
+
+def test_a_run_s_job_ids_stay_on_this_instance():
+    project = {"id": "p", "sourceExtraction": {"state": "paused", "jobIds": ["j1"], "offset": 3}}
+    built = json.loads(_build_project_json(project, None))
+    assert built["sourceExtraction"] == {"state": "paused", "offset": 3}

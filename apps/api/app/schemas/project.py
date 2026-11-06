@@ -69,11 +69,6 @@ class ProjectUpdate(CamelModel):
     lineage_id: str | None = None
     parent_lineage_id: str | None = None
     catalog_visibility: str | None = None
-    # Absolute server paths the IDE working dir / code / datasets dirs resolve to
-    # (server mode). Machine-local: stripped from exports (see _INSTANCE_FIELDS).
-    ide_path: str | None = None
-    scripts_path: str | None = None
-    datasets_path: str | None = None
     # Editable authoring provenance (author re-attribution + org snapshot).
     created_by_id: int | None = None
     created_by: str | None = None
@@ -84,6 +79,16 @@ class ProjectUpdate(CamelModel):
     # re-applies the repo's real createdAt). A normal PATCH never sends it, so
     # exclude_unset leaves it untouched.
     created_at: datetime | None = None
+
+
+class ProjectFolderBindings(CamelModel):
+    """Absolute server paths the IDE working dir / code / datasets dirs resolve to
+    (server mode). Machine-local: stripped from exports, and set only through their
+    own route, so no generic update built from imported content can carry them."""
+
+    ide_path: str | None = None
+    scripts_path: str | None = None
+    datasets_path: str | None = None
 
 
 class ProjectResponse(CamelModel):

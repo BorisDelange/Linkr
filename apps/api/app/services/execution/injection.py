@@ -10,6 +10,7 @@ apps/web/src/features/projects/lab/datasets/analysis-executor.ts.
 
 import json
 import math
+import re
 
 from app.models.dataset import DatasetFile
 from app.services import blob_store
@@ -41,6 +42,25 @@ R_AS_UTC = r""".linkr_as_utc <- function(x) {
   shift <- ifelse(startsWith(off, "-"), -1, 1) * (as.numeric(substr(hhmm, 1, 2)) * 3600 + as.numeric(substr(hhmm, 3, 4)) * 60)
   .POSIXct(secs - shift, tz = "UTC")
 }"""
+
+
+_CONTEXT_NAME = re.compile(r"[a-z_][a-z0-9_]*")
+
+
+def context_preamble(language: str, values: dict[str, str | int | None]) -> str:
+    """The patient-widget variables as code. A JSON string is a valid string literal
+    in Python and in R, so a value stays a value whatever it holds."""
+    assign, none, head = (
+        ("<-", "NULL", "library(jsonlite)\n\n") if language == "r"
+        else ("=", "None", "import pandas as pd\nimport numpy as np\n\n")
+    )
+    lines = []
+    for name, value in values.items():
+        if not _CONTEXT_NAME.fullmatch(name):
+            raise ValueError(f"Invalid context variable name: {name!r}")
+        literal = none if value is None else json.dumps(value, ensure_ascii=False)
+        lines.append(f"{name} {assign} {literal}\n")
+    return head + "".join(lines)
 
 
 def python_preamble(node: DatasetFile, filters: list[dict] | None = None) -> str:

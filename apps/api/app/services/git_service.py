@@ -32,13 +32,16 @@ import socket
 import subprocess
 import tempfile
 import zipfile
+import zlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote, urlsplit, urlunsplit
 
 import structlog
 
 from app.config import settings
-from app.core import path_ids
+from app.core import path_ids, safe_zip
 from app.services.export_layout import ENTITY_MANIFEST
 
 logger = structlog.get_logger()
@@ -764,6 +767,32 @@ def _safe_join(tree: Path, rel: str) -> Path:
     return dest
 
 
+@contextmanager
+def _export_archive_errors() -> Iterator[None]:
+    """A refused or unreadable export answers as a GitError, the routes' 400."""
+    try:
+        yield
+    except GitError:
+        raise
+    except safe_zip.ZipTooLarge as exc:
+        raise GitError(str(exc), "archive_too_large") from exc
+    except (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError) as exc:
+        raise GitError(f"the export is not a readable ZIP: {exc}") from exc
+
+
+def read_archive(zip_bytes: bytes, max_bytes: int) -> dict[str, bytes]:
+    """An archive's files in memory, within `max_bytes` once decompressed. Raises GitError."""
+    with _export_archive_errors():
+        return safe_zip.read_all(zip_bytes, max_bytes=max_bytes)
+
+
+def _check_room_for(members: list[zipfile.ZipInfo], tree: Path) -> None:
+    needed = sum(info.file_size for info in members)
+    replaced = sum(p.lstat().st_size for p in _tree_files(tree))
+    if needed * 1.05 > shutil.disk_usage(tree).free + replaced:
+        raise safe_zip.ZipTooLarge(f"not enough free disk space to expand the export ({needed} bytes)")
+
+
 def _unpack_zip_into(zip_bytes: bytes, tree: Path) -> None:
     """Replace the working tree's tracked content with the ZIP's, preserving .git.
 
@@ -772,23 +801,25 @@ def _unpack_zip_into(zip_bytes: bytes, tree: Path) -> None:
 
     The ZIP comes from the client and is working-tree content only: no member may
     land in the repository's metadata, because git runs what its own config names
-    (filters, hooks) on the next `git add`. Raises GitError otherwise.
+    (filters, hooks) on the next `git add`. Raises GitError otherwise. Its size is
+    bounded before the tree is touched, so a refused export leaves the tree as it was.
     """
-    for entry in tree.iterdir():
-        if entry.name == ".git":
-            continue
-        # A link left by a remote checkout is removed as a link: rmtree refuses to
-        # follow one and would leave it, and a member written through it later
-        # could resolve into .git.
-        if entry.is_symlink() or not entry.is_dir():
-            entry.unlink(missing_ok=True)
-        else:
-            shutil.rmtree(entry, ignore_errors=True)
-    metadata = (tree / ".git").resolve()
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-        for name in zf.namelist():
-            if name.endswith("/"):
+    with _export_archive_errors(), zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        members = safe_zip.checked_members(zf, max_bytes=settings.max_export_tree_mb * 1024 * 1024)
+        _check_room_for(members, tree)
+        for entry in tree.iterdir():
+            if entry.name == ".git":
                 continue
+            # A link left by a remote checkout is removed as a link: rmtree refuses to
+            # follow one and would leave it, and a member written through it later
+            # could resolve into .git.
+            if entry.is_symlink() or not entry.is_dir():
+                entry.unlink(missing_ok=True)
+            else:
+                shutil.rmtree(entry, ignore_errors=True)
+        metadata = (tree / ".git").resolve()
+        for info in members:
+            name = info.filename
             if _names_git_dir(name):
                 raise GitError(f"export member inside .git: {name}")
             if _names_lfs_config(name):
@@ -797,7 +828,8 @@ def _unpack_zip_into(zip_bytes: bytes, tree: Path) -> None:
             if dest == metadata or metadata in dest.parents:
                 raise GitError(f"export member inside .git: {name}")
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(zf.read(name))
+            with open(dest, "wb") as out:
+                safe_zip.copy_member(zf, info, out)
 
 
 def _crosses_link(tree: Path, rel: str) -> bool:
@@ -1514,8 +1546,7 @@ def _blob_oid(data: bytes) -> str:
 
 
 def _zip_files(zip_bytes: bytes) -> dict[str, bytes]:
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-        return {i.filename: zf.read(i) for i in zf.infolist() if not i.is_dir()}
+    return read_archive(zip_bytes, settings.max_export_tree_memory_mb * 1024 * 1024)
 
 
 def _tree_oids(repo: Path, commit: str | None) -> dict[str, str]:
@@ -2196,6 +2227,8 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> tuple[bytes,
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 for p in _tree_files(repo):
                     zf.write(p, p.relative_to(repo).as_posix())
+                    if buf.tell() > settings.max_export_tree_memory_mb * 1024 * 1024:
+                        raise GitError("the repository is too large to clone here", "archive_too_large")
             return buf.getvalue(), cloned_oid
         finally:
             shutil.rmtree(tmp, ignore_errors=True)

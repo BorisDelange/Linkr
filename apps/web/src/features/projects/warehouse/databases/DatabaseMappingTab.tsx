@@ -17,6 +17,8 @@ import type { DataSource } from '@/types'
 import type { SchemaMapping, SchemaOverrides } from '@/types/schema-mapping'
 import { findSourcePreset } from '@/lib/find-source-preset'
 import { NoticeBanner } from '@/components/ui/notice-banner'
+import { forgetDeclinedCode } from '@/stores/code-acceptance-prompt'
+import { reviewMappingSql } from './mapping-sql-review'
 import type { IntrospectedTable } from '@/lib/duckdb/engine'
 import { loadSourceTables } from '@/lib/sql-catalog'
 import { absentRelations } from '@/lib/schema-classes/presence'
@@ -81,7 +83,10 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
   }
 
   const editing = !!draft
-  const shown = draft?.mapping ?? source.schemaMapping ?? base
+  // Not `source.schemaMapping`: it lacks the relations whose SQL this person has not
+  // accepted, and a mapping edited from it would save them as removed.
+  const effective = effectiveMapping(base, overrides)
+  const shown = draft?.mapping ?? effective
   const pendingOverrides: SchemaOverrides | null = draft
     ? diffOverrides(base, draft.mapping, overrides)
     : overrides
@@ -95,7 +100,7 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
   }
 
   const startEdit = () =>
-    setDraft({ mapping: structuredClone(source.schemaMapping ?? base) })
+    setDraft({ mapping: structuredClone(effective) })
 
   const revert = (shownKey: string) => {
     if (draft) {
@@ -119,7 +124,7 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
   /** Push one override up into the preset, then follow the preset: the relation
    *  is no longer a difference. */
   const promote = async (shownKey: string) => {
-    const spec = specAt(source.schemaMapping ?? base, shownKey)
+    const spec = specAt(effective, shownKey)
     const specKey = overrideKeyFor(overrides, shownKey)
     if (!preset || !spec || !overrides) return
     const presetMapping = specAt(preset.mapping, specKey)
@@ -196,6 +201,19 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
     />
   ) : null
 
+  const heldBack = source.unacceptedFreeSql?.length && !editing ? (
+    <NoticeBanner
+      tone="warning"
+      title={t('schema_mapping.free_sql_held_back_title')}
+      description={t('schema_mapping.free_sql_held_back_description')}
+      action={
+        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => { forgetDeclinedCode(); void reviewMappingSql(source) }}>
+          {t('code_acceptance.review')}
+        </Button>
+      }
+    />
+  ) : null
+
   const toolbar = (
     <>
       {canWrite && !editing && preset && canReset && (
@@ -263,7 +281,7 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
         onChange={(m) => draft && setDraft({ ...draft, mapping: m })}
         sourceSchema={sourceSchema}
         toolbar={toolbar}
-        notice={notice}
+        notice={heldBack || notice}
         previewSources={[{ id: source.id, label: localized(source.name, i18n.language) }]}
         relationExtra={relationExtra}
         persist={canWrite && !editing ? (m) => void save(diffOverrides(base, m, overrides)) : undefined}

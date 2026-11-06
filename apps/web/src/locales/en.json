@@ -1,4 +1,14 @@
 {
+  "code_acceptance": {
+    "title_one": "Review this code before it runs",
+    "title_other": "Review this code before it runs ({{count}} pieces)",
+    "description": "This code was imported or last changed by someone else, or has not been run by you yet. It runs on the server with your access. Your answer is remembered until the code changes.",
+    "accept": "Accept and run",
+    "decline": "Do not run",
+    "unnamed": "Unnamed code",
+    "not_run": "Not run: you have not accepted this code.",
+    "review": "Review the code"
+  },
   "app": {
     "loading": "Loading…"
   },
@@ -1008,7 +1018,7 @@
     "port_invalid": "Enter a port between 1 and 65535.",
     "doris_flight_hint": "Large results go over Arrow Flight SQL (the FE's arrow_flight_sql_port, 8070 by default): every BE must be reachable from the Linkr server, or announce an address that is (public_host).",
     "flight_slow_title": "Large results from this database will be slow",
-    "flight_not_installed": "Linkr's server cannot use Arrow Flight SQL (its \"doris\" extra is not installed), so large results go over the much slower MySQL protocol. Counts and statistics are not affected.",
+    "flight_not_installed": "Linkr's server cannot use Arrow Flight SQL (its Flight client is not installed), so large results go over the much slower MySQL protocol. Counts and statistics are not affected.",
     "flight_unreachable": "Arrow Flight SQL (port {{port}}) could not be reached, so large results go over the much slower MySQL protocol. Counts and statistics are not affected. Check that the port is open and that every BE is reachable from Linkr's server. Error: {{detail}}",
     "flight_unauthenticated": "Arrow Flight SQL (port {{port}}) refused the login, so large results go over the much slower MySQL protocol. Counts and statistics are not affected. The same user and password are sent to the Flight port: check that Doris accepts them there. Error: {{detail}}",
     "allow_writes_hint_sqlserver": "Lets a cohort be derived into a new SQL schema here. Linkr writes with a second account of yours, asked at the first derivation (CREATE SCHEMA and CREATE TABLE rights); the account it reads with stays read-only. Linkr never changes the existing tables.",
@@ -2829,7 +2839,9 @@
     "git_error_not_found": "Repository or branch not found. Check the URL and the branch name.",
     "git_error_network": "The server could not reach this repository (network, DNS or timeout).",
     "git_error_pull_required": "The remote has changes you do not have yet. Pull before pushing.",
+    "git_error_archive_too_large": "This content is too large for the server to process, so nothing was changed. An administrator can raise the limit.",
     "git_error_export_failed": "Linkr could not build this entity's export, so nothing was sent to the repository. This is not a connection problem.",
+    "git_error_hidden_projects": "This workspace holds a project you have no access to, so its versioning is not available to you. Ask a workspace owner.",
     "git_error_details": "Show the full error",
     "lfs_add": "Track with Git LFS",
     "lfs_remove": "Remove from Git LFS",
@@ -3610,7 +3622,7 @@
     "profession_placeholder": "e.g. Data scientist, Physician",
     "orcid": "ORCID",
     "change_password": "Change password",
-    "change_password_description": "Update your password.",
+    "change_password_description": "Update your password. Your other sessions and your personal API tokens stop working.",
     "change_password_requires_backend": "Server mode required",
     "change_password_requires_backend_description": "Password management is available when connected to a Linkr server. In local mode, there is no authentication.",
     "current_password": "Current password",
@@ -4150,6 +4162,11 @@
     "duplicate": "This identifier is already in use.",
     "invalid": "Must be 2–50 characters, lowercase letters, digits and hyphens only."
   },
+  "api_errors": {
+    "upload_no_space": "Not enough free space on the server: uploads must leave {{reserveMb}} MB free. Ask an administrator to free some space.",
+    "upload_quota_exceeded": "This upload would exceed your storage quota of {{quotaMb}} MB. Remove files you no longer use, or ask an administrator.",
+    "database_file_left_behind": "A file left by a deleted database still occupies this id. It is removed automatically by the storage sweep, once it is over an hour old (several hours at most): try again later, or choose another id."
+  },
   "common": {
     "sql_form_linkr": "Linkr version",
     "sql_form_linkr_hint": "On the linkr_* relations, which stand for this database's tables through its schema mapping: the same query runs on any database, whatever its schema.",
@@ -4526,9 +4543,11 @@
     "no_matching_databases": "No database matches this search"
   },
   "etl": {
+    "run_foreign_database": "This pipeline points at a database of another workspace, so it cannot run. Choose a database of this workspace.",
     "run_job": "ETL “{{name}}”",
     "gen_warn_table_not_in_ddl": "{{table}} is not in the target's DDL: only the columns its mapping names are written.",
     "gen_warn_no_target_relation": "The target schema does not say where {{relation}} goes (no visual relation): not written.",
+    "gen_warn_invalid_relation": "Not written: the schema of {{relation}} holds a table name or SQL fragment that does not fit in one statement.",
     "gen_warn_no_target_table": "Table {{table}} is not loaded: pick a target table.",
     "gen_open": "Generate from the schemas",
     "gen_title": "Generate the OMOP load scripts",
@@ -4927,7 +4946,9 @@
     "export_section_desc_dataQuality": "Data quality rule sets and their custom checks.",
     "export_section_desc_catalogs": "Data catalogs and service mappings.",
     "export_section_desc_etl": "Full ETL pipelines with all their files. Data files are included only when marked for versioning.",
-    "export_empty_hint": "Nothing to export"
+    "export_empty_hint": "Nothing to export",
+    "export_left_out_one": "{{count}} project was left out of this export: you do not have access to it.",
+    "export_left_out_other": "{{count}} projects were left out of this export: you do not have access to them."
   },
   "concept_mapping": {
     "tab_info": "General",
@@ -5101,7 +5122,7 @@
     "export_scores_none_hint": "No scores file loaded. Load one from the Suggestions tab first.",
     "export_scores_probing": "Checking for a scores file…",
     "source_csv_too_large": "The source CSV file is too large to download in the browser. Add it manually to your git repository alongside the ZIP contents.",
-    "source_csv_unreadable": "The source concepts file could not be read (neither UTF-8 nor Windows-1252 text, nor readable Parquet): it cannot be masked, so it was not exported. Re-import it as a UTF-8 CSV.",
+    "source_csv_unreadable": "The source concepts file could not be read (not UTF-8 or Windows-1252 text with well-formed rows of one width — an unbalanced quote, a row of another length — nor readable Parquet): it cannot be masked, so it was not exported. Correct it and re-import it as a UTF-8 CSV.",
     "export_zip_failed": "The export failed: {{reason}}",
     "export_usagi": "USAGI CSV",
     "export_usagi_desc": "Compatible with OHDSI Usagi tool. Standard format for sharing concept mappings.",
@@ -5667,6 +5688,7 @@
     "engines_default_install": "Install",
     "engines_runtime": "Embeddings runtime",
     "engines_runtime_ready": "torch {{torch}}, sentence-transformers {{st}}",
+    "engines_runtime_admin_only": "Only an administrator can install the embeddings runtime, which the whole instance shares.",
     "engines_runtime_missing": "Not installed: semantic scores need it, syntactic scores do not.",
     "engines_runtime_install": "Install",
     "engines_runtime_reinstall": "Reinstall",
@@ -5814,6 +5836,7 @@
     "overview_source_detail": "The database this catalog is computed from.",
     "overview_source_missing": "Database not found",
     "overview_source_missing_detail": "The database this catalog points at is not installed here. Pick one to compute again.",
+    "overview_source_foreign_detail": "This catalog points at a database of another workspace, which it cannot compute from. Pick one of this workspace.",
     "overview_source_none": "No database selected",
     "tab_source": "Source",
     "tab_config": "Configuration",
@@ -6447,6 +6470,9 @@
     "create_account": "Create Account",
     "creating": "Creating account…",
     "error_generic": "Setup failed. Please try again.",
+    "token_label": "Setup token",
+    "token_hint": "Proves you have access to the server. Find it in the API log: docker compose logs api | grep setup_token. It changes at each restart.",
+    "token_invalid": "This setup token is not the one the server gave. Copy it again from the API log; it changes at each restart.",
     "data_title": "Default data",
     "data_description": "Install a demo workspace to explore Linkr with real data — an OMOP database, mappings, an ETL pipeline and example projects. You can install or remove it later from the Catalog.",
     "data_loading": "Loading the catalog…",
@@ -6830,6 +6856,10 @@
     "table_variables_other": "{{count}} concepts",
     "table_no_variable": "none of the concepts: created empty",
     "filter_unfilterable": "Not copied: it carries {{column}}, but the schema gives no way to list the ones to keep",
+    "filter_unproven": "May hold rows of patients outside the cohort: no id to filter it on, nothing shows it holds no patient data. Left out unless ticked; if ticked, copied whole and not pseudonymised.",
+    "pseudonym_unproven_warning": "Not pseudonymised: {{tables}}. These tables, ticked in Content, are copied as they are, with their ids and their free text, and may hold rows of patients outside the cohort.",
+    "rebuild_unproven_dropped": "The rebuild leaves out {{tables}}, copied whole last time on an explicit choice: to copy them again, derive with them ticked.",
+    "provenance_unproven": "Copied whole, unfiltered",
     "pseudonymize": "Pseudonymise the identifiers",
     "pseudonymize_hint": "Every patient, stay and unit-stay id is replaced, in every table, by a pseudonym drawn for this database alone — the columns the schema mapping names as ids, and any column ending in person_id, visit_occurrence_id or visit_detail_id (such as preceding_visit_occurrence_id). An id with no pseudonym drawn is emptied, as are the source system’s own numbers: person_source_value, visit_source_value and visit_detail_source_value. Other columns, the clinical source codes and free text included, are copied as they are. This is what health-data rules ask of each project’s data (in France, the CNIL warehouse referential, SEC-ESP-2).",
     "pseudonymize_free_text": "Free-text columns (note_text, comments…) and any other column that names a person are copied as they are: leave out the tables that hold them, or check them before sharing the database.",
@@ -7035,6 +7065,8 @@
     "revert": "Revert to preset",
     "promote": "Promote to preset",
     "reset_to_preset": "Reset to preset",
+    "free_sql_held_back_title": "Part of this mapping waits for your acceptance",
+    "free_sql_held_back_description": "The relations written in SQL run under your own login. They stay out of your queries until you have read and accepted that SQL.",
     "reset_title": "Reset the mapping to the preset",
     "reset_description": "Replaces this database's mapping with the preset's. Its local changes are dropped.",
     "reset_description_version": "Replaces this database's mapping with the preset's (version {{from}} → {{to}}). Its local changes are dropped.",

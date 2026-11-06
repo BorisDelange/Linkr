@@ -90,8 +90,12 @@ function fuzzy(needle, hay) {
   for (var k = 0; k < hay.length && n < needle.length; k++) if (hay[k] === needle[n]) n++;
   return n === needle.length;
 }
+// Same rule as lib/csv-export spreadsheetText: this page cannot import it.
+function spreadsheetText(s) {
+  return s.length > 1 && /^[=+\-@\t\r\n]/.test(s) && !/^[+-]?[\d.,]+(?:[eE][+-]?\d+)?$/.test(s) ? "'" + s : s;
+}
 function csvCell(v) {
-  var s = v == null ? '' : String(v);
+  var s = v == null ? '' : spreadsheetText(String(v));
   return /[",\r\n]/.test(s) || s !== s.trim() ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 function csvText(lines) { return lines.map(function(l) { return l.map(csvCell).join(','); }).join('\r\n') + '\r\n'; }

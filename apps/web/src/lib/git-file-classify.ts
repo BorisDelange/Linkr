@@ -9,6 +9,7 @@
 
 import { gitFileMeta } from '@/lib/git-file-meta'
 import { isDataExtension } from '@/lib/entity-io'
+import { EDITS_SUFFIX } from '@linkr/format'
 import type { GitScope } from '@/lib/api/git'
 
 const DATA_EXTENSIONS = ['.csv', '.parquet', '.pq', '.xlsx', '.xls']
@@ -21,15 +22,23 @@ export function isDataFile(path: string): boolean {
   return DATA_EXTENSIONS.some((ext) => p.endsWith(ext))
 }
 
+/** Whether a path of an export tree holds rows. Outside scripts/ the tree is Linkr's
+ *  own layout, whose JSON is no data; there, only what is data-shaped counts. */
+function holdsData(path: string): boolean {
+  const p = path.toLowerCase()
+  if (p.startsWith('scripts/') && !p.endsWith('/_tree.json')) return isDataExtension(p)
+  return DATA_EXTENSIONS.some((ext) => p.endsWith(ext)) || p.endsWith(EDITS_SUFFIX) || isDataFile(p)
+}
+
 /**
  * The data files a commit would send to the remote: anything data-shaped anywhere
- * in the tree (a marked CSV under scripts/ counts too), added, modified or renamed.
+ * in the tree (a marked file under scripts/ counts too), added, modified or renamed.
  * A deletion carries no content, so it needs no consent. The sync UI asks for an
  * explicit confirmation listing these before every push — marking a file once is
  * not consent for each later version of it.
  */
 export function dataFilesToPush<T extends { path: string; changeType: string }>(files: readonly T[]): T[] {
-  return files.filter((f) => f.changeType !== 'deleted' && (isDataExtension(f.path) || isDataFile(f.path)))
+  return files.filter((f) => f.changeType !== 'deleted' && holdsData(f.path))
 }
 
 /**

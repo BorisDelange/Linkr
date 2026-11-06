@@ -471,6 +471,12 @@ export interface DataSource extends Seedable, Authored, Lineaged {
    * which is what every query reads, and keeps the base here for the Mapping tab.
    */
   schemaBaseMapping?: SchemaMapping
+  /**
+   * From the server, never stored: this mapping's SQL the current user has not
+   * accepted. While any is left, the published `schemaMapping` holds no relation
+   * written in SQL (the base keeps them, for the Mapping tab).
+   */
+  unacceptedFreeSql?: string[]
   /** Set when this database is a cohort's derivation of another one. */
   derivedFrom?: DerivedFrom
   status: DataSourceStatus

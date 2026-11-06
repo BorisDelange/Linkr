@@ -550,7 +550,8 @@ export function buildNumericStatsQuery(
     ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ${v}), 1) AS p25,
     ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ${v}), 1) AS p75,
     ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ${v}), 1) AS p95,
-    COUNT(${v}) AS numeric_count
+    COUNT(${v}) AS numeric_count,
+    ${patientsExpr(source.event)} AS numeric_patients_count
   ${eventScope(source, conceptId)} AND ${v} IS NOT NULL${withinBounds(bounds)}`
 }
 
@@ -834,7 +835,13 @@ export function assembleProfileJson(
   if (hasNumeric && results.numeric) {
     const n = results.numeric
     // Fixed key order: this is what the detail view's stats row renders in.
-    out.numeric_data = pickDefined(n, ['min', 'p5', 'p25', 'median', 'mean', 'p75', 'p95', 'max', 'sd'])
+    // The counts ride along for export masking: the concept reaching the threshold
+    // does not say how many patients these values come from.
+    const counted = (value: number | null | undefined) => (value == null ? null : Number(value))
+    out.numeric_data = pickDefined(
+      { ...n, numeric_count: counted(n.numeric_count), numeric_patients_count: counted(n.numeric_patients_count) },
+      ['min', 'p5', 'p25', 'median', 'mean', 'p75', 'p95', 'max', 'sd', 'numeric_count', 'numeric_patients_count'],
+    )
   }
   if (results.histogram?.length) out.histogram = results.histogram.map(withCellCounts)
   if (hasCategorical) out.categorical_data = categorical
@@ -1211,7 +1218,8 @@ export function buildBatchProfileQuery(
     ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ${v}), 1) AS p25,
     ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ${v}), 1) AS p75,
     ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ${v}), 1) AS p95,
-    COUNT(${v}) AS numeric_count
+    COUNT(${v}) AS numeric_count,
+    ${patientsExpr(event)} AS numeric_patients_count
   FROM scope e JOIN fences f ON f.k = e.k WHERE ${v} IS NOT NULL AND ${inFence} GROUP BY e.k`)
   }
 
@@ -1455,7 +1463,7 @@ async function profileBatch(
 
 /** The columns of each block, in the per-concept query's order. */
 const BLOCK_COLUMNS: Record<string, readonly string[]> = {
-  numeric: ['min', 'max', 'mean', 'median', 'sd', 'p5', 'p25', 'p75', 'p95', 'numeric_count'],
+  numeric: ['min', 'max', 'mean', 'median', 'sd', 'p5', 'p25', 'p75', 'p95', 'numeric_count', 'numeric_patients_count'],
   histogram: ['bin_idx', 'step_m', 'step_e', 'count', 'patients_count'],
   categorical: ['category', 'count', 'patients_count', 'percentage'],
   temporal: ['year', 'count', 'patients_count', 'percentage', 'start_date', 'end_date'],

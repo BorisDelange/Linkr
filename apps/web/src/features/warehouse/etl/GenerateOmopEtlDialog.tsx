@@ -206,7 +206,9 @@ export function GenerateOmopEtlDialog({ open, onOpenChange, pipelineId }: Props)
                     ? t('etl.gen_warn_table_not_in_ddl', { table: w.table })
                     : w.kind === 'no-target-relation'
                       ? t('etl.gen_warn_no_target_relation', { relation: w.relation })
-                      : t('etl.gen_warn_no_target_table', { table: w.label })}
+                      : w.kind === 'invalid-relation'
+                        ? t('etl.gen_warn_invalid_relation', { relation: w.relation })
+                        : t('etl.gen_warn_no_target_table', { table: w.label })}
                 </li>
               ))}
             </ul>

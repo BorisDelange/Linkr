@@ -20,6 +20,8 @@ function codeMessage(t: (k: string) => string, code: GitErrorCode | undefined): 
     case 'network': return t('versioning.git_error_network')
     case 'pull_required': return t('versioning.git_error_pull_required')
     case 'export_failed': return t('versioning.git_error_export_failed')
+    case 'archive_too_large': return t('versioning.git_error_archive_too_large')
+    case 'hidden_projects': return t('versioning.git_error_hidden_projects')
     default: return undefined
   }
 }

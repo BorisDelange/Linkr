@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.models.organization import Organization
+from app.core.permissions import ALL_PERMISSIONS, GLOBAL_PERMISSIONS, has_global_permission
 from app.models.role import Role
 from app.models.user import User
 from app.services import settings_import_service
@@ -260,3 +261,103 @@ async def test_import_new_role_never_system(db):
     )
     role = await db.scalar(select(Role).where(Role.name == "hacker"))
     assert role.is_system is False  # import can't mint a system role
+
+
+# --- An import never raises an account's rights ---------------------------
+
+
+async def _role(db, name: str, permissions: list[str], *, scope="workspace", is_system=False) -> None:
+    db.add(Role(name=name, label={"en": name}, scope=scope, is_system=is_system, permissions=permissions))
+    await db.commit()
+
+
+async def _permissions_of(db, name: str) -> list[str]:
+    return (await db.scalar(select(Role).where(Role.name == name))).permissions
+
+
+async def test_import_leaves_a_system_roles_permissions_and_scope_alone(db):
+    await _role(db, "user", [], scope="global", is_system=True)
+    report = await settings_import_service.import_settings_tree(
+        db, _tree(roles=[{"name": "user", "label": {"en": "Base"}, "scope": "workspace", "permissions": ALL_PERMISSIONS}])
+    )
+    role = await db.scalar(select(Role).where(Role.name == "user"))
+    assert role.permissions == []
+    assert role.scope == "global"
+    assert role.label == {"en": "Base"}
+    assert any("user" in w for w in report.warnings)
+
+
+async def test_import_never_creates_a_role_holding_global_permissions(db):
+    report = await settings_import_service.import_settings_tree(
+        db,
+        _tree(roles=[{"name": "steward", "scope": "global", "permissions": ["users:write", "app-database:read", "cohorts:read"]}]),
+    )
+    role = await db.scalar(select(Role).where(Role.name == "steward"))
+    assert role.permissions == ["cohorts:read"]
+    assert role.scope == "workspace"
+    assert any("steward" in w and "users:write" in w for w in report.warnings)
+
+
+async def test_import_never_adds_permissions_to_a_local_role(db):
+    await _role(db, "curator", ["cohorts:read", "cohorts:write"])
+    report = await settings_import_service.import_settings_tree(
+        db, _tree(roles=[{"name": "curator", "scope": "global", "permissions": ["cohorts:read", "projects:delete"]}])
+    )
+    role = await db.scalar(select(Role).where(Role.name == "curator"))
+    assert role.permissions == ["cohorts:read"]
+    assert role.scope == "workspace"
+    assert any("curator" in w and "projects:delete" in w for w in report.warnings)
+
+
+async def test_import_keeps_a_local_custom_roles_own_global_permission(db):
+    await _role(db, "auditor", ["audit-log:read"], scope="global")
+    await settings_import_service.import_settings_tree(db, _tree(roles=[{"name": "auditor", "scope": "global", "permissions": ["audit-log:read"]}]))
+    assert await _permissions_of(db, "auditor") == ["audit-log:read"]
+
+
+async def test_import_cannot_move_an_account_to_a_role_holding_more(db):
+    await _role(db, "user", [], scope="global", is_system=True)
+    await _role(db, "superuser", ["users:write"], scope="global")
+    db.add(User(username="dave", role="user", password_hash="h", is_active=True))
+    await db.commit()
+    report = await settings_import_service.import_settings_tree(db, _tree(users=[{"username": "dave", "role": "superuser"}]))
+    dave = await db.scalar(select(User).where(User.username == "dave"))
+    assert dave.role == "user"
+    assert any("dave" in w and "superuser" in w for w in report.warnings)
+
+
+async def test_import_account_role_named_in_the_same_file_grants_nothing_global(db):
+    await _role(db, "user", [], scope="global", is_system=True)
+    db.add(User(username="dave", role="user", password_hash="h", is_active=True))
+    await db.commit()
+    await settings_import_service.import_settings_tree(
+        db,
+        _tree(
+            roles=[{"name": "planted", "scope": "global", "permissions": GLOBAL_PERMISSIONS}],
+            users=[{"username": "dave", "role": "planted"}, {"username": "erin", "role": "planted"}],
+        ),
+    )
+    assert await _permissions_of(db, "planted") == []
+    dave = await db.scalar(select(User).where(User.username == "dave"))
+    assert dave.role in ("user", "planted")
+    assert not await has_global_permission(db, dave, "users:write")
+
+
+async def test_import_new_account_never_lands_on_a_role_holding_global_permissions(db):
+    await _role(db, "superuser", ["users:write"], scope="global")
+    report = await settings_import_service.import_settings_tree(db, _tree(users=[{"username": "erin", "role": "superuser"}]))
+    erin = await db.scalar(select(User).where(User.username == "erin"))
+    assert erin.role == "user"
+    assert any("erin" in w and "superuser" in w for w in report.warnings)
+
+
+async def test_import_can_move_an_account_to_a_role_holding_no_more(db):
+    await _role(db, "user", [], scope="global", is_system=True)
+    await _role(db, "reader", [], scope="global")
+    await _role(db, "broad", ["audit-log:read"], scope="global")
+    db.add(User(username="dave", role="broad", password_hash="h", is_active=True))
+    await db.commit()
+    report = await settings_import_service.import_settings_tree(db, _tree(users=[{"username": "dave", "role": "reader"}]))
+    dave = await db.scalar(select(User).where(User.username == "dave"))
+    assert dave.role == "reader"
+    assert report.warnings == []

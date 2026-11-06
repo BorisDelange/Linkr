@@ -69,6 +69,8 @@ from app.services.org_snapshot import org_snapshot
 # only ``updatedAt`` moves on every edit, so it is dropped.
 _INSTANCE_FIELDS = (
     "gitPushPolicy",
+    "defaultEnvOptions",
+    "defaultEnvPackages",
     "ownerId",
     "createdById",
     "origin",
@@ -83,6 +85,10 @@ _INSTANCE_FIELDS = (
     "ownerDataSourceId",
     "ownerCohortId",
     "linkedDataSourceIds",
+    # Machine-local server-path bindings — never travel with an export.
+    "idePath",
+    "scriptsPath",
+    "datasetsPath",
 )
 
 

@@ -1,9 +1,13 @@
+import zipfile
 from pathlib import Path
 
 import duckdb
 import pytest
 
-from app.services.data.dataset_parser import convert_to_parquet, parquet_schema, parse_blob, preview_blob
+from app.config import settings
+from app.services.data import dataset_parser
+from app.services.data.dataset_parser import convert_to_parquet, excel_sheet_names, parquet_schema, parse_blob, preview_blob
+from app.services.data.file_reader import build_read_expr
 from app.services.data.type_inference import (
     infer_column_type,
     is_missing_value,
@@ -322,3 +326,43 @@ def test_preview_native_parquet_keeps_timestamps(tmp_path):
         "id": "number", "at": "date", "label": "string",
     }
     assert prev["rowCount"] == 1 and len(prev["preview"]) == 1
+
+
+# --- Bounded xlsx decompression ---
+
+def _xlsx(path: Path, workbook: bytes, **extra: bytes) -> Path:
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("xl/workbook.xml", workbook)
+        for name, data in extra.items():
+            zf.writestr(f"xl/{name}.xml", data)
+    return path
+
+
+def test_excel_sheet_names_reads_a_normal_workbook(tmp_path):
+    p = _xlsx(tmp_path / "ok.xlsx", b'<workbook><sheets><sheet name="One"/><sheet name="Two"/></sheets></workbook>')
+    assert excel_sheet_names(p) == ["One", "Two"]
+
+
+def test_excel_sheet_names_never_inflates_past_its_bound(tmp_path, monkeypatch):
+    p = _xlsx(tmp_path / "big.xlsx", b"<workbook>" + b" " * (2 * 1024 * 1024) + b"</workbook>")
+    monkeypatch.setattr(dataset_parser, "EXCEL_WORKBOOK_MAX_BYTES", 1024 * 1024)
+    parsed = []
+    monkeypatch.setattr(dataset_parser.ET, "parse", lambda *a, **k: parsed.append(a))
+    monkeypatch.setattr(dataset_parser.ET, "fromstring", lambda *a, **k: parsed.append(a))
+    assert excel_sheet_names(p) == []
+    assert parsed == []
+
+
+def test_reading_an_xlsx_is_refused_when_it_declares_more_than_the_bound(tmp_path, monkeypatch):
+    p = _xlsx(
+        tmp_path / "big.xlsx",
+        b'<workbook><sheets><sheet name="One"/></sheets></workbook>',
+        sharedStrings=b" " * (3 * 1024 * 1024),
+    )
+    monkeypatch.setattr(settings, "max_excel_inflated_mb", 1)
+    con = duckdb.connect()
+    try:
+        with pytest.raises(ValueError, match="too large"):
+            build_read_expr(con, str(p), "big.xlsx", {})
+    finally:
+        con.close()

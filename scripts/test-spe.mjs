@@ -71,6 +71,7 @@ function main() {
     const env = {
       ...dockerEnv(), ...machine.vars, ...scenario.vars,
       LINKR_SECRET_KEY: process.env.LINKR_SECRET_KEY ?? `spe-scenario-${Date.now()}-not-a-real-secret-key`,
+      LINKR_SETUP_TOKEN: 'e2e-setup-token',
     }
     const dc = (args) => spawnSync('docker', ['compose', '-f', join(spe, 'docker-compose.yml'), ...args], { stdio: 'inherit', cwd: root, env })
     const t0 = Date.now()

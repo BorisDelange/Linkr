@@ -289,3 +289,36 @@ def test_a_file_or_folder_named_with_quotes_is_read_like_any_other(tmp_path):
     duckdb.sql(f"COPY (SELECT 1 AS id) TO '{str(table).replace(chr(39), chr(39) * 2)}' (FORMAT PARQUET)")
     result = query_parquet_folder([("sch'ema\"x/patients.parquet", str(table))], ["patients"], "SELECT id FROM patients")
     assert result == [{"id": 1}]
+
+
+@pytest.mark.parametrize("sql", [
+    "CALL enable_logging(storage='stdout')",
+    "SELECT * FROM enable_logging(storage='stdout')",
+    "SELECT write_log('x', level:='info')",
+    'SELECT "WRITE_LOG"/**/(\'x\')',
+    "SELECT system.main.write_log('x')",
+    "CALL disable_logging()",
+    "CALL truncate_duckdb_logs()",
+    "SELECT * FROM query('SELECT write_log(''x'')')",
+    "SELECT * FROM query('SELECT * FROM query(''SELECT write_log(''''x'''')'')')",
+    "SELECT * FROM query('SELECT wri' || 'te_log(''x'')')",
+    "SELECT * FROM query(e'SELECT wri\\x74e_log(1)')",
+    "SELECT * FROM query($$SELECT write_log('x')$$)",
+])
+def test_user_sql_never_writes_to_the_server_log(tmp_path, capfd, sql):
+    db = tmp_path / "src.duckdb"
+    duckdb.connect(str(db)).close()
+    with pytest.raises(ValueError, match="not allowed"):
+        query_file("duckdb", str(db), sql)
+    assert "write_log" not in capfd.readouterr().out
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT 'write_log(x)' AS text",
+    "SELECT 1 AS write_log",
+    "SELECT * FROM query('SELECT 1 AS x')",
+])
+def test_lookalikes_of_a_log_call_still_run(tmp_path, sql):
+    db = tmp_path / "src.duckdb"
+    duckdb.connect(str(db)).close()
+    assert len(query_file("duckdb", str(db), sql)) == 1

@@ -1,7 +1,7 @@
 import { McpServer, fromJsonSchema, type ToolAnnotations } from '@modelcontextprotocol/server'
 import { describe, expect, it } from 'vitest'
 import { CATALOG } from './build'
-import { captureTools, checkArguments, formatIndex, formatToolCard, kindOf, searchTools, type CatalogTool } from './gateway'
+import { captureTools, checkArguments, formatIndex, formatToolCard, inputJsonSchema, kindOf, searchTools, type CatalogTool } from './gateway'
 import { DESTRUCTIVE, READ, WRITE, text } from './shared'
 
 const tool = (name: string, toolset: string, description: string, annotations: ToolAnnotations = READ): CatalogTool => ({
@@ -33,6 +33,30 @@ describe('kindOf', () => {
       'run_code', 'run_script', 'run_as_job', 'run_etl_pipeline',
       'install_packages', 'install_package_preset', 'update_packages', 'build_environment',
     ]) expect([name, kinds.get(name)]).toEqual([name, 'delete'])
+  })
+
+  it('asks before storing code the app later runs without a Run press, and says so', () => {
+    const byName = new Map(CATALOG.map((t) => [t.name, t]))
+    for (const name of ['create_user_plugin', 'update_user_plugin', 'create_dataset_analysis', 'update_dataset_analysis']) {
+      const stored = byName.get(name)!
+      expect([name, kindOf(stored.config.annotations)]).toEqual([name, 'delete'])
+      expect(stored.config.description).toMatch(/runs? .*(by itself|without)/i)
+    }
+  })
+
+  it('asks before changing where an environment downloads the code it installs', () => {
+    const options = CATALOG.find((t) => t.name === 'set_environment_options')!
+    expect(kindOf(options.config.annotations)).toBe('delete')
+    expect(options.config.description).toMatch(/install.*code/i)
+  })
+
+  it('never lets a write-kind tool take code by a code argument', () => {
+    const carriesCode = (t: CatalogTool) => {
+      const { properties = {} } = inputJsonSchema(t) as { properties?: Record<string, unknown> }
+      return Object.keys(properties).some((p) => /^(code|files|python_template|r_template)$/.test(p))
+    }
+    const offenders = CATALOG.filter((t) => carriesCode(t) && kindOf(t.config.annotations) !== 'delete').map((t) => t.name)
+    expect(offenders).toEqual([])
   })
 })
 

@@ -275,7 +275,7 @@ export function PluginEditor() {
           '@/features/projects/warehouse/patient-data/warehouse-plugin-executor'
         )
         const exec = testLanguage === 'r' ? executeWarehousePluginR : executeWarehousePluginPython
-        const output = await exec(code, testDataSourceId!, testPersonId, testVisitId, testVisitDetailId)
+        const output = await exec(code, testDataSourceId!, testPersonId, testVisitId, testVisitDetailId, undefined, { authored: true })
         setTestResult(output)
       } else {
         // Lab mode: execute with dataset

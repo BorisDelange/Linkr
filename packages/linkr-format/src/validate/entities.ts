@@ -458,6 +458,10 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
           'No `criteriaTree`: the derived database no longer says which criteria built it.')
       }
       if (derived.options != null) checkDerivationOptions(bag, path, derived.options)
+      if (derived.copiedUnproven != null
+        && !(Array.isArray(derived.copiedUnproven) && derived.copiedUnproven.every((t) => typeof t === 'string'))) {
+        bag.error(path, '/derivedFrom/copiedUnproven', 'wrong-type', '`copiedUnproven` lists table names.')
+      }
     }
   }
 

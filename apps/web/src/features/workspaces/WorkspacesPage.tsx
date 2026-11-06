@@ -15,6 +15,7 @@ import { usePipelineStore } from '@/stores/pipeline-store'
 import { isServerMode, formatApiError, type FormattedError } from '@/lib/api-client'
 import { findLineageMatch, type ImportTarget } from '@/lib/import-identity'
 import { importWorkspaceTree, type WorkspaceImportResult } from '@/lib/workspace-import'
+import { workspaceLanding } from '@/lib/import-identity'
 import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil, Settings2, AlertCircle, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cardMenuTriggerClass, cn } from '@/lib/utils'
@@ -442,7 +443,9 @@ export function WorkspacesPage() {
       }
       if (gitRemote) parsed.workspace.gitRemoteConfig = gitRemote
 
-      const existingWs = await getStorage().workspaces.getById(parsed.workspace.id)
+      // The same question the import will answer: a tree lands on a workspace by
+      // lineage, and replacing one is never done without the person's say.
+      const existingWs = workspaceLanding(await getStorage().workspaces.getAll().catch(() => []), parsed.workspace)
       if (existingWs) {
         // Conflict: hide the progress modal, show the conflict dialog instead.
         setImportProgress(null)

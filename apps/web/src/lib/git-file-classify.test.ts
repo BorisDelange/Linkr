@@ -80,6 +80,16 @@ describe('dataFilesToPush', () => {
     expect(dataFilesToPush(files)).toEqual(files)
   })
 
+  it('counts a marked file of any data kind under scripts/, not the layout around it', () => {
+    expect(dataFilesToPush([
+      { path: 'scripts/cohort.tsv', changeType: 'added' },
+      { path: 'scripts/_tree.json', changeType: 'modified' },
+      { path: 'entity.json', changeType: 'modified' },
+      { path: 'mappings.json', changeType: 'modified' },
+      { path: 'attachments/a-figure.png', changeType: 'added' },
+    ]).map((f) => f.path)).toEqual(['scripts/cohort.tsv'])
+  })
+
   it('drops deletions and non-data files', () => {
     expect(dataFilesToPush([
       { path: 'datasets/view/old.csv', changeType: 'deleted' },

@@ -13,6 +13,8 @@ export { MemoryTree, filesIn, readJson } from './tree.js'
 
 export { buildColumnIds, columnId, isLegacyColumnId, slugify } from './ids.js'
 
+export { isCloneableRemoteUrl, isSafeGitRef, lfsEndpoint } from './remote-url.js'
+
 export {
   canonicalOp, canonicalOps, compactOps, invertOp, invertOpFull, opsHash, replayOps,
   retypeAddedColumn, ROW_ORD,

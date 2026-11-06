@@ -107,6 +107,23 @@ async def test_column_stats_over_cache(client, seed_roles):
     assert st["min"] == 10 and st["max"] == 30 and st["mean"] == 20
 
 
+async def test_reading_a_column_s_values_leaves_a_line_in_the_access_log(client, seed_roles):
+    from app.core import audit
+
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "names.csv").write_text("name\nann\nbob\n")
+    col_id = (await _meta(client, h, uid, "names.csv"))["columns"][0]["id"]
+    r = await client.get(
+        f"{API}/dataset-files/columns/{col_id}/stats",
+        headers=h, params={"projectUid": uid, "path": "names.csv", "full": "true"},
+    )
+    assert r.status_code == 200
+    rows, _ = audit.query(filters={"route": "/stats"})
+    assert rows[0]["action"] == "preview" and rows[0]["project_uid"] == uid
+    assert "names.csv" in rows[0]["detail"] and "all values" in rows[0]["detail"]
+
+
 async def test_column_distinct_over_cache(client, seed_roles):
     h = await _admin_headers(client)
     uid = await _project(client, h)

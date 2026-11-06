@@ -1,4 +1,14 @@
 {
+  "code_acceptance": {
+    "title_one": "Vérifiez ce code avant son exécution",
+    "title_other": "Vérifiez ce code avant son exécution ({{count}} extraits)",
+    "description": "Ce code a été importé ou modifié en dernier par quelqu’un d’autre, ou vous ne l’avez pas encore exécuté. Il s’exécute sur le serveur avec vos droits. Votre réponse est retenue tant que le code ne change pas.",
+    "accept": "Accepter et exécuter",
+    "decline": "Ne pas exécuter",
+    "unnamed": "Code sans nom",
+    "not_run": "Non exécuté : vous n’avez pas accepté ce code.",
+    "review": "Vérifier le code"
+  },
   "app": {
     "loading": "Chargement…"
   },
@@ -1008,7 +1018,7 @@
     "port_invalid": "Saisissez un port entre 1 et 65535.",
     "doris_flight_hint": "Les résultats volumineux passent par Arrow Flight SQL (l'arrow_flight_sql_port du FE, 8070 par défaut) : chaque BE doit être joignable depuis le serveur Linkr, ou annoncer une adresse qui l'est (public_host).",
     "flight_slow_title": "Les résultats volumineux de cette base seront lents",
-    "flight_not_installed": "Le serveur Linkr ne peut pas utiliser Arrow Flight SQL (son extra « doris » n'est pas installé) : les résultats volumineux passent donc par le protocole MySQL, beaucoup plus lent. Les comptages et statistiques ne sont pas concernés.",
+    "flight_not_installed": "Le serveur Linkr ne peut pas utiliser Arrow Flight SQL (son client Flight n'est pas installé) : les résultats volumineux passent donc par le protocole MySQL, beaucoup plus lent. Les comptages et statistiques ne sont pas concernés.",
     "flight_unreachable": "Arrow Flight SQL (port {{port}}) est injoignable : les résultats volumineux passent donc par le protocole MySQL, beaucoup plus lent. Les comptages et statistiques ne sont pas concernés. Vérifiez que le port est ouvert et que chaque BE est joignable depuis le serveur Linkr. Erreur : {{detail}}",
     "flight_unauthenticated": "Arrow Flight SQL (port {{port}}) a refusé l'identifiant : les résultats volumineux passent donc par le protocole MySQL, beaucoup plus lent. Les comptages et statistiques ne sont pas concernés. Le même utilisateur et mot de passe sont envoyés au port Flight : vérifiez que Doris les accepte sur celui-ci. Erreur : {{detail}}",
     "allow_writes_hint_sqlserver": "Permet de dériver une cohorte vers un nouveau schéma SQL de cette base. Linkr écrit avec un second compte à vous, demandé à la première dérivation (droits CREATE SCHEMA et CREATE TABLE) ; le compte avec lequel il lit reste en lecture seule. Linkr ne modifie jamais les tables existantes.",
@@ -2829,7 +2839,9 @@
     "git_error_not_found": "Dépôt ou branche introuvable. Vérifiez l'URL et le nom de la branche.",
     "git_error_network": "Le serveur n'a pas pu joindre ce dépôt (réseau, DNS ou délai dépassé).",
     "git_error_pull_required": "Le dépôt distant contient des modifications que vous n'avez pas. Faites un pull avant de pousser.",
+    "git_error_archive_too_large": "Ce contenu est trop volumineux pour être traité par le serveur, rien n'a donc été modifié. Un administrateur peut relever la limite.",
     "git_error_export_failed": "Linkr n'a pas pu construire l'export de cette entité, rien n'a donc été envoyé au dépôt. Ce n'est pas un problème de connexion.",
+    "git_error_hidden_projects": "Cet espace de travail contient un projet auquel vous n'avez pas accès : son versionnement ne vous est donc pas disponible. Demandez à un propriétaire de l'espace.",
     "git_error_details": "Afficher l'erreur complète",
     "lfs_add": "Suivre avec Git LFS",
     "lfs_remove": "Retirer de Git LFS",
@@ -3610,7 +3622,7 @@
     "profession_placeholder": "ex. Data scientist, Médecin",
     "orcid": "ORCID",
     "change_password": "Changer le mot de passe",
-    "change_password_description": "Mettez à jour votre mot de passe.",
+    "change_password_description": "Mettez à jour votre mot de passe. Vos autres sessions et vos jetons d'API personnels cessent de fonctionner.",
     "change_password_requires_backend": "Mode serveur requis",
     "change_password_requires_backend_description": "La gestion des mots de passe est disponible lorsque vous êtes connecté à un serveur Linkr. En mode local, il n'y a pas d'authentification.",
     "current_password": "Mot de passe actuel",
@@ -4150,6 +4162,11 @@
     "duplicate": "Cet identifiant est déjà utilisé.",
     "invalid": "Doit contenir 2 à 50 caractères : lettres minuscules, chiffres et tirets uniquement."
   },
+  "api_errors": {
+    "upload_no_space": "Pas assez d'espace libre sur le serveur : les téléversements doivent laisser {{reserveMb}} Mo libres. Demandez à un administrateur de libérer de l'espace.",
+    "upload_quota_exceeded": "Ce téléversement dépasserait votre quota de stockage de {{quotaMb}} Mo. Supprimez les fichiers devenus inutiles, ou adressez-vous à un administrateur.",
+    "database_file_left_behind": "Un fichier laissé par une base supprimée occupe encore cet identifiant. Il est retiré automatiquement par le nettoyage du stockage, une fois âgé de plus d'une heure (quelques heures au plus) : réessayez plus tard, ou choisissez un autre identifiant."
+  },
   "common": {
     "sql_form_linkr": "Version Linkr",
     "sql_form_linkr_hint": "Sur les relations linkr_*, qui représentent les tables de cette base à travers son mapping de schéma : la même requête tourne sur n’importe quelle base, quel que soit son schéma.",
@@ -4526,9 +4543,11 @@
     "no_matching_databases": "Aucune base ne correspond à cette recherche"
   },
   "etl": {
+    "run_foreign_database": "Ce pipeline pointe vers une base de données d’un autre espace de travail : il ne peut donc pas s’exécuter. Choisissez une base de données de cet espace.",
     "run_job": "ETL « {{name}} »",
     "gen_warn_table_not_in_ddl": "{{table}} n'est pas dans la DDL de la cible : seules les colonnes que son mapping nomme sont écrites.",
     "gen_warn_no_target_relation": "Le schéma cible ne dit pas où va {{relation}} (pas de relation visuelle) : non écrit.",
+    "gen_warn_invalid_relation": "Non écrit : le schéma de {{relation}} contient un nom de table ou un fragment SQL qui ne tient pas dans une seule instruction.",
     "gen_warn_no_target_table": "La table {{table}} n'est pas chargée : choisissez une table cible.",
     "gen_open": "Générer depuis les schémas",
     "gen_title": "Générer les scripts de chargement OMOP",
@@ -4927,7 +4946,9 @@
     "export_section_desc_dataQuality": "Ensembles de règles de qualité des données et leurs contrôles personnalisés.",
     "export_section_desc_catalogs": "Catalogues de données et mappings de services.",
     "export_section_desc_etl": "Pipelines ETL complets avec tous leurs fichiers. Les fichiers de données ne sont inclus que s'ils sont marqués pour le versioning.",
-    "export_empty_hint": "Rien à exporter"
+    "export_empty_hint": "Rien à exporter",
+    "export_left_out_one": "{{count}} projet a été écarté de cet export : vous n'y avez pas accès.",
+    "export_left_out_other": "{{count}} projets ont été écartés de cet export : vous n'y avez pas accès."
   },
   "concept_mapping": {
     "tab_info": "Général",
@@ -5101,7 +5122,7 @@
     "export_scores_none_hint": "Aucun fichier de scores chargé. Chargez-en un depuis l'onglet Suggestions.",
     "export_scores_probing": "Recherche d'un fichier de scores…",
     "source_csv_too_large": "Le fichier CSV source est trop volumineux pour être téléchargé dans le navigateur. Ajoutez-le manuellement à votre dépôt git aux côtés du contenu du ZIP.",
-    "source_csv_unreadable": "Le fichier des concepts sources n'a pas pu être lu (ni texte UTF-8 ou Windows-1252, ni Parquet lisible) : il ne peut pas être masqué, il n'a donc pas été exporté. Réimportez-le en CSV UTF-8.",
+    "source_csv_unreadable": "Le fichier des concepts sources n'a pas pu être lu (ni texte UTF-8 ou Windows-1252 aux lignes bien formées et de même largeur — un guillemet non fermé, une ligne d'une autre longueur —, ni Parquet lisible) : il ne peut pas être masqué, il n'a donc pas été exporté. Corrigez-le et réimportez-le en CSV UTF-8.",
     "export_zip_failed": "L'export a échoué : {{reason}}",
     "export_usagi": "USAGI CSV",
     "export_usagi_desc": "Compatible avec l'outil OHDSI Usagi. Format standard pour le partage d'alignements de concepts.",
@@ -5667,6 +5688,7 @@
     "engines_default_install": "Installer",
     "engines_runtime": "Environnement d'embeddings",
     "engines_runtime_ready": "torch {{torch}}, sentence-transformers {{st}}",
+    "engines_runtime_admin_only": "Seul un administrateur peut installer le runtime d'embeddings, partagé par toute l'instance.",
     "engines_runtime_missing": "Non installé : nécessaire aux scores sémantiques, pas aux scores syntaxiques.",
     "engines_runtime_install": "Installer",
     "engines_runtime_reinstall": "Réinstaller",
@@ -5814,6 +5836,7 @@
     "overview_source_detail": "La base de données à partir de laquelle ce catalogue est calculé.",
     "overview_source_missing": "Base de données introuvable",
     "overview_source_missing_detail": "La base de données référencée par ce catalogue n’est pas installée ici. Sélectionnez-en une pour relancer le calcul.",
+    "overview_source_foreign_detail": "Ce catalogue pointe vers une base de données d’un autre espace de travail, à partir de laquelle il ne peut pas calculer. Sélectionnez-en une de cet espace.",
     "overview_source_none": "Aucune base sélectionnée",
     "tab_source": "Source",
     "tab_config": "Configuration",
@@ -6447,6 +6470,9 @@
     "create_account": "Créer le compte",
     "creating": "Création en cours…",
     "error_generic": "La configuration a échoué. Veuillez réessayer.",
+    "token_label": "Jeton d'installation",
+    "token_hint": "Il prouve que vous avez accès au serveur. Il se trouve dans le journal de l'API : docker compose logs api | grep setup_token. Il change à chaque redémarrage.",
+    "token_invalid": "Ce jeton d'installation n'est pas celui du serveur. Recopiez-le depuis le journal de l'API ; il change à chaque redémarrage.",
     "data_title": "Données par défaut",
     "data_description": "Installez un espace de démonstration pour découvrir Linkr avec de vraies données — une base OMOP, des alignements, un pipeline ETL et des projets d'exemple. Vous pourrez l'installer ou le supprimer plus tard depuis le Catalogue.",
     "data_loading": "Chargement du catalogue…",
@@ -6830,6 +6856,10 @@
     "table_variables_other": "{{count}} concepts",
     "table_no_variable": "aucun des concepts : créée vide",
     "filter_unfilterable": "Non copiée : elle porte {{column}}, mais le schéma ne permet pas de lister ceux à garder",
+    "filter_unproven": "Peut contenir des lignes de patients hors de la cohorte : aucun identifiant pour la filtrer, rien n'indique qu'elle est sans données patient. Écartée sauf si cochée ; si cochée, copiée entière et non pseudonymisée.",
+    "pseudonym_unproven_warning": "Non pseudonymisées : {{tables}}. Ces tables, cochées dans Contenu, sont copiées telles quelles, avec leurs identifiants et leur texte libre, et peuvent contenir des lignes de patients hors de la cohorte.",
+    "rebuild_unproven_dropped": "La reconstruction écarte {{tables}}, copiées entières la dernière fois sur un choix explicite : pour les copier à nouveau, dérivez en les cochant.",
+    "provenance_unproven": "Copiées entières, sans filtre",
     "pseudonymize": "Pseudonymiser les identifiants",
     "pseudonymize_hint": "Chaque identifiant de patient, de séjour et de séjour en unité est remplacé, dans toutes les tables, par un pseudonyme tiré pour cette seule base — les colonnes que le mapping du schéma désigne comme identifiants, et toute colonne finissant par person_id, visit_occurrence_id ou visit_detail_id (comme preceding_visit_occurrence_id). Un identifiant sans pseudonyme tiré est vidé, comme les numéros propres au système source : person_source_value, visit_source_value et visit_detail_source_value. Les autres colonnes, codes cliniques sources et texte libre compris, sont copiées telles quelles. C’est ce que les règles sur les données de santé demandent pour les données de chaque projet (en France, le référentiel CNIL des entrepôts, SEC-ESP-2).",
     "pseudonymize_free_text": "Les colonnes de texte libre (note_text, commentaires…) et toute autre colonne qui nomme une personne sont copiées telles quelles : écartez les tables qui les contiennent, ou vérifiez-les avant de partager la base.",
@@ -7035,6 +7065,8 @@
     "revert": "Revenir au preset",
     "promote": "Remonter dans le preset",
     "reset_to_preset": "Réinitialiser au preset",
+    "free_sql_held_back_title": "Une partie de ce mapping attend votre accord",
+    "free_sql_held_back_description": "Les relations écrites en SQL s’exécutent sous votre propre login. Elles restent hors de vos requêtes tant que vous n’avez pas lu et accepté ce SQL.",
     "reset_title": "Réinitialiser le mapping au preset",
     "reset_description": "Remplace le mapping de cette base par celui du preset. Ses modifications locales sont abandonnées.",
     "reset_description_version": "Remplace le mapping de cette base par celui du preset (version {{from}} → {{to}}). Ses modifications locales sont abandonnées.",

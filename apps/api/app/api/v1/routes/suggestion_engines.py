@@ -73,6 +73,11 @@ async def _launch(db: AsyncSession, user: User, workspace_id: str, kind: str, la
     return JobResponse.model_validate(job, from_attributes=True)
 
 
+def _require_instance_admin(user: User) -> None:
+    if user.role != "admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an administrator can install the embeddings runtime")
+
+
 def _model_view(workspace_id: str, model: dict) -> dict:
     return {
         **model,
@@ -124,8 +129,14 @@ async def install_runtime(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """(Re)install the embeddings runtime. It is shared by the whole instance."""
+    """(Re)install the embeddings runtime. It is shared by the whole instance, hence
+    an administrator's, and never replaced under a running worker. Not held to the
+    code-execution switch: a fixed package list, which semantic search needs on an
+    instance without an IDE too."""
     await check_workspace_permission(db, workspace_id, user, "workspace-settings:write")
+    _require_instance_admin(user)
+    if runtime.in_use():
+        raise HTTPException(status.HTTP_409_CONFLICT, "The runtime is in use: try again once the running jobs have ended")
     return await _launch(
         db, user, workspace_id, "embeddings-runtime", "Install the embeddings runtime",
         tasks.install_runtime, key="runtime", lane="build",
@@ -140,6 +151,8 @@ async def setup_default(
 ):
     """One click: the runtime if needed, BioLORD-2023-M and its configuration."""
     await check_workspace_permission(db, workspace_id, user, "workspace-settings:write")
+    if not runtime.is_installed():
+        _require_instance_admin(user)
     if tasks.running_job("runtime"):
         raise HTTPException(status.HTTP_409_CONFLICT, "The runtime is being installed")
     return await _launch(

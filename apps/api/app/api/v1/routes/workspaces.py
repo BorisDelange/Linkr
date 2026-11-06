@@ -17,6 +17,8 @@ from app.services import change_tracking, notification_service, workspace_servic
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
+PROJECTS_LEFT_OUT_HEADER = "x-linkr-projects-left-out"
+
 
 # The versioning remote, re-saved by the git flow (and sealed, so never equal to
 # what was sent): the open page refreshes, the bell stays quiet.
@@ -100,6 +102,7 @@ async def export_zip(
     from app.services.workspace_export_assemble import (
         WorkspaceExportOptions,
         assemble_workspace_zip,
+        unreadable_project_uids,
     )
 
     workspace = await workspace_service.get(db, workspace_id)
@@ -107,10 +110,13 @@ async def export_zip(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
     opts = body or WorkspaceExportRequest()
+    unreadable = await unreadable_project_uids(db, workspace_id, user)
     options = WorkspaceExportOptions(
         sections=opts.sections,
-        exclude_entities=opts.exclude_entities,
+        exclude_entities={**opts.exclude_entities, **dict.fromkeys(unreadable, True)},
     )
+    # How many, never which: the caller may not know these projects exist.
+    left_out = len(unreadable) if options.on("projects") else 0
     name = workspace.name.get("en") if isinstance(workspace.name, dict) else workspace.name
     slug = _slugify(name or workspace.id)
 
@@ -124,11 +130,14 @@ async def export_zip(
             except SourceConceptsUnreadable as e:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
         audit.bind(action="export", workspace_id=workspace_id,
-                   detail=f"workspace export ({len(zip_bytes)} bytes)")
+                   detail=f"workspace export ({len(zip_bytes)} bytes, {left_out} projects left out)")
         return Response(
             content=zip_bytes,
             media_type="application/zip",
-            headers={"content-disposition": f'attachment; filename="{slug}.zip"'},
+            headers={
+                "content-disposition": f'attachment; filename="{slug}.zip"',
+                PROJECTS_LEFT_OUT_HEADER: str(left_out),
+            },
         )
 
     # A workspace with big datasets takes minutes to zip: past

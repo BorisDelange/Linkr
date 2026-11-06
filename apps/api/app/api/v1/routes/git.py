@@ -91,6 +91,7 @@ from app.services.settings_export_assemble import (
 from app.services.workspace_export_assemble import (
     WorkspaceExportOptions,
     assemble_workspace_zip,
+    unreadable_project_uids,
 )
 
 logger = structlog.get_logger()
@@ -621,6 +622,23 @@ async def _load_workspace(workspace_id: str, db: AsyncSession, _member) -> Works
     return ws
 
 
+async def _load_workspace_tree(workspace_id: str, db: AsyncSession, user: User) -> Workspace:
+    """The workspace, for a route that reads or writes its whole versioned tree. A
+    tree without a project the caller may not read would show it as deleted and
+    commit that deletion, and the repository's history holds its content either
+    way, so the route is refused rather than filtered."""
+    ws = await _load_workspace(workspace_id, db, user)
+    if await unreadable_project_uids(db, ws.id, user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "hidden_projects",
+                "message": "This workspace holds a project you have no access to, so its versioned tree is not available to you.",
+            },
+        )
+    return ws
+
+
 @router.post("/workspaces/{workspace_id}/status", response_model=GitStatusResponse)
 async def workspace_status(
     workspace_id: str,
@@ -629,7 +647,7 @@ async def workspace_status(
     db: AsyncSession = Depends(get_db),
     _member=Depends(require_permission("workspace-settings:read")),
 ):
-    ws = await _load_workspace(workspace_id, db, _member)
+    ws = await _load_workspace_tree(workspace_id, db, _member)
     result = await _guard(
         git_service.status(
             git_service.workspace_repo_getter,
@@ -654,7 +672,7 @@ async def workspace_diff(
     db: AsyncSession = Depends(get_db),
     _member=Depends(require_permission("workspace-settings:read")),
 ):
-    ws = await _load_workspace(workspace_id, db, _member)
+    ws = await _load_workspace_tree(workspace_id, db, _member)
     return await _guard(
         git_service.diff(
             git_service.workspace_repo_getter,
@@ -694,7 +712,7 @@ async def workspace_commit_push(
     db: AsyncSession = Depends(get_db),
     _member=Depends(require_permission("workspace-settings:write")),
 ):
-    ws = await _load_workspace(workspace_id, db, _member)
+    ws = await _load_workspace_tree(workspace_id, db, _member)
     if _remote_url(ws) is None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "Workspace is not linked to a git remote"
@@ -762,7 +780,7 @@ async def workspace_propose(
     db: AsyncSession = Depends(get_db),
     _member=Depends(require_permission("workspace-settings:write")),
 ):
-    ws = await _load_workspace(workspace_id, db, _member)
+    ws = await _load_workspace_tree(workspace_id, db, _member)
     return await _propose(
         db, _member, "workspaces", ws.id, git_service.workspace_repo_getter,
         await _workspace_zip_bytes(db, ws, file), _default_branch(ws, branch), _remote_url(ws),
@@ -788,7 +806,7 @@ async def workspace_three_way(
     db: AsyncSession = Depends(get_db),
     _member=Depends(require_permission("workspace-settings:read")),
 ):
-    ws = await _load_workspace(workspace_id, db, _member)
+    ws = await _load_workspace_tree(workspace_id, db, _member)
     return await _three_way(
         db, "workspaces", ws.id, git_service.workspace_repo_getter,
         await _workspace_zip_bytes(db, ws, file), _default_branch(ws, branch),
@@ -806,7 +824,7 @@ async def workspace_merged_tree(
     db: AsyncSession = Depends(get_db),
     _member=Depends(require_permission("workspace-settings:read")),
 ):
-    ws = await _load_workspace(workspace_id, db, _member)
+    ws = await _load_workspace_tree(workspace_id, db, _member)
     return await _merged_tree(
         git_service.workspace_repo_getter, ws.id, await _workspace_zip_bytes(db, ws, file),
         _default_branch(ws, branch), _remote_url(ws), await _token(db, _member, ws),
@@ -2177,17 +2195,7 @@ async def settings_set_sync_state(
     await _apply_sync_state(db, "settings", SETTINGS_ID, body)
 
 
-def _read_zip_tree(zip_bytes: bytes) -> dict[str, bytes]:
-    import io
-    import zipfile
-
-    tree: dict[str, bytes] = {}
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-        for name in zf.namelist():
-            if name.endswith("/"):
-                continue
-            tree[name] = zf.read(name)
-    return tree
+_SETTINGS_ZIP_MAX_BYTES = 64 * 1024 * 1024
 
 
 async def _apply_settings_zip(
@@ -2195,7 +2203,10 @@ async def _apply_settings_zip(
     zip_bytes: bytes,
     acting_username: str | None,
 ) -> SettingsImportResponse:
-    tree = await asyncio.to_thread(_read_zip_tree, zip_bytes)
+    try:
+        tree = await asyncio.to_thread(git_service.read_archive, zip_bytes, _SETTINGS_ZIP_MAX_BYTES)
+    except git_service.GitError as exc:
+        raise _git_http_error(exc) from exc
     report = await settings_import_service.import_settings_tree(db, tree, acting_username)
     return SettingsImportResponse(**report.as_dict())
 

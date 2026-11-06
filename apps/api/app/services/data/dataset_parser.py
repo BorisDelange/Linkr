@@ -16,13 +16,16 @@ DuckDB reads all columns as VARCHAR so *we* own the typing, rather than letting
 DuckDB's own inference diverge from the frontend's.
 """
 
+import io
 import xml.etree.ElementTree as ET
 import zipfile
+import zlib
 from pathlib import Path
 from typing import Any
 
 import duckdb
 
+from app.core import safe_zip
 from app.services.data.column_id import build_column_ids
 from app.services.data.file_reader import build_read_expr, cleanup_transcoded, confine_reader, is_excel
 from app.services.data.type_inference import (
@@ -190,14 +193,18 @@ def _sql_str(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+EXCEL_WORKBOOK_MAX_BYTES = 16 * 1024 * 1024
+
+
 def excel_sheet_names(path: Path) -> list[str]:
     """Sheet names of an .xlsx, read from the zip's workbook.xml without loading
-    the whole workbook. Returns [] if the file isn't a readable xlsx zip."""
+    the whole workbook. Returns [] if the file isn't a readable xlsx zip, or if that
+    part declares more than EXCEL_WORKBOOK_MAX_BYTES."""
     try:
         with zipfile.ZipFile(path) as zf:
-            with zf.open("xl/workbook.xml") as fh:
-                tree = ET.parse(fh)
-    except (zipfile.BadZipFile, KeyError, ET.ParseError, OSError):
+            workbook = safe_zip.read_member(zf, "xl/workbook.xml", max_bytes=EXCEL_WORKBOOK_MAX_BYTES)
+        tree = ET.parse(io.BytesIO(workbook))
+    except (zipfile.BadZipFile, zlib.error, EOFError, KeyError, ET.ParseError, OSError, safe_zip.ZipTooLarge):
         return []
     # The <sheet> elements live under <sheets>; the tag carries the spreadsheetml
     # namespace, so match on the local name rather than a fixed prefix.

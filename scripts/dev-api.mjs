@@ -50,5 +50,7 @@ const args = [
 
 console.log(`\n  API  →  http://localhost:${port}\n`)
 
-const child = spawn(uvicorn, args, { cwd: apiDir, stdio: 'inherit' })
+// A fresh dev instance stays one click: the wizard prefills this in dev builds.
+const env = { ...process.env, LINKR_SETUP_TOKEN: process.env.LINKR_SETUP_TOKEN ?? 'dev-setup-token' }
+const child = spawn(uvicorn, args, { cwd: apiDir, stdio: 'inherit', env })
 child.on('exit', (code) => process.exit(code ?? 0))

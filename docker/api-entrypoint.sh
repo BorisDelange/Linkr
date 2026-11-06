@@ -10,13 +10,16 @@ if [ "$(id -u)" = "0" ]; then
   data_dir="${LINKR_DATA_DIR:-/var/lib/linkr}"
   mkdir -p "$data_dir"
   # Only when needed: a recursive chown of a large volume on every start is slow.
-  [ "$(stat -c %U "$data_dir")" = linkr ] || chown -R linkr:linkr "$data_dir"
+  # -h: kernels write this volume, and what root follows must not be theirs to aim.
+  [ "$(stat -c %U "$data_dir")" = linkr ] || chown -Rh linkr:linkr "$data_dir"
   # DuckDB spills a query too big for memory into ./.tmp, and /app is not the
   # user's to write: point it at the data volume, sized for data.
-  mkdir -p "$data_dir/_duckdb_tmp" && chown linkr:linkr "$data_dir/_duckdb_tmp"
   ln -sfn "$data_dir/_duckdb_tmp" /app/.tmp
-  exec setpriv --reuid=linkr --regid=linkr --init-groups env HOME=/home/linkr "$0" "$@"
+  exec setpriv --reuid=linkr --regid=linkr --init-groups --no-new-privs env HOME=/home/linkr "$0" "$@"
 fi
+
+# Below the drop: this path is under what kernels control.
+mkdir -p "${LINKR_DATA_DIR:-/var/lib/linkr}/_duckdb_tmp" 2>/dev/null || true
 
 # Seed the runtime data volume's DuckDB extension dir from the image-baked
 # bundle, so first use (native .xlsx read, external DB connectors) works fully

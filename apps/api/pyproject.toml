@@ -65,12 +65,6 @@ postgres = [
     "asyncpg>=0.30",
     "psycopg2-binary>=2.9",
 ]
-# Arrow Flight SQL for an Apache Doris database's large results
-# (services/data/flight.py). Without it they go over the MySQL protocol.
-doris = [
-    "adbc-driver-manager>=1.0",
-    "adbc-driver-flightsql>=1.0",
-]
 # Packages available to server-side Python execution (parity with the browser
 # Pyodide default set). Install in execution-enabled deployments.
 execution = [

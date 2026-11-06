@@ -145,3 +145,33 @@ def test_with_the_public_default_a_project_may_pick_another_https_index(monkeypa
     monkeypatch.setattr(settings, "pip_index_url", type(settings).model_fields["pip_index_url"].default)
     out = env_options.resolve("python", None, {"indexUrl": "https://other.example/simple"})
     assert out["indexUrl"] == "https://other.example/simple"
+
+
+def test_a_listed_repository_is_confined_url_by_url(monkeypatch):
+    out = env_options.resolve("r", {"r": {"repos": "https://ws/cran"}}, {"repos": "https://ws/cran,http://other/cran"})
+    assert out["repos"] == "https://ws/cran"
+
+    out = env_options.resolve(
+        "r", {"r": {"repos": "https://a/cran,http://b/cran"}}, {"repos": "https://c/cran,http://b/cran"},
+    )
+    assert out["repos"] == "https://c/cran,http://b/cran"
+
+
+def test_credentials_are_masked_in_every_url_of_a_list():
+    masked = env_options.mask_credentials({
+        "repos": "https://a.example/cran,https://u:s3cret@b.example/cran,http://x:p@ss@c.example", "method": "curl",
+    })
+    assert masked == {"repos": "https://a.example/cran,https://***@b.example/cran,http://***@c.example", "method": "curl"}
+    assert env_options.mask_credentials({"indexUrl": "https://a.example/simple"}) == {"indexUrl": "https://a.example/simple"}
+
+
+def test_a_masked_url_sent_back_keeps_the_stored_credentials():
+    stored = {"repos": "https://u:s3cret@b.example/cran"}
+    assert env_options.keep_masked({"repos": "https://***@b.example/cran"}, stored) == stored
+    assert env_options.keep_masked({"repos": "https://b.example/cran"}, stored) == {"repos": "https://b.example/cran"}
+    assert env_options.keep_masked({"repos": "https://***@other.example/cran"}, stored) == {}
+
+
+def test_a_mask_is_never_used_as_a_url():
+    out = env_options.resolve("r", {"r": {"repos": "https://***@b.example/cran"}}, {"repos": "https://***@c.example/cran"})
+    assert out["repos"] == settings.r_repos

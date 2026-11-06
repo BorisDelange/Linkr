@@ -360,11 +360,13 @@ class OracleWriter:
     def _columns(self, select: str) -> list[tuple[str, str, str]]:
         """(name, DuckDB type, Oracle type) for each column of `select`."""
         described = self.con.execute(f"DESCRIBE SELECT * FROM ({select})").fetchall()
+        for column in described:
+            _require_ident(str(column[0]), "column name")
         texts = [str(c[0]) for c in described if str(c[1]).upper() == "VARCHAR"]
         longest: dict[str, int] = {}
         if texts:
             row = self.con.execute(
-                "SELECT " + ", ".join(f'max(length("{_require_ident(c, "column name")}"))' for c in texts)
+                "SELECT " + ", ".join(f'max(length("{c}"))' for c in texts)
                 + f" FROM ({select})"
             ).fetchone()
             longest = {c: int(v or 0) for c, v in zip(texts, row)}

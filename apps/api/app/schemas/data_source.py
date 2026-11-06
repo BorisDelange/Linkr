@@ -96,6 +96,9 @@ class DataSourceResponse(CamelModel):
     schema_mapping: dict | None = None
     schema_source: dict | None = None
     schema_overrides: dict | None = None
+    # The SQL of this mapping the caller has not accepted: until then, no query of
+    # theirs reads the relations that hold SQL (the routes fill it per user).
+    unaccepted_free_sql: list[str] = []
     derived_from: dict | None = None
     status: str
     stats: dict | None = None
@@ -246,7 +249,7 @@ class QueryResult(CamelModel):
 class FlightStatus(CamelModel):
     """Whether Arrow Flight carries this database's large results (services/data/flight.py).
     `not_applicable`: the engine has no Flight; `not_installed`: the server lacks
-    the `doris` extra; `unreachable`: Flight did not answer (`detail`);
+    pyarrow's Flight client; `unreachable`: Flight did not answer (`detail`);
     `unauthenticated`: it refused the login. `tls`: the connection is encrypted
     (the source's `sslmode`)."""
     status: str
@@ -551,6 +554,9 @@ class DeriveRequest(CamelModel):
     # the ones with no patient), the variables of each event table, birth dates.
     scope: str | None = None
     tables: list[DeriveTableRef] | None = None
+    # The tables nothing shows to be personless, copied whole because the caller
+    # names each one here. Not recorded options: a rebuild has to state them again.
+    copy_unproven_tables: list[DeriveTableRef] = []
     variables: list[DeriveVariables] = []
     dates: list[DeriveDate] = []
     pseudonymization: DerivePseudonymization | None = None

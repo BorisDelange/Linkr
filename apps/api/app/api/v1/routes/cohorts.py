@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,13 +9,20 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission
 from app.models.cohort import Cohort
+from app.models.project import Project
 from app.models.user import User
-from app.schemas.cohort import CohortCreate, CohortMaterializeRequest, CohortResponse, CohortUpdate
+from app.schemas.cohort import (
+    CohortCreate,
+    CohortMaterializeRequest,
+    CohortResponse,
+    CohortUpdate,
+)
 from app.services import (
-    database_credential_service,
     cohort_access,
     cohort_service,
     data_source_service,
+    database_binding,
+    database_credential_service,
     notification_service,
     undo_service,
 )
@@ -31,6 +38,11 @@ async def _load(db: AsyncSession, cohort_id: str, user: User, permission: str) -
         db, cohort.project_uid, cohort.owner_data_source_id, user, permission
     )
     return cohort
+
+
+async def _require_bindable(db: AsyncSession, project_uid: str, user: User, source_ids: list[str]) -> None:
+    project = await db.get(Project, project_uid)
+    await database_binding.require_bindable(db, project.workspace_id, user, source_ids, project=project)
 
 
 @router.get("", response_model=list[CohortResponse])
@@ -67,6 +79,8 @@ async def create_cohort(
     if body.owner_data_source_id:
         # A database's cohort runs against that database — never another one.
         body.data_source_id = body.owner_data_source_id
+    elif body.data_source_id:
+        await _require_bindable(db, body.project_uid, user, [body.data_source_id])
     cohort = await cohort_service.create(db, body)
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request), action="created",
@@ -96,6 +110,8 @@ async def update_cohort(
     cohort = await _load(db, cohort_id, user, "cohorts:write")
     if cohort.owner_data_source_id and "data_source_id" in body.model_fields_set:
         body.data_source_id = cohort.owner_data_source_id
+    elif cohort.project_uid:
+        await _require_bindable(db, cohort.project_uid, user, database_binding.changed_ids(cohort, body, "data_source_id"))
     # Only what the write actually alters: a run re-saving its count with an
     # unchanged definition must not read as an edit.
     changed = {k for k, v in body.model_dump(exclude_unset=True).items() if getattr(cohort, k) != v}
@@ -168,9 +184,14 @@ async def materialize_cohort(
     source_id = body.data_source_id or cohort.data_source_id
     if not source_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "no database to run the cohort on")
+    project = await db.get(Project, cohort.project_uid)
+    if source_id not in (project.linked_data_source_ids or []):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This database is not linked to the project")
     source = await data_source_service.get(db, source_id)
     if source is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Database not found")
+    if database_binding.is_foreign(source, project.workspace_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, database_binding.FOREIGN_DATABASE)
     await check_workspace_permission(db, source.workspace_id, user, "databases:read")
     login = await database_credential_service.resolve_login(db, source, user.id)
 
@@ -188,7 +209,7 @@ async def materialize_cohort(
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
             except HTTPException:  # an ETL run holding the file
                 raise
-            except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
+            except Exception as e:
                 raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
             if not {"id", "patient_id"} <= set(table.column_names):
                 raise HTTPException(
@@ -198,7 +219,7 @@ async def materialize_cohort(
             materialization = await asyncio.to_thread(
                 cohort_service.build_materialization,
                 fresh.level, table.column("id").to_pylist(), table.column("patient_id").to_pylist(),
-                datetime.now(timezone.utc),
+                datetime.now(UTC),
             )
             # Undone by unfreezing — only a first freeze: an earlier id list is not kept.
             before = {**undo_service.cohort_snapshot(fresh), "materialization": None} if fresh.materialization is None else None

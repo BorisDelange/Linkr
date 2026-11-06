@@ -15,6 +15,16 @@ The rule, with k the threshold:
   `patients_count` — must read as an integer of at least k, and records (the
   records cell, `rows_count`) vouch only when no patient total is given at all
   (missing, "2e0", -1, "n/a" all fail closed);
+- its numeric block, and the histogram of the same values, leave only when
+  `numeric_data.numeric_patients_count` reads as at least k (and `numeric_count`,
+  when given): a concept can reach k with its values held by one patient, and
+  no such count means they are withheld. A `numeric_data` or
+  `records_per_patient` that is not an object is withheld too, and so is a
+  `missing_rate` that gives back a number of records (with or without a value)
+  under k, or that cannot be read over a known total;
+- only the fields below were judged, so only they may leave, a value of the kind
+  the field holds; anything else in a profile (at its top, in a block, in a cell)
+  stays behind, whatever its name: PROFILE_FIELDS and the *_FIELDS beside it;
 - otherwise the profile loses its extremes (min/max, per-patient min/max,
   range, first and last event dates), p1/p5/p95/p99 under 100 values, and
   every histogram bin, category, hospital unit or year whose `count` (records)
@@ -24,16 +34,31 @@ The rule, with k the threshold:
 - the histogram is first moved onto a round grid not anchored on the minimum,
   and its first and last bins go: each holds an extreme within one bin width —
   once: the profile is stamped `masked_k` (the threshold applied), and a profile
-  already stamped at k or more is neither regridded nor trimmed again, nor are
-  its near-extreme percentiles re-decided (the histogram they are counted on has
-  lost bins since), else every export of an imported file (a pull, then a push)
-  would erode it. Every other rule runs again whatever the stamp says;
+  already stamped at k or more, holding nothing a pass removes, is not regridded
+  nor trimmed again, else every export of an imported file (a pull, then a push)
+  would erode it. A file can carry any stamp: every other rule runs again whatever
+  it says, near-extreme percentiles included, on the counts that do not shrink;
 - a cell keeps its records `count` but loses its `patients_count`, which only
   decided whether it could stay;
 - a profile nested deeper than MAX_PROFILE_DEPTH is withheld, as Python's
   parser gives up on deep nesting where JSON.parse does not.
-Bytes that cannot be read as text, or as CSV, raise SourceConceptsUnreadable:
-never exported unmasked.
+
+Every column is judged, not only the ones holding a role: a column not known to
+be harmless does not leave unmasked. The concept's own columns (its code, name,
+vocabulary… named by the mapping or by their usual header) stay as they are. In
+any other:
+- a column named after a value of the data (sample, min, first, mean…) is emptied;
+- a count cell — of a role, or of a column named as a count — that is under k or
+  is no plain number becomes "<k", and withholds the row's profiles;
+- a cell holding JSON is masked as a profile, or emptied if it is not one;
+- any other number under k, or text starting as a number, becomes "<k";
+- other text stays only in a column the project chose (`extraColumns`), and
+  never on a row under k.
+
+The file is read row for row as the app reads it, or not at all: an unbalanced
+quote, a row of another width or lines to skip that it does not have raise
+SourceConceptsUnreadable, as do bytes that cannot be read as text or as CSV.
+Line endings are read alike whichever they are.
 """
 
 import csv
@@ -41,6 +66,7 @@ import io
 import json
 import math
 import re
+import unicodedata
 from collections.abc import Callable
 
 from app.config import settings
@@ -58,8 +84,8 @@ class SourceConceptsUnreadable(ValueError):
 
     def __init__(self) -> None:
         super().__init__(
-            "The source concepts file is neither UTF-8 nor Windows-1252 text nor readable Parquet: "
-            "it cannot be masked, so it is not exported."
+            "The source concepts file is not UTF-8 or Windows-1252 text with well-formed rows of one width, "
+            "nor readable Parquet: it cannot be masked, so it is not exported."
         )
 
 
@@ -74,7 +100,6 @@ def decode_source_text(data: bytes) -> str | None:
         except UnicodeDecodeError:
             return None
     return None if "\0" in text else text
-_EXTREMES = ("min", "max")
 # Under this many values, a 1st/5th percentile sits on one patient's value.
 _NEAR_EXTREMES_MIN_COUNT = 100
 _NEAR_EXTREMES = ("p1", "p5", "p95", "p99")
@@ -211,6 +236,108 @@ def _vouched(patients: list[object], records: list[object], k: int) -> bool:
     return any(_at_least(v, k) for v in records if v is not None)
 
 
+def _numeric_vouched(numeric: object, k: int) -> bool:
+    """Whether the values a numeric block is computed on are known to come from at
+    least k patients — the concept's own totals do not say."""
+    if not isinstance(numeric, dict) or not _at_least(numeric.get("numeric_patients_count"), k):
+        return False
+    return numeric.get("numeric_count") is None or _at_least(numeric.get("numeric_count"), k)
+
+
+def _rate_gives_small_count(rate: object, records: object, k: int) -> bool:
+    """Whether a missing rate, over its records, gives back a count under k — of
+    the records with a value or of those without — or cannot be read at all."""
+    r, n = _number(rate), _number(records)
+    if not (math.isfinite(r) and math.isfinite(n)):
+        return True
+    missing = n * r / 100
+    return 0 < missing < k or 0 < n - missing < k
+
+
+# Text a profile may carry: what names the concept, not what was recorded for it.
+_PROFILE_TEXT_FIELDS = frozenset({"full_name", "data_source", "unit"})
+_PROFILE_NUMBER_FIELDS = frozenset({"rows_count", "patients_count", "missing_rate", "masked_k"})
+_PROFILE_BLOCKS = frozenset({
+    "data_types", "measurement_frequency", "numeric_data", "histogram", "categorical_data",
+    "records_per_patient", "temporal_distribution", "hospital_units",
+})
+PROFILE_FIELDS = _PROFILE_TEXT_FIELDS | _PROFILE_NUMBER_FIELDS | _PROFILE_BLOCKS
+NUMERIC_FIELDS = frozenset({
+    "p1", "p5", "p25", "median", "mean", "p75", "p95", "p99", "sd", "numeric_count", "numeric_patients_count",
+})
+PER_PATIENT_FIELDS = frozenset({"mean", "median"})
+# A cell: its numbers, and the one text naming it.
+_CELL_NUMBERS = frozenset({"count", "percentage"})
+_HISTOGRAM_NUMBERS = frozenset({"x", "count"})
+_YEAR_NUMBERS = frozenset({"year", "count", "percentage"})
+_NAMED_CELLS = {"categorical_data": "category", "hospital_units": "unit"}
+
+
+def _is_number(value: object) -> bool:
+    return value is None or math.isfinite(_number(value))
+
+
+def _is_text(value: object) -> bool:
+    return isinstance(value, str) or (isinstance(value, (int, float)) and not isinstance(value, bool))
+
+
+def _numbers_only(block: dict, fields: frozenset) -> dict:
+    return {k_: v for k_, v in block.items() if k_ in fields and _is_number(v)}
+
+
+def _judged_cell(cell: dict, numbers: frozenset, text: str | None = None) -> dict:
+    return {
+        k_: v for k_, v in cell.items()
+        if (k_ in numbers and _is_number(v)) or (k_ == text and _is_text(v))
+    }
+
+
+def _went_through_a_pass(profile: dict, k: int) -> bool:
+    """Whether its stamp can be what a pass left: at k or more, over a profile
+    holding nothing a pass removes."""
+    if not _number(profile.get("masked_k")) >= k or any(key not in PROFILE_FIELDS for key in profile):
+        return False
+    for key, fields in (("numeric_data", NUMERIC_FIELDS), ("records_per_patient", PER_PATIENT_FIELDS)):
+        block = profile.get(key)
+        if isinstance(block, dict) and any(name not in fields for name in block):
+            return False
+    temporal = profile.get("temporal_distribution")
+    if isinstance(temporal, dict) and any(name != "by_year" for name in temporal):
+        return False
+    histogram = profile.get("histogram")
+    return not (isinstance(histogram, list) and any(isinstance(b, dict) and "patients_count" in b for b in histogram))
+
+
+def _data_types(value: object) -> object:
+    if isinstance(value, str):
+        return value
+    return [v for v in value if isinstance(v, str)] if isinstance(value, list) else None
+
+
+def _judged_fields(profile: dict) -> dict:
+    """What of `profile` the rule has a judgement on, in its order."""
+    out: dict = {}
+    for key, value in profile.items():
+        if key in _PROFILE_BLOCKS or (key in _PROFILE_NUMBER_FIELDS and _is_number(value)) or (
+            key in _PROFILE_TEXT_FIELDS and isinstance(value, str)
+        ):
+            out[key] = value
+    if "data_types" in out:
+        types = _data_types(out["data_types"])
+        if types:
+            out["data_types"] = types
+        else:
+            del out["data_types"]
+    if "measurement_frequency" in out:
+        frequency = out["measurement_frequency"]
+        interval = frequency.get("typical_interval") if isinstance(frequency, dict) else None
+        if isinstance(interval, str):
+            out["measurement_frequency"] = {"typical_interval": interval}
+        else:
+            del out["measurement_frequency"]
+    return out
+
+
 def mask_profile(
     profile: dict, k: int, row_patients: object = None, row_records: object = None,
 ) -> dict | None:
@@ -223,12 +350,20 @@ def mask_profile(
         return None
     if not _vouched([row_patients, profile.get("patients_count")], [row_records, profile.get("rows_count")], k):
         return None
-    out = dict(profile)
-    out.pop("range", None)
-    for key in ("numeric_data", "records_per_patient"):
-        if isinstance(out.get(key), dict):
-            out[key] = {k_: v for k_, v in out[key].items() if k_ not in _EXTREMES}
+    stamped = _went_through_a_pass(profile, k)
+    out = _judged_fields(profile)
+    if "numeric_data" in out and not _numeric_vouched(out["numeric_data"], k):
+        out.pop("numeric_data")
+        out.pop("histogram", None)
+    if "records_per_patient" in out and not isinstance(out["records_per_patient"], dict):
+        out.pop("records_per_patient")
+    if isinstance(out.get("numeric_data"), dict):
+        out["numeric_data"] = _numbers_only(out["numeric_data"], NUMERIC_FIELDS)
+    if isinstance(out.get("records_per_patient"), dict):
+        out["records_per_patient"] = _numbers_only(out["records_per_patient"], PER_PATIENT_FIELDS)
     total = profile.get("rows_count")
+    if "missing_rate" in out and _rate_gives_small_count(out["missing_rate"], total if total is not None else row_records, k):
+        out.pop("missing_rate")
 
     def records(e: dict) -> float:
         return _number(e.get("count")) if "count" in e else math.nan
@@ -237,15 +372,16 @@ def mask_profile(
         n = records(e)
         return not math.isfinite(n) or _small(n, k) or _small(e.get("patients_count"), k)
 
-    def cells(entries: list, small: Callable[[dict], bool] = small_cell) -> list:
-        kept = _suppress(entries, small, records, k)
-        return [{k_: v for k_, v in e.items() if k_ != "patients_count"} for e in kept]
+    def cells(
+        entries: list, numbers: frozenset, text: str | None = None, small: Callable[[dict], bool] = small_cell,
+    ) -> list:
+        return [_judged_cell(e, numbers, text) for e in _suppress(entries, small, records, k)]
 
     numeric = out.get("numeric_data")
-    # Decided on the first pass: the histogram it sums has lost bins since.
-    if isinstance(numeric, dict) and not _number(profile.get("masked_k")) >= k:
+    if isinstance(numeric, dict):
         sizes = [_number(numeric.get("numeric_count")), _number(total)]
-        if isinstance(profile.get("histogram"), list):
+        # Counted before a pass only: it has lost bins since.
+        if not stamped and isinstance(profile.get("histogram"), list):
             histogram_sum = 0.0
             for b in profile["histogram"]:
                 histogram_sum += _number(b.get("count")) if isinstance(b, dict) else math.nan
@@ -254,27 +390,33 @@ def mask_profile(
         if not known or min(known) < _NEAR_EXTREMES_MIN_COUNT:
             out["numeric_data"] = {k_: v for k_, v in numeric.items() if k_ not in _NEAR_EXTREMES}
     if isinstance(out.get("histogram"), list):
-        if _number(profile.get("masked_k")) >= k:
+        if stamped:
             # On its grid already, edges gone: regridding again would infer a wider
             # step from the gaps the suppression left, and move every bin.
-            out["histogram"] = cells(out["histogram"])
+            out["histogram"] = cells(out["histogram"], _HISTOGRAM_NUMBERS)
         else:
             grid = _regrid(out["histogram"])
             if grid is None:
                 del out["histogram"]
             else:
                 first, last = grid[0], grid[-1]
-                out["histogram"] = cells(grid, lambda b: b is first or b is last or small_cell(b))
-    for key in ("categorical_data", "hospital_units"):
+                out["histogram"] = cells(
+                    grid, _HISTOGRAM_NUMBERS, small=lambda b: b is first or b is last or small_cell(b),
+                )
+    for key, text in _NAMED_CELLS.items():
         if isinstance(out.get(key), list):
-            out[key] = cells(out[key])
+            out[key] = cells(out[key], _CELL_NUMBERS, text)
+    for key in ("histogram", "categorical_data", "hospital_units"):
+        if key in out and not isinstance(out[key], list):
+            del out[key]
     temporal = out.get("temporal_distribution")
     if isinstance(temporal, dict):
-        # The first and last dates are one patient's event each.
-        rest = {k_: v for k_, v in temporal.items() if k_ not in ("start_date", "end_date")}
-        if isinstance(rest.get("by_year"), list):
-            rest["by_year"] = cells(rest["by_year"])
-        out["temporal_distribution"] = rest
+        # The first and last dates are one patient's event each, and any other
+        # field of this block is judged by nothing.
+        by_year = temporal.get("by_year")
+        out["temporal_distribution"] = {"by_year": cells(by_year, _YEAR_NUMBERS)} if isinstance(by_year, list) else {}
+    elif "temporal_distribution" in out:
+        del out["temporal_distribution"]
     out["masked_k"] = k
     return out
 
@@ -375,6 +517,82 @@ def _positional_headers(width: int) -> list[str]:
     return [f"column{str(i).zfill(digits)}" for i in range(width)]
 
 
+# A real pointer, not a file that merely starts like one.
+_LFS_POINTER = re.compile(r"version https://git-lfs\S*\noid sha256:[0-9a-f]+\nsize [0-9]+\n?")
+_MASKED_CELL = re.compile(r"<[0-9]+")
+_STARTS_AS_NUMBER = re.compile(r"[^0-9A-Za-z]*[0-9]")
+_DIGIT = re.compile(r"[0-9]")
+
+# Headers are compared as `_slug` writes them, so `minValue`, `MIN VALUE` and
+# `min_value` read alike, and `début` as `debut`.
+_CONCEPT_ROLES = (
+    "terminologyColumn", "conceptCodeColumn", "conceptIdColumn", "conceptNameColumn", "domainColumn",
+    "conceptClassColumn", "categoryColumn", "subcategoryColumn", "targetConceptIdColumn",
+)
+_CONCEPT_HEADERS = frozenset({
+    "terminology", "terminology_id", "vocabulary", "vocabulary_id", "code", "concept_code", "source_code", "id",
+    "concept", "concept_id", "target_concept_id", "name", "concept_name", "label", "description", "domain",
+    "domain_id", "concept_class", "concept_class_id", "category", "subcategory", "unit",
+})
+_COUNT_HEADER = re.compile(
+    r"(^|_)(n|nb|nbr|num|number|nombre|count|counts|cnt|freq|frequency|frequence|total|effectifs?|recs?|records?"
+    r"|enregistrements?|rows?|lignes?|patients?|pts|subjects?|persons?|stays?|sejours?|visits?|occurrences?)(_|$)"
+)
+_VALUE_HEADER = re.compile(
+    r"(^|_)(samples?|examples?|exemples?|echantillons?|values?|valeurs?|min|max|minimum|maximum|range|first|last"
+    r"|premier|premiere|dernier|derniere|start|end|debut|fin|earliest|latest|oldest|newest|top|mode|mean|avg|average"
+    r"|moyenne|median|mediane|sd|std|stddev|percentiles?|p[0-9]{1,2}|q[0-9])(_|$)"
+)
+
+
+def _slug(header: str) -> str:
+    plain = "".join(c for c in unicodedata.normalize("NFD", header) if not unicodedata.category(c).startswith("M"))
+    return re.sub(r"[^a-z0-9]+", "_", re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", plain).lower())
+
+
+def _count_hidden(cell: str, k: int) -> bool:
+    """Whether a count cell says or may say a count under k: one that cannot be
+    read as a plain number, if it holds a digit, could be any."""
+    text = cell.strip(" \t")
+    if not text or _NUMBER_TEXT.fullmatch(text) and not _small(text, k):
+        return False
+    return _DIGIT.search(text) is not None
+
+
+def _masked_json(cell: str, k: int, withheld: bool, row_patients: object, row_records: object) -> str:
+    profile = _parse_profile(cell)
+    masked = None if withheld or not isinstance(profile, dict) else mask_profile(profile, k, row_patients, row_records)
+    if masked is None:
+        return ""
+    return cell if masked == profile else _js_json(masked)
+
+
+def _masked_other(cell: str, k: int, chosen: bool, withheld: bool) -> str:
+    text = cell.strip(" \t")
+    if _small(text, k) or (not _NUMBER_TEXT.fullmatch(text) and _STARTS_AS_NUMBER.match(text)):
+        return f"<{k}"
+    if _NUMBER_TEXT.fullmatch(text):
+        return "" if withheld else cell
+    return cell if chosen and not withheld else ""
+
+
+def _read_rows(table: str, delimiter: str, has_header: bool) -> list[list[str]]:
+    """The rows of `table`, every one of the same width — a blank line aside — or
+    SourceConceptsUnreadable: a row read otherwise than the app reads it would go
+    unmasked, its counts in the wrong column or inside a field."""
+    if delimiter in ('"', "\n", "\r"):
+        raise SourceConceptsUnreadable()
+    try:
+        rows = list(csv.reader(io.StringIO(table, newline=""), delimiter=delimiter, strict=True))
+    except csv.Error as exc:
+        raise SourceConceptsUnreadable() from exc
+    filled = [r for r in rows if r and r != [""]]
+    width = len(filled[0]) if filled else 0
+    if any(len(r) != width for r in filled) or (has_header and rows and not rows[0]):
+        raise SourceConceptsUnreadable()
+    return rows
+
+
 def mask_source_concepts_csv(
     text: str, column_mapping: dict | None = None, k: int | None = None, parse_options: dict | None = None,
 ) -> str:
@@ -386,30 +604,27 @@ def mask_source_concepts_csv(
     was not read as it should be: it raises rather than leaves unmasked."""
     k = settings.export_min_count if k is None else k
     text = text.removeprefix("\ufeff")
-    if k <= 1 or not text or text.startswith("version https://git-lfs"):
+    if k <= 1 or not text or _LFS_POINTER.fullmatch(text):
         return text
     opts = parse_options or {}
     try:
         skip = max(0, int(opts.get("skipRows") or 0))
     except (TypeError, ValueError) as exc:
         raise SourceConceptsUnreadable() from exc
-    lines = text.split("\n", skip)
+    lines = re.sub(r"\r\n?", "\n", text).split("\n", skip)
     if len(lines) <= skip:
-        return text
+        raise SourceConceptsUnreadable()
     preamble = "".join(f"{line}\n" for line in lines[:skip])
     table = lines[skip]
     first_line = table.split("\n", 1)[0]
     delimiter = opts.get("delimiter") or max((",", ";", "\t", "|"), key=first_line.count)
     if not isinstance(delimiter, str) or len(delimiter) != 1:
         raise SourceConceptsUnreadable()
-    try:
-        rows = list(csv.reader(io.StringIO(table, newline=""), delimiter=delimiter))
-    except csv.Error as exc:
-        raise SourceConceptsUnreadable() from exc
+    has_header = opts.get("hasHeader", True) is not False
+    rows = _read_rows(table, delimiter, has_header)
     if not rows:
         return text
     mapping = column_mapping or {}
-    has_header = opts.get("hasHeader", True) is not False
     headers = rows[0] if has_header else _positional_headers(max(len(r) for r in rows))
     data = rows[1:] if has_header else rows
     record_idx = _index(headers, mapping.get("recordCountColumn"), ("record_count", "rows_count"))
@@ -418,26 +633,50 @@ def mask_source_concepts_csv(
     roles = (("recordCountColumn", record_idx), ("patientCountColumn", patient_idx), ("infoJsonColumn", json_idx))
     if any(mapping.get(role) and idx < 0 for role, idx in roles):
         raise SourceConceptsUnreadable()
-    count_idx = [i for i in (record_idx, patient_idx) if i >= 0]
-    if not count_idx and json_idx < 0:
-        return text
+
+    lower = [h.strip().lower() for h in headers]
+    slugs = [_slug(h.strip()) for h in headers]
+    concept_names = {str(mapping[role]).strip().lower() for role in _CONCEPT_ROLES if mapping.get(role)}
+    extra = mapping.get("extraColumns")
+    chosen_names = {str(c).strip().lower() for c in extra} if isinstance(extra, list) else set()
+    role_counts = {i for i in (record_idx, patient_idx) if i >= 0}
+    concept_cols = {
+        i for i in range(len(headers))
+        if i not in role_counts and i != json_idx and (lower[i] in concept_names or slugs[i] in _CONCEPT_HEADERS)
+    }
+    judged = [i for i in range(len(headers)) if i not in concept_cols and i != json_idx]
+    value_cols = {i for i in judged if i not in role_counts and _VALUE_HEADER.search(slugs[i])}
+    count_cols = role_counts | {i for i in judged if i not in value_cols and _COUNT_HEADER.search(slugs[i])}
 
     changed = False
     for cells in data:
-        withheld = any(i < len(cells) and _small(cells[i], k) for i in count_idx)
+        if not cells or cells == [""]:
+            continue
+        withheld = any(_count_hidden(cells[i], k) for i in count_cols)
         row_patients, row_records = (
-            cells[i] if 0 <= i < len(cells) and cells[i].strip() else None for i in (patient_idx, record_idx)
+            cells[i] if i >= 0 and cells[i].strip() else None for i in (patient_idx, record_idx)
         )
-        for i in count_idx:
-            if i < len(cells) and _small(cells[i], k):
-                cells[i] = f"<{k}"
-                changed = True
-        if 0 <= json_idx < len(cells) and cells[json_idx].strip():
-            profile = _parse_profile(cells[json_idx])
-            masked = None if withheld or not isinstance(profile, dict) else mask_profile(profile, k, row_patients, row_records)
-            new = "" if masked is None else _js_json(masked)
-            if masked != profile or masked is None:
-                cells[json_idx] = new
+        for i, cell in enumerate(cells):
+            text_cell = cell.strip(" \t")
+            if i in concept_cols or not cell.strip():
+                continue
+            if i == json_idx or (i not in role_counts and text_cell[0] in "{["):
+                new = _masked_json(cell, k, withheld, row_patients, row_records)
+            elif _MASKED_CELL.fullmatch(text_cell):
+                continue
+            elif i in value_cols:
+                new = ""
+            elif i in count_cols:
+                if _count_hidden(cell, k):
+                    new = f"<{k}"
+                elif _NUMBER_TEXT.fullmatch(text_cell) or i in role_counts:
+                    new = cell
+                else:
+                    new = _masked_other(cell, k, lower[i] in chosen_names, withheld)
+            else:
+                new = _masked_other(cell, k, lower[i] in chosen_names, withheld)
+            if new != cell:
+                cells[i] = new
                 changed = True
     if not changed:
         return text

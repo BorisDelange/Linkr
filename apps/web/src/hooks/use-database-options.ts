@@ -41,6 +41,22 @@ export function databaseOptions(
   )
 }
 
+/**
+ * `id` names a database of another workspace. The server refuses to store one, so
+ * this is a row from before that rule: the runners must not run it, or a member of
+ * both workspaces would carry that database's results into this one. An id with
+ * no row here is merely an unresolved import, not a foreign one.
+ */
+export function isForeignDatabase(
+  dataSources: DataSource[],
+  id: string | null | undefined,
+  workspaceId: string | null | undefined,
+): boolean {
+  if (!id || !workspaceId) return false
+  const owner = dataSources.find((ds) => ds.id === id)?.workspaceId
+  return !!owner && owner !== workspaceId
+}
+
 export function useDatabaseOptions(
   workspaceId: string | null | undefined,
   projectUid?: string,

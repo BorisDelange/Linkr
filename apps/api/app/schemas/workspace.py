@@ -1,8 +1,11 @@
 from datetime import datetime
 from typing import Literal
 
+from pydantic import field_validator
+
 from app.core.path_ids import SafeId
 from app.schemas.base import CamelModel
+from app.services.execution.env_options import mask_workspace_credentials
 
 
 class WorkspaceCreate(CamelModel):
@@ -77,3 +80,8 @@ class WorkspaceResponse(CamelModel):
     parent_lineage_id: str | None = None
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("default_env_options")
+    @classmethod
+    def _no_index_credentials(cls, value: dict | None) -> dict | None:
+        return mask_workspace_credentials(value)

@@ -6,6 +6,9 @@ not run script, be framed, or leak the URL it came from. Only `/api/`: the
 interactive docs are pages and load their own assets. The web app's own headers
 are nginx's (docker/nginx.conf). The web-app proxy (routes/apps.py) serves pages
 made to be framed by Linkr, and sets its own.
+
+No API response is kept by the browser: a stored one would be served again with
+no authorization check and no access-log entry, after logout included.
 """
 
 import re
@@ -16,6 +19,7 @@ _HEADERS = [
     (b"x-content-type-options", b"nosniff"),
     (b"x-frame-options", b"DENY"),
     (b"referrer-policy", b"no-referrer"),
+    (b"cache-control", b"no-store"),
     (b"content-security-policy", b"default-src 'none'; frame-ancestors 'none'; sandbox"),
 ]
 

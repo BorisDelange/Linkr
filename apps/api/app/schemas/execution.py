@@ -25,6 +25,9 @@ class ExecuteRequest(CamelModel):
     dataset_filters: list[dict] | None = None
     # When set, sql_query() in the code runs against this data source (its id).
     connection_id: str | None = None
+    # Variables the run starts with (the selected patient, say). Values rather than
+    # text, so what changes between runs stays outside the code that was accepted.
+    context_vars: dict[str, str | int | None] | None = None
     # Why the code runs → which permission it needs:
     #   "dashboards"   → code-backed dashboard widget → dashboards:execute (editor+)
     #   "datasets"     → code-backed dataset analysis → datasets:execute (editor+)

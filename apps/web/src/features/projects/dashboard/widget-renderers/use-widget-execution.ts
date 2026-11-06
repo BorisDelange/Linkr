@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
+import { forgetDeclinedCode } from '@/stores/code-acceptance-prompt'
 
 /**
  * Module-level cache of widget execution results, keyed by widget id + a signature of its
@@ -51,7 +52,9 @@ export function useWidgetExecution({ widgetId, signature, ready, alwaysReload, r
       const output = await runRef.current()
       // Still cache it: the result is valid for ITS signature, so going back to
       // those filters is a hit rather than another round trip.
-      resultCache.set(cacheKey, output)
+      // Not a declined run: that is an answer about now, and coming back to this tab
+      // must find the code's result, or ask, rather than recall the refusal.
+      if (!output.notAccepted) resultCache.set(cacheKey, output)
       if (runId === currentRunRef.current) setResult(output)
     } finally {
       if (runId === currentRunRef.current) setLoading(false)
@@ -73,6 +76,7 @@ export function useWidgetExecution({ widgetId, signature, ready, alwaysReload, r
     result,
     loading,
     rerun: () => {
+      forgetDeclinedCode()
       invalidateWidgetResult(widgetId)
       setRerunNonce((n) => n + 1)
     },

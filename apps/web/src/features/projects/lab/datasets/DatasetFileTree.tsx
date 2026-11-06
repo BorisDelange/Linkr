@@ -41,6 +41,7 @@ import {
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-header'
+import { toCsv } from '@/lib/csv-export'
 import { compareTreeNodes } from '@/lib/file-tree-sort'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { useDatasetStore } from '@/stores/dataset-store'
@@ -256,18 +257,7 @@ function DatasetTreeItem({
         rows = data?.rows ?? []
       }
     }
-    const header = columns.map((c) => c.name).join(',')
-    const lines = rows.map((row) =>
-      columns.map((c) => {
-        const v = row[c.id]
-        if (v == null) return ''
-        const s = String(v)
-        return s.includes(',') || s.includes('"') || s.includes('\n')
-          ? `"${s.replace(/"/g, '""')}"`
-          : s
-      }).join(',')
-    )
-    const csv = [header, ...lines].join('\n')
+    const csv = toCsv(rows, columns.map((c) => ({ header: c.name, value: (row: Record<string, unknown>) => row[c.id] })))
     // Reconstructed content is CSV — force a .csv name even if the dataset is named *.xlsx.
     const csvName = file.name.replace(/\.[^.]+$/, '') + '.csv'
     trigger(new Blob([csv], { type: 'text/csv' }), csvName)

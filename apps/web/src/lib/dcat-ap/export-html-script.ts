@@ -27,9 +27,12 @@ export const TABLE_HELPERS = `
     var text = cellText(col, row);
     return col.type === 'number' && typeof v === 'number' && text === fmt(v) ? String(v) : text;
   }
-  // RFC 4180.
+  // RFC 4180. Same rule as lib/csv-export spreadsheetText: this page cannot import it.
+  function spreadsheetText(s) {
+    return s.length > 1 && /^[=+\\-@\\t\\r\\n]/.test(s) && !/^[+-]?[\\d.,]+(?:[eE][+-]?\\d+)?$/.test(s) ? "'" + s : s;
+  }
   function csvField(v) {
-    var s = v == null ? '' : String(v);
+    var s = v == null ? '' : spreadsheetText(String(v));
     return /[",\\r\\n]/.test(s) || s !== s.trim() ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
   function toCsv(lines) {

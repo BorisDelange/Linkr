@@ -36,6 +36,7 @@ import { DashboardDataProvider, useDashboardData } from './DashboardDataProvider
 import { resolveServerFilters } from './resolve-server-filters'
 import { isServerMode } from '@/lib/api-client'
 import { executeOnServer } from '@/lib/api/execution'
+import { acceptCode } from '@/lib/api/code-acceptance'
 import { SizedPreview } from './SizedPreview'
 import { DashboardEventsField } from './DashboardEventsField'
 import { useTabDashboardEvents } from './use-tab-dashboard-events'
@@ -261,8 +262,10 @@ function WidgetEditorBody({
     : (isCodeCustomized && userCode ? userCode : generatedCode)
 
   // Code editing → draft only
+  const editedCode = useRef(false)
   const handleCodeChange = useCallback((value: string | undefined) => {
     if (value === undefined) return
+    editedCode.current = true
     if (isInline) {
       setInlineCode(value)
     } else if (value === generatedCode) {
@@ -296,6 +299,11 @@ function WidgetEditorBody({
           purpose: 'dashboards',
           // Match the dashboard's parallel, isolated run model in the preview too.
           ephemeral: true,
+          // Pressing Run on code on screen is the review; from the config tab only
+          // the plugin's template has been chosen, not read.
+          review: activeTab === 'code' || editedCode.current
+            ? { authored: true }
+            : { source: isCodeCustomized ? undefined : plugin?.templates?.[language] },
         })
       } else {
         if (_isPlugin && plugin) {
@@ -321,7 +329,7 @@ function WidgetEditorBody({
       setIsExecuting(false)
       setStatusMessage(null)
     }
-  }, [currentCode, filteredRows, columns, language, _isPlugin, plugin, datasetFileId, filters, projectUid])
+  }, [currentCode, filteredRows, columns, language, _isPlugin, plugin, datasetFileId, filters, projectUid, activeTab, isCodeCustomized])
 
   // Cmd/Ctrl+Shift+Enter: run the whole file.
   const handleRunFile = useCallback(() => { void handleRun() }, [handleRun])
@@ -352,10 +360,11 @@ function WidgetEditorBody({
   const handleSave = useCallback(() => {
     if (!dirty) return
     commit()
+    if (editedCode.current && isServerMode()) void acceptCode([currentCode]).catch(() => {})
     setJustSaved(true)
     clearTimeout(savedTimerRef.current)
     savedTimerRef.current = setTimeout(() => setJustSaved(false), 1500)
-  }, [dirty, commit])
+  }, [dirty, commit, currentCode])
   // A fresh edit clears the "Saved" flash so the button reads "Save" again.
   useEffect(() => { if (dirty) setJustSaved(false) }, [dirty])
   useEffect(() => () => clearTimeout(savedTimerRef.current), [])

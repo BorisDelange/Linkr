@@ -10,13 +10,15 @@ import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/
 import { buildTimelineQuery, buildPatientVisitSummaryQuery } from '@/lib/duckdb/patient-data-queries'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { ExecuteNotPermitted } from '@/components/ui/execute-not-permitted'
+import { localized } from '@/lib/localized'
+import { forgetDeclinedCode } from '@/stores/code-acceptance-prompt'
 
 interface WarehousePluginWidgetRendererProps {
   widgetId: string
 }
 
 export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidgetRendererProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { dataSourceId, projectUid, schemaMapping, can, codeWidgets = true } = usePatientChartContext()
   const widget = usePatientChartStore((s) => s.widgets.find((w) => w.id === widgetId))
   const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId[projectUid] ?? null)
@@ -36,8 +38,8 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
 
   const plugin = pluginId ? getPlugin(pluginId) : null
 
-  // Build extra preamble for plugins with needsConceptPicker (inject pre-built SQL)
-  const extraPreamble = useMemo(() => {
+  // Build extra variables for plugins with needsConceptPicker (inject pre-built SQL)
+  const extraVars = useMemo(() => {
     if (!plugin?.manifest.needsConceptPicker || !schemaMapping || !selectedPatientId) return undefined
     const conceptIds = (pluginConfig as Record<string, unknown> | undefined)?.conceptIds as number[] | undefined
     const timelineSql = conceptIds?.length
@@ -45,20 +47,8 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
       : null
     const visitSummarySql = buildPatientVisitSummaryQuery(schemaMapping, selectedPatientId)
 
-    if (language === 'python') {
-      return [
-        `timeline_sql = ${timelineSql ? JSON.stringify(timelineSql) : 'None'}`,
-        `visit_summary_sql = ${visitSummarySql ? JSON.stringify(visitSummarySql) : 'None'}`,
-        '',
-      ].join('\n')
-    }
-    // R
-    return [
-      `timeline_sql <- ${timelineSql ? JSON.stringify(timelineSql) : 'NULL'}`,
-      `visit_summary_sql <- ${visitSummarySql ? JSON.stringify(visitSummarySql) : 'NULL'}`,
-      '',
-    ].join('\n')
-  }, [plugin, schemaMapping, selectedPatientId, scope, pluginConfig, language])
+    return { timeline_sql: timelineSql, visit_summary_sql: visitSummarySql }
+  }, [plugin, schemaMapping, selectedPatientId, scope, pluginConfig])
 
   const execute = useCallback(async () => {
     if (!plugin || !plugin.templates || !language || !dataSourceId) return
@@ -98,7 +88,8 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
         selectedPatientId,
         selectedVisitId,
         selectedVisitDetailId,
-        extraPreamble,
+        extraVars,
+        { source: template, label: widget ? localized(widget.name, i18n.language) : undefined },
       )
       setResult(output)
     } catch (err) {
@@ -106,7 +97,7 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
     } finally {
       setLoading(false)
     }
-  }, [plugin, language, pluginConfig, dataSourceId, selectedPatientId, selectedVisitId, selectedVisitDetailId, extraPreamble])
+  }, [plugin, language, pluginConfig, dataSourceId, selectedPatientId, selectedVisitId, selectedVisitDetailId, extraVars, widget, i18n.language])
 
   // Re-execute when patient context or config changes (only if allowed to run code).
   useEffect(() => {
@@ -160,7 +151,7 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
       <PluginOutputRenderer
         result={result}
         isExecuting={loading}
-        onRerun={() => setRunCount((c) => c + 1)}
+        onRerun={() => { forgetDeclinedCode(); setRunCount((c) => c + 1) }}
         compact
       />
     </div>

@@ -328,3 +328,118 @@ async def test_running_the_package_manager_takes_ide_execute(client, db, fake_pr
         r = await getattr(client, method)(f"{base}{path}", headers=bob_h, **kwargs)
         assert r.status_code == 403, path
     assert (await client.post(f"{base}/build", headers=headers)).status_code == 200
+
+
+async def _member(client, db, uid: str, name: str, permissions: list[str]) -> dict:
+    from app.core.security import hash_password
+    from app.models.project_member import ProjectMember
+    from app.models.role import Role
+    from app.models.user import User
+
+    user = User(username=name, password_hash=hash_password("pw-for-tests-only"), role="user")
+    db.add(user)
+    db.add(Role(name=f"{name}-role", scope="workspace", permissions=permissions))
+    await db.commit()
+    db.add(ProjectMember(project_uid=uid, user_id=user.id, role=f"{name}-role"))
+    await db.commit()
+    r = await client.post(f"{API}/auth/login", json={"username": name, "password": "pw-for-tests-only"})
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+@pytest.fixture
+def update_check(monkeypatch):
+    """The options each update check reached the package manager with."""
+    from app.services.execution import renv_provisioner
+
+    seen: list[dict | None] = []
+
+    def fake(project_uid=None, options=None):
+        seen.append(options)
+        return {}
+
+    monkeypatch.setattr(renv_provisioner, "check_updates", fake)
+    monkeypatch.setattr(renv_provisioner, "check_kernel_updates", lambda options=None: fake(options=options))
+    return seen
+
+
+async def test_checking_for_updates_runs_the_package_manager_so_takes_its_permissions(client, db, update_check):
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    base = f"{API}/projects/{uid}/environments/r"
+    viewer = await _member(client, db, uid, "viewer", ["projects:read", "ide:read"])
+    writer = await _member(client, db, uid, "writer", ["projects:read", "ide:read", "ide:write"])
+
+    assert (await client.post(f"{base}/updates", headers=viewer)).status_code == 403
+    assert (await client.post(f"{base}/updates", headers=writer)).status_code == 403
+    assert update_check == []
+    assert (await client.get(f"{base}/updates", headers=viewer)).status_code == 200
+
+    assert (await client.post(f"{base}/updates", headers=headers)).status_code == 200
+    assert update_check
+
+
+async def test_checking_for_updates_honours_the_code_execution_switch(client, update_check, monkeypatch):
+    from app.config import settings
+
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    monkeypatch.setattr(settings, "enable_code_execution", False)
+
+    assert (await client.post(f"{API}/projects/{uid}/environments/r/updates", headers=headers)).status_code == 403
+    assert update_check == []
+
+
+async def test_checking_for_updates_uses_the_options_a_build_would(client, update_check, monkeypatch):
+    from app.config import settings
+    from app.services.execution import env_options
+
+    monkeypatch.setattr(settings, "r_repos", "https://mirror.internal/cran")
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    env_options.write_env_override(uid, "r", {"repos": "https://other.example/cran"})
+
+    r = await client.post(f"{API}/projects/{uid}/environments/r/updates", headers=headers)
+
+    assert r.status_code == 200
+    assert update_check and {o["repos"] for o in update_check} == {"https://mirror.internal/cran"}
+
+
+async def test_install_options_never_return_index_credentials(client, db, monkeypatch):
+    from app.config import settings
+    from app.services.execution import env_options
+
+    secret = "https://a.example/cran,https://u:s3cret@b.example/cran"
+    monkeypatch.setattr(settings, "r_repos", secret)
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    viewer = await _member(client, db, uid, "viewer", ["projects:read", "ide:read"])
+    url = f"{API}/projects/{uid}/environments/r/options"
+
+    assert "s3cret" not in (await client.get(url, headers=viewer)).text
+    assert "s3cret" not in (await client.get(url, headers=headers)).text
+
+    r = await client.put(url, headers=headers, json={"repos": "https://u:s3cret@b.example/cran"})
+    assert "s3cret" not in r.text
+    assert env_options.read_env_override(uid, "r")["repos"] == "https://u:s3cret@b.example/cran"
+
+    await client.put(url, headers=headers, json=r.json()["override"])
+    assert env_options.read_env_override(uid, "r")["repos"] == "https://u:s3cret@b.example/cran"
+
+
+async def test_a_workspace_default_never_returns_index_credentials(client):
+    headers = await _admin_headers(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    options = {"r": {"repos": "https://u:s3cret@b.example/cran"}, "python": {"indexUrl": "https://u:s3cret@c.example/simple"}}
+
+    r = await client.patch(f"{API}/workspaces/{ws}", headers=headers, json={"defaultEnvOptions": options})
+    assert r.status_code == 200 and "s3cret" not in r.text
+    sent_back = r.json()["defaultEnvOptions"]
+    assert sent_back["r"]["repos"] == "https://***@b.example/cran"
+
+    assert (await client.patch(f"{API}/workspaces/{ws}", headers=headers, json={"defaultEnvOptions": sent_back})).status_code == 200
+    from app.core.database import async_session
+    from app.models.workspace import Workspace
+
+    async with async_session() as session:
+        stored = (await session.get(Workspace, ws)).default_env_options
+    assert stored == options

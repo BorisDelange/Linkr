@@ -25,7 +25,7 @@ const RUN_ANNOTATIONS = { read: READ, write: WRITE, delete: DESTRUCTIVE } as con
 const RUN_WHAT: Record<ToolKind, string> = {
   read: 'a Linkr tool that only reads',
   write: 'a Linkr tool that creates or changes something (not a deletion, nor a code run)',
-  delete: 'a Linkr tool that deletes or discards something, or runs code or SQL scripts that can. Ask the user first',
+  delete: 'a Linkr tool that deletes or discards something, runs code or SQL scripts that can, or stores code the app runs by itself. Ask the user first',
 }
 
 export function registerGatewayTools(server: Server, catalog: CatalogTool[], direct: Set<string>): void {

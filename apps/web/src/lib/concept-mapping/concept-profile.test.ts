@@ -455,6 +455,11 @@ describe('assembleProfileJson', () => {
   })
 
   it('names a single data type as a string, both as an array', () => {
+    const counted = assembleProfileJson(
+      { base, numeric: { min: 1, max: 2, numeric_count: BigInt(40) as unknown as number, numeric_patients_count: BigInt(12) as unknown as number } },
+      {}, DEFAULT_PROFILE_OPTIONS,
+    )
+    expect(counted?.numeric_data).toEqual({ min: 1, max: 2, numeric_count: 40, numeric_patients_count: 12 })
     const numeric = assembleProfileJson({ base, numeric: { min: 1, max: 2 } }, {}, DEFAULT_PROFILE_OPTIONS)
     expect(numeric?.data_types).toBe('numeric')
   })

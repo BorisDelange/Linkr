@@ -606,3 +606,56 @@ def test_wiki_attachments_keep_one_per_page_and_file_name_the_newest():
 def test_a_nameless_dictionary_link_omits_its_name():
     [link] = _dictionary_links([{"id": "a", "name": "", "sourceRepo": "https://x/core"}])
     assert link == {"entityId": "core", "git": {"url": "https://x/core", "branch": "main"}}
+
+
+def test_a_workspace_export_never_carries_folder_bindings():
+    from app.services.workspace_export import _strip_instance_fields
+
+    meta = {"entityId": "p", "idePath": "/srv/a", "scriptsPath": "/srv/b", "datasetsPath": "/srv/c"}
+    assert _strip_instance_fields(meta) == {"entityId": "p"}
+
+
+async def _collection_with_files(db, names, config=None):
+    from app.models.sql_script import SqlScriptCollection
+    from app.models.workspace import Workspace
+    from app.schemas.sql_script import SqlScriptFileCreate
+    from app.services import sql_script_service
+
+    db.add(Workspace(id="ws-data-mark"))
+    await db.flush()
+    collection = SqlScriptCollection(id="c-data-mark", workspace_id="ws-data-mark", name={"en": "c"}, config=config)
+    db.add(collection)
+    await db.commit()
+    for i, name in enumerate(names):
+        await sql_script_service.create_file(db, SqlScriptFileCreate(
+            id=f"f{i}", collection_id=collection.id, name=name, type="file", content="DUMMY",
+        ))
+    return collection
+
+
+async def test_a_collection_export_leaves_an_unmarked_data_file_out(db):
+    from app.services.workspace_export_assemble import build_sql_collection_tree
+
+    collection = await _collection_with_files(
+        db, ["cohort.sql", "extract.csv", "kept.tsv", "notes.txt"], {"versionedDataFiles": ["kept.tsv"]},
+    )
+    tree = await build_sql_collection_tree(db, collection)
+    listing = json.loads(tree["scripts/_tree.json"])
+    assert sorted(n["path"] for n in listing) == ["cohort.sql", "kept.tsv"]
+    assert "scripts/cohort.sql" in tree and "scripts/kept.tsv" in tree
+    assert "scripts/extract.csv" not in tree and "scripts/notes.txt" not in tree
+
+
+async def test_a_readme_attachment_that_is_not_a_document_stays_behind(db):
+    from app.services import attachment_service
+    from app.services.workspace_export_assemble import _readme_attachment_files
+
+    for i, name in enumerate(("figure.png", "extract.csv")):
+        await attachment_service.create_readme(
+            db, id=f"att{i}", owner_type="sql-collection", owner_id="c1", file_name=name,
+            mime_type="application/octet-stream", created_at=None, data=b"DUMMY",
+        )
+    tree = await _readme_attachment_files(db, "", "sql-collection", "c1")
+    assert [m["fileName"] for m in json.loads(tree["attachments/_meta.json"])] == ["figure.png"]
+    assert "attachments/att0-figure.png" in tree
+    assert not any(path.endswith("extract.csv") for path in tree)

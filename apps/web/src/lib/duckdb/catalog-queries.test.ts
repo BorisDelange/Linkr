@@ -187,6 +187,13 @@ describe('patient slices', () => {
     expect(rangeCondition('p', null)).toBe('')
   })
 
+  it('writes a bound as a number or an escaped string, nothing else', () => {
+    expect(rangeCondition('p', { lo: 'a\'b', hi: 10n })).toBe("p >= 'a''b' AND p < 10")
+    for (const bad of [['1) OR (1=1'], { x: 1 }, true, NaN, Infinity]) {
+      expect(() => rangeCondition('p', { lo: bad as unknown as number })).toThrow()
+    }
+  })
+
   it('restricts a crossing to the slice, visits and events alike', () => {
     const variables: CatalogVariables = { ...defaultCatalogVariables(), concept: { enabled: true, level: 'concept', scope: 'all', topN: 10 } }
     expect(buildCrossingQuery({ mapping, variables, range: { lo: 1, hi: 9 } }, ['period'])).toContain('AND v.patient_id >= 1 AND v.patient_id < 9')

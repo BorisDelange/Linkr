@@ -5,7 +5,7 @@ import { computePluginContentHash } from '@/lib/plugin-hash'
 import {
   checkPluginFiles, scaffoldManifest, scaffoldTemplate, templateFile, type PluginLanguage, type PluginScope,
 } from './lab-extra.js'
-import { DESTRUCTIVE, READ, WRITE, failure, guard, loc, text, type Server } from './shared.js'
+import { DESTRUCTIVE, READ, failure, guard, loc, text, type Server } from './shared.js'
 import { isBuiltinRow, manifestOf, me, plugins, workspaceOfProject } from './lab-rest.js'
 
 export function registerUserPluginTools(server: Server): void {
@@ -59,8 +59,9 @@ export function registerUserPluginTools(server: Server): void {
       + 'is injected as `dataset` (pandas DataFrame / data.frame). Warehouse scope: person_id, visit_occurrence_id, '
       + 'visit_detail_id are injected and sql_query("…") queries the database. {{field}} in a template is replaced by '
       + 'the config value of that configSchema field (column-select → column name). Without a template, the app\'s '
-      + 'starter code is used.',
-    annotations: WRITE,
+      + 'starter code is used. Ask the user first: a patient or dashboard widget using it runs this code by itself on '
+      + 'the server, as whoever opens it, without a Run press.',
+    annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{
       workspace_id?: string; project_uid?: string; name: string; description?: string; scope: PluginScope
       languages?: PluginLanguage[]; config_schema?: Record<string, unknown>; python_template?: string; r_template?: string
@@ -109,8 +110,9 @@ export function registerUserPluginTools(server: Server): void {
     description:
       'Edit a workspace plugin\'s files (get_user_plugin first): each entry of `files` replaces or adds that file '
       + '(plugin.json included — keep its id); `delete_files` removes files. Checked like the app reads it before saving; '
-      + 'built-in plugins cannot be edited. Widgets using it pick the change up on their next run.',
-    annotations: WRITE,
+      + 'built-in plugins cannot be edited. Ask the user first: widgets using it run the new code by itself on the '
+      + 'server, as whoever opens them next, without a Run press.',
+    annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{ plugin_id: string; files?: Record<string, string>; delete_files?: string[]; version?: string }>({
       type: 'object',
       properties: {

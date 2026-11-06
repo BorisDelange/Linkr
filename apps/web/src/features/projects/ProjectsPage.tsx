@@ -352,7 +352,7 @@ export function ProjectsPage() {
 
   // --- Duplicate a project (export then re-import as copy) ---
   const handleDuplicateProject = useCallback(async (projectUid: string) => {
-    const result = await buildProjectZip(projectUid, getStorage())
+    const result = await buildProjectZip(projectUid, getStorage(), { localCopy: true })
     if (!result) return
     const parsed = await parseProjectZip(new File([result.blob], 'dup.zip'))
     if (!parsed) return

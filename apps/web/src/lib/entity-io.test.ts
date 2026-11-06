@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import JSZip from 'jszip'
-import { DB_ERROR_NO_DATA_ON_IMPORT, buildProjectZip, slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, parseDatabaseZip, importParsedDatabase, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, parseImportZip, attachTreeIds, buildSqlCollectionFolder, buildDqRuleSetFolder, reassemblePresetMapping, resolveDashboardBundle, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
+import { DB_ERROR_NO_DATA_ON_IMPORT, buildProjectZip, slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, parseDatabaseZip, importParsedDatabase, gitignoreEscapePath, isDataExtension, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, parseImportZip, attachTreeIds, buildSqlCollectionFolder, buildDqRuleSetFolder, reassemblePresetMapping, resolveDashboardBundle, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import { isVersioned } from '@/lib/entity-versioning'
@@ -582,6 +582,28 @@ describe('parseProjectZip — project.json without timestamps', () => {
 // A workspace's linked organization travels in organization.json (by UUID) so an
 // import can reconstitute it on an instance that has never seen that org. Both the
 // pointer (workspace.organizationId) and the full record must survive parsing.
+describe('parseWorkspaceZip — what a tree may decide', () => {
+  it('keeps trust-bearing settings and local keys out of what it reads', async () => {
+    const zip = new JSZip()
+    zip.file('workspace.json', JSON.stringify({
+      id: 'someone-elses-workspace',
+      name: { en: 'W' },
+      lineageId: 'lin-1',
+      defaultEnvOptions: { python: { indexUrl: 'https://elsewhere.example/simple' } },
+      defaultEnvPackages: { python: ['anything'] },
+      gitRemoteConfig: { url: 'https://elsewhere.example/r.git' },
+      gitPushPolicy: 'direct',
+    }))
+    const parsed = (await parseWorkspaceZip(await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File))!
+    const workspace = parsed.workspace as unknown as Record<string, unknown>
+    expect(workspace.lineageId).toBe('lin-1')
+    expect(workspace.id).not.toBe('someone-elses-workspace')
+    for (const field of ['defaultEnvOptions', 'defaultEnvPackages', 'gitRemoteConfig', 'gitPushPolicy']) {
+      expect(workspace).not.toHaveProperty(field)
+    }
+  })
+})
+
 describe('parseWorkspaceZip — organization bundle', () => {
   const makeZip = async (withOrg: boolean) => {
     const zip = new JSZip()
@@ -2806,6 +2828,25 @@ describe('SQL collection _tree.json lists only what the repo actually carries', 
     expect(paths).toContain('queries')
   })
 
+  it('leaves an unmarked data file out of the tree and the zip, a marked one in', async () => {
+    const withData = {
+      sqlScriptFiles: {
+        getByCollection: async () => [
+          ...FILES,
+          { ...FILES.find((f) => f.type === 'file')!, id: 'd1', name: 'extract.csv', parentId: null, content: 'DUMMY' },
+          { ...FILES.find((f) => f.type === 'file')!, id: 'd2', name: 'kept.tsv', parentId: null, content: 'DUMMY' },
+        ],
+      },
+    } as never
+    const zip = new JSZip()
+    await buildSqlCollectionFolder(zip, '', COLLECTION({ config: { versionedDataFiles: ['kept.tsv'] } }), withData)
+    const paths = await treeOf(zip)
+    expect(paths).not.toContain('extract.csv')
+    expect(paths).toContain('kept.tsv')
+    expect(zip.files['scripts/extract.csv']).toBeUndefined()
+    expect(zip.files['scripts/kept.tsv']).toBeDefined()
+  })
+
   it('agrees with isVersioned, the rule the versioning UI uses', async () => {
     // The export inlines the rule to avoid an import cycle; if the two ever
     // disagree the tree and the UI would describe different repos.
@@ -3036,6 +3077,42 @@ describe('export — local database ids never travel', () => {
     }) as Record<string, unknown>
     expect(stripped).not.toHaveProperty('linkedDataSourceIds')
     expect(stripped.linkedDataSourceRefs).toEqual([DB_REF])
+  })
+
+  describe('what a project ZIP carries of its scripts and attachments', () => {
+    const script = (id: string, name: string) => ({ id, name, type: 'file', parentId: null, content: 'DUMMY', projectUid: 'p1' })
+    const attachment = (id: string, fileName: string) => ({ id, fileName, mimeType: 'x', fileSize: 5, createdAt: 'c', data: new Uint8Array(5) })
+    const storage = new Proxy({
+      projects: {
+        getById: async () => ({ uid: 'p1', name: { en: 'P' }, config: { versionedDataFiles: ['scripts/kept.tsv'] } }),
+      },
+      ideFiles: { getByProject: async () => [script('a', 'run.R'), script('b', 'extract.csv'), script('c', 'kept.tsv'), script('d', 'cohort.tsv')] },
+      readmeAttachments: { getByOwner: async () => [attachment('x', 'figure.png'), attachment('y', 'extract.csv')] },
+    }, {
+      get: (t, p) => (p in t ? t[p as keyof typeof t] : new Proxy({}, { get: () => async () => [] })),
+    }) as unknown as Storage
+
+    const build = async (options = {}) => JSZip.loadAsync(await (await buildProjectZip('p1', storage, options))!.blob.arrayBuffer())
+    const listing = async (zip: JSZip) =>
+      (JSON.parse(await zip.files['scripts/_tree.json'].async('string')) as { path: string }[]).map((n) => n.path)
+
+    it('leaves out what nobody marked, from the files and their listing', async () => {
+      const zip = await build()
+      expect(await listing(zip)).toEqual(['kept.tsv', 'run.R'])
+      expect(zip.files['scripts/run.R']).toBeDefined()
+      expect(zip.files['scripts/kept.tsv']).toBeDefined()
+      expect(zip.files['scripts/extract.csv']).toBeUndefined()
+      expect(zip.files['scripts/cohort.tsv']).toBeUndefined()
+      expect(zip.files['attachments/x-figure.png']).toBeDefined()
+      expect(zip.files['attachments/y-extract.csv']).toBeUndefined()
+      expect(await zip.files['attachments/_meta.json'].async('string')).not.toContain('extract.csv')
+    })
+
+    it('keeps them in a local copy, which never leaves the instance', async () => {
+      const zip = await build({ localCopy: true })
+      expect(await listing(zip)).toEqual(['cohort.tsv', 'extract.csv', 'kept.tsv', 'run.R'])
+      expect(zip.files['attachments/y-extract.csv']).toBeDefined()
+    })
   })
 
   it('removes the IDE database id from a project\'s config, keeping its pointer', async () => {
@@ -3551,4 +3628,87 @@ describe('column metadata survives a server-mode import', () => {
     expect(hrDt?.required).toBe(true)
     expect(hrDt?.label).toEqual({ en: 'HR timestamp' })
   })
+})
+
+describe('folder bindings stay machine-local', () => {
+  const BINDINGS = { idePath: '/srv/a', scriptsPath: '/srv/b', datasetsPath: '/srv/c' }
+
+  // JSZip reads the File the importers re-pack through FileReader, absent here.
+  beforeEach(() => {
+    vi.stubGlobal('FileReader', class {
+      onload?: (e: { target: { result: ArrayBuffer } }) => void
+      onerror?: (e: unknown) => void
+      readAsArrayBuffer(blob: Blob) {
+        blob.arrayBuffer().then((result) => this.onload?.({ target: { result } }), (e) => this.onerror?.(e))
+      }
+    })
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  function projectZip(extra: Record<string, unknown> = {}): JSZip {
+    const zip = new JSZip()
+    zip.file('entity.json', JSON.stringify({ type: 'project', entityId: 'p', name: { en: 'P' }, config: {}, ...BINDINGS, ...extra }))
+    return zip
+  }
+
+  function recordingStore(): { store: Storage; updates: Record<string, unknown>[] } {
+    const updates: Record<string, unknown>[] = []
+    const inert = () => new Proxy({}, { get: () => async () => [] })
+    const store = new Proxy({}, {
+      get: (_t, prop) => prop === 'projects'
+        ? { update: async (_id: string, changes: Record<string, unknown>) => { updates.push(changes) } }
+        : inert(),
+    }) as unknown as Storage
+    return { store, updates }
+  }
+
+  it('an export never carries them', () => {
+    const stripped = stripInstanceFields({ uid: 'p1', ...BINDINGS })
+    for (const key of Object.keys(BINDINGS)) expect(stripped).not.toHaveProperty(key)
+  })
+
+  it('a parsed project manifest never carries them', async () => {
+    const buf = await projectZip().generateAsync({ type: 'arraybuffer' })
+    const parsed = await parseProjectZip(buf as unknown as File)
+    for (const key of Object.keys(BINDINGS)) expect(parsed!.project).not.toHaveProperty(key)
+    expect(parsed!.project.entityId).toBe('p')
+  })
+
+  it('a pulled or re-cloned project applies neither them nor the tree\'s own remote', async () => {
+    const { store, updates } = recordingStore()
+    const zip = projectZip({ gitRemoteConfig: { url: 'https://tree.example/r.git', branch: 'main' } })
+    expect(await applyClonedEntity(zip, 'project', 'target', store)).toEqual({ ok: true })
+    for (const key of [...Object.keys(BINDINGS), 'gitRemoteConfig']) expect(updates[0]).not.toHaveProperty(key)
+
+    const linked = { url: 'https://here.example/r.git', branch: 'main' }
+    expect(await applyClonedEntity(projectZip(), 'project', 'target', store, undefined, linked)).toEqual({ ok: true })
+    expect(updates[1].gitRemoteConfig).toEqual(linked)
+  })
+
+  it('a workspace\'s project entries never carry them, full or lightweight', async () => {
+    const zip = new JSZip()
+    zip.file('workspace.json', JSON.stringify({ id: 'w', name: { en: 'W' } }))
+    zip.file('projects/light/entity.json', JSON.stringify({ type: 'project', entityId: 'l', name: { en: 'L' }, ...BINDINGS }))
+    zip.file('projects/full/entity.json', JSON.stringify({ type: 'project', entityId: 'f', name: { en: 'F' }, ...BINDINGS }))
+    zip.file('projects/full/scripts/_tree.json', '[]')
+    const parsed = await parseWorkspaceZip(await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File)
+    const projects = [...parsed!.projects.values()].map((p) => p.project).concat(parsed!.projectEntries.map((e) => e.project))
+    expect(projects.length).toBe(2)
+    for (const project of projects) {
+      for (const key of Object.keys(BINDINGS)) expect(project).not.toHaveProperty(key)
+    }
+  })
+})
+
+
+describe('which files count as data', () => {
+  it.each(['a.csv', 'b.TSV', 'c.txt', 'results.json', 'd.parquet', 'e.xlsx', 'noextension', 'photo.png', 'data.edits.json'])(
+    '%s stays out unless marked', (name) => {
+      expect(isDataExtension(`scripts/${name}`)).toBe(true)
+    })
+
+  it.each(['a.sql', 'b.PY', 'c.R', 'd.Rmd', 'e.qmd', 'f.ipynb', 'g.sh', 'h.md', 'i.yaml', 'requirements.txt', 'Makefile', '.gitignore', 'renv.lock'])(
+    '%s is code, versioned by default', (name) => {
+      expect(isDataExtension(`scripts/sub/${name}`)).toBe(false)
+    })
 })

@@ -47,7 +47,7 @@ async def _setup(client, headers, rows: int = 20) -> tuple[str, str]:
     con.execute(f"INSERT INTO person SELECT i FROM range(1, {rows + 1}) t(i)")
     con.close()
     proj = (await client.post(f"{API}/projects", headers=headers, json={
-        "name": {"en": "P"}, "workspaceId": ws,
+        "name": {"en": "P"}, "workspaceId": ws, "linkedDataSourceIds": [ds],
     })).json()["uid"]
     return proj, ds
 

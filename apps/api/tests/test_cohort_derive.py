@@ -268,3 +268,189 @@ def test_a_table_read_without_a_patient_id_column_is_never_copied_whole(source, 
 def test_the_membership_query_never_runs_sql_built_from_text(source, sql):
     with pytest.raises(ValueError, match="built from text"):
         cohort_derive.compute_members(source, sql)
+
+
+ONE_PATIENT = "SELECT 1 AS id, 1 AS patient_id"
+
+
+@pytest.fixture
+def source_with_child_tables(source):
+    path = source.spec["path"]
+    con = duckdb.connect(path)
+    con.execute("CREATE TABLE note_nlp AS SELECT i AS note_nlp_id, i AS note_id, 'snippet ' || i AS snippet FROM range(1, 4) t(i)")
+    con.execute("CREATE TABLE fact_relationship AS SELECT 56 AS domain_concept_id_1, i AS fact_id_1, 56 AS domain_concept_id_2, i + 1 AS fact_id_2 FROM range(1, 4) t(i)")
+    con.execute("CREATE TABLE cost AS SELECT i AS cost_id, i AS cost_event_id FROM range(1, 4) t(i)")
+    con.execute("CREATE TABLE episode_event AS SELECT i AS episode_id, i AS event_id FROM range(1, 4) t(i)")
+    con.execute("CREATE TABLE care_site AS SELECT i AS care_site_id FROM range(1, 3) t(i)")
+    con.execute("CREATE TABLE d_local AS SELECT i AS code FROM range(1, 3) t(i)")
+    con.execute("CREATE TABLE unmapped_link AS SELECT i AS other_person_id FROM range(1, 3) t(i)")
+    con.close()
+    return source
+
+
+NOT_PROVEN = ("note_nlp", "fact_relationship", "cost", "episode_event", "d_local", "unmapped_link")
+
+
+def test_a_table_not_shown_to_hold_no_patient_data_is_reported_not_personless(source_with_child_tables):
+    plan = {t["table"]: t for t in cohort_derive.plan(source_with_child_tables, MAPPING, "patient")}
+    for table in NOT_PROVEN:
+        assert plan[table]["filter"] is None and plan[table]["unfilterable"], table
+    assert plan["note_nlp"]["unproven"] is True
+    assert plan["unmapped_link"]["unfilterable"] == "other_person_id" and plan["unmapped_link"]["unproven"] is False
+    for table in ("concept", "care_site"):
+        assert plan[table]["unfilterable"] is None and plan[table]["unproven"] is False, table
+
+
+@pytest.mark.parametrize("tables", [None, set(NOT_PROVEN) | {"person"}])
+def test_a_table_not_shown_to_hold_no_patient_data_is_never_copied(source_with_child_tables, tmp_path, tables):
+    target = TargetSpec("file", path=str(tmp_path / "out.duckdb"), fresh_file=True)
+    members = cohort_derive.compute_members(source_with_child_tables, ONE_PATIENT)
+    minimization = cohort_derive.Minimization(tables=None if tables is None else {(None, t) for t in tables})
+    written = {t["table"]: t for t in cohort_derive.derive(source_with_child_tables, target, members, MAPPING, "patient", True, minimization=minimization)}
+    for table in NOT_PROVEN:
+        assert written[table]["skipped"] is True and written[table]["unfilterable"], table
+    con = duckdb.connect(target.path, read_only=True)
+    try:
+        names = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables").fetchall()}
+    finally:
+        con.close()
+    assert not names & set(NOT_PROVEN)
+    assert "person" in names
+    if tables is None:
+        assert {"concept", "care_site"} <= names
+
+
+def test_a_dictionary_the_mapping_reads_as_concepts_stays_copied(source_with_child_tables, tmp_path):
+    v1 = {**MAPPING, "conceptTables": [{"key": "d_local", "table": "d_local", "idColumn": "code"}]}
+    v2 = {
+        "formatVersion": 2,
+        "patient": {"from": {"table": "person", "alias": "p"}, "fields": {"patient_id": "p.person_id"}},
+        "concepts": [{"key": "d_local", "from": {"table": "d_local", "alias": "d"}, "fields": {"concept_id": "d.code"}}],
+    }
+    for mapping in (v1, v2):
+        plan = {t["table"]: t for t in cohort_derive.plan(source_with_child_tables, mapping, "patient")}
+        assert plan["d_local"]["unfilterable"] is None and plan["d_local"]["unproven"] is False
+
+
+def test_a_listed_table_carrying_a_person_id_is_not_taken_for_personless(tmp_path):
+    path = tmp_path / "source.duckdb"
+    con = duckdb.connect(str(path))
+    con.execute("CREATE TABLE person AS SELECT 1 AS person_id")
+    con.execute("CREATE TABLE provider AS SELECT 1 AS provider_id, 2 AS patient_person_id")
+    con.close()
+    src = SourceSpec({"kind": "file", "engine": "duckdb", "path": str(path)})
+    plan = {t["table"]: t for t in cohort_derive.plan(src, MAPPING, "patient")}
+    assert plan["provider"]["unfilterable"] == "patient_person_id"
+
+
+@pytest.fixture
+def source_with_stored_views(source, tmp_path):
+    secret = tmp_path / "secret.txt"
+    secret.write_text("hunter2")
+    con = duckdb.connect(source.spec["path"])
+    con.execute(f"CREATE VIEW stored_read AS SELECT 1 AS person_id, content FROM read_text('{secret}')")
+    con.close()
+    return source
+
+
+def test_a_stored_view_reaches_no_server_file_during_the_copy(source_with_stored_views, tmp_path):
+    target = TargetSpec("file", path=str(tmp_path / "out.duckdb"), fresh_file=True)
+    members = cohort_derive.compute_members(source_with_stored_views, ONE_PATIENT)
+    with pytest.raises(duckdb.Error) as err:
+        cohort_derive.derive(source_with_stored_views, target, members, MAPPING, "patient", True)
+    assert "hunter2" not in str(err.value)
+    assert not (tmp_path / "out.duckdb").exists()
+
+
+def test_a_stored_view_over_the_files_own_tables_is_still_copied(source, tmp_path):
+    con = duckdb.connect(source.spec["path"])
+    con.execute("CREATE VIEW person_view AS SELECT person_id FROM person")
+    con.close()
+    target = TargetSpec("file", path=str(tmp_path / "out.duckdb"), fresh_file=True)
+    members = cohort_derive.compute_members(source, ONE_PATIENT)
+    written = {t["table"]: t for t in cohort_derive.derive(source, target, members, MAPPING, "patient", True)}
+    assert written["person_view"]["rows"] == 1
+
+
+def test_a_derivation_from_a_parquet_source_still_reads_its_own_files(tmp_path):
+    folder = tmp_path / "pq"
+    folder.mkdir()
+    duckdb.execute(f"COPY (SELECT i AS person_id FROM range(1, 4) t(i)) TO '{folder}/person.parquet' (FORMAT parquet)")
+    src = SourceSpec({"kind": "parquet", "files": [("person.parquet", str(folder / "person.parquet"))], "known": ["person"]})
+    target = TargetSpec("file", path=str(tmp_path / "out.duckdb"), fresh_file=True)
+    mapping = {"patientTable": MAPPING["patientTable"]}
+    written = cohort_derive.derive(src, target, cohort_derive.compute_members(src, ONE_PATIENT), mapping, "patient", True)
+    assert {t["table"]: t["rows"] for t in written} == {"person": 1}
+
+
+def test_a_stored_definition_running_text_is_refused_beside_a_database_that_runs_it(source, tmp_path, monkeypatch):
+    from app.services.data import db_connect
+
+    con = duckdb.connect(source.spec["path"])
+    con.execute("LOAD json")
+    serialized = con.execute("SELECT json_serialize_sql('SELECT 1')").fetchone()[0].replace("'", "''")
+    con.execute(f"CREATE MACRO stored_run() AS TABLE SELECT * FROM json_execute_serialized_sql('{serialized}')")
+    con.close()
+    monkeypatch.setattr(db_connect, "_has_passthrough_attach", lambda _con: True)
+    target = TargetSpec("file", path=str(tmp_path / "out.duckdb"), fresh_file=True)
+    members = cohort_derive.compute_members(source, ONE_PATIENT)
+    with pytest.raises(ValueError):
+        cohort_derive.derive(source, target, members, MAPPING, "patient", True)
+
+
+def test_the_locked_copy_writes_only_into_a_writer_scratch_folder(source, tmp_path):
+    class Scratch:
+        tmp = tmp_path / "scratch"
+
+    Scratch.tmp.mkdir()
+    con = duckdb.connect()
+    try:
+        cohort_derive._attach_role(con, "source", source.spec)
+        cohort_derive._lock_down_copy(con, source, [Scratch()], ["source"])
+        con.execute(f"COPY (SELECT 1 AS x) TO '{Scratch.tmp}/rows.parquet' (FORMAT parquet)")
+        with pytest.raises(duckdb.Error):
+            con.execute(f"COPY (SELECT 1 AS x) TO '{tmp_path}/elsewhere.parquet' (FORMAT parquet)")
+    finally:
+        con.close()
+    assert (Scratch.tmp / "rows.parquet").exists() and not (tmp_path / "elsewhere.parquet").exists()
+
+
+def _names_in(path: str) -> set[str]:
+    con = duckdb.connect(path, read_only=True)
+    try:
+        return {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables").fetchall()}
+    finally:
+        con.close()
+
+
+def test_an_opted_in_table_is_copied_as_it_is_and_only_that_one(source_with_child_tables, tmp_path):
+    target = TargetSpec("file", path=str(tmp_path / "out.duckdb"), fresh_file=True)
+    members = cohort_derive.compute_members(source_with_child_tables, ONE_PATIENT)
+    minimization = cohort_derive.Minimization(
+        tables={(None, "person")}, copy_unproven={(None, "note_nlp"), (None, "person")},
+    )
+    written = {t["table"]: t for t in cohort_derive.derive(
+        source_with_child_tables, target, members, MAPPING, "patient", True, minimization=minimization,
+        pseudonyms=cohort_derive.Pseudonyms("random"),
+    )}
+    assert written["note_nlp"]["skipped"] is False and written["note_nlp"]["unproven"] is True
+    assert written["person"]["skipped"] is False and not written["person"].get("unproven")
+    for table in ("fact_relationship", "cost", "episode_event", "d_local", "unmapped_link"):
+        assert written[table]["skipped"] is True, table
+    assert "note_nlp" in _names_in(target.path)
+    con = duckdb.connect(target.path, read_only=True)
+    try:
+        assert con.execute("SELECT COUNT(*) FROM note_nlp").fetchone()[0] == 3
+    finally:
+        con.close()
+
+
+def test_an_opt_in_never_reaches_a_table_refused_for_another_reason(source_with_child_tables, tmp_path):
+    target = TargetSpec("file", path=str(tmp_path / "out.duckdb"), fresh_file=True)
+    members = cohort_derive.compute_members(source_with_child_tables, ONE_PATIENT)
+    written = {t["table"]: t for t in cohort_derive.derive(
+        source_with_child_tables, target, members, MAPPING, "patient", True,
+        minimization=cohort_derive.Minimization(copy_unproven={(None, "unmapped_link")}),
+    )}
+    assert written["unmapped_link"]["skipped"] is True and written["unmapped_link"]["unfilterable"] == "other_person_id"
+    assert "unmapped_link" not in _names_in(target.path)

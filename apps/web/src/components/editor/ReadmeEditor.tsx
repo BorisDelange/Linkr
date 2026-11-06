@@ -8,7 +8,7 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import rehypeRaw from 'rehype-raw'
-import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
+import rehypeSanitize from 'rehype-sanitize'
 import 'katex/dist/katex.min.css'
 import {
   Pencil, Check, X,
@@ -27,7 +27,7 @@ import {
 } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
 import { SplitEditorPreview } from '@/components/editor/SplitEditorPreview'
-import { ReadmeMarkdown } from '@/components/editor/MarkdownRenderer'
+import { ReadmeMarkdown, sanitizeSchema } from '@/components/editor/MarkdownRenderer'
 import { copyText } from '@/lib/clipboard'
 
 // ---------------------------------------------------------------------------
@@ -36,27 +36,6 @@ import { copyText } from '@/lib/clipboard'
 
 export const remarkPlugins = [remarkGfm, remarkMath]
 
-const sanitizeSchema = {
-  ...defaultSchema,
-  attributes: {
-    ...defaultSchema.attributes,
-    img: [...(defaultSchema.attributes?.img ?? []), 'alt', 'width', 'height'],
-    span: [...(defaultSchema.attributes?.span ?? []), 'className', 'style'],
-    div: [...(defaultSchema.attributes?.div ?? []), 'className', 'style'],
-    math: ['xmlns'],
-    annotation: ['encoding'],
-  },
-  protocols: {
-    ...defaultSchema.protocols,
-    src: [...(defaultSchema.protocols?.src ?? []), 'blob'],
-  },
-  tagNames: [
-    ...(defaultSchema.tagNames ?? []),
-    'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub',
-    'msubsup', 'mfrac', 'mover', 'munder', 'munderover', 'msqrt',
-    'mroot', 'mtable', 'mtr', 'mtd', 'mtext', 'mspace', 'annotation',
-  ],
-}
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const rehypePlugins: any[] = [rehypeRaw, [rehypeSanitize, sanitizeSchema], rehypeKatex]
 

@@ -1,20 +1,20 @@
 terminology,concept_code,concept_name,record_count,patient_count,info_json
-LOCAL,HR,"Heart, rate",5000,120,"{""full_name"":""Fréquence cardiaque"",""unit"":""bpm"",""rows_count"":5000,""patients_count"":120,""numeric_data"":{""p5"":55.5,""median"":80,""mean"":81.25,""sd"":0.00001},""histogram"":[{""x"":125,""count"":2590}],""categorical_data"":[],""records_per_patient"":{""mean"":41.6,""median"":30},""temporal_distribution"":{""by_year"":[]},""hospital_units"":[],""big"":1e+21,""big_int"":9007199254740992,""masked_k"":11}"
-LOCAL,NA,Sodium,900,300,"{""full_name"":""Sodium"",""rows_count"":900,""patients_count"":300,""numeric_data"":{""median"":140},""masked_k"":11}"
+LOCAL,HR,"Heart, rate",5000,120,"{""full_name"":""Fréquence cardiaque"",""unit"":""bpm"",""rows_count"":5000,""patients_count"":120,""numeric_data"":{""p5"":55.5,""p25"":1e+21,""median"":80,""p75"":9007199254740992,""mean"":81.25,""sd"":0.00001,""numeric_patients_count"":120},""histogram"":[{""x"":125,""count"":2590}],""categorical_data"":[],""records_per_patient"":{""mean"":41.6,""median"":30},""temporal_distribution"":{""by_year"":[]},""hospital_units"":[],""masked_k"":11}"
+LOCAL,NA,Sodium,900,300,"{""full_name"":""Sodium"",""rows_count"":900,""patients_count"":300,""numeric_data"":{""median"":140,""numeric_patients_count"":300},""masked_k"":11}"
 LOCAL,RARE,"Rare ""thing""",40,<11,
 LOCAL,FEW,Few records,<11,,
 LOCAL,ZERO,Never seen,0,0,
 LOCAL,AT_K,At the threshold,11,11,
 LOCAL,BELOW_K,Just under it,<11,<11,
 LOCAL,PADDED,Padded cell,<11,<11,
-LOCAL,FOREIGN,Not plain decimal,0x5,1_0,
+LOCAL,FOREIGN,Not plain decimal,<11,<11,
 LOCAL,NAN,NaN in the profile,500,50,
 LOCAL,QUOTED,Single-quoted profile,500,50,
 LOCAL,SCALAR,Not an object,500,50,
 LOCAL,WARDS,Ward split,4000,400,"{""rows_count"":4000,""patients_count"":400,""hospital_units"":[],""masked_k"":11}"
 LOCAL,CATS,Dropped mass reaches k,813,80,"{""rows_count"":813,""patients_count"":80,""categorical_data"":[{""category"":""x"",""count"":500},{""category"":""w"",""count"":300}],""masked_k"":11}"
 LOCAL,CATS2,Dropped mass under k,825,80,"{""rows_count"":825,""patients_count"":80,""categorical_data"":[{""category"":""x"",""count"":500},{""category"":""w"",""count"":300}],""masked_k"":11}"
-LOCAL,SMALL_N,Few values,60,30,"{""rows_count"":60,""patients_count"":30,""numeric_data"":{""p25"":3,""median"":5},""histogram"":[{""x"":3,""count"":25}],""masked_k"":11}"
+LOCAL,SMALL_N,Few values,60,30,"{""rows_count"":60,""patients_count"":30,""numeric_data"":{""p25"":3,""median"":5,""numeric_patients_count"":30},""histogram"":[{""x"":3,""count"":25}],""masked_k"":11}"
 LOCAL,ONE_BIN,One bin,50,20,"{""rows_count"":50,""patients_count"":20,""masked_k"":11}"
 LOCAL,FINE,Fine grid,400,40,"{""rows_count"":400,""patients_count"":400,""histogram"":[{""x"":0.25,""count"":150}],""masked_k"":11}"
 LOCAL,UNITS,Ward share of a few records,10000,300,"{""rows_count"":10000,""patients_count"":300,""hospital_units"":[{""unit"":""A"",""percentage"":80,""count"":80}],""masked_k"":11}"
@@ -23,8 +23,13 @@ LOCAL,HIST_PATIENTS,Histogram with patients,850,90,"{""rows_count"":850,""patien
 LOCAL,PCT_ONLY,Shares without counts,1000,100,"{""rows_count"":1000,""patients_count"":100,""categorical_data"":[],""masked_k"":11}"
 LOCAL,DEEP,Nested past the cap,500,50,
 LOCAL,NO_TOTAL,Totals unreadable,,,
-LOCAL,BAD_TOTAL,Totals not counts,n/a,-1,
-LOCAL,PROFILE_TOTAL,Totals in the profile only,,,"{""rows_count"":500,""patients_count"":50,""numeric_data"":{""median"":5},""masked_k"":11}"
-LOCAL,PATIENTS_UNREADABLE,Patient cell unreadable,500,2e0,
+LOCAL,BAD_TOTAL,Totals not counts,n/a,<11,
+LOCAL,PROFILE_TOTAL,Totals in the profile only,,,"{""rows_count"":500,""patients_count"":50,""numeric_data"":{""median"":5,""numeric_patients_count"":50},""masked_k"":11}"
+LOCAL,PATIENTS_UNREADABLE,Patient cell unreadable,500,<11,
 LOCAL,PATIENTS_KEY_UNREADABLE,Patient key unreadable,500,,
-LOCAL,RECORDS_ONLY,No patient total at all,500,,"{""rows_count"":500,""numeric_data"":{""median"":5},""masked_k"":11}"
+LOCAL,RECORDS_ONLY,No patient total at all,500,,"{""rows_count"":500,""masked_k"":11}"
+LOCAL,ONE_VALUE,One value among many records,500,50,"{""rows_count"":500,""patients_count"":50,""masked_k"":11}"
+LOCAL,ONE_PATIENT,Many values of one patient,500,50,"{""rows_count"":500,""patients_count"":50,""missing_rate"":20,""masked_k"":11}"
+LOCAL,NUMERIC_UNKNOWN,Numeric patients not given,500,50,"{""rows_count"":500,""patients_count"":50,""masked_k"":11}"
+LOCAL,NUMERIC_KEPT,Numeric block over k patients,500,50,"{""rows_count"":500,""patients_count"":50,""numeric_data"":{""median"":5,""numeric_count"":400,""numeric_patients_count"":30},""missing_rate"":20,""masked_k"":11}"
+LOCAL,NUMERIC_ARRAY,Numeric block not an object,500,50,"{""rows_count"":500,""patients_count"":50,""masked_k"":11}"

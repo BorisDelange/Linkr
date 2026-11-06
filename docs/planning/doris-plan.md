@@ -115,7 +115,7 @@ Le détail est dans `docs/architecture.md` § Fullstack Storage & Compute
   n'est pas portable ou que Doris refuse de préparer, jamais pour une erreur
   d'exécution ;
 - annulation réelle : `KILL QUERY` envoyé à Doris (Pause/Stop) ;
-- Flight SQL (extra `doris`, facultatif) pour les résultats volumineux, sondé, avec
+- Flight SQL (`pyarrow.flight`, dans les dépendances de base) pour les résultats volumineux, sondé, avec
   bandeau d'avertissement sur la page de la database quand il manque ou est
   injoignable ; port Flight local à la machine, son changement oublie les logins ;
 - générateurs réécrits en SQL standard : bornes des tranches de patients, pyramide

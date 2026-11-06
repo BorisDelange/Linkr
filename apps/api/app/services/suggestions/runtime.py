@@ -14,9 +14,12 @@ protocol (services/suggestions/worker.py) into a job.
 """
 
 import asyncio
+import contextlib
 import json
+import shutil
 import sys
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 from app.config import settings
@@ -36,8 +39,8 @@ def runtime_dir() -> Path:
     return settings.data_path / "runtimes" / "embeddings"
 
 
-def venv_python() -> Path:
-    venv = runtime_dir() / ".venv"
+def venv_python(root: Path | None = None) -> Path:
+    venv = (root or runtime_dir()) / ".venv"
     return venv / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
 
 
@@ -57,8 +60,6 @@ def probe() -> dict | None:
 
 
 def uninstall() -> None:
-    import shutil
-
     shutil.rmtree(runtime_dir(), ignore_errors=True)
 
 
@@ -101,12 +102,52 @@ async def _stream(args: list[str], env: dict[str, str], on_line) -> int:
         raise
 
 
-async def install(handle) -> dict:
-    """Create the venv and install the packages, then probe it. A job body."""
-    import shutil
+_install_lock = asyncio.Lock()
+_workers = 0
 
-    shutil.rmtree(runtime_dir(), ignore_errors=True)
-    runtime_dir().mkdir(parents=True, exist_ok=True)
+
+class RuntimeInUse(WorkerError):
+    pass
+
+
+def in_use() -> bool:
+    """Whether a worker runs on the installed runtime, for any workspace."""
+    return _workers > 0
+
+
+@contextlib.contextmanager
+def worker_running() -> Iterator[None]:
+    global _workers
+    _workers += 1
+    try:
+        yield
+    finally:
+        _workers -= 1
+
+
+async def install(handle) -> dict:
+    """Build a new runtime and put it in place of the installed one, then probe it. A
+    job body. The installed one serves every workspace until the new one works."""
+    async with _install_lock:
+        return await _build_and_swap(handle)
+
+
+async def ensure_installed(handle) -> None:
+    async with _install_lock:
+        if not is_installed():
+            await _build_and_swap(handle)
+
+
+def _refuse_in_use() -> None:
+    if in_use():
+        raise RuntimeInUse("The embeddings runtime is in use: try again once the running jobs have ended")
+
+
+async def _build_and_swap(handle) -> dict:
+    _refuse_in_use()
+    staging = runtime_dir().with_name(runtime_dir().name + ".new")
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
     env = _uv_env()
     tail: list[str] = []
 
@@ -117,20 +158,31 @@ async def install(handle) -> dict:
 
     steps = [
         [settings.uv_bin, "venv", "--python", f"{sys.version_info.major}.{sys.version_info.minor}",
-         str(runtime_dir() / ".venv")],
-        [settings.uv_bin, "pip", "install", "--python", str(venv_python()),
+         str(staging / ".venv")],
+        [settings.uv_bin, "pip", "install", "--python", str(venv_python(staging)),
          *(["--torch-backend", settings.embeddings_torch_backend] if settings.embeddings_torch_backend else []),
          *PACKAGES],
     ]
-    for i, args in enumerate(steps):
-        await handle.log("$ " + " ".join(args))
-        code = await _stream(args, env, on_line)
-        if code != 0:
-            raise WorkerError("\n".join(tail[-15:]) or f"{args[1]} failed")
-        await handle.progress(10 if i == 0 else 90)
-    found = await run_worker("probe", {}, handle=handle, python=venv_python())
-    _probe_path().write_text(json.dumps(found, indent=2), encoding="utf-8")
-    return found
+    try:
+        for i, args in enumerate(steps):
+            await handle.log("$ " + " ".join(args))
+            code = await _stream(args, env, on_line)
+            if code != 0:
+                raise WorkerError("\n".join(tail[-15:]) or f"{args[1]} failed")
+            await handle.progress(10 if i == 0 else 90)
+        found = await run_worker("probe", {}, handle=handle, python=venv_python(staging))
+        (staging / _probe_path().name).write_text(json.dumps(found, indent=2), encoding="utf-8")
+        # A worker may have started on the installed runtime during the build.
+        _refuse_in_use()
+        retired = runtime_dir().with_name(runtime_dir().name + ".old")
+        shutil.rmtree(retired, ignore_errors=True)
+        if runtime_dir().exists():
+            runtime_dir().rename(retired)
+        staging.rename(runtime_dir())
+        shutil.rmtree(retired, ignore_errors=True)
+        return found
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 async def run_worker(
@@ -177,9 +229,12 @@ async def run_worker(
             if handle is not None and line.strip():
                 await handle.log(line)
 
-        code = await _stream(
-            [str(interpreter), "-u", str(WORKER), command, str(spec_path)], worker_env(network=network), on_line,
-        )
+        args = [str(interpreter), "-u", str(WORKER), command, str(spec_path)]
+        if interpreter == venv_python():
+            with worker_running():
+                code = await _stream(args, worker_env(network=network), on_line)
+        else:
+            code = await _stream(args, worker_env(network=network), on_line)
     if code != 0:
         raise WorkerError("\n".join(tail[-15:]) or f"worker {command} exited with {code}")
     return found

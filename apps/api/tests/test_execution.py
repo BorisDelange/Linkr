@@ -2,9 +2,11 @@
 
 from types import SimpleNamespace
 import asyncio
+import contextlib
 import shutil
 
 import pytest
+from starlette.websockets import WebSocketDisconnect
 
 API = "/api/v1"
 
@@ -25,6 +27,22 @@ async def _project(client, headers) -> str:
     ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "W"}})).json()["id"]
     r = await client.post(f"{API}/projects", headers=headers, json={"name": {"en": "P"}, "workspaceId": ws})
     return r.json()["uid"]
+
+
+async def _connection(client, headers, project_uid: str) -> str:
+    """A database in the project's workspace, with no file behind it: enough for a
+    query to be attempted and logged."""
+    workspace = (await client.get(f"{API}/projects/{project_uid}", headers=headers)).json()["workspaceId"]
+    return (await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": workspace, "alias": "d", "name": "D", "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb"},
+    })).json()["id"]
+
+
+def _audit_files():
+    from app.config import settings
+
+    return sorted((settings.data_path / "audit").glob("*.jsonl"))
 
 
 async def _run(client, headers, code: str, language: str = "python", project: str | None = None):
@@ -693,6 +711,7 @@ async def test_render_execute_gated_per_resource(client):
     # Editor: holds dashboards:execute (and ide:execute) → both allowed.
     await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
                      json={"userId": val_id, "role": "editor"})
+    assert (await client.post(f"{API}/code-acceptances", headers=val, json={"codes": ["print(1)"]})).status_code == 204
     assert (await client.post(f"{API}/execute", headers=val,
             json={"language": "python", "code": "print(1)", "projectUid": uid, "purpose": "dashboards"})).status_code == 200
 
@@ -1133,6 +1152,202 @@ async def test_terminal_refused_for_lack_of_rights_says_so(client, monkeypatch):
     assert ws.closed_code == WS_FORBIDDEN
 
 
+class _ScriptedWebSocket(_FakeWebSocket):
+    """Plays its messages, waits for the run in flight to end, then disconnects."""
+
+    def __init__(self, params: dict[str, str], script: list[dict]):
+        super().__init__(params)
+        self.script = list(script)
+        self.sent: list[dict] = []
+        self.finished = asyncio.Event()
+        self.on_send = None
+        if not any("code" in message for message in script):
+            self.finished.set()
+
+    async def send_json(self, message: dict) -> None:
+        self.sent.append(message)
+        if self.on_send:
+            self.on_send(message)
+        if message["type"] in ("done", "error"):
+            self.finished.set()
+
+    async def receive_json(self) -> dict:
+        if self.script:
+            return self.script.pop(0)
+        await asyncio.wait_for(self.finished.wait(), 30)
+        raise WebSocketDisconnect()
+
+
+async def _terminal_session(ws) -> None:
+    from app.api.v1.routes.execution import terminal_ws
+    from app.core import audit
+
+    async def app(scope, receive, send):
+        await terminal_ws(ws)
+
+    scope = {"type": "websocket", "path": "/api/v1/execute/terminal", "client": ("10.0.0.9", 1)}
+    await audit.AuditMiddleware(app)(scope, None, None)
+
+
+async def test_each_terminal_run_reaches_the_log_before_it_runs(client):
+    from app.core import audit
+
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    token = headers["Authorization"].removeprefix("Bearer ")
+    code = "print(6 * 7)"
+    ws = _ScriptedWebSocket(
+        {"token": token, "projectUid": uid, "language": "python", "sessionId": "s1"},
+        [{"code": code}],
+    )
+    logged_at_output: list[int] = []
+    ws.on_send = lambda m: logged_at_output.append(audit.query(filters={"action": ["run_code"]})[1])
+    await _terminal_session(ws)
+
+    assert any(m["type"] == "done" for m in ws.sent)
+    assert logged_at_output and all(n == 1 for n in logged_at_output)
+    [run] = audit.query(filters={"action": ["run_code"]})[0]
+    assert run["detail"] == code and run["project_uid"] == uid
+    assert run["username"] == "admin" and run["via"] == "web" and run["method"] == "WS"
+    assert run["route"] == "/api/v1/execute/terminal" and run["client_ip"] == "10.0.0.9"
+    [opened] = audit.query(filters={"action": ["terminal_open"]})[0]
+    [closed] = audit.query(filters={"action": ["terminal_close"]})[0]
+    assert opened["project_uid"] == uid and "python" in opened["detail"] and "s1" in opened["detail"]
+    assert closed["request_id"] == opened["request_id"] == run["request_id"]
+    assert closed["duration_ms"] is not None
+
+
+async def test_a_bash_terminal_logs_its_opening_and_closing_never_its_keystrokes(client):
+    from app.core import audit
+
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    token = headers["Authorization"].removeprefix("Bearer ")
+    typed = "dummy-typed-secret"
+    ws = _ScriptedWebSocket({"token": token, "projectUid": uid, "language": "bash"}, [{"input": typed}])
+    await _terminal_session(ws)
+
+    rows = audit.query()[0]
+    assert {"terminal_open", "terminal_close"} <= {r["action"] for r in rows}
+    assert all(r["project_uid"] == uid and "bash" in r["detail"] for r in rows if (r["action"] or "").startswith("terminal"))
+    assert typed not in "".join(p.read_text() for p in _audit_files())
+
+
+async def test_a_refused_terminal_is_logged_as_refused(client, monkeypatch):
+    from app.config import settings
+    from app.core import audit
+
+    token = await _admin_token(client)
+    await _terminal_session(_FakeWebSocket({}))
+    assert audit.query(filters={"status": ["401"], "route": "/execute/terminal"})[1] == 1
+
+    monkeypatch.setattr(settings, "enable_code_execution", False)
+    await _terminal_session(_FakeWebSocket({"token": token, "projectUid": "p", "language": "bash"}))
+    [refused] = audit.query(filters={"status": ["403"], "route": "/execute/terminal"})[0]
+    assert refused["username"] == "admin" and refused["project_uid"] == "p"
+
+
+async def test_each_sql_query_of_a_terminal_run_gets_its_own_line(client):
+    from app.api.v1.routes.execution import _make_ws_resolver
+    from app.core import audit
+    from app.core.ws_auth import authenticate_ws
+
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    source = await _connection(client, headers, uid)
+    user = await authenticate_ws(_FakeWebSocket({"token": headers["Authorization"].removeprefix("Bearer ")}))
+    token = audit._current.set({"action": "terminal_close", "method": "WS", "username": "admin"})
+    try:
+        resolver = await _make_ws_resolver(source, user)
+        for sql in ("SELECT 1", "SELECT 2"):
+            with contextlib.suppress(Exception):
+                await resolver(sql)
+        assert audit._current.get()["action"] == "terminal_close"
+    finally:
+        audit._current.reset(token)
+    rows = audit.query(filters={"action": ["query"]}, sort="seq", desc=False)[0]
+    assert [r["detail"] for r in rows] == ["SELECT 1", "SELECT 2"]
+    assert rows[0]["username"] == "admin" and rows[0]["data_source_id"] == source
+
+
+async def test_a_run_that_queries_a_database_keeps_its_code_on_its_line(client):
+    from app.core import audit
+
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    source = await _connection(client, headers, uid)
+    code = "try:\n    sql_query('SELECT 1')\nexcept Exception:\n    pass\nprint('ran')"
+    r = await client.post(f"{API}/execute", headers=headers, json={
+        "language": "python", "code": code, "projectUid": uid, "connectionId": source,
+    })
+    assert r.status_code == 200, r.text
+    [run] = audit.query(filters={"action": ["run_code"]})[0]
+    assert run["detail"] == code and run["project_uid"] == uid
+    [query] = audit.query(filters={"action": ["query"]})[0]
+    assert query["detail"] == "SELECT 1" and query["data_source_id"] == source
+
+
+async def test_starting_a_web_app_logs_its_project_file_and_command(client):
+    from app.core import audit
+    from app.services import project_fs
+    from app.services.execution import web_apps
+
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    (project_fs.scripts_dir(uid) / "app.py").write_text("print(1)")
+    r = await client.post(f"{API}/apps", headers=headers, json={
+        "projectUid": uid, "path": "app.py", "command": "python app.py --flag",
+    })
+    assert r.status_code == 201, r.text
+    await web_apps.manager.shutdown_all()
+    [run] = audit.query(filters={"action": ["run_code"]})[0]
+    assert run["project_uid"] == uid and "app.py" in run["detail"] and "python app.py --flag" in run["detail"]
+
+
+async def _narrowed_viewer(client, admin, workspace: str, permissions: list[str]) -> dict:
+    roles = (await client.get(f"{API}/roles", headers=admin)).json()
+    viewer = next(role for role in roles if role["name"] == "viewer")
+    assert (await client.patch(f"{API}/roles/{viewer['id']}", headers=admin, json={"permissions": permissions})).status_code == 200
+    users = (await client.get(f"{API}/users", headers=admin)).json()
+    bob = next((u["id"] for u in users if u["username"] == "bob"), None)
+    if bob is None:
+        bob = (await client.post(f"{API}/users", headers=admin, json={"username": "bob", "password": "pw-for-tests-only"})).json()["id"]
+    await client.put(f"{API}/workspaces/{workspace}/members", headers=admin, json={"userId": bob, "role": "viewer"})
+    token = (await client.post(f"{API}/auth/login", json={"username": "bob", "password": "pw-for-tests-only"})).json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+async def test_a_render_of_a_dataset_needs_a_permission_that_reads_it(client):
+    from app.core import audit
+    from app.services import project_fs
+
+    admin = await _admin_headers(client)
+    ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "W"}})).json()["id"]
+    uid = (await client.post(f"{API}/projects", headers=admin, json={"name": {"en": "P"}, "workspaceId": ws})).json()["uid"]
+    (project_fs.datasets_dir(uid) / "d.csv").write_text("age,code,name\n40,1,dummy-alice\n50,2,dummy-bob\n")
+    render = {"projectUid": uid, "kind": "map", "datasetFileId": "d.csv", "spec": {"lat": "age", "lon": "code", "popup": ["name"]}}
+
+    bob = await _narrowed_viewer(client, admin, ws, ["project-summary:read"])
+    assert (await client.post(f"{API}/dataset-files/rows/query", headers=bob, params={"projectUid": uid, "path": "d.csv"},
+                               json={"offset": 0, "limit": 10})).status_code == 403
+    refused = await client.post(f"{API}/execute/render", headers=bob, json=render)
+    assert refused.status_code == 403 and "dummy" not in refused.text
+    # With no dataset named there is nothing to read: the view-level gate is enough.
+    assert (await client.post(f"{API}/execute/render", headers=bob, json={
+        "kind": "table1", "spec": {"selected": [], "group": None, "metrics": []}, "projectUid": uid,
+    })).status_code == 200
+
+    for permissions in (["project-summary:read", "datasets:read"], ["project-summary:read", "dashboards:read"]):
+        bob = await _narrowed_viewer(client, admin, ws, permissions)
+        allowed = await client.post(f"{API}/execute/render", headers=bob, json=render)
+        assert allowed.status_code == 200, allowed.text
+        assert "dummy-alice" in allowed.text
+
+    lines = audit.query(filters={"action": ["preview"], "username": "bob"})[0]
+    assert len(lines) == 2
+    assert lines[0]["project_uid"] == uid and lines[0]["detail"] == "datasets/d.csv render map"
+
+
 async def test_ws_credentials_watch_ends_when_the_account_is_disabled(client, engine):
     from sqlalchemy import update
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -1352,3 +1567,68 @@ def test_env_stamp_changes_when_the_environment_is_rebuilt():
     assert _env_stamp(before) != _env_stamp(after)
     # The app interpreter (no project env) is its own stable identity.
     assert _env_stamp(None) == "app"
+
+
+async def test_a_run_is_logged_before_its_code_starts(client, monkeypatch):
+    from app.api.v1.routes import execution
+    from app.core import audit
+    from app.services.execution import kernel
+    from app.services.execution.runtime import RuntimeOutput
+
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    code = "print('dummy-start-line')"
+    seen: list[list[dict]] = []
+
+    async def persistent(*_args, **_kwargs):
+        seen.append(audit.query(filters={"action": ["run_code_start"]})[0])
+        return execution.ExecuteResponse(stdout="", stderr="", figures=[], table=None, html=None)
+
+    async def ephemeral(*_args, **_kwargs):
+        seen.append(audit.query(filters={"action": ["run_code_start"]})[0])
+        return RuntimeOutput()
+
+    monkeypatch.setattr(execution, "_run_in_kernel", persistent)
+    monkeypatch.setattr(kernel, "run_ephemeral", ephemeral)
+    for extra in ({}, {"ephemeral": True}):
+        r = await client.post(f"{API}/execute", headers=headers, json={"language": "python", "code": code, "projectUid": uid, **extra})
+        assert r.status_code == 200, r.text
+
+    assert [len(rows) for rows in seen] == [1, 2]
+    start = seen[0][0]
+    assert start["detail"] == code and start["project_uid"] == uid and start["username"] == "admin"
+    assert audit.query(filters={"action": ["run_code"]})[1] == 2
+
+
+async def test_a_refused_run_writes_no_start_line(client):
+    from app.core import audit
+
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    r = await client.post(f"{API}/execute", headers=headers, json={"language": "cobol", "code": "x", "projectUid": uid})
+    assert r.status_code == 400
+    assert audit.query(filters={"action": ["run_code_start"]})[1] == 0
+
+
+async def test_a_job_is_logged_before_its_code_starts(client, monkeypatch):
+    from app.core import audit
+    from app.services.execution import jobs, kernel
+
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    code = "print('dummy-job-start-line')"
+    seen: list[list[dict]] = []
+
+    async def spawn(*_args, **_kwargs):
+        seen.append(audit.query(filters={"action": ["run_code_start"]})[0])
+        raise RuntimeError("stop before any process starts")
+
+    monkeypatch.setattr(kernel.manager, "spawn_batch", spawn)
+    r = await client.post(f"{API}/execute/run-as-job", headers=headers, json={"language": "python", "code": code, "projectUid": uid})
+    assert r.status_code == 200, r.text
+    task = jobs._tasks.get(r.json()["id"])
+    if task is not None:
+        with contextlib.suppress(BaseException):
+            await task
+    [[start]] = seen
+    assert start["detail"] == code and start["project_uid"] == uid and start["username"] == "admin"

@@ -47,6 +47,7 @@ import {
   isWritableTarget,
   personlessTables,
   planTableName,
+  unprovenTables,
   type VariableSelection,
 } from '@/lib/cohort-derive'
 import { DeriveContentTab, type VariablesMode } from './DeriveContentTab'
@@ -115,6 +116,8 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
   const [variablesMode, setVariablesMode] = useState<VariablesMode>(initial.variablesMode ?? 'all')
   const [variables, setVariables] = useState<VariableSelection | undefined>(initial.variables)
   const [excluded, setExcluded] = useState<Set<string>>(() => new Set(initial.excluded ?? []))
+  // Unticked at every opening: neither the draft nor a recorded derivation restores it.
+  const [unprovenTicked, setUnprovenTicked] = useState<Set<string>>(() => new Set())
   // Tables a recorded derivation ticked: the others are unticked once the plan lists them.
   const included = useRef<string[] | undefined>(initial.included)
   // On by default: the CNIL referential asks each project's data for pseudonyms of its own.
@@ -159,6 +162,10 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
     [plan, excluded],
   )
   const idColumns = useMemo(() => [...new Set(copied.flatMap((p) => p.pseudonymized ?? []))], [copied])
+  const unprovenCopied = useMemo(
+    () => (plan ? unprovenTables(plan).filter((p) => unprovenTicked.has(planTableName(p))) : []),
+    [plan, unprovenTicked],
+  )
 
   // The correspondence never goes into the derived database itself, nor into the
   // DuckDB file the cohort is read from (one file cannot be opened twice) — a
@@ -232,7 +239,10 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
 
   const confirm = () => {
     if (!canConfirm) return
-    const base = { cohort, cohortKey, source, copyPersonless, options: options() }
+    const base = {
+      cohort, cohortKey, source, copyPersonless, options: options(),
+      copyUnprovenTables: unprovenCopied.map((p) => ({ schemaName: p.schema, table: p.table })),
+    }
     if (kind === 'new-database') {
       // To the new database straight away: it reads "being set up" until the
       // job ends, then connects in place.
@@ -452,6 +462,8 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
                     planError={planError}
                     excluded={excluded}
                     onExcludedChange={setExcluded}
+                    unprovenTicked={unprovenTicked}
+                    onUnprovenTickedChange={setUnprovenTicked}
                   />
                 ),
               },
@@ -466,6 +478,7 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
                     birthPrecision={birthPrecision}
                     onBirthPrecisionChange={setBirthPrecision}
                     idColumns={idColumns}
+                    unprovenTables={unprovenCopied.map(planTableName)}
                     correspondenceTargets={correspondenceTargets}
                     keyedDerivations={keyedDerivations}
                   />
@@ -484,6 +497,7 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
             <AlertDialogDescription>
               {rebuilding && t('cohort_derive.rebuild_description', { target: derivationLabel(rebuilding) })}
               {rebuilding?.kind === 'schema' && ` ${t('cohort_derive.rebuild_schema_warning')}`}
+              {!!rebuilding?.copiedUnproven?.length && ` ${t('cohort_derive.rebuild_unproven_dropped', { tables: rebuilding.copiedUnproven.join(', ') })}`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

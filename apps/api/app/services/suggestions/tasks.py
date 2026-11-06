@@ -150,7 +150,7 @@ async def setup_default(handle, workspace_id: str) -> None:
     thirds of them drugs)."""
     if not runtime.is_installed():
         await handle.log("Installing the embeddings runtime …")
-        await runtime.install(handle)
+        await runtime.ensure_installed(handle)
     async with registry.lock(workspace_id):
         data = registry.load(workspace_id)
         model = next((m for m in data["models"] if m.get("repoId") == registry.BIOLORD_REPO), None)

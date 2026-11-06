@@ -27,7 +27,7 @@ from app.schemas.execution import (
     PackageResponse,
 )
 from app.services import project_fs
-from app.services.execution import environments, jobs, kernel
+from app.services.execution import env_options, environments, jobs, kernel
 from app.services.execution.package_spec import (
     InvalidPackageSpec,
     validate_package_spec,
@@ -145,17 +145,24 @@ async def check_env_updates(
     import asyncio
     from datetime import datetime, timezone
 
-    await _require_ide(db, project_uid, user, "read")
+    await _require_ide_install(db, project_uid, user)
     _valid_language(language)
     checked_at = datetime.now(timezone.utc).isoformat()
+    options = await environments.resolve_options(db, project_uid, language)
     # Off the event loop: this shells out to Rscript/uv against the package index
-    # (up to the 120s edit timeout). Run inline it froze the single worker, and the
-    # route is only `read`-gated, so any project reader could stall the whole API.
+    # (up to the 120s edit timeout). Run inline it froze the single worker.
     return await deferred.respond(
         user.id,
-        lambda: asyncio.to_thread(environments.check_updates, project_uid, language, checked_at),
+        lambda: asyncio.to_thread(environments.check_updates, project_uid, language, checked_at, options),
         deferred.AsJob(f"Check {environments.language_label(language)} updates", project_uid=project_uid),
     )
+
+
+async def _options_view(db: AsyncSession, project_uid: str, language: str, override: dict) -> dict:
+    return {
+        "override": env_options.mask_credentials(override),
+        "effective": env_options.mask_credentials(await environments.resolve_options(db, project_uid, language)),
+    }
 
 
 @router.get("/projects/{project_uid}/environments/{language}/options")
@@ -170,10 +177,7 @@ async def get_env_options(
     the override for editing and the effective as placeholders."""
     await _require_ide(db, project_uid, user, "read")
     _valid_language(language)
-    return {
-        "override": environments.get_env_override(project_uid, language),
-        "effective": await environments.resolve_options(db, project_uid, language),
-    }
+    return await _options_view(db, project_uid, language, environments.get_env_override(project_uid, language))
 
 
 @router.put("/projects/{project_uid}/environments/{language}/options")
@@ -189,10 +193,7 @@ async def set_env_options(
     await _require_ide(db, project_uid, user, "write")
     _valid_language(language)
     override = environments.set_env_override(project_uid, language, body or {})
-    return {
-        "override": override,
-        "effective": await environments.resolve_options(db, project_uid, language),
-    }
+    return await _options_view(db, project_uid, language, override)
 
 
 async def _package_op(user: User, project_uid: str, language: str, label: str, op):

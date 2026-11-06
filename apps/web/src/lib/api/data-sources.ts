@@ -161,8 +161,12 @@ export interface DerivePlanTable {
   /** The relation that reads this table without a patient id column: never
    *  copied, since its rows cannot be filtered. */
   unresolved?: string | null
-  /** An id column the table carries with no kept set to filter it on: never copied. */
+  /** An id column the table carries with no kept set to filter it on, or (with
+   *  `unproven`) no id at all: never copied, unless `copyUnprovenTables` names it. */
   unfilterable?: string | null
+  /** Nothing shows this table holds no patient row, and no id filters it: copied
+   *  only on the explicit opt-in, whole, rows outside the cohort included. */
+  unproven?: boolean
   columns?: string[]
   /** The id columns a pseudonymised build replaces. */
   pseudonymized?: string[]
@@ -211,6 +215,8 @@ export interface DeriveRequest {
   scope?: DeriveScope
   /** The tables copied; absent: all, `copyPersonless` deciding the ones with no patient. */
   tables?: DeriveTableRef[]
+  /** The `unproven` tables copied, each named on purpose: `tables` does not reach them. */
+  copyUnprovenTables?: DeriveTableRef[]
   /** An event table keeps the rows whose concept columns hold one of the ids. */
   variables?: (DeriveTableRef & { columns: string[]; conceptIds: number[] })[]
   dates?: (DeriveTableRef & { column: string; precision: 'year' | 'month' | 'null' })[]

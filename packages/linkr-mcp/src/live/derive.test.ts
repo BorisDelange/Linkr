@@ -5,6 +5,8 @@ import type { Cohort, DataSource } from '@/types'
 import {
   deriveChoices, derivationOptions, formatDerivePlan, formatJob, planDerivation, previousDerivation, rebuildChoices, waitForJob,
 } from './derive'
+import { captureTools, inputJsonSchema } from './gateway'
+import { registerDeriveTools } from './tools-derive'
 import type { DerivePlanTable } from '@/lib/api/data-sources'
 
 const mapping = mappingV1ToV2({
@@ -300,6 +302,74 @@ describe('rebuildChoices', () => {
       tables: [{ schema: null, table: 'person' }, { schema: null, table: 'measurement' }, { schema: null, table: 'drug_exposure' }],
     })
     expect(r.copyPersonless).toBe(false)
+  })
+})
+
+describe('a table nothing shows to be personless', () => {
+  const planTables: DerivePlanTable[] = [
+    { schema: null, table: 'person', filter: 'patient', column: 'person_id', pseudonymized: ['person_id'] },
+    { schema: null, table: 'concept', filter: null, column: null },
+    { schema: null, table: 'note_nlp', filter: null, column: null, unfilterable: 'no id Linkr can filter on', unproven: true },
+    { schema: 'x', table: 'cost', filter: null, column: null, unfilterable: 'no id Linkr can filter on', unproven: true },
+    { schema: null, table: 'note', filter: null, column: null, unfilterable: 'visit_detail_id' },
+  ]
+
+  it('is copied only when the call lists it, personless tables copied or not', () => {
+    for (const input of [{}, { copyPersonless: true }, { tables: ['person'] }]) {
+      const r = derivationOptions(cohort(), planTables, input)
+      if ('error' in r) throw new Error(r.error)
+      expect(r.copyUnprovenTables).toEqual([])
+      expect(r.options.tables?.map((t) => t.table)).not.toContain('note_nlp')
+    }
+    const r = derivationOptions(cohort(), planTables, { copyUnprovenTables: ['NOTE_NLP'] })
+    if ('error' in r) throw new Error(r.error)
+    expect(r.copyUnprovenTables).toEqual([{ schemaName: null, table: 'note_nlp' }])
+  })
+
+  it('is not reached through `tables`, nor is another refused table through the explicit list', () => {
+    expect(derivationOptions(cohort(), planTables, { tables: ['note_nlp'] }))
+      .toEqual({ error: expect.stringContaining('copy_unproven_tables') })
+    expect(derivationOptions(cohort(), planTables, { copyUnprovenTables: ['note'] }))
+      .toEqual({ error: expect.stringContaining('note') })
+    expect(derivationOptions(cohort(), planTables, { copyUnprovenTables: ['person'] }))
+      .toEqual({ error: expect.stringContaining('person') })
+  })
+
+  it('reaches the request as its own field, and never through what is recorded', () => {
+    const r = plan({ copyUnprovenTables: [{ schemaName: 'x', table: 'cost' }] })
+    if ('error' in r) throw new Error(r.error)
+    expect(r.request.copyUnprovenTables).toEqual([{ schemaName: 'x', table: 'cost' }])
+    expect(JSON.stringify(r.request.derivedFrom)).not.toContain('cost')
+    const none = plan()
+    if ('error' in none) throw new Error(none.error)
+    expect(none.request.copyUnprovenTables).toBeUndefined()
+  })
+
+  it('is not carried over by a rebuild, which has to list it again', () => {
+    const previous = { copyPersonless: true, copiedUnproven: ['note_nlp'], options: { scope: 'visit' as const, tables: [{ schema: null, table: 'person' }] } }
+    expect(rebuildChoices(previous, {}).copyUnprovenTables).toBeUndefined()
+    expect(rebuildChoices(previous, { copyUnprovenTables: ['note_nlp'] }).copyUnprovenTables).toEqual(['note_nlp'])
+  })
+
+  it('takes the list from the tool argument', () => {
+    expect(deriveChoices({ copy_unproven_tables: ['note_nlp'] })).toEqual({ copyUnprovenTables: ['note_nlp'] })
+  })
+
+  it('is listed apart in the plan, with what copying it means', () => {
+    const out = formatDerivePlan(planTables, true)
+    expect(out).toContain('note_nlp: skipped unless named in copy_unproven_tables')
+    expect(out).toMatch(/patients outside the cohort/)
+    expect(out).toMatch(/not pseudonymised/)
+    expect(out).toContain('note: skipped — it carries visit_detail_id')
+    expect(out).toContain('concept: copied whole')
+  })
+
+  it('is described as an explicit opt-in on the tool', () => {
+    const derive = captureTools('t', [registerDeriveTools]).find((t) => t.name === 'derive_database_from_cohort')
+    const schema = inputJsonSchema(derive!) as { properties: Record<string, { description: string }> }
+    expect(schema.properties.copy_unproven_tables.description).toMatch(/EXPLICIT OPT-IN/)
+    expect(schema.properties.copy_personless.description).toMatch(/known to hold no patient/)
+    expect(schema.properties.copy_personless.description).toMatch(/never/)
   })
 })
 

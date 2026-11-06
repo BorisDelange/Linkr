@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.routes.apps import end_app_sessions
 from app.config import settings
 from app.core import audit, trusted_header
 from app.core.auth_providers import get_auth_provider
@@ -126,10 +127,12 @@ async def refresh(request: RefreshRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/logout")
-async def logout(user: User = Depends(get_current_user)):
+async def logout(response: Response, user: User = Depends(get_current_user)):
     """Logout: the client discards its tokens; the server forgets the user's
-    session-only database logins."""
+    session-only database logins and ends their web-app sessions."""
     database_credential_service.forget_session_logins(user.id)
+    end_app_sessions(user.id, response)
+    audit.bind(action="logout")
     return {"ok": True}
 
 
@@ -190,8 +193,8 @@ async def change_password(
     keyboard, not a stolen session. Session only — an API token cannot take over
     the account it belongs to.
 
-    Every session issued before the change ends; the caller gets fresh tokens,
-    which the client stores to stay signed in."""
+    Every session and API token issued before the change ends; the caller gets
+    fresh session tokens, which the client stores to stay signed in."""
     if settings.auth_provider != "local" or not user.password_hash:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Passwords are managed by the identity provider")
     if not await verify_password_async(body.current_password, user.password_hash):
@@ -204,7 +207,9 @@ async def change_password(
     if error := password_policy_error(body.new_password, user.username):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, error)
     await set_password_async(user, body.new_password)
+    await api_token_service.revoke_all(db, user.id)
     await db.commit()
+    database_credential_service.forget_session_logins(user.id)
     audit.bind(action="password_change")
     return _issue_tokens(user)
 

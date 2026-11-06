@@ -35,6 +35,9 @@ async def start(
 
     async def body(handle: jobs.JobHandle) -> None:
         audit.bind(action="run_code", project_uid=project_uid, detail=code)
+        # The job's own line is only written when it ends, which a run taking the
+        # process down never reaches.
+        audit.event(action="run_code_start", project_uid=project_uid, detail=code)
         k = await kernel.manager.spawn_batch(language, project_uid, env)
         # Buffer streamed chunks and flush them to the log tail periodically, so a
         # chatty run doesn't hammer the DB with one write per line.

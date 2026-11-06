@@ -55,6 +55,9 @@ services:
       - LINKR_SECRET_KEY=${LINKR_SECRET_KEY:?set LINKR_SECRET_KEY before up}
       - LINKR_CORS_ORIGINS=https://localhost:${SPE_GATEWAY_PORT:-8443}
       - LINKR_DEBUG=false
+      # Asked by the setup page to create the first administrator. Unset: generated
+      # at each boot and shown in this service's log (first_admin_setup_token).
+      - LINKR_SETUP_TOKEN=${LINKR_SETUP_TOKEN:-}
       # Project environments start empty; every package comes through the mirror.
       - LINKR_PIP_INDEX_URL=http://mirror/repository/pypi/simple
       - LINKR_R_REPOS=http://mirror/repository/cran/__linux__/noble/latest

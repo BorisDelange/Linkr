@@ -243,6 +243,12 @@ describe('page table CSV', () => {
     expect(csvField(null)).toBe('')
   })
 
+  it('writes a text a spreadsheet would run as text', () => {
+    expect(csvField('=A1')).toBe("'=A1")
+    expect(csvField('@x,y')).toBe(`"'@x,y"`)
+    expect(csvField('-12.5')).toBe('-12.5')
+  })
+
   it('exports masked counts as displayed and other numbers raw', () => {
     const masked = (v: unknown, r: Row) => (r._anon ? '< ' : '') + Number(v).toLocaleString('en')
     const cols: Col[] = [

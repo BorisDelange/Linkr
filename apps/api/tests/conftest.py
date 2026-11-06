@@ -83,6 +83,8 @@ def _isolate_data_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", str(tmp_path))
     # data_path is a cached_property; drop any cached value so it re-resolves.
     settings.__dict__.pop("data_path", None)
+    # The free space of the machine running the tests is not what they test.
+    monkeypatch.setattr(settings, "upload_free_space_reserve_mb", 0)
     # The encryption key lives in data_dir: each test gets its own.
     crypto.reset_keyring()
     audit.reset()
@@ -234,6 +236,9 @@ def _route_sessions_to(maker, monkeypatch) -> None:
 
     monkeypatch.setattr(ws_auth, "async_session", maker)
     monkeypatch.setattr(execution_route, "async_session", maker)
+    import app.api.v1.routes.apps as apps_route
+
+    monkeypatch.setattr(apps_route, "async_session", maker)
     # The vocabulary import writes the library's inventory from its own session.
     import app.api.v1.routes.vocabulary_library as vocabulary_library_route
 

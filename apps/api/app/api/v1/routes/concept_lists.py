@@ -12,7 +12,7 @@ from app.schemas.concept_list import (
     ConceptListResponse,
     ConceptListUpdate,
 )
-from app.services import concept_list_service, notification_service
+from app.services import concept_list_service, database_binding, notification_service
 
 router = APIRouter(prefix="/concept-lists", tags=["concept-lists"])
 
@@ -26,6 +26,11 @@ async def _require_project_access(
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
     await check_project_permission(db, project, user, permission)
+
+
+async def _require_bindable(db: AsyncSession, project_uid: str, user: User, source_ids: list[str | None]) -> None:
+    project = await db.get(Project, project_uid)
+    await database_binding.require_bindable(db, project.workspace_id, user, source_ids, project=project)
 
 
 async def _load(
@@ -66,6 +71,7 @@ async def create_concept_list(
     db: AsyncSession = Depends(get_db),
 ):
     await _require_project_access(db, body.project_uid, user, "concepts:write")
+    await _require_bindable(db, body.project_uid, user, [body.data_source_id])
     created = await concept_list_service.create(db, body)
     await _notify(db, request, user, "created", created)
     return created
@@ -89,6 +95,9 @@ async def update_concept_list(
     db: AsyncSession = Depends(get_db),
 ):
     concept_list = await _load(db, concept_list_id, user, "concepts:write")
+    await _require_bindable(
+        db, concept_list.project_uid, user, database_binding.changed_ids(concept_list, body, "data_source_id")
+    )
     updated = await concept_list_service.update(db, concept_list, body)
     await _notify(db, request, user, "updated", updated)
     return updated

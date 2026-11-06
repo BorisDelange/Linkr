@@ -21,7 +21,7 @@ from app.schemas.dq_rule_set import (
     DqRunHistoryResponse,
     DqRunHistoryUpdate,
 )
-from app.services import change_tracking, dq_rule_set_service, notification_service
+from app.services import change_tracking, database_binding, dq_rule_set_service, notification_service
 
 router = APIRouter(tags=["data-quality"])
 
@@ -151,6 +151,7 @@ async def create_rule_set(
     db: AsyncSession = Depends(get_db),
 ):
     await check_workspace_permission(db, body.workspace_id, user, "data-quality:write")
+    await database_binding.require_bindable(db, body.workspace_id, user, [body.data_source_id])
     rule_set = await dq_rule_set_service.create(db, body)
     await _notify(db, request, user, "created", rule_set)
     return rule_set
@@ -174,6 +175,11 @@ async def update_rule_set(
     db: AsyncSession = Depends(get_db),
 ):
     rule_set = await _load_rule_set(db, rule_set_id, user, "data-quality:write")
+    await database_binding.require_bindable(
+        db, rule_set.workspace_id, user, database_binding.changed_ids(rule_set, body, "data_source_id")
+    )
+    if body.last_score is not None:
+        await database_binding.require_stored_local(db, rule_set.workspace_id, rule_set.data_source_id)
     before = change_tracking.changed_values(rule_set, body.model_dump(exclude_unset=True))
     rule_set = await dq_rule_set_service.update(db, rule_set, body)
     if before:
@@ -423,6 +429,7 @@ async def create_run(
     rule_set = await _load_rule_set(db, body.rule_set_id, user, "data-quality:write")
     # Trust the rule set's workspace, not the client-supplied one.
     body.workspace_id = rule_set.workspace_id
+    await database_binding.require_stored_local(db, rule_set.workspace_id, rule_set.data_source_id, body.data_source_id)
     try:
         run = await dq_rule_set_service.create_run(db, body)
     except dq_rule_set_service.RunIdTaken as e:
@@ -440,6 +447,7 @@ async def update_run(
     db: AsyncSession = Depends(get_db),
 ):
     run = await _load_run(db, run_id, user, "data-quality:write")
+    await database_binding.require_stored_local(db, run.workspace_id, run.data_source_id)
     run = await dq_rule_set_service.update_run(db, run, body)
     await _notify_runs(db, request, user, run.rule_set_id, run.workspace_id)
     return run

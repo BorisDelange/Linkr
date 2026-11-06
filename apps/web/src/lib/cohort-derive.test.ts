@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import type { Cohort, DataSource } from '@/types'
 import {
-  DERIVE_SCHEMA_NAME, createdData, defaultDeriveSchemaName, derivableReason, derivationRequest, derivedDatabaseRow,
-  isWritableTarget, rebuildRequest,
+  DERIVE_SCHEMA_NAME, copyableTables, createdData, defaultDeriveSchemaName, derivableReason, derivationRequest, derivedDatabaseRow,
+  isWritableTarget, personlessTables, rebuildRequest, unprovenTables,
 } from './cohort-derive'
+import type { DerivePlanTable } from './api/data-sources'
 
 const mapping = mappingV1ToV2({
   presetId: 'omop',
@@ -131,5 +132,34 @@ describe('defaultDeriveSchemaName', () => {
   it('is a valid schema name from the English name', () => {
     expect(defaultDeriveSchemaName({ name: { en: 'Réa adultes (2024)', fr: 'x' } })).toBe('cohort_rea_adultes_2024')
     expect(DERIVE_SCHEMA_NAME.test(defaultDeriveSchemaName({ name: { en: 'a'.repeat(100) } }))).toBe(true)
+  })
+})
+
+describe('a table nothing shows to be personless', () => {
+  const plan: DerivePlanTable[] = [
+    { schema: null, table: 'person', filter: 'patient', column: 'person_id' },
+    { schema: null, table: 'concept', filter: null, column: null },
+    { schema: 'x', table: 'note_nlp', filter: null, column: null, unfilterable: 'no id', unproven: true },
+    { schema: null, table: 'note', filter: null, column: null, unfilterable: 'visit_detail_id' },
+    { schema: null, table: 'labs', filter: null, column: null, unresolved: 'events.Labs' },
+  ]
+
+  it('is neither copyable by default nor counted as holding no patient data', () => {
+    expect(copyableTables(plan).map((p) => p.table)).toEqual(['person', 'concept'])
+    expect(personlessTables(plan).map((p) => p.table)).toEqual(['concept'])
+  })
+
+  it('is the only kind a user can opt in to', () => {
+    expect(unprovenTables(plan).map((p) => p.table)).toEqual(['note_nlp'])
+    expect(unprovenTables([{ schema: null, table: 'a', filter: null, column: null, unresolved: 'r', unproven: true }])).toEqual([])
+  })
+
+  it('reaches the request in its own field, and never in what a rebuild reads', () => {
+    const input = { cohort: cohort(), cohortKey: 'icu', source: db(), copyPersonless: true, target: 'new-database' as const }
+    const r = derivationRequest({ ...input, copyUnprovenTables: [{ schemaName: 'x', table: 'note_nlp' }] })
+    expect(r.copyUnprovenTables).toEqual([{ schemaName: 'x', table: 'note_nlp' }])
+    expect(JSON.stringify(r.derivedFrom)).not.toContain('note_nlp')
+    expect(derivationRequest(input).copyUnprovenTables).toBeUndefined()
+    expect(derivationRequest({ ...input, copyUnprovenTables: [] }).copyUnprovenTables).toBeUndefined()
   })
 })

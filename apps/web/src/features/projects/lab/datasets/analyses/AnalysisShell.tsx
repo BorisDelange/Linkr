@@ -28,6 +28,8 @@ import { useDatasetStore } from '@/stores/dataset-store'
 import { useAppStore } from '@/stores/app-store'
 import { isServerMode } from '@/lib/api-client'
 import { executeOnServer } from '@/lib/api/execution'
+import { acceptCode } from '@/lib/api/code-acceptance'
+import { forgetDeclinedCode } from '@/stores/code-acceptance-prompt'
 import { executeAnalysisCode, executeAnalysisCodeR } from '../analysis-executor'
 import { ensurePluginDependencies, getPlugin } from '@/lib/plugins/registry'
 import { PluginReadmeContent } from '@/components/PluginReadme'
@@ -65,6 +67,7 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
   const [outputShown, setRightVisible] = useOutputPane('dataset-analysis')
   const pendingConfigChange = useRef<Record<string, unknown> | null>(null)
   const hasAutoRun = useRef(false)
+  const editedCode = useRef(false)
   const leftVisible = activeTab !== null
   const rightVisible = outputShown || !leftVisible
 
@@ -80,6 +83,7 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
   const handleCodeChange = useCallback(
     (value: string | undefined) => {
       if (value === undefined) return
+      editedCode.current = true
       if (value === generatedCode) {
         updateAnalysis(analysis.id, {
           config: { ...config, isCodeCustomized: false, userCode: undefined },
@@ -103,15 +107,17 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
   // Save analysis config
   const handleSave = useCallback(() => {
     saveAnalysis(analysis.id)
-  }, [analysis.id, saveAnalysis])
+    if (editedCode.current && isServerMode()) void acceptCode([currentCode]).catch(() => {})
+  }, [analysis.id, saveAnalysis, currentCode])
 
   const isDirty = _dirtyVersion >= 0 && isAnalysisDirty(analysis.id)
 
   // Run the analysis
   const isExecutingRef = useRef(false)
-  const handleRun = useCallback(async () => {
+  const runAnalysis = useCallback(async (asked: boolean) => {
     if (isExecutingRef.current) return
     isExecutingRef.current = true
+    if (asked) forgetDeclinedCode()
     setIsExecuting(true)
     setResult(null)
     setStatusMessage(null)
@@ -128,6 +134,11 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
           projectUid: activeProjectUid ?? undefined,
           datasetFileId: analysis.datasetFileId,
           purpose: 'datasets',
+          // Pressing Run on code on screen is the review; anything else, an opened
+          // tab's auto-run first of all, goes by what the server knows.
+          review: asked && (editedCode.current || activeTab === 'code')
+            ? { authored: true }
+            : { source: isCustomized ? undefined : plugin?.templates?.[execLanguage], label: analysis.name },
         })
       } else {
         // Auto-install declared plugin dependencies (only checks once per session)
@@ -153,15 +164,16 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
       setIsExecuting(false)
       setStatusMessage(null)
     }
-  }, [currentCode, analysis.type, analysis.datasetFileId, columns, getFileRows, language, activeProjectUid, setRightVisible])
+  }, [currentCode, analysis.type, analysis.datasetFileId, columns, getFileRows, language, activeProjectUid, setRightVisible, activeTab, isCustomized, plugin, analysis.name])
+  const handleRun = useCallback(() => runAnalysis(true), [runAnalysis])
 
   // Auto-run on mount (once)
   useEffect(() => {
     if (autoRun && !hasAutoRun.current && columns.length > 0) {
       hasAutoRun.current = true
-      handleRun()
+      void runAnalysis(false)
     }
-  }, [autoRun, columns.length, handleRun])
+  }, [autoRun, columns.length, runAnalysis])
 
   // Toggle auto-run
   const handleToggleAutoRun = useCallback(() => {

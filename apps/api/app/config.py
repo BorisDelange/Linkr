@@ -27,6 +27,9 @@ class Settings(BaseSettings):
 
     # Auth
     secret_key: str = "dev-secret-change-in-production"
+    # The first-admin token, for a deployment that sets it rather than reading it
+    # from the log. Empty: generated at each boot (core/setup_token).
+    setup_token: str = ""
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24 hours
     refresh_token_expire_days: int = 30
@@ -65,6 +68,23 @@ class Settings(BaseSettings):
     # Uploads — hard cap on a single assembled upload (raw files, DB imports).
     # Guards the blob store's disk against an authenticated user filling it.
     max_upload_mb: int = 2048  # 2 GB
+    # Largest body of a route that reads its whole body (a JSON model), checked
+    # before anything buffers it, so before authentication. Uploads stream past this.
+    max_json_body_mb: int = 64
+    # Free space an upload must leave on the volume of `data_dir`, which holds the
+    # access log, the sealing key and, in the shipped compose, the app database.
+    # 0: off.
+    upload_free_space_reserve_mb: int = 5120  # 5 GB
+    # Per user: what they have in open upload sessions plus what they uploaded that
+    # is still in the blob store. 0: off.
+    upload_quota_mb: int = 0
+    # Bounds on an entity's export tree once decompressed: on disk (status, diff,
+    # commit) and held in memory (three-way pull, merged tree, repository clone).
+    max_export_tree_mb: int = 10240
+    max_export_tree_memory_mb: int = 1024
+    # Bound on an .xlsx once decompressed. The Excel reader loads the shared strings
+    # part whole, at about 3.5x its size, so that part gets an eighth of this.
+    max_excel_inflated_mb: int = 4096
 
     # Code execution
     enable_code_execution: bool = True
@@ -141,6 +161,9 @@ class Settings(BaseSettings):
     # Every query a database is sent is a job (kind "sql_query"): kept this many
     # hours once finished, then dropped by storage_gc's loop (and at startup).
     query_log_hours: int = 24
+    # What a finished script, pipeline or derivation job printed or returned may
+    # hold rows: emptied this long after it ended (its row stays, with its code).
+    job_output_hours: int = 168
     # Memory one DuckDB instance opened by db_connect._open (a query, a unit, a
     # materialization over a database) may use before spilling to disk, e.g.
     # "3GB". Per instance, not in total: two heavy queries at once may each take

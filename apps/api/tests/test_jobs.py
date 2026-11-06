@@ -193,6 +193,96 @@ async def test_finished_queries_go_after_the_retention_the_others_stay(db, monke
     assert labels == {"recent query", "old running query", "old build"}
 
 
+async def _aged_job(db, kind, hours, *, status="done"):
+    from datetime import UTC, datetime, timedelta
+
+    when = datetime.now(UTC) - timedelta(hours=hours)
+    job = await jobs.create(db, "proj-1", 1, kind=kind, label=f"{kind} {hours}", input="code")
+    job.status, job.created_at, job.finished_at = status, when, when
+    job.result, job.log_tail = {"table": [{"name": "DUMMY"}]}, "DUMMY"
+    await db.commit()
+    return job.id
+
+
+async def _gone_from_disk(job_id: str) -> bool:
+    from app.services.data import query_jobs
+
+    return not query_jobs.results_dir(job_id).exists()
+
+
+async def test_a_query_job_goes_with_its_result_files_past_the_retention(db, monkeypatch):
+    from app.services.data import query_jobs
+
+    monkeypatch.setattr(jobs.settings, "query_log_hours", 24)
+    old, recent = await _aged_job(db, "query", 25), await _aged_job(db, "query", 2)
+    for job_id in (old, recent):
+        query_jobs.write_result(query_jobs.result_path(job_id, "k"), [{"name": "DUMMY"}])
+
+    await jobs.purge_old_queries()
+
+    assert await db.get(Job, old, populate_existing=True) is None and await _gone_from_disk(old)
+    assert await db.get(Job, recent, populate_existing=True) is not None and not await _gone_from_disk(recent)
+
+
+@pytest.mark.parametrize("kind", ["run", "etl", "derive"])
+async def test_a_job_s_output_goes_past_the_retention_its_row_stays(db, monkeypatch, kind):
+    monkeypatch.setattr(jobs.settings, "job_output_hours", 48)
+    old, recent = await _aged_job(db, kind, 49), await _aged_job(db, kind, 47)
+    build = await _aged_job(db, "build", 49)
+
+    await jobs.purge_old_queries()
+
+    kept = await db.get(Job, old, populate_existing=True)
+    assert kept.result is None and not kept.log_tail and kept.input == "code"
+    for job_id in (recent, build):
+        job = await db.get(Job, job_id, populate_existing=True)
+        assert job.result is not None and job.log_tail == "DUMMY"
+
+
+async def test_a_running_job_keeps_its_result_files_however_old(db, monkeypatch):
+    import os
+
+    from app.services.data import query_jobs
+
+    job_id = await _aged_job(db, "query", 72, status="running")
+    query_jobs.write_result(query_jobs.result_path(job_id, "k"), [])
+    old = 1_000_000_000
+    os.utime(query_jobs.results_dir(job_id), (old, old))
+    monkeypatch.setattr(jobs, "is_running", lambda i: i == job_id)
+
+    await jobs.purge_old_queries()
+
+    assert not await _gone_from_disk(job_id)
+
+
+async def test_a_results_folder_nothing_claims_goes_while_the_server_runs(db):
+    import os
+
+    from app.services.data import query_jobs
+
+    query_jobs.write_result(query_jobs.result_path("orphan", "k"), [])
+    os.utime(query_jobs.results_dir("orphan"), (1_000_000_000, 1_000_000_000))
+
+    await jobs.purge_old_queries()
+
+    assert await _gone_from_disk("orphan")
+
+
+async def test_a_job_s_error_keeps_values_out_of_its_row(db):
+    job = await jobs.create(db, "proj-1", 1, kind=jobs.QUERY_KIND, label="q", running=True)
+
+    async def failing():
+        raise ValueError("Conversion Error: Could not convert string 'DUMMY-NAME' to INT32")
+
+    task = asyncio.create_task(failing())
+    await jobs.adopt(job.id, task, written=True)
+    with pytest.raises(ValueError):
+        await task
+    await asyncio.gather(*jobs._status_writes)
+    row = await db.get(Job, job.id, populate_existing=True)
+    assert row.status == "error" and "DUMMY-NAME" not in row.log_tail and "Conversion Error" in row.log_tail
+
+
 async def test_a_job_stopped_by_its_client_ends_cancelled(db):
     from app.core import deferred
 

@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { resolveRolePrefixes, usedRoles } from '@/lib/duckdb/role-prefix'
@@ -6,6 +7,7 @@ import { RunAbortedError, runPipelineSql } from './run-pipeline-sql'
 import { mappingExportNameOf } from '@/lib/duckdb/mapping-source'
 import { treeNodePath } from '@/lib/entity-tree'
 import { formatDuration } from '@/lib/format-helpers'
+import { isForeignDatabase } from '@/hooks/use-database-options'
 import { useRoleSchemas } from './use-role-schemas'
 import { clearPatientQueries } from '@/features/projects/warehouse/patient-data/patient-prefetch'
 import type { EtlFile, EtlPipeline } from '@/types'
@@ -26,6 +28,7 @@ interface RunnerOptions {
  */
 export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: RunnerOptions = {}) {
   const { onScriptError } = options
+  const { t } = useTranslation()
   const pipelineRunning = useEtlStore((s) => s.pipelineRunning)
   const { roleSchemasFor, dataSourceIdOf } = useRoleSchemas(pipeline)
 
@@ -48,12 +51,31 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
     return data
   }, [pipeline])
 
+  const hasForeignDatabase = useCallback((scriptSourceId?: string | null): boolean => {
+    if (!pipeline) return false
+    const { dataSources } = useDataSourceStore.getState()
+    return [pipeline.sourceDataSourceId, pipeline.targetDataSourceId, scriptSourceId]
+      .some((id) => isForeignDatabase(dataSources, id, pipeline.workspaceId))
+  }, [pipeline])
+
   /**
    * `files` is the ordered list to execute. Disabled ones are marked skipped
    * rather than dropped, so the run history shows they were deliberately left out.
    */
   const runScripts = useCallback(async (files: EtlFile[], options: { resume?: boolean } = {}) => {
     if (!pipeline || files.length === 0) return
+    const offending = files.find((f) => hasForeignDatabase(f.dataSourceId))
+    if (offending) {
+      useEtlStore.getState().setScriptStatus(offending.id, {
+        id: `log-${offending.id}-${Date.now()}`,
+        pipelineId: pipeline.id,
+        fileId: offending.id,
+        status: 'error',
+        error: t('etl.run_foreign_database'),
+      })
+      onScriptError?.(offending.id)
+      return
+    }
     const store = useEtlStore.getState()
     if (options.resume) {
       // Continues the held run's history entry instead of opening a new one, so
@@ -173,7 +195,7 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
     useEtlStore.getState().finishPipelineRun(
       hasError || abort?.signal.aborted ? 'error' : 'success',
     )
-  }, [pipeline, roleSchemasFor, dataSourceIdOf, mappingDataFor, onScriptError])
+  }, [pipeline, roleSchemasFor, dataSourceIdOf, mappingDataFor, onScriptError, hasForeignDatabase, t])
 
   /**
    * Run one ad-hoc chunk of SQL (a file, a selection, a line) through the same
@@ -189,6 +211,7 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
     dataSourceId: string,
   ): Promise<Record<string, unknown>[]> => {
     if (!pipeline) return []
+    if (hasForeignDatabase(dataSourceId)) throw new Error(t('etl.run_foreign_database'))
     const store = useEtlStore.getState()
     if (!store.startPipelineRun([fileId])) return []
     const abort = useEtlStore.getState().pipelineRunAbort
@@ -252,7 +275,7 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
         if (roleId) clearPatientQueries(roleId)
       }
     }
-  }, [pipeline, roleSchemasFor, dataSourceIdOf, mappingDataFor])
+  }, [pipeline, roleSchemasFor, dataSourceIdOf, mappingDataFor, hasForeignDatabase, t])
 
   const stop = useCallback(() => useEtlStore.getState().stopPipelineRun(), [])
 

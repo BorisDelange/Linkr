@@ -1,4 +1,5 @@
 import type { ConceptSpec, SchemaMapping } from '@/types/schema-mapping'
+import { isSafeIdentifier } from '@/lib/format-helpers'
 import { conceptRelation, type ClassRelation } from '@/lib/schema-classes/relations'
 import { vocabularyDataSourceIdFor } from '@/lib/vocabulary-library/resolve'
 
@@ -53,6 +54,6 @@ export function resolveVocabularyTarget(
     dsId: ds.id,
     mapping: { ...mapping, concepts: [concepts[index], ...concepts.filter((_, i) => i !== index)] },
     dictionary,
-    conceptTable: concepts[index].from?.table ?? 'concept',
+    conceptTable: isSafeIdentifier(concepts[index].from?.table ?? '') ? concepts[index].from!.table : 'concept',
   }
 }

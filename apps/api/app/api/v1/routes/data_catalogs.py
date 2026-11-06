@@ -14,7 +14,7 @@ from app.schemas.data_catalog import (
     DataCatalogUpdate,
 )
 from app.schemas.stats_cache import StatsCacheResponse, StatsCacheSave
-from app.services import change_tracking, data_catalog_service, notification_service, stats_cache_service
+from app.services import change_tracking, data_catalog_service, database_binding, notification_service, stats_cache_service
 
 router = APIRouter(prefix="/data-catalogs", tags=["data-catalogs"])
 
@@ -76,6 +76,7 @@ async def create_catalog(
     db: AsyncSession = Depends(get_db),
 ):
     await check_workspace_permission(db, body.workspace_id, user, "catalog:write")
+    await database_binding.require_bindable(db, body.workspace_id, user, [body.data_source_id])
     catalog = await data_catalog_service.create(db, body)
     await _notify(db, request, user, "created", catalog)
     return catalog
@@ -99,6 +100,13 @@ async def update_catalog(
     db: AsyncSession = Depends(get_db),
 ):
     catalog = await _load(db, catalog_id, user, "catalog:write")
+    await database_binding.require_bindable(
+        db, catalog.workspace_id, user, database_binding.changed_ids(catalog, body, "data_source_id")
+    )
+    if body.counts is not None or body.last_error is not None:
+        await database_binding.require_stored_local(
+            db, catalog.workspace_id, body.data_source_id or catalog.data_source_id
+        )
     before = change_tracking.changed_values(catalog, body.model_dump(exclude_unset=True))
     catalog = await data_catalog_service.update(db, catalog, body)
     if before:
@@ -149,6 +157,7 @@ async def save_catalog_results_cache(
     """Store the catalog results a client just computed, sharing them. Nothing
     is sent back: echoing tens of megabytes on every save of a run is waste."""
     catalog = await _load(db, catalog_id, user, "catalog:write")
+    await database_binding.require_stored_local(db, catalog.workspace_id, catalog.data_source_id)
     await stats_cache_service.save(db, _CATALOG_SCOPE, catalog_id, body.computed_at, body.payload)
     await _notify(db, request, user, "updated", catalog, notify=False)
 

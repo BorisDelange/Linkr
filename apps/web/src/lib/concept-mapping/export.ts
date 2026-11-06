@@ -719,6 +719,10 @@ function serializeMappingsForVersioning(mappings: ConceptMapping[], unmasked = f
   return JSON.stringify(cleaned, null, 2)
 }
 
+function withoutJobIds({ jobIds: _jobIds, ...run }: Record<string, unknown>): Record<string, unknown> {
+  return run
+}
+
 /**
  * The portable project.json content for a mapping project, identical across the
  * standalone export and the workspace export's mapping-projects/ subfolders.
@@ -771,6 +775,8 @@ export function cleanMappingProjectMeta(
     type: 'mapping-project' as const,
     ...orderProvenance({
       ...rest,
+      // A run's server jobs exist on this instance only.
+      ...(rest.sourceExtraction ? { sourceExtraction: withoutJobIds(rest.sourceExtraction as Record<string, unknown>) } : {}),
       // The readme and the licence text travel as README.md / LICENSE.md; only
       // the licence's identity stays here.
       ...(licenseMeta(license) ? { license: licenseMeta(license) } : {}),

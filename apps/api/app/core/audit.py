@@ -11,7 +11,8 @@ request and WebSocket; the auth dependencies name the actor (`set_actor`); the
 few places that touch data add what they touched (`bind`). One line is written
 when the request ends — only for requests that read data, change something, or
 were refused, so UI polling does not flood it. Jobs, which outlive their request,
-open their own context (`job_scope`).
+open their own context (`job_scope`), and an event inside a long-lived connection
+gets a line of its own (`event`, `event_scope`).
 
 **Never result data.** `detail` holds the SQL or code (truncated), which may
 itself name a patient, so reading the log is `audit-log:read`, or one's own.
@@ -21,6 +22,12 @@ an edited or removed line breaks the chain from there on (`verify`). It does not
 stop someone with the server's root from rewriting everything; the copy on stdout,
 held by the collector, is what covers that. One writer per process: the chain
 assumes a single API worker, which is how Linkr runs.
+
+**When the file cannot be written.** The line still goes to stdout, marked
+`local_log: failed` and outside the chain. The next line that fits in the file is
+preceded by an `audit_gap` line counting those it missed, so the chain keeps
+verifying and says what it lacks. A tail left damaged by a crash is moved aside on
+recovery (`audit_tail_set_aside`), never in the way of the lines after it.
 """
 
 import contextlib
@@ -28,6 +35,7 @@ import hashlib
 import json
 import os
 import secrets
+import shutil
 import threading
 import time
 from collections.abc import Iterator
@@ -39,13 +47,17 @@ import duckdb
 import structlog
 
 from app.config import settings
-from app.core.redact import redact_secrets
+from app.core.redact import scrub_row_values
 
 _DETAIL_MAX = 2000
 _GENESIS = "0" * 64
 _MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 _REFUSED = {401, 403, 428}
 _SKIP_ROUTES = ("/api/v1/health",)
+_TAIL_WINDOW = 64 * 1024
+_CONNECTION_FIELDS = (
+    "user_id", "username", "via", "client", "client_ip", "method", "route", "request_id", "project_uid", "workspace_id",
+)
 
 # The on-disk schema. Fixed, so a day with no `row_count` still reads back as
 # the same Parquet columns as a day with one.
@@ -95,10 +107,21 @@ def bind(**fields) -> None:
         if value is None:
             continue
         if key == "detail":
-            value = str(value)[:_DETAIL_MAX]
+            value = _bounded_detail(str(value))
         elif key == "error":
-            value = redact_secrets(str(value))[:_DETAIL_MAX]
+            value = scrub_row_values(str(value))[:_DETAIL_MAX]
         ctx[key] = value
+
+
+def _bounded_detail(text: str) -> str:
+    """What was asked, within the line's size: its two ends and the hash of the
+    whole, so padding at one end hides nothing and a claimed text can be checked."""
+    if len(text) <= _DETAIL_MAX:
+        return text
+    digest = hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()
+    middle = f" … [{len(text):,} characters, sha256 {digest}] … "
+    room = _DETAIL_MAX - len(middle)
+    return text[:room // 2] + middle + text[-(room - room // 2):]
 
 
 def request_id() -> str | None:
@@ -129,13 +152,36 @@ def actor() -> dict:
 def job_scope(job_id: str, kind: str, launched_by: dict) -> Iterator[dict]:
     """The audit context of a background job: one line when it ends, named
     after its launcher, whatever data it touched along the way."""
-    ctx = {**launched_by, "via": f"job:{job_id}", "method": "JOB", "route": kind, "action": kind}
+    with _line_scope({**launched_by, "via": f"job:{job_id}", "method": "JOB", "route": kind, "action": kind}) as ctx:
+        yield ctx
+
+
+@contextlib.contextmanager
+def event_scope(**fields) -> Iterator[None]:
+    """One line of its own for what happens inside: a request's context holds one
+    action and writes once at its end, too little for a connection that serves
+    many events, or a run whose code must not give way to the queries it makes."""
+    parent = _current.get() or {}
+    with _line_scope({k: parent[k] for k in _CONNECTION_FIELDS if k in parent}):
+        bind(**fields)
+        yield
+
+
+def event(**fields) -> None:
+    """Write one such line now, not when the connection ends: what follows may
+    take the process down with it."""
+    with event_scope(**fields):
+        pass
+
+
+@contextlib.contextmanager
+def _line_scope(ctx: dict) -> Iterator[dict]:
     token = _current.set(ctx)
     started = time.perf_counter()
     try:
         yield ctx
     except BaseException as exc:
-        ctx.setdefault("error", redact_secrets(str(exc))[:_DETAIL_MAX])
+        ctx.setdefault("error", scrub_row_values(str(exc))[:_DETAIL_MAX])
         ctx.setdefault("status", 499 if isinstance(exc, _cancelled()) else 500)
         raise
     finally:
@@ -220,20 +266,73 @@ def _canonical(record: dict) -> str:
     return json.dumps(body, sort_keys=True, default=str)
 
 
+def _whole_record(raw: bytes) -> dict | None:
+    if not raw.endswith(b"\n"):
+        return None
+    try:
+        row = json.loads(raw)
+    except ValueError:
+        return None
+    return row if isinstance(row, dict) and row.get("seq") is not None and row.get("hash") else None
+
+
+def _last_record(path: Path) -> tuple[dict | None, int]:
+    """A day file's last whole record, and the offset where it ends."""
+    with open(path, "rb") as fh:
+        size = fh.seek(0, os.SEEK_END)
+        fh.seek(max(0, size - _TAIL_WINDOW))
+        lines = fh.read().splitlines(keepends=True)
+        if lines and (row := _whole_record(lines[-1])):
+            return row, size
+        fh.seek(0)
+        last, end, offset = None, 0, 0
+        for raw in fh:
+            offset += len(raw)
+            if row := _whole_record(raw):
+                last, end = row, offset
+    return last, end
+
+
 class _Writer:
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.state: tuple[int, str] | None = None
         self.root: Path | None = None
+        self.notes: list[dict] = []
+        self.missed = 0
+        self.missed_since: str | None = None
+        self.missed_until: str | None = None
+
+    def _set_aside(self, path: Path, end: int) -> None:
+        """Move what follows the last whole record out of the day file: appended to,
+        it would corrupt the next line, and a reader cannot get past it."""
+        size = path.stat().st_size
+        if size == end:
+            return
+        target = path.with_name(f"{path.name}.{time.time_ns()}.quarantine")
+        try:
+            with open(path, "rb") as src, open(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as dst:
+                src.seek(end)
+                shutil.copyfileobj(src, dst)
+            kept = f"kept as {target.name}"
+        except OSError:
+            _logger.exception("audit_tail_copy_failed")
+            target.unlink(missing_ok=True)
+            kept = "not kept, no room"
+        os.truncate(path, end)
+        self.notes.append({
+            "method": "AUDIT", "action": "audit_tail_set_aside",
+            "detail": f"{size - end} bytes after the last whole line of {path.name}, {kept}",
+        })
 
     def _recover(self, root: Path) -> tuple[int, str]:
         """The last (seq, hash) written, from today's-or-latest JSONL, else the
         latest Parquet month."""
         for path in sorted(root.glob("*.jsonl"), reverse=True):
-            last = _last_line(path)
+            last, end = _last_record(path)
+            self._set_aside(path, end)
             if last:
-                row = json.loads(last)
-                return int(row["seq"]), str(row["hash"])
+                return int(last["seq"]), str(last["hash"])
         months = sorted(root.glob("*.parquet"))
         if months:
             con = duckdb.connect()
@@ -247,49 +346,79 @@ class _Writer:
                 return int(row[0]), str(row[1])
         return 0, _GENESIS
 
-    def write(self, ctx: dict) -> dict:
+    def ensure_recovered(self, root: Path) -> None:
+        if self.state is None or self.root != root:
+            self.state, self.root = self._recover(root), root
+
+    def _append(self, root: Path, ctx: dict) -> None:
+        seq, prev = self.state
+        now = datetime.now(timezone.utc)
+        record = {k: ctx.get(k) for k in COLUMNS}
+        record["seq"] = seq + 1
+        record["at"] = now.isoformat(timespec="milliseconds")
+        record["hash"] = _line_hash(prev, _canonical(record))
+        line = (json.dumps(record, default=str) + "\n").encode("utf-8")
+        fd = os.open(root / f"{now.date().isoformat()}.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        try:
+            start = os.fstat(fd).st_size
+            try:
+                remaining = memoryview(line)
+                while remaining:
+                    remaining = remaining[os.write(fd, remaining):]
+            except OSError:
+                try:
+                    os.ftruncate(fd, start)
+                except OSError:
+                    self.state = None
+                raise
+        finally:
+            os.close(fd)
+        self.state = (record["seq"], record["hash"])
+        _to_stdout(record)
+
+    def _gap_note(self) -> dict:
+        return {
+            "method": "AUDIT", "action": "audit_gap",
+            "detail": f"{self.missed} lines not written to this file from {self.missed_since} to {self.missed_until}, "
+                      "sent to stdout only",
+        }
+
+    def write(self, ctx: dict) -> None:
         root = _dir()
         with self.lock:
-            if self.state is None or self.root != root:
-                self.state, self.root = self._recover(root), root
-            seq, prev = self.state
-            now = datetime.now(timezone.utc)
-            record = {k: ctx.get(k) for k in COLUMNS}
-            record["seq"] = seq + 1
-            record["at"] = now.isoformat(timespec="milliseconds")
-            record["hash"] = _line_hash(prev, _canonical(record))
-            line = json.dumps(record, default=str) + "\n"
-            path = root / f"{now.date().isoformat()}.jsonl"
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-            try:
-                os.write(fd, line.encode("utf-8"))
-            finally:
-                os.close(fd)
-            self.state = (record["seq"], record["hash"])
-        return record
+            self.ensure_recovered(root)
+            while self.notes:
+                self._append(root, self.notes[0])
+                self.notes.pop(0)
+            if self.missed:
+                self._append(root, self._gap_note())
+                self.missed = 0
+            self._append(root, ctx)
+
+    def missed_one(self, at: str) -> None:
+        with self.lock:
+            if not self.missed:
+                self.missed_since = at
+            self.missed, self.missed_until = self.missed + 1, at
 
 
-def _last_line(path: Path) -> str | None:
-    with open(path, "rb") as fh:
-        fh.seek(0, os.SEEK_END)
-        size = fh.tell()
-        chunk = min(size, 64 * 1024)
-        fh.seek(size - chunk)
-        lines = [ln for ln in fh.read().splitlines() if ln.strip()]
-    return lines[-1].decode("utf-8") if lines else None
+def _to_stdout(record: dict, **extra) -> None:
+    _logger.info("audit", **{k: v for k, v in record.items() if v is not None}, **extra)
 
 
 _writer = _Writer()
 
 
 def write(ctx: dict) -> None:
-    """Append one line. A failure to log never fails the request it logs."""
+    """Append one line. A failure to log never fails the request it logs, and a
+    failure of the file never costs the collector its copy."""
     try:
-        record = _writer.write(ctx)
+        _writer.write(ctx)
     except Exception:  # noqa: BLE001 — the log must not take the app down
         _logger.exception("audit_write_failed")
-        return
-    _logger.info("audit", **{k: v for k, v in record.items() if v is not None})
+        at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        _writer.missed_one(at)
+        _to_stdout({**{k: ctx.get(k) for k in COLUMNS}, "at": at}, local_log="failed")
 
 
 def reset() -> None:
@@ -297,6 +426,8 @@ def reset() -> None:
     with _writer.lock:
         _writer.state = None
         _writer.root = None
+        _writer.notes.clear()
+        _writer.missed = 0
 
 
 # --- Compaction and retention ------------------------------------------------------
@@ -308,7 +439,12 @@ def _sql_str(value: str) -> str:
 def _json_reader(paths: list[Path]) -> str:
     cols = "{" + ", ".join(f"'{k}': '{v}'" for k, v in COLUMNS.items()) + "}"
     files = ", ".join(_sql_str(p.as_posix()) for p in paths)
-    return f"read_json([{files}], format = 'newline_delimited', columns = {cols})"
+    # A damaged line must not make every other line unreadable: it is skipped here
+    # and `verify` reports the break it leaves in the chain.
+    return (
+        f"(SELECT * FROM read_json([{files}], format = 'newline_delimited', columns = {cols}, ignore_errors = true) "
+        "WHERE seq IS NOT NULL)"
+    )
 
 
 def compact(today: date | None = None) -> None:
@@ -322,6 +458,7 @@ def compact(today: date | None = None) -> None:
     # write is still bound for a day before `today`: without this, a line begun
     # at 23:59:59.9 could land after the read below and go with the unlink.
     with _writer.lock:
+        _writer.ensure_recovered(root)
         days = list(root.glob("*.jsonl"))
     for path in days:
         day = path.stem
@@ -357,6 +494,10 @@ def _month_end(year: int, month: int) -> date:
 
 def _apply_retention(root: Path, today: date) -> None:
     cutoff = _retention_cutoff(today)
+    for path in root.glob("*.quarantine"):
+        with contextlib.suppress(ValueError):
+            if date.fromisoformat(path.name[:10]) < cutoff:
+                path.unlink(missing_ok=True)
     for path in root.glob("*.parquet"):
         try:
             year, month = (int(x) for x in path.stem.split("-"))
@@ -495,11 +636,24 @@ def distinct_values(columns: list[str], cap: int = 500, **exact) -> dict[str, li
 _EXPORT_COLUMNS = [c for c in COLUMNS if c != "hash"]
 
 
+def _export_column(column: str) -> str:
+    """A column as the CSV shows it. The file is opened in a spreadsheet, which runs
+    a cell starting with one of these as a formula, and login names and SQL reach
+    these columns from anyone: such a text leaves prefixed with a quote, in the
+    export only, the stored line and its hash untouched."""
+    if COLUMNS[column] != "VARCHAR":
+        return f'"{column}"'
+    return (
+        f"""CASE WHEN regexp_matches("{column}", '^[=+\\-@\\t\\r\\n]') THEN '''' || "{column}" """
+        f"""ELSE "{column}" END AS "{column}\""""
+    )
+
+
 def export_csv(path: Path, sort: str | None = None, desc: bool = True, filters: dict | None = None, **exact) -> int:
     """Every entry matching `filters`, as CSV at `path` (DuckDB writes it, so a
     million lines never pass through Python). Returns the row count."""
     source = _source_sql(_dir())
-    cols = ", ".join(f'"{c}"' for c in _EXPORT_COLUMNS)
+    cols = ", ".join(_export_column(c) for c in _EXPORT_COLUMNS)
     con = duckdb.connect()
     try:
         if source is None:

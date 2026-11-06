@@ -95,7 +95,8 @@ function startApi(apiPort, webPort) {
     LINKR_DATA_DIR: dataDir,
     LINKR_DATABASE_URL: '',
     LINKR_CORS_ORIGINS: `http://localhost:${webPort}`,
-    LINKR_SECRET_KEY: 'versioning-e2e-only-secret',
+    LINKR_SECRET_KEY: 'versioning-e2e-only-secret-not-a-real-one',
+    LINKR_SETUP_TOKEN: 'e2e-setup-token',
     LINKR_GIT_ALLOW_LOCAL_REMOTES: 'true',
     LINKR_GIT_ALLOWED_HOSTS: 'localhost:8929',
   }

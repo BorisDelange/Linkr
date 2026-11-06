@@ -31,4 +31,11 @@ describe('resolveVocabularyTarget', () => {
     expect(resolveVocabularyTarget({}, [mimic, athena])).toBeNull()
     expect(resolveVocabularyTarget({ vocabularyDataSourceId: 'gone' }, [mimic])).toBeNull()
   })
+
+  it('names a concept table only when it is an identifier', () => {
+    const source = { id: 'athena', schemaMapping: mapping([{ table: 'concept' }]) }
+    source.schemaMapping.concepts![0].from!.table = 'concept c, other'
+    source.schemaMapping.concepts![0].customSql = 'SELECT 1 AS concept_id'
+    expect(resolveVocabularyTarget({ vocabularyDataSourceId: 'athena' }, [source])?.conceptTable).toBe('concept')
+  })
 })

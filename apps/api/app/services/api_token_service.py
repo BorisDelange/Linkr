@@ -8,7 +8,7 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.api_token import ApiToken
@@ -82,8 +82,24 @@ async def revoke_token(db: AsyncSession, user: User, token_id: str) -> ApiToken 
     return token
 
 
+async def revoke_all(db: AsyncSession, user_id: int) -> None:
+    """Revoke every live token of a user, for the caller to commit. `authenticate`
+    already refuses them after a password change; this is what the user sees."""
+    await db.execute(
+        update(ApiToken)
+        .where(ApiToken.user_id == user_id, ApiToken.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
+
+
+def _predates_password(token: ApiToken, user: User) -> bool:
+    changed = _aware(user.password_changed_at)
+    return changed is not None and _aware(token.created_at) < changed
+
+
 async def authenticate(db: AsyncSession, plaintext: str) -> User | None:
-    """The active user a live (not revoked, not expired) token belongs to, else None.
+    """The active user a live (not revoked, not expired, not older than the
+    password) token belongs to, else None.
 
     Stamps ``last_used_at`` at most once per LAST_USED_THROTTLE, so a chatty
     client does not turn every read into a write.
@@ -93,7 +109,7 @@ async def authenticate(db: AsyncSession, plaintext: str) -> User | None:
     if token is None or token.revoked_at is not None or is_expired(token, now):
         return None
     user = await db.get(User, token.user_id)
-    if user is None or not user.is_active:
+    if user is None or not user.is_active or _predates_password(token, user):
         return None
     last_used = _aware(token.last_used_at)
     if last_used is None or now - last_used >= LAST_USED_THROTTLE:

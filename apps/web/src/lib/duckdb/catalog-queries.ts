@@ -74,7 +74,11 @@ export interface PatientRange {
   hi?: string | number | bigint
 }
 
-const rangeLit = (v: string | number | bigint) => (typeof v === 'string' ? lit(v) : String(v))
+function rangeLit(v: string | number | bigint): string {
+  if (typeof v === 'string') return lit(v)
+  if (typeof v === 'bigint' || (typeof v === 'number' && Number.isFinite(v))) return String(v)
+  throw new Error('A patient range bound must be a number or a string')
+}
 
 /** `AND`-able conditions putting `column` inside the range; '' for the whole warehouse. */
 export function rangeCondition(column: string, range?: PatientRange | null): string {

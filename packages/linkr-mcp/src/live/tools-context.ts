@@ -1,7 +1,7 @@
 /** Where the user is (the defaults behind "this cohort", "here") and which projects exist:
  *  always on, whatever toolsets are enabled. */
 import { fromJsonSchema } from '@modelcontextprotocol/server'
-import { describeMapping } from './cohorts.js'
+import { describeMapping, FREE_SQL_HELD_BACK } from './cohorts.js'
 import { READ, api, guard, loc, projectDatabases, text, type Server } from './shared.js'
 
 export function registerContextTools(server: Server): void {
@@ -60,7 +60,10 @@ export function registerContextTools(server: Server): void {
     for (const d of dbs) {
       out.push(`\n## ${loc(d.name)} — database_id: ${d.id} · status: ${d.status}`)
       if (d.status !== 'connected') out.push('(not connected: cannot be queried)')
-      else if (d.schemaMapping) out.push(describeMapping(d.schemaMapping))
+      else if (d.schemaMapping) {
+        out.push(describeMapping(d.schemaMapping))
+        if (d.unacceptedFreeSql?.length) out.push(FREE_SQL_HELD_BACK)
+      }
       else out.push('(no schema mapping: SQL only, no cohort criteria)')
     }
     out.push('', `Cohorts (${cohorts.length}):`)

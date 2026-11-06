@@ -19,6 +19,13 @@ describe('maskSourceConceptsCsv', () => {
     expect(maskSourceConceptsCsv(read('input.csv'), null, 11)).toBe(read('expected.csv'))
   })
 
+  it('lets out only the fields the rule judged, and believes no stamp a pass could not have left', () => {
+    const masked = maskSourceConceptsCsv(read('input-allowlist.csv'), null, 11)
+    expect(masked).toBe(read('expected-allowlist.csv'))
+    expect(masked).not.toContain('DUMMY')
+    expect(maskSourceConceptsCsv(masked, null, 11)).toBe(masked)
+  })
+
   it('changes nothing in a file it masked already, unless the threshold rose', () => {
     // A pulled file is masked already; pushing it back must not erode it further.
     const once = maskSourceConceptsCsv(read('input.csv'), null, 11)
@@ -27,7 +34,7 @@ describe('maskSourceConceptsCsv', () => {
   })
 
   it('follows the project column mapping and the file delimiter', () => {
-    expect(maskSourceConceptsCsv(read('input-semicolon.csv'), { recordCountColumn: 'n_records' }, 11))
+    expect(maskSourceConceptsCsv(read('input-semicolon.csv'), { recordCountColumn: 'n_records', terminologyColumn: 'vocab' }, 11))
       .toBe(read('expected-semicolon.csv'))
   })
 
@@ -35,7 +42,7 @@ describe('maskSourceConceptsCsv', () => {
     const skipPipe = { skipRows: 2, delimiter: '|' }
     const mapping = { patientCountColumn: 'n_pat', recordCountColumn: 'n_rec' }
     expect(maskSourceConceptsCsv(read('input-skip-pipe.csv'), mapping, 11, skipPipe)).toBe(read('expected-skip-pipe.csv'))
-    expect(maskSourceConceptsCsv(read('input-no-header.csv'), { patientCountColumn: 'column2' }, 11, { hasHeader: false }))
+    expect(maskSourceConceptsCsv(read('input-no-header.csv'), { conceptCodeColumn: 'column0', conceptNameColumn: 'column1', patientCountColumn: 'column2' }, 11, { hasHeader: false }))
       .toBe(read('expected-no-header.csv'))
   })
 
@@ -46,7 +53,7 @@ describe('maskSourceConceptsCsv', () => {
 
   it('drops a byte order mark, as the server does', () => {
     expect(maskSourceConceptsCsv(`\uFEFF${read('input.csv')}`, null, 11)).toBe(read('expected.csv'))
-    expect(maskSourceConceptsCsv('\uFEFFa,b\n1,2\n', null, 11)).toBe('a,b\n1,2\n')
+    expect(maskSourceConceptsCsv('\uFEFFcode,name\n1,2\n', null, 11)).toBe('code,name\n1,2\n')
   })
 
   it('masks a profile cell over 128 KiB, and withholds one nested past the depth cap, as the server does', () => {
@@ -56,6 +63,37 @@ describe('maskSourceConceptsCsv', () => {
     const text = `concept_code,record_count,patient_count,info_json\nBIG,500,50,${big}\nDEEP,500,50,${deep}\n`
     expect(text.length).toBeGreaterThan(200 * 1024)
     expect(maskSourceConceptsCsv(text, null, 11)).toBe(read('expected-large-cell.csv'))
+  })
+
+  it('judges every column, as the server does', () => {
+    const mapping = { conceptCodeColumn: 'concept_code', conceptNameColumn: 'concept_name', extraColumns: ['specimen'] }
+    expect(maskSourceConceptsCsv(read('input-columns.csv'), mapping, 11)).toBe(read('expected-columns.csv'))
+  })
+
+  it.each([
+    'concept_code;name;record_count;patient_count\nA1;"unbalanced name;30;20\nA2;x;2;2\nA3;y;3;3\n',
+    'concept_code,record_count\n"A"B,3\n',
+    'concept_code,record_count\n"A" ,3\n',
+    'concept_code,record_count\nA,3,extra\n',
+    'concept_code,name,record_count\nA,3\n',
+  ])('refuses a file it cannot read row for row, as the server does: %j', (text) => {
+    expect(() => maskSourceConceptsCsv(text, null, 11)).toThrow(SourceConceptsUnreadableError)
+  })
+
+  it('reads every line ending alike, and refuses lines to skip the file does not have', () => {
+    expect(maskSourceConceptsCsv('Generated\rconcept_code,record_count\rX,3\rY,300\r', null, 11, { skipRows: 1 }))
+      .toBe('Generated\nconcept_code,record_count\nX,<11\nY,300\n')
+    expect(() => maskSourceConceptsCsv('concept_code,record_count', null, 11, { skipRows: 5 })).toThrow(SourceConceptsUnreadableError)
+  })
+
+  it.each(['5,0', '+5', '1e0', '5 patients', '5\u00a0', '~5', '-1', '0x5', '1_0'])('masks a count cell that is no plain number: %j', (value) => {
+    expect(maskSourceConceptsCsv(`concept_code,record_count\nA,"${value}"\n`, null, 11)).toBe('concept_code,record_count\nA,<11\n')
+  })
+
+  it('leaves only a real LFS pointer as it is', () => {
+    const pointer = `version https://git-lfs.github.com/spec/v1\noid sha256:${'a'.repeat(64)}\nsize 12\n`
+    expect(maskSourceConceptsCsv(pointer, null, 11)).toBe(pointer)
+    expect(maskSourceConceptsCsv('version https://git-lfs,record_count\nA,3\n', null, 11)).toContain('<11')
   })
 
   it('leaves a file with nothing to mask byte for byte', () => {

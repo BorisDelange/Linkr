@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import rehypeRaw from 'rehype-raw'
-import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
+import rehypeSanitize, { defaultSchema, type Options as SanitizeSchema } from 'rehype-sanitize'
 import 'katex/dist/katex.min.css'
 import { markdownComponents, processCallouts } from '@/components/editor/markdown-components'
 import { foldAccents } from '@/lib/fold-accents'
@@ -15,22 +15,27 @@ export { markdownComponents, processCallouts } from '@/components/editor/markdow
 
 export const remarkPlugins = [remarkGfm, remarkMath]
 
-export const sanitizeSchema = {
+// Stored markdown is another principal's: raw HTML keeps its own formatting, but no
+// declaration that positions it (the value's whole text must match) and none of the
+// app's classes, only the ones the math pipeline and fenced code read.
+const FORMATTING_STYLE = /^(?:\s*(?:color|background-color|text-align|font-weight|font-style|font-size|text-decoration|vertical-align|white-space)\s*:\s*[^;:{}()\\/]*;?)*\s*$/i
+
+export const sanitizeSchema: SanitizeSchema = {
   ...defaultSchema,
   attributes: {
     ...defaultSchema.attributes,
     img: [...(defaultSchema.attributes?.img ?? []), 'alt', 'width', 'height'],
-    span: [...(defaultSchema.attributes?.span ?? []), 'className', 'style'],
+    span: [...(defaultSchema.attributes?.span ?? []), ['className', 'math', 'math-inline'], ['style', FORMATTING_STYLE]],
     // hast property names, not HTML attribute names: rehype-raw has already
     // turned `data-callout` into `dataCallout` by the time the sanitizer runs,
     // so whitelisting the hyphenated spelling silently stripped both — which is
     // why callouts and mermaid blocks rendered as bare divs.
-    div: [...(defaultSchema.attributes?.div ?? []), 'className', 'style', 'dataCallout', 'dataMermaid'],
+    div: [...(defaultSchema.attributes?.div ?? []), ['className', 'math', 'math-display'], ['style', FORMATTING_STYLE], 'dataCallout', 'dataMermaid'],
     math: ['xmlns'],
     annotation: ['encoding'],
     details: [],
     summary: [],
-    code: [...(defaultSchema.attributes?.code ?? []), 'className'],
+    code: [['className', /^language-./, 'math-inline', 'math-display']],
   },
   protocols: {
     ...defaultSchema.protocols,
@@ -117,9 +122,7 @@ function MermaidBlock({ code }: { code: string }) {
     let cancelled = false
     const render = async () => {
       try {
-        // Dynamic import for mermaid (loaded from CDN if not available).
-        // @ts-expect-error — remote URL import has no local type declarations
-        const mermaid = await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs')
+        const mermaid = await import('mermaid')
         if (cancelled || !containerRef.current) return
         mermaid.default.initialize({
           startOnLoad: false,

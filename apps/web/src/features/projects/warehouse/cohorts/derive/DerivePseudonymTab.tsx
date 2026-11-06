@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { AlertTriangle } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { FieldError } from '@/components/ui/field-error'
 import { FieldInfo } from '@/components/ui/field-info'
@@ -25,6 +26,7 @@ export function DerivePseudonymTab({
   birthPrecision,
   onBirthPrecisionChange,
   idColumns,
+  unprovenTables,
   correspondenceTargets,
   keyedDerivations,
 }: {
@@ -34,6 +36,8 @@ export function DerivePseudonymTab({
   onBirthPrecisionChange: (precision: BirthPrecision) => void
   /** The id columns the copied tables carry. */
   idColumns: string[]
+  /** The tables copied whole on the user's opt-in: no id of theirs is replaced. */
+  unprovenTables: string[]
   /** Databases Linkr may write the correspondence into: never the derived one. */
   correspondenceTargets: DataSource[]
   keyedDerivations: KeyedDerivation[]
@@ -55,6 +59,12 @@ export function DerivePseudonymTab({
 
       {s.enabled && (
         <>
+          {unprovenTables.length > 0 && (
+            <p className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-xs text-warning-foreground">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0 text-warning" />
+              {t('cohort_derive.pseudonym_unproven_warning', { tables: unprovenTables.join(', ') })}
+            </p>
+          )}
           <div className="space-y-1">
             <SectionLabel>{t('cohort_derive.pseudonymized_columns')}</SectionLabel>
             <p className="font-mono text-xs">

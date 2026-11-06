@@ -11,6 +11,15 @@ vi.mock('@/lib/api-client', async (importOriginal) => ({
 }))
 
 const clonedFiles: Record<string, unknown> = {}
+const storedWorkspaces = vi.hoisted(() => ({ rows: [] as { id: string; lineageId?: string; name: unknown }[] }))
+vi.mock('@/lib/storage', () => ({
+  getStorage: () => ({
+    workspaces: {
+      getAll: async () => storedWorkspaces.rows,
+      getById: async (id: string) => storedWorkspaces.rows.find((w) => w.id === id),
+    },
+  }),
+}))
 vi.mock('@/lib/api/git', () => ({
   gitCloneToZip: async () => {
     const zip = new JSZip()
@@ -35,5 +44,20 @@ describe('prepareCatalogInstall', () => {
     const result = await prepareCatalogInstall(entry, 'ws-1')
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.failure).toBe('apply-failed')
+  })
+
+  it('asks first when a workspace tree carries the lineage of one already here', async () => {
+    // The tree decides where the import lands, so the entry's own word does not count.
+    storedWorkspaces.rows = [{ id: 'local', lineageId: 'lin-ws', name: { en: 'Mine' } }]
+    clonedFiles['entity.json'] = { type: 'workspace', name: { en: 'W' }, lineageId: 'lin-ws' }
+    const result = await prepareCatalogInstall({ ...entry, type: 'workspace', lineageId: 'another' } as CatalogEntry)
+    expect(result.ok && result.prepared.existingName).toBe('Mine')
+  })
+
+  it('writes a first workspace install on click', async () => {
+    storedWorkspaces.rows = [{ id: 'local', lineageId: 'lin-other', name: { en: 'Mine' } }]
+    clonedFiles['entity.json'] = { type: 'workspace', name: { en: 'W' }, lineageId: 'lin-ws' }
+    const result = await prepareCatalogInstall({ ...entry, type: 'workspace' } as CatalogEntry)
+    expect(result.ok && result.prepared.existingName).toBeUndefined()
   })
 })

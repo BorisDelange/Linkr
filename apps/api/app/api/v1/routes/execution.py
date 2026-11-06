@@ -35,6 +35,7 @@ from app.schemas.execution_session import (
     ExecutionSessionResponse,
 )
 from app.services import (
+    code_acceptance_service,
     database_credential_service,
     data_source_service,
     dataset_service,
@@ -173,6 +174,15 @@ async def _dataset_preamble(
     )
 
 
+def _with_context(body: ExecuteRequest) -> str:
+    if not body.context_vars:
+        return body.code
+    try:
+        return injection.context_preamble(body.language, body.context_vars) + body.code
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+
+
 @router.post("", response_model=ExecuteResponse)
 async def execute_code(
     body: ExecuteRequest,
@@ -192,9 +202,10 @@ async def execute_code(
         )
     # ide:execute always, plus the resource :execute matching this run's purpose.
     await _require_execute(db, body.project_uid, user, body.purpose)
+    await code_acceptance_service.require_accepted(db, user, body.purpose, body.code)
     audit.bind(action="run_code", project_uid=body.project_uid, detail=body.code)
 
-    code = body.code
+    code = _with_context(body)
     if body.dataset_file_id and body.language in ("python", "r"):
         preamble = await _dataset_preamble(
             db, body.dataset_file_id, body.language, body.dataset_filters, body.project_uid
@@ -209,13 +220,17 @@ async def execute_code(
         login = await database_credential_service.resolve_login(db, source, user.id)
 
         async def resolver(sql: str):
-            return await data_source_service.query(db, source, login, sql)
+            with audit.event_scope():
+                return await data_source_service.query(db, source, login, sql)
 
     if body.language not in ("python", "r"):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             f"Unsupported language: {body.language}",
         )
+    # Written before the code runs: the line at the end of the request does not
+    # exist if the run takes the process down with it.
+    audit.event(action="run_code_start", project_uid=body.project_uid, detail=body.code)
     # Dashboard widgets run ephemeral: a fresh, isolated process from the warm pool
     # so widgets run in parallel (no shared kernel/namespace/lock). Still the
     # project's managed env — the widget's code is user code and needs its packages.
@@ -246,10 +261,11 @@ async def run_as_job(
     if not body.project_uid:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "project_uid is required to run code")
     await _require_execute(db, body.project_uid, user, body.purpose)
+    await code_acceptance_service.require_accepted(db, user, body.purpose, body.code)
     if body.language not in ("python", "r"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unsupported language: {body.language}")
 
-    code = body.code
+    code = _with_context(body)
     if body.dataset_file_id:
         preamble = await _dataset_preamble(
             db, body.dataset_file_id, body.language, body.dataset_filters, body.project_uid
@@ -323,9 +339,10 @@ async def render_component(
     """Run a built-in component's server-side aggregation from a structured spec.
 
     The server owns the analysis program (per `kind`) and injects only the
-    validated spec — no client `code` — so this is a safe VIEW operation gated at
-    project read (a viewer may see component widgets). This replaces the old
-    purpose="render" path on /execute, which ran client code under the same gate."""
+    validated spec — no client `code` — so this is a VIEW operation (a viewer may
+    see component widgets). Its output can carry a dataset's values, whole rows for
+    some kinds: naming a dataset takes a permission that reads it. This replaces the
+    old purpose="render" path on /execute, which ran client code under a project gate."""
     if not body.project_uid:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "project_uid is required")
     if not render.is_known_kind(body.kind):
@@ -333,8 +350,12 @@ async def render_component(
     project = await db.get(Project, body.project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    # View-time: project read access suffices (the code is server-owned).
     await check_project_permission(db, project, user, "project-summary:read")
+    if body.dataset_file_id and not (
+        await has_project_permission(db, project, user, "datasets:read")
+        or await has_project_permission(db, project, user, "dashboards:read")
+    ):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Reading this project's datasets is not permitted")
     # Server-owned, but it still runs an interpreter — honour the instance kill switch.
     if not settings.enable_code_execution:
         raise HTTPException(
@@ -355,6 +376,10 @@ async def render_component(
             db, body.dataset_file_id, "python", body.dataset_filters, body.project_uid
         )
         code = preamble + "\n" + analysis_code
+        audit.bind(
+            action="preview", project_uid=body.project_uid,
+            detail=f"datasets/{body.dataset_file_id} render {body.kind}",
+        )
     code = "import warnings as _linkr_warnings\n_linkr_warnings.simplefilter('ignore')\n" + code
     # Built-in renders run ephemeral (a fresh process from the warm pool) so a page
     # of component widgets renders IN PARALLEL — the old shared __app__ kernel
@@ -524,9 +549,10 @@ async def _make_ws_resolver(connection_id: str | None, user: User):
             return None
 
     async def resolver(sql: str):
-        async with async_session() as db:
-            login = await database_credential_service.resolve_login(db, source, user.id)
-            return await data_source_service.query(db, source, login, sql)
+        with audit.event_scope():
+            async with async_session() as db:
+                login = await database_credential_service.resolve_login(db, source, user.id)
+                return await data_source_service.query(db, source, login, sql)
 
     return resolver
 
@@ -618,6 +644,7 @@ async def _terminal_kernel_loop(
             # One run at a time (REPL); ignore a new line while one is in flight.
             if current is not None and not current.done():
                 continue
+            audit.event(action="run_code", project_uid=project_uid, detail=code)
             current = asyncio.create_task(run(code))
     finally:
         # The IDE client stops a run by CLOSING this socket (and SIGINT'ing via the
@@ -697,37 +724,48 @@ async def terminal_ws(websocket: WebSocket):
     if not project_uid or language not in ("python", "r", "bash"):
         await refuse(websocket, status.WS_1008_POLICY_VIOLATION)
         return
+    audit.bind(project_uid=project_uid)
     if not settings.enable_code_execution:
         await refuse(websocket, WS_FORBIDDEN)
         return
 
     # A terminal opens an arbitrary shell/kernel in the project's working dir, so
-    # it requires the same ide:execute permission as running code over HTTP.
-    # The HTTP dependency system doesn't apply to a raw WebSocket, so check here.
-    try:
-        async with async_session() as db:
-            await _require_code_execution(db, project_uid, user)
-    except HTTPException:
+    # it requires the same ide:execute permission as running code over HTTP, for as
+    # long as it stays open. The HTTP dependency system doesn't apply to a raw
+    # WebSocket, so check here.
+    async def may_execute(current: User) -> bool:
+        try:
+            async with async_session() as db:
+                await _require_code_execution(db, project_uid, current)
+            return True
+        except HTTPException:
+            return False
+
+    if not await may_execute(user):
         await refuse(websocket, WS_FORBIDDEN)
         return
 
     await websocket.accept()
+    session_id = uuid.uuid4().hex if language == "bash" else websocket.query_params.get("sessionId", "default")
+    detail = f"{language} session {session_id}"
+    audit.event(action="terminal_open", project_uid=project_uid, detail=detail)
+    audit.bind(action="terminal_close", detail=detail)
     if language == "bash":
-        loop = _terminal_pty_loop(websocket, project_uid, session_id=uuid.uuid4().hex, user=user)
+        # Keystrokes stay out of the log: a shell also receives what it does not echo.
+        loop = _terminal_pty_loop(websocket, project_uid, session_id=session_id, user=user)
     else:
         loop = _terminal_kernel_loop(
-            websocket, project_uid, language,
-            websocket.query_params.get("sessionId", "default"),
+            websocket, project_uid, language, session_id,
             websocket.query_params.get("connectionId"), user,
         )
     session = asyncio.create_task(loop)
-    watch = asyncio.create_task(watch_credentials(websocket, TERMINAL_AUTH_RECHECK_SECONDS))
+    watch = asyncio.create_task(watch_credentials(websocket, TERMINAL_AUTH_RECHECK_SECONDS, may_execute))
     try:
         await asyncio.wait({session, watch}, return_when=asyncio.FIRST_COMPLETED)
         if not session.done():
             session.cancel()
             await asyncio.gather(session, return_exceptions=True)
-            await websocket.close(code=WS_AUTH_FAILED)
+            await websocket.close(code=watch.result())
             return
         session.result()
     except WebSocketDisconnect:

@@ -16,13 +16,13 @@ import contextlib
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import and_, delete, func, null, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit, deferred
 from app.config import settings
 from app.core.database import async_session
-from app.core.redact import redact_secrets
+from app.core.redact import redact_secrets, scrub_row_values
 from app.models.job import Job
 
 # Live tasks by job id, so cancel() can reach a running job's asyncio.Task.
@@ -58,6 +58,11 @@ def capped_input(text: str | None) -> str | None:
 # route that reads or writes one): a job like the others, from the start, kept
 # `query_log_hours` once finished (`purge_old_queries`).
 QUERY_KIND = "sql_query"
+# A list of queries whose rows wait in files for the client (query_jobs): same
+# retention, counted from its end, since it may have run for hours.
+QUERY_RESULTS_KIND = "query"
+# Keep their row and lose their output past `job_output_hours`.
+OUTPUT_KINDS = ("run", "etl", "derive")
 
 
 async def create(
@@ -99,21 +104,40 @@ async def create(
 
 
 async def purge_old_queries() -> int:
-    """Drop the finished queries older than `settings.query_log_hours`, whoever
-    sent them (storage_gc's loop, and at startup); one still running stays.
-    Returns how many went."""
+    """Apply the retention of what finished jobs hold, whoever sent them
+    (storage_gc's loop, and at startup): the queries and their result files go past
+    `settings.query_log_hours`, the output of the other row-bearing jobs past
+    `settings.job_output_hours`; one still running stays. Returns how many went."""
     from app.services.data import query_jobs
 
-    cutoff = datetime.now(UTC) - timedelta(hours=settings.query_log_hours)
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(hours=settings.query_log_hours)
+    ended_at = func.coalesce(Job.finished_at, Job.created_at)
     async with async_session() as db:
         ids = list((await db.execute(
-            select(Job.id).where(Job.kind == QUERY_KIND, Job.status.in_(_ENDED), Job.created_at < cutoff)
+            select(Job.id).where(
+                Job.status.in_(_ENDED),
+                or_(
+                    and_(Job.kind == QUERY_KIND, Job.created_at < cutoff),
+                    and_(Job.kind == QUERY_RESULTS_KIND, ended_at < cutoff),
+                ),
+            )
         )).scalars().all())
         for i in range(0, len(ids), _PURGE_BATCH):
             await db.execute(delete(Job).where(Job.id.in_(ids[i:i + _PURGE_BATCH])))
+        await db.execute(
+            update(Job)
+            .where(
+                Job.kind.in_(OUTPUT_KINDS), Job.status.in_(_ENDED),
+                ended_at < now - timedelta(hours=settings.job_output_hours),
+                or_(Job.log_tail != "", Job.result.isnot(None)),
+            )
+            .values(log_tail="", result=null())
+        )
         await db.commit()
     for job_id in ids:
         query_jobs.drop_results(job_id)
+    query_jobs.sweep_results()
     return len(ids)
 
 
@@ -151,7 +175,7 @@ async def adopt(job_id: str, task: asyncio.Task, *, running: bool = True, writte
         if t.cancelled() or isinstance(t.exception(), deferred.Stopped):
             fields = {"status": "cancelled"}
         elif t.exception() is not None:
-            fields = {"status": "error", "log_tail": redact_secrets(str(t.exception()))[-4000:]}
+            fields = {"status": "error", "log_tail": scrub_row_values(str(t.exception()))[-4000:]}
         else:
             fields = {"status": "done", "progress": 100}
         # Held until written: the loop keeps only a weak reference to a task.
@@ -184,7 +208,7 @@ async def tracked(
         await _set(job.id, status="cancelled")
         raise
     except Exception as e:
-        await _set(job.id, status="error", log_tail=redact_secrets(str(e))[-4000:])
+        await _set(job.id, status="error", log_tail=scrub_row_values(str(e))[-4000:])
         raise
     await _set(job.id, status="done", progress=100)
 
@@ -239,7 +263,7 @@ async def _run(job_id: str, body, launched_by: dict, lane: str | None = "build",
         await _set(job_id, status="cancelled")
         raise
     except Exception as e:  # a job body failure is the job's error, not a 500
-        await handle.log(str(e))
+        await handle.log(scrub_row_values(str(e)))
         await _set(job_id, status="error")
     finally:
         _tasks.pop(job_id, None)
@@ -271,13 +295,13 @@ class JobHandle:
         await _set(self.job_id, progress=max(0, min(100, pct)))
 
     async def set_result(self, result: dict) -> None:
-        """`error`/`errors` carry a driver's text, redacted like the log."""
+        """`error`/`errors` carry a driver's text, kept to what a log may hold."""
         if isinstance(result.get("error"), str):
-            result = {**result, "error": redact_secrets(result["error"])}
+            result = {**result, "error": scrub_row_values(result["error"])}
         if isinstance(result.get("errors"), dict):
             result = {
                 **result,
-                "errors": {k: redact_secrets(v) if isinstance(v, str) else v for k, v in result["errors"].items()},
+                "errors": {k: scrub_row_values(v) if isinstance(v, str) else v for k, v in result["errors"].items()},
             }
         await _set(self.job_id, result=result)
 

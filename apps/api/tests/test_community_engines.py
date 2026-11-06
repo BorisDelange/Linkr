@@ -54,7 +54,7 @@ def test_passthrough_functions_are_refused(sql):
 
 def test_dynamic_sql_is_refused_only_beside_a_community_database():
     sql = "SELECT * FROM query('SELECT * FROM ' || 'mssql_scan(''ext'', ''x'')')"
-    db_connect._reject_passthrough_calls(sql)
+    db_connect._reject_passthrough_calls("SELECT * FROM query('SELECT 1 AS x')")
     with pytest.raises(ValueError, match="read-only guard"):
         db_connect._reject_passthrough_calls(sql, dynamic_sql=True)
     assert db_connect._run_statements(duckdb.connect(), "memory", "SELECT * FROM query('SELECT 1 AS x')") == [{"x": 1}]

@@ -21,7 +21,7 @@ import type {
 } from '@/lib/api/suggestion-engines'
 import { injectClassRelations } from '@/lib/schema-classes/inject'
 import { sanitizeSchemaMapping, sanitizeSchemaOverrides } from '@/lib/schema-helpers'
-import { effectiveMapping } from '@/lib/schema-classes/overrides'
+import { effectiveMapping, withoutFreeSql } from '@/lib/schema-classes/overrides'
 import { RELATION_PREFIX } from '@/lib/schema-classes/contracts'
 import type { ExecutionOutput, RunLanguage } from './ide.js'
 
@@ -34,7 +34,8 @@ const DEFERRED_POLL_MS = 1500
 export function withV2Mapping(ds: DataSource): DataSource {
   if (!ds?.schemaMapping) return ds
   const base = sanitizeSchemaMapping(ds.schemaMapping)
-  return { ...ds, schemaBaseMapping: base, schemaMapping: effectiveMapping(base, sanitizeSchemaOverrides(ds.schemaOverrides)) }
+  const effective = effectiveMapping(base, sanitizeSchemaOverrides(ds.schemaOverrides))
+  return { ...ds, schemaBaseMapping: base, schemaMapping: ds.unacceptedFreeSql?.length ? withoutFreeSql(effective) : effective }
 }
 
 export interface Project {
@@ -61,6 +62,8 @@ export interface DataSource {
   /** Stored base mapping, before `schemaOverrides` (set by withV2Mapping; never written back). */
   schemaBaseMapping?: SchemaMapping | null
   schemaOverrides?: SchemaOverrides | null
+  /** This mapping's SQL the user has not accepted: its relations are out of `schemaMapping`. */
+  unacceptedFreeSql?: string[]
   version?: string | null
   schemaSource?: { label?: Record<string, string> | string | null } | null
   stats?: Record<string, unknown> | null

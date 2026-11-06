@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ListChecks, Loader2, Plus, X } from 'lucide-react'
+import { AlertTriangle, ListChecks, Loader2, Plus, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -10,7 +10,7 @@ import { SectionLabel } from '@/components/ui/section-label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { DerivePlanTable, DeriveScope } from '@/lib/api/data-sources'
 import {
-  copyableTables, criteriaConcepts, derivationScopes, mergeVariables, personlessTables, planTableName, variableFilters,
+  copyableTables, criteriaConcepts, derivationScopes, mergeVariables, personlessTables, planTableName, unprovenTables, variableFilters,
   type VariableSelection,
 } from '@/lib/cohort-derive'
 import type { Cohort, DataSource } from '@/types'
@@ -43,6 +43,8 @@ export function DeriveContentTab({
   planError,
   excluded,
   onExcludedChange,
+  unprovenTicked,
+  onUnprovenTickedChange,
 }: {
   cohort: Cohort
   source: DataSource
@@ -57,6 +59,9 @@ export function DeriveContentTab({
   /** The copyable tables left unticked, by `planTableName`. */
   excluded: ReadonlySet<string>
   onExcludedChange: (excluded: Set<string>) => void
+  /** The tables not shown to be personless the user ticked, by `planTableName`. */
+  unprovenTicked: ReadonlySet<string>
+  onUnprovenTickedChange: (ticked: Set<string>) => void
 }) {
   const { t } = useTranslation()
   const [picking, setPicking] = useState(false)
@@ -72,14 +77,26 @@ export function DeriveContentTab({
   }, [variablesMode, variables, mapping])
 
   const copyable = plan ? copyableTables(plan) : []
-  const refused = plan ? plan.filter((p) => p.unresolved || p.unfilterable) : []
+  const unproven = plan ? unprovenTables(plan) : []
+  const refused = plan ? plan.filter((p) => (p.unresolved || p.unfilterable) && !unproven.includes(p)) : []
   const copied = copyable.filter((p) => !excluded.has(planTableName(p))).length
+    + unproven.filter((p) => unprovenTicked.has(planTableName(p))).length
 
   const toggle = (name: string, on: boolean) => {
     const next = new Set(excluded)
     if (on) next.delete(name)
     else next.add(name)
     onExcludedChange(next)
+  }
+  const tickUnproven = (name: string, on: boolean) => {
+    const next = new Set(unprovenTicked)
+    if (on) next.add(name)
+    else next.delete(name)
+    onUnprovenTickedChange(next)
+  }
+  const tickNone = () => {
+    onExcludedChange(new Set(copyable.map(planTableName)))
+    onUnprovenTickedChange(new Set())
   }
   const tickPersonless = () => {
     const next = new Set(excluded)
@@ -174,7 +191,7 @@ export function DeriveContentTab({
       <div className="flex min-h-40 flex-1 flex-col gap-1.5">
         <div className="flex shrink-0 items-center gap-2">
           <SectionLabel info={t('cohort_derive.tables_info')}>
-            {plan ? t('cohort_derive.tables_title', { copied, total: copyable.length }) : t('cohort_derive.tables')}
+            {plan ? t('cohort_derive.tables_title', { copied, total: copyable.length + unproven.length }) : t('cohort_derive.tables')}
           </SectionLabel>
           <div className="ml-auto flex gap-1">
             <Button variant="ghost" size="sm" className="h-6 text-xs" disabled={!plan} onClick={() => onExcludedChange(new Set())}>
@@ -185,7 +202,7 @@ export function DeriveContentTab({
               size="sm"
               className="h-6 text-xs"
               disabled={!plan}
-              onClick={() => onExcludedChange(new Set(copyable.map(planTableName)))}
+              onClick={tickNone}
             >
               {t('cohort_derive.tables_none')}
             </Button>
@@ -218,6 +235,22 @@ export function DeriveContentTab({
                       {on && count !== undefined && (
                         <> · {count ? t('cohort_derive.table_variables', { count }) : t('cohort_derive.table_no_variable')}</>
                       )}
+                    </span>
+                  </label>
+                </div>
+              )
+            })}
+            {unproven.map((p) => {
+              const name = planTableName(p)
+              const id = `derive-table-${name}`
+              return (
+                <div key={name} className="flex items-start gap-2 border-b px-2 py-1 last:border-0">
+                  <Checkbox id={id} className="mt-0.5" checked={unprovenTicked.has(name)} onCheckedChange={(v) => tickUnproven(name, v === true)} />
+                  <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer text-xs">
+                    <span className="font-mono">{name}</span>
+                    <span className="flex items-start gap-1 text-warning-foreground">
+                      <AlertTriangle size={12} className="mt-0.5 shrink-0 text-warning" />
+                      {t('cohort_derive.filter_unproven')}
                     </span>
                   </label>
                 </div>

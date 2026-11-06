@@ -64,7 +64,7 @@ import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/c
 import { readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import { readScoresFromZip, type ImportedScores } from '@/lib/concept-mapping/scores-restore'
 import { isServerMode } from '@/lib/api-client'
-import { buildPointer, findLineageMatch, resolvePointer, resolveProjectPointers, resolveSlugLanding } from '@/lib/import-identity'
+import { buildPointer, findLineageMatch, resolvePointer, resolveProjectPointers, resolveSlugLanding, workspaceFromManifest } from '@/lib/import-identity'
 import { importDatasetOnServer, recordDatasetOps } from '@/lib/api/datasets'
 
 
@@ -155,6 +155,16 @@ export function readLicense(
   }
 }
 
+// What a README shows. Twin of _DOCUMENT_ATTACHMENT_EXTENSIONS (entity_docs.py): an
+// attachment has no mark to version it by, so a data file attached to a README
+// stays on this instance.
+const DOCUMENT_ATTACHMENT_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.pdf']
+
+function isDocumentAttachment(fileName: string): boolean {
+  const lower = fileName.toLowerCase()
+  return DOCUMENT_ATTACHMENT_EXTENSIONS.some((ext) => lower.endsWith(ext))
+}
+
 /** `attachments/_meta.json` + blobs for one entity folder. Owner fields are left
  *  out: they are re-stamped from context on import, so the ZIP stays portable. */
 export async function writeAttachmentFiles(
@@ -163,12 +173,14 @@ export async function writeAttachmentFiles(
   storage: Storage,
   ownerType: ReadmeOwnerType,
   ownerId: string,
+  options: { localCopy?: boolean } = {},
 ): Promise<void> {
   // Tolerate a storage without the attachment store (older server adapter, or a
   // narrow test double): an entity's docs must still export.
-  const unordered = await (storage.readmeAttachments
+  const stored = await (storage.readmeAttachments
     ?.getByOwner(ownerType, ownerId)
     .catch(() => [] as ReadmeAttachment[]) ?? Promise.resolve([] as ReadmeAttachment[]))
+  const unordered = options.localCopy ? stored : stored.filter((att) => isDocumentAttachment(att.fileName))
   if (unordered.length === 0) return
   // Sorted by id, because neither backend promises an order: the IDB index yields
   // insertion order and the server's SELECT has no ORDER BY (arbitrary by SQL
@@ -565,10 +577,11 @@ export async function loadImportZip(file: File): Promise<JSZip> {
 // ---------------------------------------------------------------------------
 
 export interface BuildProjectZipOptions {
-  // Reserved for future build options. Data-file inclusion is no longer a blanket
-  // toggle: a data file is versioned iff its path is in project.config
-  // versionedDataFiles (marked per-file in the sidebar) — see markedDataFiles().
-  _reserved?: never
+  // A data file leaves only when its path is in project.config versionedDataFiles
+  // (marked per-file in the sidebar) — see markedDataFiles(). `localCopy` is for the
+  // ZIP that never leaves this instance (a project's duplicate): the script files
+  // and README attachments the rule would hold back come along, or the copy loses them.
+  localCopy?: boolean
 }
 
 // Data-file extensions gitignored by default (anywhere in the tree, scripts/ and
@@ -576,12 +589,26 @@ export interface BuildProjectZipOptions {
 // its EXPORT TREE PATH is marked in project.config.versionedDataFiles.
 export const DATA_FILE_EXTENSIONS = ['.csv', '.parquet', '.pq', '.xlsx', '.xls']
 
+// What is not known as code or a document counts as data, so a script's
+// `cohort.tsv` or `results.json` leaves only when marked (a dataset's edit journal,
+// `.edits.json`, too: it holds the values typed into the dataset). Twin of
+// _CODE_EXTENSIONS / _CODE_NAMES (project_export.py), compared by the tests of each side.
+const CODE_FILE_EXTENSIONS = new Set([
+  '.sql', '.py', '.r', '.rmd', '.qmd', '.ipynb', '.rproj', '.jl', '.sh', '.bash', '.js', '.mjs', '.cjs', '.ts',
+  '.jsx', '.tsx', '.css', '.html', '.md', '.markdown', '.rst', '.tex', '.bib', '.yml', '.yaml', '.toml', '.ini',
+  '.cfg', '.lock',
+])
+const CODE_FILE_NAMES = new Set([
+  'makefile', 'dockerfile', 'license', 'readme', 'notice', '.gitignore', '.gitattributes', '.rprofile',
+  '.python-version', 'requirements.txt',
+])
+
 export function isDataExtension(path: string): boolean {
-  const p = path.toLowerCase()
-  // A dataset's edit journal counts as data: it holds the values typed into the
-  // dataset, which for a manual collection is the whole of its content.
-  if (p.endsWith(EDITS_SUFFIX)) return true
-  return DATA_FILE_EXTENSIONS.some((ext) => p.endsWith(ext))
+  const lower = path.toLowerCase()
+  const name = lower.slice(lower.lastIndexOf('/') + 1)
+  if (CODE_FILE_NAMES.has(name)) return false
+  const dot = name.lastIndexOf('.')
+  return dot <= 0 || !CODE_FILE_EXTENSIONS.has(name.slice(dot))
 }
 
 /** Escape a path for use as a literal `.gitignore` pattern (after the `!`). Git
@@ -1051,8 +1078,14 @@ function buildPatientWidgetKeyMap(
 // the importer isn't credited as the creator. createdById IS stripped, because a
 // local user id is meaningless in another instance (the importing backend
 // re-resolves it by ORCID/email, falling back to NULL + the snapshot).
+const PROJECT_FOLDER_BINDINGS = ['idePath', 'scriptsPath', 'datasetsPath'] as const
+
 const INSTANCE_FIELDS = [
   'gitPushPolicy',
+  // Package index and default packages: an import never takes them
+  // (workspaceFromManifest), and an internal mirror's address has no place in a repo.
+  'defaultEnvOptions',
+  'defaultEnvPackages',
   'ownerId',
   'createdById',
   'origin',
@@ -1078,6 +1111,9 @@ const INSTANCE_FIELDS = [
   // what lets the import re-link the databases it does have, instead of leaving
   // every imported project unlinked.
   'linkedDataSourceIds',
+  // A project's server folders: machine-local, and setting one grants read and
+  // write there, so imports drop them too (withoutFolderBindings).
+  ...PROJECT_FOLDER_BINDINGS,
 ] as const
 
 // A data source's live connection state, and the message explaining it. Both say
@@ -1089,7 +1125,7 @@ const INSTANCE_FIELDS = [
 // `stats` counts the rows of THIS instance's copy and is recomputed whenever the
 // data is mounted, so an instance holding the repo without its Parquet exports a
 // different number than one that has them — a diff neither side can settle.
-const DATA_SOURCE_LOCAL_FIELDS = ['status', 'errorMessage', 'stats'] as const
+const DATA_SOURCE_LOCAL_FIELDS = ['status', 'errorMessage', 'stats', 'unacceptedFreeSql'] as const
 
 /** Return a copy of an entity's metadata without instance-specific fields.
  *  Accepts any object (interfaces without an index signature included). */
@@ -1245,7 +1281,6 @@ export async function buildProjectZip(
   storage: Storage,
   options: BuildProjectZipOptions = {},
 ): Promise<{ blob: Blob; projectName: string } | null> {
-  void options
   const project = await storage.projects.getById(projectUid)
   if (!project) return null
   const marked = markedDataFiles(project)
@@ -1344,13 +1379,16 @@ export async function buildProjectZip(
   // Code files (non-data) are versioned by default; a file whose tree path is in
   // project.config.excludedFiles is omitted from the tree entirely (and _tree.json),
   // so an "unmarked" script never leaves the machine. Data files use the opposite
-  // opt-in rule via `marked` (versionedDataFiles), so they're not excluded here.
+  // opt-in rule via `marked` (versionedDataFiles), on every exit: a .gitignore
+  // protects a push, not a downloaded ZIP.
   const excluded = excludedCodeFiles(project)
-  const isExcludedCode = (treePath: string) => !isDataExtension(treePath) && excluded.has(treePath)
+  const isLeftOut = (treePath: string) => (isDataExtension(treePath)
+    ? !options.localCopy && !marked.has(treePath)
+    : excluded.has(treePath))
   const includedScriptDataPaths: string[] = []
   if (ideFiles.length > 0) {
     const byId = new Map(ideFiles.map(f => [f.id, f]))
-    const treeFiles = ideFiles.filter((f) => !(f.type === 'file' && isExcludedCode(buildIdePath(f, byId))))
+    const treeFiles = ideFiles.filter((f) => !(f.type === 'file' && isLeftOut(buildIdePath(f, byId))))
     // Only emit the tree when something survives the exclusions — otherwise every
     // script is excluded and we'd version a useless `scripts/_tree.json: []`.
     if (treeFiles.length > 0) {
@@ -1370,7 +1408,7 @@ export async function buildProjectZip(
     for (const f of ideFiles) {
       if (f.type === 'file' && f.content != null) {
         const treePath = buildIdePath(f, byId)
-        if (isExcludedCode(treePath)) continue
+        if (isLeftOut(treePath)) continue
         zip.file(treePath, f.content)
         if (isDataExtension(treePath) && marked.has(treePath)) {
           includedScriptDataPaths.push(treePath)
@@ -1577,7 +1615,7 @@ export async function buildProjectZip(
   }
 
   // --- attachments/ ---
-  await writeAttachmentFiles(zip, '', storage, 'project', projectUid)
+  await writeAttachmentFiles(zip, '', storage, 'project', projectUid, { localCopy: options.localCopy })
 
   // --- .gitignore ---
   // Data files are ignored by default EVERYWHERE — under datasets/ AND scripts/
@@ -2120,7 +2158,7 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
   // --- Read project.json ---
   const projectFile = zipData.files[ENTITY_MANIFEST] ?? zipData.files[MANIFEST.project]
   if (!projectFile) return null
-  const projectRaw = withoutForeignPathIds(JSON.parse(await projectFile.async('string')))
+  const projectRaw = withoutFolderBindings(withoutForeignPathIds(JSON.parse(await projectFile.async('string'))))
   assertEntityType(projectRaw, 'project')
   // Clean git-versioned exports strip `uid` (the local PK) and identify the project
   // by its stable `projectId` (and `lineageId` when it has one); the target uid is
@@ -2202,6 +2240,11 @@ function withoutForeignPathIds<T>(manifest: T): T {
   return manifest
 }
 
+function withoutFolderBindings<T>(manifest: T): T {
+  for (const field of PROJECT_FOLDER_BINDINGS) delete (manifest as Record<string, unknown>)[field]
+  return manifest
+}
+
 async function readEntityManifest<T>(
   zip: JSZip,
   prefix: string,
@@ -2210,7 +2253,7 @@ async function readEntityManifest<T>(
 ): Promise<T | null> {
   for (const name of [ENTITY_MANIFEST, MANIFEST[kind], ...extraNames]) {
     const found = await readJsonFile<T>(zip, `${prefix}${name}`)
-    if (found) return withoutForeignPathIds(found)
+    if (found) return withoutFolderBindings(withoutForeignPathIds(found))
   }
   return null
 }
@@ -3006,17 +3049,19 @@ export async function buildSqlCollectionFolder(
   const files = await storage.sqlScriptFiles.getByCollection(collection.id)
   const byId = new Map<string, TreeNode>(files.map(f => [f.id, f]))
   // Per-file versioning marks (collection.config), same rule and same reasoning
-  // as buildEtlPipelineFolder: a file the user unmarked leaves the tree as well
-  // as the zip. `_tree.json` naming a file the repo cannot contain breaks
-  // re-import and makes every pull offer the phantom as an incoming change.
+  // as buildEtlPipelineFolder: a file the user unmarked, or a data file nobody
+  // marked, leaves the tree as well as the zip. `_tree.json` naming a file the repo
+  // cannot contain breaks re-import and makes every pull offer the phantom as an
+  // incoming change.
   //
   // Inlined rather than imported from lib/entity-versioning (`isVersioned`):
   // that module imports isDataExtension from HERE, so the import would be a
   // cycle. entity-io.test.ts asserts the two agree.
-  const kept = files.filter(
-    (f) => f.type !== 'file'
-      || !(collection.config?.excludedFiles ?? []).includes(treeNodePath(f, byId)),
-  )
+  const isVersionedPath = (path: string) =>
+    isDataExtension(path)
+      ? (collection.config?.versionedDataFiles ?? []).includes(path)
+      : !(collection.config?.excludedFiles ?? []).includes(path)
+  const kept = files.filter((f) => f.type !== 'file' || isVersionedPath(treeNodePath(f, byId)))
   // The user's tree lives under scripts/, so its sidecar sits beside the files it
   // describes instead of at the entity root (where it had to be when the files
   // were scattered across it).
@@ -4254,7 +4299,7 @@ export async function applyClonedEntity(
   // local uid/workspaceId and re-apply the git pointer (the repo export strips
   // gitRemoteConfig as an instance field).
   const {
-    uid: _uid, workspaceId: _ws, linkedDataSourceIds: _dbIds, ...meta
+    uid: _uid, workspaceId: _ws, linkedDataSourceIds: _dbIds, gitRemoteConfig: _treeRemote, ...meta
   } = dropForeignAuthorId(parsed.project) as Project
   // The database links live ONLY in the project's own repo: the workspace carries
   // a bare pointer (uid/name/gitRemoteConfig), so the workspace import's re-link
@@ -5013,15 +5058,14 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   // --- workspace.json ---
   const wsFile = zipData.files[ENTITY_MANIFEST] ?? zipData.files[MANIFEST.workspace]
   if (!wsFile) return null
-  const workspace = withoutForeignPathIds(JSON.parse(await wsFile.async('string'))) as Workspace & { appVersion?: string }
-  if (!workspace) return null
-  assertEntityType(workspace, 'workspace')
-  // A manifest no longer carries the writing instance's `id`. The importer mints
-  // the local key, so what has to be present is a NAME — enough to build a
-  // workspace from. `lineageId` is what identifies it across instances, and a
-  // tree published before it existed simply gets one on import.
-  if (!workspace.name && !workspace.id) return null
-  if (!workspace.id) workspace.id = crypto.randomUUID()
+  const manifest = JSON.parse(await wsFile.async('string'))
+  if (!manifest) return null
+  assertEntityType(manifest, 'workspace')
+  // The importer mints the local key, so what has to be present is a NAME — enough
+  // to build a workspace from. `lineageId` is what identifies it across instances,
+  // and a tree published before it existed simply gets one on import.
+  if (!manifest.name && !manifest.id) return null
+  const workspace = { ...workspaceFromManifest(manifest), id: crypto.randomUUID() } as unknown as Workspace & { appVersion?: string }
 
   // --- organization.json (optional) ---
   const orgFile = zipData.files[ROOT_FILE.organization]

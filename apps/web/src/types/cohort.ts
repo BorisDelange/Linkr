@@ -281,6 +281,8 @@ export interface CohortDerivation {
   /** What names the derivation server-side: its key, its correspondence rows. */
   derivationId?: string
   options?: DerivationOptions
+  /** Set by the server: the tables this build copied whole on an explicit opt-in. */
+  copiedUnproven?: string[]
 }
 
 /**
@@ -326,6 +328,9 @@ export interface DerivedFrom {
   /** A declared SQL schema: the schema the derivation created, set by the
    *  server — the only one deleting the database may drop. */
   schemaName?: string
+  /** Set by the server: the tables this build copied whole on an explicit opt-in.
+   *  A rebuild does not read it: the opt-in has to be given again. */
+  copiedUnproven?: string[]
   /** Set by the server on each build. */
   builtAt?: string
   patientCount?: number

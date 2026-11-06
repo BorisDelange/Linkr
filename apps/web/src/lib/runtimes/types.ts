@@ -26,6 +26,8 @@ export interface RuntimeOutput {
    *  failure from a warning (the notebook stopping a Run all, result colouring)
    *  read this, never `stderr`. Absent on older payloads → treated as false. */
   failed?: boolean
+  /** Nothing ran: the person declined this code (see lib/api/code-acceptance). */
+  notAccepted?: boolean
 }
 
 /**

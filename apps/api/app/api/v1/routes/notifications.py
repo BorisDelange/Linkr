@@ -8,12 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.ws_auth import authenticate_ws
+from app.core.ws_auth import authenticate_ws, watch_credentials
 from app.models.user import User
 from app.schemas.notification import NotificationResponse
 from app.services import notification_hub, notification_service
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
+
+AUTH_RECHECK_SECONDS = 30.0
 
 
 @router.get("", response_model=list[NotificationResponse])
@@ -85,10 +87,15 @@ async def notifications_ws(websocket: WebSocket):
                 )
 
     reader = asyncio.create_task(drain_client())
+    watch = asyncio.create_task(watch_credentials(websocket, AUTH_RECHECK_SECONDS))
     try:
         while True:
             getter = asyncio.create_task(queue.get())
-            done, _ = await asyncio.wait({getter, reader}, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait({getter, reader, watch}, return_when=asyncio.FIRST_COMPLETED)
+            if watch in done:
+                getter.cancel()
+                await websocket.close(code=watch.result())
+                break
             if reader in done:
                 getter.cancel()
                 break
@@ -99,6 +106,7 @@ async def notifications_ws(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
+        watch.cancel()
         reader.cancel()
         with contextlib.suppress(asyncio.CancelledError, WebSocketDisconnect, Exception):
             await reader

@@ -16,7 +16,7 @@ import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
 import { aliasesInScope } from '@/lib/alias'
 import { sanitizeSchemaMapping, sanitizeSchemaOverrides } from '@/lib/schema-helpers'
 import { isMappingV1 } from '@/lib/schema-classes/v1'
-import { effectiveMapping } from '@/lib/schema-classes/overrides'
+import { effectiveMapping, withoutFreeSql } from '@/lib/schema-classes/overrides'
 import { classRelation } from '@/lib/schema-classes/relations'
 import { localized } from '@/lib/localized'
 import { createConcurrencyLimit } from '@/lib/concurrency-limit'
@@ -62,7 +62,8 @@ import type {
 function published(ds: DataSource): DataSource {
   const base = ds.schemaBaseMapping ?? ds.schemaMapping
   if (!base) return ds
-  return { ...ds, schemaBaseMapping: base, schemaMapping: effectiveMapping(base, ds.schemaOverrides) }
+  const effective = effectiveMapping(base, ds.schemaOverrides)
+  return { ...ds, schemaBaseMapping: base, schemaMapping: ds.unacceptedFreeSql?.length ? withoutFreeSql(effective) : effective }
 }
 
 /** Changes as storage takes them: the published-only field dropped. */
@@ -172,6 +173,8 @@ interface DataSourceState {
   }) => Promise<string>
 
   updateDataSource: (id: string, changes: Partial<DataSource>) => Promise<void>
+  /** The person accepted this mapping's SQL: its relations are read from now on. */
+  markFreeSqlAccepted: (id: string) => void
   /**
    * Keep the patient/visit counts of a full statistics run on the source itself,
    * so a list page can show them without loading every source's stats cache. A
@@ -681,7 +684,20 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
           : d,
       ),
     }))
+    // SQL that is new to this person, even saved by them from a preset, waits for
+    // their acceptance like anyone's. The server alone knows what they accepted.
+    if (isServerMode() && (changes.schemaMapping || 'schemaOverrides' in changes)) {
+      const stored = await getStorage().dataSources.getById(id)
+      set((s) => ({
+        dataSources: s.dataSources.map((d) => (d.id === id ? published({ ...d, unacceptedFreeSql: stored?.unacceptedFreeSql }) : d)),
+      }))
+    }
+  },
 
+  markFreeSqlAccepted: (id) => {
+    set((s) => ({
+      dataSources: s.dataSources.map((d) => (d.id === id ? published({ ...d, unacceptedFreeSql: [] }) : d)),
+    }))
   },
 
   recordRowCounts: async (id, counts) => {

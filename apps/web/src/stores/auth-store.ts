@@ -84,8 +84,77 @@ export function useHasGlobalPermission(permission: string): boolean {
   return hasGlobalPermission(permission)
 }
 
+const SERVER_LOGOUT_TIMEOUT_MS = 3000
+// Set just before the reload that ends a logout: a front proxy that still names
+// this person must not sign them straight back in. One page load only.
+const LOGGED_OUT_MARK = 'linkr-logged-out'
+
+function markLoggedOut(): void {
+  try {
+    sessionStorage.setItem(LOGGED_OUT_MARK, '1')
+  } catch {
+    // Storage blocked: at worst the front proxy signs them back in.
+  }
+}
+
+function consumeLoggedOutMark(): boolean {
+  try {
+    const marked = sessionStorage.getItem(LOGGED_OUT_MARK) !== null
+    sessionStorage.removeItem(LOGGED_OUT_MARK)
+    return marked
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Best effort: only the server can end the user's web-app sessions and forget
+ * their session-only database logins. An expired access token is renewed first,
+ * or a tab left open overnight would log out on this browser alone.
+ */
+async function endServerSession(token: string, refreshToken: string | null): Promise<void> {
+  const signal = AbortSignal.timeout(SERVER_LOGOUT_TIMEOUT_MS)
+  const auth = `${getApiBaseUrl()}/api/v1/auth`
+  const logoutWith = (access: string) => fetch(`${auth}/logout`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { Authorization: `Bearer ${access}` },
+    signal,
+  })
+  const res = await logoutWith(token)
+  if (res.status !== 401 || !refreshToken) return
+  const refreshed = await fetch(`${auth}/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+    signal,
+  })
+  if (refreshed.ok) await logoutWith((await refreshed.json()).access_token)
+}
+
 export const useAuthStore = create<AuthState>()((set, get) => {
   const stored = loadStoredAuth()
+
+  const discardSession = () => {
+    localStorage.removeItem('linkr-access-token')
+    localStorage.removeItem('linkr-refresh-token')
+    localStorage.removeItem('linkr-auth-user')
+    // Their sockets stay authenticated as this user: the next one to log in on
+    // this tab must not inherit their shells.
+    disposeAllLiveTerminals()
+    useFileStore.setState((s) => ({
+      terminalTabs: [],
+      selectedFileId: s.terminalTabs.some((tab) => tab.id === s.selectedFileId) ? null : s.selectedFileId,
+    }))
+    set({ token: null, refreshToken: null, user: null })
+  }
+
+  // Every module-level cache and store holds what this user was shown; only a
+  // reload drops them all, before anyone else can log in on this tab.
+  const endSession = () => {
+    discardSession()
+    window.location.reload()
+  }
 
   return {
     isServerMode: isServerMode(),
@@ -99,6 +168,7 @@ export const useAuthStore = create<AuthState>()((set, get) => {
 
     checkSetupStatus: async () => {
       if (!isServerMode()) return
+      const justLoggedOut = consumeLoggedOutMark()
       set({ isCheckingAuth: true })
       try {
         const res = await fetch(`${getApiBaseUrl()}/api/v1/setup/status`)
@@ -108,7 +178,7 @@ export const useAuthStore = create<AuthState>()((set, get) => {
           // two-factor gateway): sign in as the user it names, no form.
           if (typeof data.export_min_count === 'number') setExportMinCount(data.export_min_count)
           if (typeof data.password_min_length === 'number') setPasswordMinLength(data.password_min_length)
-          if (data.trusted_header_login && !get().token) await get().trustedLogin()
+          if (data.trusted_header_login && !get().token && !justLoggedOut) await get().trustedLogin()
           set({ needsSetup: data.needs_setup, isCheckingAuth: false, serverUnreachable: false })
         } else if (res.status === 502 || res.status === 503 || res.status === 504) {
           // Gateway errors come from the reverse proxy (nginx), not the backend:
@@ -168,17 +238,11 @@ export const useAuthStore = create<AuthState>()((set, get) => {
     },
 
     logout: () => {
-      localStorage.removeItem('linkr-access-token')
-      localStorage.removeItem('linkr-refresh-token')
-      localStorage.removeItem('linkr-auth-user')
-      // Their sockets stay authenticated as this user: the next one to log in on
-      // this tab must not inherit their shells.
-      disposeAllLiveTerminals()
-      useFileStore.setState((s) => ({
-        terminalTabs: [],
-        selectedFileId: s.terminalTabs.some((tab) => tab.id === s.selectedFileId) ? null : s.selectedFileId,
-      }))
-      set({ token: null, refreshToken: null, user: null })
+      const { token, refreshToken } = get()
+      markLoggedOut()
+      discardSession()
+      const ended = token ? endServerSession(token, refreshToken) : Promise.resolve()
+      void ended.catch(() => {}).finally(() => window.location.reload())
     },
 
     validateToken: async () => {
@@ -199,7 +263,7 @@ export const useAuthStore = create<AuthState>()((set, get) => {
         // Try refresh
         const refreshToken = get().refreshToken
         if (!refreshToken) {
-          get().logout()
+          endSession()
           return false
         }
 
@@ -215,7 +279,7 @@ export const useAuthStore = create<AuthState>()((set, get) => {
           return true
         }
 
-        get().logout()
+        endSession()
         return false
       } catch {
         return false
@@ -257,15 +321,17 @@ export const useAuthStore = create<AuthState>()((set, get) => {
 })
 
 // Another tab logging out (or failing to refresh) removes the shared tokens, and
-// one logging in as someone else replaces them. This tab's terminals are still
-// authenticated as the previous user, so they end with that session; a refresh
-// of the same user's token leaves them be.
+// one logging in as someone else replaces them. This tab's terminals and caches
+// still belong to the previous user, so they end with that session; a refresh of
+// the same user's token leaves them be.
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
     if (event.key !== 'linkr-access-token' && event.key !== null) return
     const current = localStorage.getItem('linkr-access-token')
     if (current === null || (event.key !== null && jwtSubject(event.oldValue) !== jwtSubject(current))) {
       disposeAllLiveTerminals()
+      if (current === null) markLoggedOut()
+      window.location.reload()
     }
   })
 }

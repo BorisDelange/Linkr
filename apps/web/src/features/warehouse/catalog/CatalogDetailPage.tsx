@@ -29,7 +29,8 @@ import { makeReinstall } from '@/lib/entity-reinstall'
 import { useUrlTab } from '@/hooks/use-url-tab'
 import { localized } from '@/lib/localized'
 import { useCatalogStore } from '@/stores/catalog-store'
-import { useDatabaseOptions } from '@/hooks/use-database-options'
+import { isForeignDatabase, useDatabaseOptions } from '@/hooks/use-database-options'
+import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useCatalogActions } from './use-catalog-actions'
@@ -379,6 +380,7 @@ function CatalogSourceCard({
   const { t, i18n } = useTranslation()
   const dbSources = useDatabaseOptions(catalog.workspaceId)
   const dataSource = dbSources.find((ds) => ds.id === catalog.dataSourceId)
+  const foreignDatabase = useDataSourceStore((s) => isForeignDatabase(s.dataSources, catalog.dataSourceId, catalog.workspaceId))
   // Points at a database not installed here — usually an import that found no
   // local match for the pointer.
   const missingDatabase = !dataSource
@@ -410,7 +412,9 @@ function CatalogSourceCard({
           {title}
         </p>
         <p className="mt-0.5 text-[10px] text-muted-foreground">
-          {missingDatabase
+          {foreignDatabase
+            ? t('data_catalog.overview_source_foreign_detail')
+            : missingDatabase
             ? t('data_catalog.overview_source_missing_detail')
             : hasResults
               ? t('data_catalog.source_change_hint')

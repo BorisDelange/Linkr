@@ -194,6 +194,9 @@ def _build_project_json(
             "versionedScoreMethods",
         ) and v is None:
             continue
+        # A run's server jobs exist on this instance only.
+        if k == "sourceExtraction" and isinstance(v, dict):
+            v = {key: value for key, value in v.items() if key != "jobIds"}
         # Reset in place: reassigning an existing key keeps its position (JS + py3.7+).
         out[k] = "" if k == "dataSourceId" else v
 

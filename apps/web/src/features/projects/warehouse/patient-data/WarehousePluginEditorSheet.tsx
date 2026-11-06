@@ -1,4 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import type { CodeReview } from '@/lib/api/code-acceptance'
+import { forgetDeclinedCode } from '@/stores/code-acceptance-prompt'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -137,8 +139,8 @@ function EditorContent({
   const generatedCode = useGeneratedCode(plugin, pluginConfig, language)
   const currentCode = isCodeCustomized && userCode ? userCode : generatedCode
 
-  // Build extra preamble for needsConceptPicker plugins
-  const extraPreamble = useMemo(() => {
+  // Build extra variables for needsConceptPicker plugins
+  const extraVars = useMemo(() => {
     if (!plugin?.manifest.needsConceptPicker || !schemaMapping || !selectedPatientId) return undefined
     const ids = pluginConfig.conceptIds as number[] | undefined
     const timelineSql = ids?.length
@@ -146,19 +148,8 @@ function EditorContent({
       : null
     const visitSummarySql = buildPatientVisitSummaryQuery(schemaMapping, selectedPatientId)
 
-    if (language === 'python') {
-      return [
-        `timeline_sql = ${timelineSql ? JSON.stringify(timelineSql) : 'None'}`,
-        `visit_summary_sql = ${visitSummarySql ? JSON.stringify(visitSummarySql) : 'None'}`,
-        '',
-      ].join('\n')
-    }
-    return [
-      `timeline_sql <- ${timelineSql ? JSON.stringify(timelineSql) : 'NULL'}`,
-      `visit_summary_sql <- ${visitSummarySql ? JSON.stringify(visitSummarySql) : 'NULL'}`,
-      '',
-    ].join('\n')
-  }, [plugin, schemaMapping, selectedPatientId, scope, pluginConfig, language])
+    return { timeline_sql: timelineSql, visit_summary_sql: visitSummarySql }
+  }, [plugin, schemaMapping, selectedPatientId, scope, pluginConfig])
 
   // Persist changes to store
   const persistConfig = useCallback((newPluginConfig: Record<string, unknown>) => {
@@ -218,6 +209,12 @@ function EditorContent({
   // Run execution
   const handleRun = useCallback(async () => {
     if (isExecutingRef.current || !plugin || !dataSourceId) return
+    forgetDeclinedCode()
+    // Pressing Run on code on screen is the review; from the config tab only the
+    // plugin's template has been chosen, not read.
+    const codeReview: CodeReview = activeTab === 'code'
+      ? { authored: true }
+      : { source: isCodeCustomized ? undefined : plugin?.templates?.[language], label: pluginName }
     isExecutingRef.current = true
     setIsExecuting(true)
     setResult(null)
@@ -239,7 +236,8 @@ function EditorContent({
         selectedPatientId,
         selectedVisitId,
         selectedVisitDetailId,
-        extraPreamble,
+        extraVars,
+        codeReview,
       )
       setResult(output)
     } catch (err) {
@@ -255,7 +253,7 @@ function EditorContent({
       setIsExecuting(false)
       setStatusMessage(null)
     }
-  }, [currentCode, dataSourceId, selectedPatientId, selectedVisitId, selectedVisitDetailId, language, plugin, extraPreamble])
+  }, [currentCode, dataSourceId, selectedPatientId, selectedVisitId, selectedVisitDetailId, language, plugin, extraVars, activeTab, isCodeCustomized, pluginName])
 
   const leftVisible = activeTab !== null
   const [outputShown, setOutputShown] = useOutputPane('warehouse-plugin')
