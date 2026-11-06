@@ -108,9 +108,9 @@ async def test_the_demo_pipeline_builds_the_omop_cdm(client, demo_pipeline):
     report["scripts"] = len(scripts)
     assert FILL_SCRIPT in scripts and "90_tests.sql" in scripts
 
-    # The repository's fill script predates the server-provided scan: refused,
-    # with the way out.
-    r = await run((PIPELINE / "scripts" / FILL_SCRIPT).read_text())
+    # A pipeline still holding the fill script that predates the server-provided
+    # scan is refused, with the way out.
+    r = await run("SELECT DISTINCT concept_id FROM query(getvariable('linkr_used_concepts_sql'))")
     assert r.status_code == 400, r.text
     assert "regenerate it from the pipeline's Vocabulary tab" in r.json()["detail"]
 
