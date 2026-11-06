@@ -3,7 +3,7 @@
  *
  * Turns the flat metadata of the Health-DCAT-AP tab into a `dcat:Catalog`
  * holding one `dcat:Dataset`: the warehouse. Three things are kept apart, as
- * R8 wants them (docs/health-dcat-ap.md § Describing a clinical data warehouse):
+ * R8 wants them (docs/reference/health-dcat-ap.md § Describing a clinical data warehouse):
  * - what the data looks like: data model (`dct:conformsTo`), coding systems,
  *   and the tables and columns as `healthdcatap:hasVariables`;
  * - how to get it: `dcat:distribution`, for hospital data the HDAB request page;

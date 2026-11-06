@@ -2,7 +2,7 @@
 
 A throwaway GitLab CE on `http://localhost:8929`, so the versioning flows that
 need a forge (merge requests, plan §6/§9.4 in
-`docs/planning/collaborative-versioning-plan.md`) are tested without any real
+`docs/design/collaborative-versioning-plan.md`) are tested without any real
 account. Nothing leaves the machine. Needs ~4 GB of RAM while it runs.
 
 ```bash

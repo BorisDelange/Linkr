@@ -107,7 +107,7 @@ export function Foo({ value, onChange }: FooProps) {
 
 - Props: named `interface` ending in `Props`. Destructure in the signature.
 - Hooks block first, then effects, then handlers, then `return`. Don't interleave.
-- Never build UI before checking what exists: **`docs/ui-patterns.md`** for our composed components (tables, dialogs, page shells, fields) and the working rules, then `docs/shadcn-components.md` for the upstream primitive catalogue.
+- Never build UI before checking what exists: **`docs/ui-patterns.md`** for our composed components (tables, dialogs, page shells, fields) and the working rules, then `docs/reference/shadcn-components.md` for the upstream primitive catalogue.
 
 ## Dialogs (modals)
 
@@ -183,7 +183,7 @@ This is security-critical because user data and user-authored SQL meet here.
 - Column/table names from dynamic input: validate with `isSafeIdentifier()` before interpolation.
 - Numeric ID lists for `IN (...)`: validate with `validateIntegerIds()` first.
 - OMOP queries: always match both `_concept_id` **and** `_source_concept_id` (OR), per `docs/architecture.md`.
-- Fuzzy search: use `buildFuzzySearchSql()` from `@/lib/fuzzy-search` — see `docs/fuzzy-search.md`.
+- Fuzzy search: use `buildFuzzySearchSql()` from `@/lib/fuzzy-search` — see `docs/architecture.md § Fuzzy Search`.
 
 ### Validate at the trust boundary, not at the sink
 

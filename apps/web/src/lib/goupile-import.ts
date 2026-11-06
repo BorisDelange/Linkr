@@ -12,8 +12,6 @@
  * unit-tested against real exports. The UI (UploadDatasetDialog) reads the workbook
  * with SheetJS, calls `parseGoupileWorkbook`, then feeds the result to the normal
  * dataset-create path and pushes the metadata via POST /dataset-files/columns/meta.
- *
- * Design: docs/planning/goupile-import-plan.md
  */
 
 import type { SurveyChoice, SurveyQuestion, SurveySchema, QuestionKind } from './survey/survey-schema'

@@ -211,7 +211,7 @@ function distinctValuesSql(quotedCol: string, from: string): string {
 }
 
 /** The values of `distinctSql` matching `term` under the label filter rule
- *  (docs/fuzzy-search.md). Null for an empty term. */
+ *  (docs/architecture.md § Fuzzy Search). Null for an empty term. */
 function matchingOptionsSql(distinctSql: string, term: string): string | null {
   const where = buildLabelFilterSql(term, 'val', '_opts')
   return where ? `WITH _opts AS (${distinctSql}) SELECT val FROM _opts WHERE ${where}` : null

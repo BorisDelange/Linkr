@@ -38,6 +38,15 @@ def test_detect_by_name_then_content():
     assert web_apps.detect("x.py", "import streamlit as st\nst.write(1)").key == "streamlit"
     assert web_apps.detect("x.py", "from shiny.express import input").key == "shiny-python"
     assert web_apps.detect("x.py", "from dash import Dash\napp = Dash(__name__)").key == "dash"
+    assert web_apps.detect("x.py", "import gradio as gr").key == "gradio"
+    assert web_apps.detect("x.py", "from gradio import Blocks").key == "gradio"
+    assert web_apps.detect("x.py", "import panel as pn").key == "panel"
+    assert web_apps.detect("x.py", "app = FastAPI()").key == "fastapi"
+    assert web_apps.detect("x.py", "app = Flask(__name__)").key == "flask"
+    assert web_apps.detect("api.R", "#* @get /echo\nfunction() 1").key == "plumber"
+    # A comment or a longer name is not an import.
+    assert web_apps.detect("x.py", "# import gradio") is None
+    assert web_apps.detect("x.py", "import panelist") is None
     assert web_apps.detect("x.py", "import pandas as pd") is None
     # A Python file is never taken for an R app, whatever its name.
     assert web_apps.detect("app.py", "") is None
@@ -56,6 +65,28 @@ def test_python_preset_argv_runs_the_project_interpreter(tmp_path):
     argv = web_apps.launch_argv(web_apps.preset("streamlit"), spec, file, 8705, "/b/", tmp_path / "l")
     assert argv[:4] == ["/venv/bin/python", "-m", "streamlit", "run"]
     assert str(file) in argv and "8705" in argv and "127.0.0.1" in argv
+
+
+@pytest.mark.parametrize("key,expected", [
+    ("panel", ["-m", "panel", "serve", "{file}", "--address", "127.0.0.1", "--port", "8705"]),
+    ("flask", ["-m", "flask", "--app", "{file}", "run", "--host", "127.0.0.1", "--port", "8705"]),
+    ("fastapi", ["-m", "uvicorn", "my_app:app", "--host", "127.0.0.1", "--port", "8705", "--root-path", "/b/"]),
+])
+def test_python_presets_bind_loopback_on_the_given_port(tmp_path, key, expected):
+    file = tmp_path / "my_app.py"
+    spec = RuntimeSpec("/venv/bin/python", str(tmp_path), {})
+    argv = web_apps.launch_argv(web_apps.preset(key), spec, file, 8705, "/b/", tmp_path / "l")
+    wanted = [a.replace("{file}", str(file)) for a in expected]
+    assert argv[0] == "/venv/bin/python" and argv[1:len(wanted) + 1] == wanted
+
+
+def test_gradio_preset_runs_the_script_and_configures_it_by_environment(tmp_path):
+    file = tmp_path / "x.py"
+    gradio = web_apps.preset("gradio")
+    spec = RuntimeSpec("/venv/bin/python", str(tmp_path), {})
+    assert web_apps.launch_argv(gradio, spec, file, 8705, "/b/", tmp_path / "l") == ["/venv/bin/python", str(file)]
+    assert gradio.env["GRADIO_SERVER_NAME"] == "127.0.0.1"
+    assert gradio.env["GRADIO_SERVER_PORT"] == "{port}" and gradio.env["GRADIO_ROOT_PATH"] == "{base_path}"
 
 
 def test_r_preset_runs_a_launcher_with_the_library_setup_first(tmp_path):
@@ -379,6 +410,24 @@ async def test_an_idle_app_is_stopped_without_anyone_listing(client, monkeypatch
     finally:
         sweeper.cancel()
     assert app.proc.returncode is not None
+
+
+async def test_the_open_tab_polling_keeps_an_app_from_going_idle(client):
+    headers = await _admin_headers(client)
+    project = await _project(client, headers)
+    (project_fs.scripts_dir(project) / "x.py").write_text("")
+    r = await client.post(f"{API}/apps", headers=headers, json={
+        "projectUid": project, "path": "x.py", "command": "sleep 30",
+    })
+    app = web_apps.manager.get(r.json()["appId"])
+    try:
+        stale = time.monotonic() - web_apps.settings.app_idle_timeout_minutes * 60 - 1
+        app.last_seen = stale
+        assert (await client.get(f"{API}/apps/{app.app_id}", headers=headers)).status_code == 200
+        assert app.last_seen > stale + 1
+    finally:
+        await client.delete(f"{API}/apps/{app.app_id}", headers=headers)
+        await _wait_status(client, headers, app.app_id, {"stopped"})
 
 
 async def test_app_output_reaches_the_job_while_it_runs(client, monkeypatch):

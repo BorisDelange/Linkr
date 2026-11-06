@@ -62,6 +62,7 @@ For each finding (local scan) or alert (Dependabot) not already terminal in the 
 - **resolved-in-lockfile** — the version now in the repo's `package-lock.json` already satisfies the advisory's `first_patched_version` (compare numerically; a CDN/tarball version like SheetJS `0.20.3` counts if it is ≥ the patched version or above the vulnerable range). These will auto-close when the lockfile reaches the default branch. **No action** — just record.
 - **actionable** — a non-breaking fix exists and is not yet applied. Propose a bump (`npm audit fix`, or a targeted install). Prefer non-breaking; flag breaking ones separately.
 - **false-positive** — the vulnerable code path is genuinely not reachable in Linkr (e.g. a framework mode we don't use, an OS-specific vector on an OS we don't ship). Candidate for dismissal, reason `not_used`.
+- **open** — genuinely still vulnerable and undecided, usually a residual transitive copy in build or lint tooling. Stays open until decided.
 - **blocked-upstream** — the only fix requires a bump that no published version of our direct dependency provides yet (e.g. a transitive `dompurify` pinned by `monaco-editor`). Candidate for dismissal, reason `tolerable_risk`, to revisit when upstream updates.
 
 Base the "is it reachable?" judgement on the actual code — grep for the API/mode the advisory describes before calling something a false-positive. When unsure, keep it open, do not dismiss.
@@ -97,7 +98,7 @@ date,package,ghsa_id,severity,alert_number,bucket,action,dismissed_reason,notes
 - One row per (package, ghsa_id) — the same advisory across many paths shares a row; list representative alert numbers in `alert_number` or use `multiple`.
 - Keep the CSV sorted by package then ghsa_id for clean diffs.
 
-Then write a one-paragraph human summary and remind the user of the branch rule: fixes committed on a feature branch **will not close alerts until merged to the default branch** — schedule a small dedicated PR (`security/dependency-updates`) to the default branch if they want the counter to drop before the feature merges.
+Then write a one-paragraph human summary and remind the user of the branch rule: fixes committed on a feature branch **will not close alerts until merged to the default branch** — schedule a small dedicated PR (`security/dependency-updates`) to the default branch if they want the counter to drop before the feature merges. A re-scan can be forced from *Insights → Dependency graph → Dependabot → Check for updates*.
 
 ## Guardrails
 

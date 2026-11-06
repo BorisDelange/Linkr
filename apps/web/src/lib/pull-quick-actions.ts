@@ -1,7 +1,7 @@
 /**
  * Quick-action cards of the pull: one per SUBJECT of the entity — its information,
  * its dashboards, its wiki pages… — each listing its elements with a take/keep
- * choice (docs/planning/collaborative-versioning-plan.md §9.3).
+ * choice (docs/design/collaborative-versioning-plan.md §9.3).
  *
  * A file lands on the first card whose patterns match it; what no card claims
  * falls on "Other", so nothing coming in is ever out of reach.

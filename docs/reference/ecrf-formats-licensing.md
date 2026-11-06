@@ -2,7 +2,7 @@
 
 > Reference document, not an effort. Records the format survey and the legal review
 > behind Linkr's eCRF importers. The remaining build work lives in
-> `planning/survey-plugin-plan.md`.
+> `../planning/survey-plugin-plan.md`.
 
 ## 1. The formats
 
@@ -87,8 +87,7 @@ target** — never as our internal model.
 
 ### 1.4b Verified against the real artefacts
 
-Read directly, not from secondary sources (all under
-`../mission-cnp-cemir-definition-mir/ecrf-formats/`):
+Read directly, not from secondary sources:
 
 - **ODM v2.0 schemas** (MIT) + 17 official examples + the 1.1→1.3.2 archive,
   from [cdisc-org/DataExchange-ODM](https://github.com/cdisc-org/DataExchange-ODM)
@@ -193,11 +192,9 @@ column**:
 
 ```
 nom_structure,type_structure,usi_specialites,activites_mir,activites_mir_other
-CH de Brest,ch,pneumologie usih usic,don_organes avis_urgences other,Recherche clinique
-CH de Rennes,ch,usic,avis_urgences,
+Hospital A,ch,pneumologie usih usic,don_organes avis_urgences other,Recherche clinique
+Hospital B,ch,usic,avis_urgences,
 ```
-
-(sample: `ecrf-formats/xlsform/mir-survey_responses.csv`)
 
 That is the `delimited` binding, and it matters for §1.6: this shape is
 **unreadable in a datatable** — a cell reading `pneumologie usih usic` is one
@@ -271,7 +268,7 @@ If we ever need them, they belong in a separate archival copy of the source
 file, not in the dataset.
 
 **On column count — checked, not assumed.** One-hot expansion multiplies
-columns, so this was measured against the real CNP-CEMIR Goupile export:
+columns, so this was measured against a real Goupile export:
 **134 data columns for 50 questions** (`@definitions` = 50 variables,
 `@propositions` = 114 options), the widest form being 91 columns. That is well
 within what the datatable handles, and it is the shape the export *already* has

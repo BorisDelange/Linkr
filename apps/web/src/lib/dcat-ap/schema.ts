@@ -5,7 +5,7 @@
  * hospital warehouse falls under): a violation is `mandatory`, a warning
  * `recommended`. They also cover the 27 minimum elements of Commission
  * Implementing Regulation (EU) 2026/2098, which binds to the current release.
- * Background and the element-by-element audit: docs/health-dcat-ap.md.
+ * Background and the element-by-element audit: docs/reference/health-dcat-ap.md.
  */
 
 export const HEALTHDCATAP_RELEASE = '8'

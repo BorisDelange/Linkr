@@ -1,5 +1,5 @@
 /**
- * The precondition of the 3-way pull (docs/planning/collaborative-versioning-plan.md
+ * The precondition of the 3-way pull (docs/design/collaborative-versioning-plan.md
  * §9.2): applying an entity's own export onto it changes nothing.
  *
  * Per versioned kind, on a real IndexedDB storage (fake-indexeddb): the golden

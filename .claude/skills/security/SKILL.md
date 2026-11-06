@@ -21,7 +21,6 @@ means trusted with the instance, user-authored SQL is allowed, tokens in
 |---|---|---|
 | This workflow, the disclosure policy | `.claude/skills/security/` | yes |
 | Dependency workflow and its decision log | `DEPENDENCIES.md`, `TRIAGE-LOG.csv` (next to this file) | yes: dependency advisories are public already |
-| Human overview | `docs/security/README.md` | yes |
 | Audit runs, `AUDIT-LOG.md`, branch backups | `~/.security-audits/` in the user's home, outside every checkout | **no** |
 | Fixes for Linkr's own vulnerabilities | a local branch `security/<topic>`, in its own worktree | **no**, until the release |
 

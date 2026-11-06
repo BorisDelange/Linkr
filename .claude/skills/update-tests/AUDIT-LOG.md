@@ -5,6 +5,19 @@ Each audit covers the commits since the previous entry's `Last audited commit`.
 
 ---
 
+## 2026-11-06 — The manual test list, what a machine can check
+
+- Range: scoped to the manual list of `docs/planning/README.md` ("To test manually" + [TO TEST] rows), uncommitted on feature/docs-cleanup over 40dda3d7e — not a commit range
+- Last audited commit: 40dda3d7e
+- Added:
+  - client `apps/web/e2e/client/dataset.spec.ts` — a cell edit survives a reload; undoing restores the value, for good; `@known-bug` undoing after a reload
+  - client `apps/web/e2e/client/spc.spec.ts` — `@known-bug` a control chart added to a dashboard draws its chart
+  - API `apps/api/tests/test_web_apps.py` — detection of gradio, panel, fastapi, flask, plumber by content; argv of panel, flask, fastapi; gradio's environment; the open tab's poll keeps an app from going idle
+- Updated: `docs/testing.md` (client coverage)
+- Removed: none, no strict duplicate found
+- Known bugs re-checked: the two tagged above are new, both still failing. In the client build, undo after a reload keeps the edit: `parsedInput` rewinds current rows and a reload lost `_rawBaseline`. In the client build, a control chart always says "Not enough data": rows are keyed by column id, `SpcComponent` reads them by name (the journey passes with the rows mapped to names)
+- Left for later: rename repairing filters through the collection dialog (the only UI calling `renameColumn`; `dataset-column-rename.test.ts` covers the logic); data catalog run; server file picker and second-machine wizard journeys; terminal and env installs in the SPE smoke test. `npm run test:e2e` still fails in a worktree (`.bin` links to the main checkout): run `node ../../node_modules/@playwright/test/cli.js test` from `apps/web`
+
 ## 2026-11-05 — Demo ETL pipeline run whole on the server
 
 - Range: scoped to the server ETL runner and the vocabulary fill script generator (`query()` refused in pipeline scripts, fill script reading `linkr_target_concept_ids`), uncommitted on security/review-2026-11-05 over 41cf36c4a — not a commit range

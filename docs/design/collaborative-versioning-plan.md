@@ -5,7 +5,7 @@ repository without losing each other's work, and a change can go through review
 (merge request / pull request) instead of landing straight on the main branch.
 
 Started 2026-10-28, built through 2026-10-30 (all of §2's order, and §9).
-As-built: `docs/architecture.md` § Versioning; what remains: `README.md` here (Versioning).
+As-built: `docs/architecture.md` § Versioning; what remains: [the planner](../planning/README.md).
 
 ## 1. Where we are
 

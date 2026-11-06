@@ -92,7 +92,7 @@ The DQD-derived ones come from **a generator script** that lives in their repo:
 4. Write `checks.json` with stable check ids (see §4) derived from DQD's own
    `getCheckId()`, so a regenerated release diffs cleanly.
 
-For the rule sets we write ourselves, the INDICATE data dictionaries
+For the rule sets we write ourselves, published data dictionaries
 (`recommendedUnits`, `unitConversions`) are a natural source for units, and
 possibly for ranges.
 

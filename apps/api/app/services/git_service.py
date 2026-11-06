@@ -1532,7 +1532,7 @@ async def pull_preview(
 # --- 3-way pull, every scope -------------------------------------------------
 #
 # The pull of any versioned entity is a merge over its export tree
-# (docs/planning/collaborative-versioning-plan.md §9.2): BASE = the sync anchor,
+# (docs/design/collaborative-versioning-plan.md §9.2): BASE = the sync anchor,
 # REMOTE = the remote head, LOCAL = the export as it stands now. `three_way`
 # describes what came in; `merged_tree` builds the tree the client re-imports.
 

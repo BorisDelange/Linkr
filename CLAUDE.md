@@ -4,12 +4,13 @@ Linkr is a healthcare data visualization platform (React + FastAPI). v2 is a ful
 
 - **Code conventions (read before writing code)** → `docs/conventions.md`
 - **UI patterns (read before writing any UI)** → `docs/ui-patterns.md` — which shared component to reuse (datatable, dialogs, toolbars, page headers) and the type scale
+- Map of all the docs → `docs/README.md`
 - Architecture, navigation, stores, OMOP patterns, database gotchas → `docs/architecture.md`
 - **Running several agents at once** → `docs/worktrees.md` (one worktree each, own ports)
 - **Testing (tiers, pre-push, e2e, database matrix, SPE scenarios)** → `docs/testing.md`
-- Fuzzy search rules → `docs/fuzzy-search.md`
-- Available shadcn/ui components (upstream catalogue) → `docs/shadcn-components.md`
-- Long-term vision → `docs/vision-roadmap.md`
+- Fuzzy search rules → `docs/architecture.md` § Fuzzy Search
+- Available shadcn/ui components (upstream catalogue) → `docs/reference/shadcn-components.md`
+- Long-term vision → `docs/planning/vision-roadmap.md`
 - **Deployment context (read before any security/compliance work)** → `docs/deployment-context.md` — Linkr runs inside a per-project SPE of a clinical data warehouse; what the SPE covers and what Linkr must still guarantee
 - **Security (dependency alerts, audits, fixing findings, disclosure)** → the `security` skill (`.claude/skills/security/`). Vulnerabilities in Linkr and their fixes stay local — no push, issue or log entry — until the release that ships them.
 - **Ongoing work-in-progress plans** → start at `docs/planning/README.md` (remaining items only, plus the manual-test list) before starting related work; the as-built lives in `docs/architecture.md`, the rationale of finished efforts the code still cites in `docs/design/`.
@@ -110,7 +111,7 @@ run `data:fetch` once if you want the demo content locally.
 
 **i18n** — all user-facing text via `t('key')`. Add keys to both `locales/en.json` and `locales/fr.json`.
 
-**Reuse before building UI** — **read `docs/ui-patterns.md` before writing any screen**; it is the source of truth for tables, dialogs, page shells, fields and the type scale. Order: (1) a composed component from that doc (`DataTable`, `DialogShell`, `ListPageToolbar`, `SectionLabel`, `table-primitives`…), (2) a shadcn primitive from `apps/web/src/components/ui/` (catalogue: `docs/shadcn-components.md`), (3) only then build — and add it to that doc. Never hand-roll a `useReactTable` for sorting/resizing. When a shared component almost fits, **extend it** rather than forking it, dropping the feature, or hardcoding around it — the working rules are `docs/ui-patterns.md` §6. To add a shadcn component: copy from `../shadcn-ui/apps/v4/registry/bases/radix/ui/`, adapt imports, replace HSL colors with `var(--color-*)`.
+**Reuse before building UI** — **read `docs/ui-patterns.md` before writing any screen**; it is the source of truth for tables, dialogs, page shells, fields and the type scale. Order: (1) a composed component from that doc (`DataTable`, `DialogShell`, `ListPageToolbar`, `SectionLabel`, `table-primitives`…), (2) a shadcn primitive from `apps/web/src/components/ui/` (catalogue: `docs/reference/shadcn-components.md`), (3) only then build — and add it to that doc. Never hand-roll a `useReactTable` for sorting/resizing. When a shared component almost fits, **extend it** rather than forking it, dropping the feature, or hardcoding around it — the working rules are `docs/ui-patterns.md` §6. To add a shadcn component: copy from `../shadcn-ui/apps/v4/registry/bases/radix/ui/`, adapt imports, replace HSL colors with `var(--color-*)`.
 
 **Type scale** — only `text-2xl font-bold` (page title), `text-sm` (body), `text-xs` (dense: table cells, labels, buttons), `text-[10px]` (micro-chrome: inline filters, counters). Dialog titles are `text-base` via the primitive. Write `<Label>`, `<Badge>`, `<DialogTitle>` with **no size class** — the primitives already carry the scale. `text-[11px]` is deprecated. Colors via theme tokens, not raw palette classes.
 

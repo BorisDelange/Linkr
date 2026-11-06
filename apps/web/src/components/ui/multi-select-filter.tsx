@@ -103,7 +103,7 @@ export function MultiSelectFilter({
 
   const normalized = useMemo(() => options.map(normalize), [options])
 
-  // Same rule as a datatable's Name filter (docs/fuzzy-search.md): every word,
+  // Same rule as a datatable's Name filter (docs/architecture.md § Fuzzy Search): every word,
   // any order, accents aside, a typo when nothing contains them. Cleared at once
   // so a reopened popover never shows the previous search's list.
   const debouncedSearch = useDebouncedValue(search, SEARCH_DEBOUNCE_MS)

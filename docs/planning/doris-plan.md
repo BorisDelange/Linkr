@@ -159,16 +159,13 @@ Décisions prises en chemin (anciennes questions du §5) : compte en lecture seu
 - Comptage des concepts, catalog, extraction du mapping, DQ, statistiques, liste des
   patients, cohorte figée : résultats identiques à une copie Parquet de la même base.
 - Pause/Stop pendant une unité longue : la requête disparaît de `SHOW PROCESSLIST`.
-- Bandeau Flight : extra absent, puis port Flight faux, puis correct.
+- Bandeau Flight : port Flight faux, puis correct.
 
 ### 3.2 Ouvert 🤔
 
-1. **Image Docker** : extra `doris` installé dans `Dockerfile.api` (+ ≈ 24 Mo) et
-   `host.docker.internal` défini dans `docker-compose.yml`. Les images du Hub ne
-   l'auront qu'à la prochaine release.
-2. **Postgres** : traduit mais non déporté (`PUSHDOWN_ENGINES`). À mesurer sur un vrai
+1. **Postgres** : traduit mais non déporté (`PUSHDOWN_ENGINES`). À mesurer sur un vrai
    Postgres distant (réseau) avant de l'activer, éventuellement par type de requête.
-3. **SQL écrit par l'utilisateur** : déporté dans la console SQL (§3.0) ; le déporter
+2. **SQL écrit par l'utilisateur** : déporté dans la console SQL (§3.0) ; le déporter
    aussi ailleurs (éditeurs SQL, `create_dataset_from_query`) ?
 4. **Librairies R / Python** : `remote_query()` ?
 5. **Dériver une database depuis une cohorte** : `IN (SELECT … FROM _members)` sur

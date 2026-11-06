@@ -132,7 +132,7 @@ Reuses `figure-export.ts` (`nodeToBlob`, `findWidgetNode`, DPI → pixelRatio) a
 `OffscreenWidgetCapture.tsx` (mounts widgets off-viewport so charts paint before capture).
 Blobs go to the existing blob store / attachment service.
 
-Rationale: a thesis figure or a regulatory deliverable must be reproducible and immutable —
+Rationale: a published figure or a regulatory deliverable must be reproducible and immutable —
 if the dataset moves, an already-rendered PDF must not. It also makes read mode instant
 (no Pyodide/webR boot).
 
@@ -214,7 +214,7 @@ Arbitrated 2026-08-23 while building the survey plugin: rendering **every**
 question of a questionnaire in sequence belongs here, not to dashboards. A
 dashboard is composed one widget at a time; a 47-question report is not.
 
-The model comes from `presentation_questionnaire.Rmd` (CNP-CEMIR): one section
+The model comes from an existing R Markdown questionnaire report: one section
 per question, each with the question as asked, an `n/N (%)` response bar, and
 the chart its type calls for.
 

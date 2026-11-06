@@ -37,7 +37,7 @@ read them and you can already configure every chart in §4.
    and healthcare improvement*, Qual Saf Health Care 12:458–464.**
    [Free PDF](https://tbrieder.org/epidata/course_reading/d_benneyan.pdf) ·
    [DOI](https://doi.org/10.1136/qhc.12.6.458)
-   The canonical healthcare SPC paper, and the one `INDICATEURS_CANDIDATS.md` already
+   The canonical healthcare SPC paper, and the one the candidate indicators list already
    cites. Common-cause vs. special-cause variation, why reacting to common-cause noise
    ("tampering") makes a process worse, the chart-selection decision tree, and the
    rare-event g/t charts. **Read this one first, in full.**
@@ -92,7 +92,7 @@ read them and you can already configure every chart in §4.
    For *comparing units* (services, sites, operators) rather than *following time*: plot each
    unit's rate against its precision (its volume), with limits forming a funnel. The paper
    also handles overdispersion, and argues the case against league tables. Relevant to the
-   INDICATE cross-site comparison work, and to any "compare our ICUs" ask.
+   cross-site comparison work, and to any "compare our ICUs" ask.
 
 8. **Steiner, Cook, Farewell & Treasure (2000), *Monitoring surgical performance using
    risk-adjusted cumulative sum charts*, Biostatistics 1(4):441–452**, plus **VLAD**
@@ -289,7 +289,7 @@ picker matches how clinicians think. `visibleWhen` (already in `PluginConfigFiel
 irrelevant fields per chart type. The cost: one big manifest.
 
 Which charts in v1? I would ship **p, P′, u, U′, c, I-MR, EWMA, g** and defer **Xbar-S, t,
-CUSUM, funnel**. That covers every indicator in `INDICATEURS_CANDIDATS.md` and both existing
+CUSUM, funnel**. That covers every candidate indicator and both existing
 projects, and it closes the "p-chart / u-chart / CUSUM not implemented" note in that file for
 everything except CUSUM.
 

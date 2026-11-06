@@ -13,7 +13,6 @@ This document outlines the long-term vision for Linkr, including workspace organ
 3. [Project Capabilities Model](#project-capabilities-model)
 4. [Publication Model](#publication-model)
 5. [Benchmark & Market Research](#benchmark--market-research)
-6. [Architectural Decisions for Future-Proofing](#architectural-decisions-for-future-proofing)
 
 ---
 
@@ -73,7 +72,7 @@ Each workspace:
 
 ### Use Case Example
 
-A hospital like CHU de Rennes would have:
+A hospital would have:
 - **Private workspace**: ongoing research projects, internal dashboards, unpublished analyses (connected to a private GitLab)
 - **Public workspace**: published research projects, shared methodologies, open datasets (connected to a public GitHub/GitLab)
 
@@ -244,40 +243,3 @@ interface DeployedModel {
 | **Custom ML pipelines** | Hospital-specific | Most hospitals deploying ML do it custom (Python + Docker + monitoring). No dominant open-source platform exists for clinical ML deployment. |
 
 **Key takeaway**: There is no dominant open-source platform for clinical ML deployment and monitoring. This is both an opportunity and a risk — building it is valuable but complex. CDS Hooks is the right integration standard if Linkr eventually serves predictions to EHRs.
-
----
-
-## Architectural Decisions for Future-Proofing
-
-These decisions should be made now (or soon) to avoid blocking future development:
-
-### 1. Multi-tenancy from the start
-- Even if workspaces are not implemented immediately, design the data model with a `workspaceId` foreign key on projects, plugins, and database connections
-- In local mode, use a default implicit workspace
-- This avoids a painful migration later
-
-### 2. User identity layer
-- Authentication/authorization is needed for monitoring (who can publish?) and deployment (who approved this model?)
-- In local mode: single implicit user
-- In server mode: proper auth (OAuth2 / OIDC)
-- Add `createdBy`, `updatedBy`, `publishedBy` fields to key entities now
-
-### 3. Dashboard versioning from the start
-- Store dashboards with version numbers even if publication workflow comes later
-- Current dashboard saves = new version (append, don't overwrite)
-- This enables the atomic swap pattern without retrofitting
-
-### 4. Audit trail on write operations
-- Log who changed what and when on critical entities (dashboards, cohorts, pipeline configs)
-- Essential for both monitoring (change tracking) and deployment (regulatory compliance)
-- Can start as simple append-only JSON logs in IndexedDB
-
-### 5. API-first design for the backend
-- When the FastAPI backend is built, design REST APIs that external tools can consume
-- This enables: MLflow integration, CDS Hooks endpoints, programmatic dashboard updates
-- Use OpenAPI schema generation (FastAPI does this automatically)
-
-### 6. Plugin system as extension point
-- The existing plugin system (plugin.json, ui.tsx, server.py) is the right abstraction for adding monitoring widgets, model registry UI, drift dashboards, etc.
-- Keep plugins self-contained and independently versionable
-- Monitoring and deployment features could initially be implemented as "core plugins" before being promoted to first-class features

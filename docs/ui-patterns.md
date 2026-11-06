@@ -7,7 +7,7 @@ Scope split with the two neighbouring docs:
 
 | Doc | Answers |
 |---|---|
-| `docs/shadcn-components.md` | *Which shadcn primitives exist / are installed?* (upstream catalogue) |
+| `docs/reference/shadcn-components.md` | *Which shadcn primitives exist / are installed?* (upstream catalogue) |
 | **this file** | *Which of OUR composed components do I reuse, and how does it look?* |
 | `docs/conventions.md` | Code style: naming, imports, hooks, errors, tests |
 

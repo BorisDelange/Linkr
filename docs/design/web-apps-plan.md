@@ -1,7 +1,7 @@
 # Web apps in the IDE — plan
 
 > **Built** on `feature/web-apps` (2026-11-01); remaining items in
-> [README.md](README.md#ide--web-apps--web-apps-planmd). Kept for the rationale. What
+> [the planner](../planning/README.md). Kept for the rationale. What
 > changed against it while building: no `<base>` injection (it cannot fix root-relative
 > URLs, the only ones that miss); the browser sends the gateway prefix at start; the
 > origin check compares host names only (gateways drop the port from `Host`); a body is

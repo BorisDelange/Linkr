@@ -1,5 +1,5 @@
 /**
- * The 3-way pull of any versioned entity (docs/planning/collaborative-versioning-plan.md
+ * The 3-way pull of any versioned entity (docs/design/collaborative-versioning-plan.md
  * §9.2): from what the server says the remote changed — each file with its base,
  * local and remote versions — to the items the user decides on, and back to the
  * file contents the merged tree is built from.

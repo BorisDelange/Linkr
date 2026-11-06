@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import type { APIRequestContext, Page } from '@playwright/test'
 import { test, expect, signIn } from '../fixtures'
 
-// The precondition of every pull (docs/planning/collaborative-versioning-plan.md
+// The precondition of every pull (docs/design/collaborative-versioning-plan.md
 // §9.2), in server mode, on real content: push an entity, rebuild it from what
 // was pushed with the app's own reinstall, and the repository must find nothing
 // to commit. Any file it lists is a phantom change every pull would show.

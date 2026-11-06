@@ -6,7 +6,7 @@ import type { APIRequestContext, Page } from '@playwright/test'
 import { test, expect, signIn } from '../fixtures'
 
 // Every kind of versioned entity, through every collaborative flow
-// (docs/planning/collaborative-versioning-plan.md §9.5): push, a colleague's
+// (docs/design/collaborative-versioning-plan.md §9.5): push, a colleague's
 // change pulled back, the same on another branch, and — with the local GitLab of
 // docker/forge-sim — a change proposed as a merge request, merged on the forge,
 // then pulled. The pull runs the panel's own code (lib/pull/run.ts) in the page.
