@@ -42,6 +42,9 @@ ARG BASE_PATH=/
 ENV BASE_PATH=$BASE_PATH
 ARG VITE_API_URL=$BASE_PATH
 ENV VITE_API_URL=$VITE_API_URL
+# Node's default heap is a quarter of the machine's memory: 2 GB on an 8 GB builder,
+# which this build runs out of.
+ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN npm run build
 
 # Serve stage

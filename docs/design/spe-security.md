@@ -376,8 +376,9 @@ request (`core/body_limit.py`): 1 MB under `/auth` and `/setup` (nginx refuses i
 `LINKR_MAX_JSON_BODY_MB` (64) on any route with a JSON body. Form uploads and raw streams
 pass, and enforce their own limits.
 
-The compose files publish the web port on loopback unless `LINKR_WEB_BIND` says otherwise:
-until `/setup/initialize` has run, whoever reaches that port can claim the instance.
+Until `/setup/initialize` has run, whoever reaches the web port could claim the instance,
+so that route asks for a token only the server's log or `LINKR_SETUP_TOKEN` gives
+(`core/setup_token.py`).
 
 ## Not built, by decision
 

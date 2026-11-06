@@ -30,10 +30,10 @@ def test_api_port_on_loopback_and_data_out_of_root(name):
 
 
 @pytest.mark.parametrize("name", COMPOSE_FILES)
-def test_web_port_on_loopback_unless_chosen(name):
+def test_upgrading_keeps_the_web_port_reachable(name):
     compose = (DOCKER / name).read_text()
     published = re.findall(r'^\s*-\s*"([^"]*:80)"', compose, re.M)
-    assert published == ["${LINKR_WEB_BIND:-127.0.0.1}:3000:80"]
+    assert published == ["3000:80"]
 
 
 def test_nginx_limits_sign_in_bodies():

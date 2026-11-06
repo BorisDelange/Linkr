@@ -209,7 +209,7 @@ def test_the_free_space_reserve_defaults_to_5_gb_and_the_quota_to_off(monkeypatc
     monkeypatch.delenv("LINKR_UPLOAD_FREE_SPACE_RESERVE_MB", raising=False)
     monkeypatch.delenv("LINKR_UPLOAD_QUOTA_MB", raising=False)
     defaults = Settings(_env_file=None)
-    assert defaults.upload_free_space_reserve_mb == 5120
+    assert defaults.upload_free_space_reserve_mb == 0
     assert defaults.upload_quota_mb == 0
     monkeypatch.setenv("LINKR_UPLOAD_QUOTA_MB", "7")
     monkeypatch.setenv("LINKR_UPLOAD_FREE_SPACE_RESERVE_MB", "9")

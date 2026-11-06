@@ -69,27 +69,34 @@ from app.api.v1.routes.workspaces import PROJECTS_LEFT_OUT_HEADER, router as wor
 logger = structlog.get_logger()
 
 
+_INSECURE_SECRET = "dev-secret-change-in-production"
 _MIN_SECRET_LENGTH = 32
-_KNOWN_SECRETS = {"dev-secret-change-in-production", "change-me", "changeme"}
+_EXAMPLE_SECRETS = {_INSECURE_SECRET, "change-me", "changeme"}
 
 
 def weak_secret_key(key: str) -> bool:
     """Whether `key` is one a shipped example names, or short enough to guess."""
-    return key.strip().lower() in _KNOWN_SECRETS or len(key) < _MIN_SECRET_LENGTH
+    return key.strip().lower() in _EXAMPLE_SECRETS or len(key) < _MIN_SECRET_LENGTH
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging(debug=settings.debug)
     hardening.forbid_same_user_inspection()
-    # The secret_key signs every JWT. Booting with a known or guessable key in a real
-    # deployment would let anyone forge admin tokens.
-    if weak_secret_key(settings.secret_key) and not settings.debug:
+    # The secret_key signs every JWT. Booting with the shipped default in a real
+    # deployment would let anyone forge admin tokens. Any other weak key only warns:
+    # refusing it would stop instances already running, on an upgrade.
+    if settings.secret_key == _INSECURE_SECRET and not settings.debug:
         raise RuntimeError(
-            f"LINKR_SECRET_KEY is a known example value or shorter than {_MIN_SECRET_LENGTH} "
-            "characters. Set a strong secret "
+            "LINKR_SECRET_KEY is still the insecure default. Set a strong secret "
             "(python3 -c 'import secrets; print(secrets.token_urlsafe(48))') "
             "or run with LINKR_DEBUG=true for local development."
+        )
+    if weak_secret_key(settings.secret_key) and not settings.debug:
+        logger.warning(
+            "weak_secret_key",
+            advice=f"LINKR_SECRET_KEY is an example value or shorter than {_MIN_SECRET_LENGTH} characters: "
+            "anyone who guesses it can sign in as anyone. Replacing it signs everyone out.",
         )
     # A wildcard CORS origin combined with allow_credentials=True (below) would let
     # any site make credentialed requests to the API. Refuse it in production; a

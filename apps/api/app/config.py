@@ -73,8 +73,8 @@ class Settings(BaseSettings):
     max_json_body_mb: int = 64
     # Free space an upload must leave on the volume of `data_dir`, which holds the
     # access log, the sealing key and, in the shipped compose, the app database.
-    # 0: off.
-    upload_free_space_reserve_mb: int = 5120  # 5 GB
+    # 0: off, so that an upgrade does not refuse uploads on a small disk.
+    upload_free_space_reserve_mb: int = 0
     # Per user: what they have in open upload sessions plus what they uploaded that
     # is still in the blob store. 0: off.
     upload_quota_mb: int = 0
