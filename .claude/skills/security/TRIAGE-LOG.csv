@@ -14,7 +14,6 @@ date,package,ghsa_id,severity,alert_number,bucket,action,dismissed_reason,notes
 2026-10-21,@modelcontextprotocol/server,GHSA-rvq5-wwqv-78pq,medium,200,actionable,bumped,,npm update 2.0.0 -> 2.3.1 within ^2.0.0 (linkr-mcp); release v2.4.5
 2026-09-16,@vitest/mocker,GHSA-82fw-gwwq-j7x9,medium,169,false-positive,dismissed,not_used,dev-only; mockerPlugin/interceptorPlugin unused; no browser mode; fix needs vitest 4.x major
 2026-11-05,@vitest/mocker,GHSA-qxg6-89mg-rqv8,medium,,false-positive,none,not_used,dev-only; no browser mode; fix needs vitest major
-2026-11-07,@vitest/mocker,GHSA-qxg6-89mg-rqv8,medium,,false-positive,none,not_used,"dev-only test runner (vitest 3.2.7); no browser mode, mock server never exposed; fix needs vitest 4.1.12 major"
 2026-08-01,ajv,GHSA-2g4f-4pwh-qvx6,medium,"6,7",resolved-in-lockfile,pending-merge,,installed 6.15.0/8.20.0 >= patched 6.14.0
 2026-09-18,baseline-browser-mapping,GHSA-w5vr-8v7q-w6rv,medium,170,resolved-in-lockfile,pending-rescan,,"lockfile 2.9.19 -> 2.11.24; verified on main 2026-09-18, awaiting Dependabot re-scan"
 2026-11-05,body-parser,GHSA-27r3-jxmh-p828,high,,actionable,bumped,,"lockfile 2.3.0 -> 2.4.0 (dev, via shadcn CLI)"
@@ -174,7 +173,6 @@ date,package,ghsa_id,severity,alert_number,bucket,action,dismissed_reason,notes
 2026-08-01,postcss,GHSA-qx2v-qp2m-jg93,medium,69,resolved-in-lockfile,pending-merge,,installed 8.5.25 >= patched 8.5.10
 2026-08-01,postcss,GHSA-r28c-9q8g-f849,high,129,resolved-in-lockfile,pending-merge,,installed 8.5.25 >= patched 8.5.18
 2026-10-09,postcss-selector-parser,GHSA-rj75-hqrm-r3gf,medium,192,false-positive,dismissed,not_used,6.0.10 pinned by @tailwindcss/typography (latest too); build-time on own CSS only
-2026-11-07,postcss-selector-parser,GHSA-rj75-hqrm-r3gf,medium,,blocked-upstream,none,tolerable_risk,"build-time only, parses the repo's own CSS; @tailwindcss/typography pins 6.0.10 up to 0.5.20 (latest)"
 2026-09-18,postcss-selector-parser,GHSA-w9m9-85wc-3x92,low,156,resolved-in-lockfile,pending-rescan,,"lockfile 7.1.1 -> 7.1.6; verified on main 2026-09-18, awaiting Dependabot re-scan"
 2026-10-09,proxy-addr,GHSA-jqcg-44mw-7w3h,critical,193,resolved-in-lockfile,pending-merge,,"lockfile 2.0.7 -> 2.0.8 (dev, via shadcn CLI); committed on feature/fastapi-backend (1310cf4a4), closes once merged on main"
 2026-11-05,pyasn1,GHSA-2qm8-x737-gmw5,unknown,,actionable,bumped,,"lockfile 0.6.4 -> 0.6.5; via python-jose > rsa, RSA keys never decoded (HS256 only)"
