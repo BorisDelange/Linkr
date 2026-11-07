@@ -154,6 +154,8 @@ export function workspaceLanding<T extends ImportTarget>(
  *  the row later stays out until someone decides it can come from a repository. */
 const WORKSPACE_MANIFEST_FIELDS = [
   'name', 'description', 'badges', 'badgeCategories', 'readme', 'readmeLang', 'license',
+  // Package names only: what a project installs from them is accepted like code first.
+  'defaultEnvPackages',
   'organization', 'organizationId',
   'lineageId', 'parentLineageId',
   'createdAt', 'createdBy', 'createdByDetails',
@@ -161,8 +163,8 @@ const WORKSPACE_MANIFEST_FIELDS = [
 ] as const
 
 /**
- * A workspace manifest as far as an import may believe it. Package index, default
- * packages, git remote and push policy are this instance's decisions, and the
+ * A workspace manifest as far as an import may believe it. Package index, git
+ * remote and push policy are this instance's decisions, and the
  * mirror confinement trusts the workspace layer they live on; the local key is this
  * instance's too (a tree naming one would choose the row it overwrites). A caller
  * that knows the real remote sets it afterwards.

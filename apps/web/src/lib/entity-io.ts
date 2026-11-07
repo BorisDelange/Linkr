@@ -1115,10 +1115,9 @@ const PROJECT_FOLDER_BINDINGS = ['idePath', 'scriptsPath', 'datasetsPath'] as co
 
 const INSTANCE_FIELDS = [
   'gitPushPolicy',
-  // Package index and default packages: an import never takes them
-  // (workspaceFromManifest), and an internal mirror's address has no place in a repo.
+  // Package index: an import never takes it (workspaceFromManifest), and an
+  // internal mirror's address has no place in a repo.
   'defaultEnvOptions',
-  'defaultEnvPackages',
   'ownerId',
   'createdById',
   'origin',

@@ -609,9 +609,10 @@ describe('parseWorkspaceZip — what a tree may decide', () => {
     const workspace = parsed.workspace as unknown as Record<string, unknown>
     expect(workspace.lineageId).toBe('lin-1')
     expect(workspace.id).not.toBe('someone-elses-workspace')
-    for (const field of ['defaultEnvOptions', 'defaultEnvPackages', 'gitRemoteConfig', 'gitPushPolicy']) {
+    for (const field of ['defaultEnvOptions', 'gitRemoteConfig', 'gitPushPolicy']) {
       expect(workspace).not.toHaveProperty(field)
     }
+    expect(workspace.defaultEnvPackages).toEqual({ python: ['anything'] })
   })
 
   it('never lets a tree choose where a database connects or with which login', async () => {

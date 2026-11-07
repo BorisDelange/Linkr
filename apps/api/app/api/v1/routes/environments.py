@@ -332,7 +332,8 @@ async def install_preset(
                 env = await environments.install_preset(session, project_uid, language, packages)
             except (ValueError, ProvisionError) as e:
                 raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
-            await environments.accept_spec(session, user.id, project_uid, language)
+            # Not accepted for the user: the list may come from an imported or pulled
+            # workspace, so its first build shows it first.
             return _env_response(env)
 
     # Re-locking a whole preset takes minutes: past `deferred.WAIT_SECONDS` it goes

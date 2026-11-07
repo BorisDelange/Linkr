@@ -70,7 +70,6 @@ from app.services.org_snapshot import org_snapshot
 _INSTANCE_FIELDS = (
     "gitPushPolicy",
     "defaultEnvOptions",
-    "defaultEnvPackages",
     "ownerId",
     "createdById",
     "origin",

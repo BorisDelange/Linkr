@@ -662,3 +662,14 @@ async def test_a_readme_attachment_that_is_not_a_document_stays_behind(db):
     assert [m["fileName"] for m in json.loads(tree["attachments/_meta.json"])] == ["figure.png"]
     assert "attachments/att0-figure.png" in tree
     assert not any(path.endswith("extract.csv") for path in tree)
+
+
+def test_a_workspace_exports_its_default_package_names_but_not_its_package_index():
+    meta = {
+        "name": {"en": "W"},
+        "defaultEnvPackages": {"python": ["pandas"]},
+        "defaultEnvOptions": {"python": {"indexUrl": "https://mirror.internal/simple"}},
+    }
+    stripped = _strip_instance_fields(meta)
+    assert stripped["defaultEnvPackages"] == {"python": ["pandas"]}
+    assert "defaultEnvOptions" not in stripped

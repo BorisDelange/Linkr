@@ -378,9 +378,13 @@ describe('workspaceFromManifest', () => {
   it('never lets a tree set a trust-bearing setting or anything it does not name', () => {
     const out = workspaceFromManifest(manifest)
     for (const field of [
-      'defaultEnvOptions', 'defaultEnvPackages', 'gitRemoteConfig', 'gitPushPolicy',
+      'defaultEnvOptions', 'gitRemoteConfig', 'gitPushPolicy',
       'createdById', 'ownerId', 'origin', 'somethingNew',
     ]) expect(out).not.toHaveProperty(field)
+  })
+
+  it('takes the default package names, which a project accepts before installing them', () => {
+    expect(workspaceFromManifest(manifest).defaultEnvPackages).toEqual({ python: ['anything'] })
   })
 
   it('never takes a local key from a tree', () => {

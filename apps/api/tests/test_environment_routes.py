@@ -254,6 +254,23 @@ async def test_install_preset_records_default_packages(client, fake_provisioner)
     assert "numpy" in {p["name"] for p in pkgs}
 
 
+async def test_the_default_packages_are_not_accepted_for_whoever_installs_them(client, db, fake_provisioner):
+    """The workspace's list may come from an imported or pulled tree: its first build shows it."""
+    from sqlalchemy import select
+
+    from app.models.user import User
+    from app.services import code_acceptance_service
+    from app.services.execution import environments
+
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    r = await client.post(f"{API}/projects/{uid}/environments/python/preset", headers=headers)
+    assert r.status_code == 200
+    admin = (await db.execute(select(User))).scalars().first()
+    spec = environments.spec_text(uid, "python")
+    assert not await code_acceptance_service.is_accepted_by(db, admin.id, spec)
+
+
 async def test_import_env_spec_restores_renv_lock_and_lists_packages(client):
     """A project clone restores environments/r/renv.lock on disk; its recorded
     packages then surface through the packages endpoint (renv list reads the lock,
