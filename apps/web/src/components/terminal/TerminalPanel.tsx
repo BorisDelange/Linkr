@@ -347,7 +347,8 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessi
             } else if (msg.type === 'stderr' && msg.data) {
               terminal.write(`\x1b[31m${msg.data.replace(/\n/g, '\r\n')}\x1b[0m`)
             } else if (msg.type === 'error' && msg.message) {
-              terminal.writeln(`\x1b[31m${msg.message}\x1b[0m`)
+              const text = msg.code === 'environment_acceptance_required' ? t('terminal.environment_not_accepted') : msg.message
+              terminal.writeln(`\x1b[31m${text}\x1b[0m`)
               executing = false
               terminal.write(config.prompt)
             } else if (msg.type === 'done') {

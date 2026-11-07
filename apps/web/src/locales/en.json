@@ -4172,7 +4172,8 @@
   "api_errors": {
     "upload_no_space": "Not enough free space on the server: uploads must leave {{reserveMb}} MB free. Ask an administrator to free some space.",
     "upload_quota_exceeded": "This upload would exceed your storage quota of {{quotaMb}} MB. Remove files you no longer use, or ask an administrator.",
-    "database_file_left_behind": "A file left by a deleted database still occupies this id. It is removed automatically by the storage sweep, once it is over an hour old (several hours at most): try again later, or choose another id."
+    "database_file_left_behind": "A file left by a deleted database still occupies this id. It is removed automatically by the storage sweep, once it is over an hour old (several hours at most): try again later, or choose another id.",
+    "query_time_limit": "The query ran longer than the {{minutes}}-minute limit and was stopped. A longer query can run as a background job: from an R or Python script in the IDE, “Run file as background job”."
   },
   "common": {
     "sql_form_linkr": "Linkr version",
@@ -6501,6 +6502,7 @@
     "forbidden": "You are not allowed to open a terminal on this project: code execution is turned off on this server, or your role lacks the right to run code.",
     "shellExited": "[shell exited]",
     "disconnected": "[disconnected]",
+    "environment_not_accepted": "This project's environment declares packages you have not accepted. Run code from the editor to review and accept them, or rebuild the environment from the Environments panel, then reopen the terminal.",
     "renewedShell": "[session renewed — new shell]",
     "serverKernel": "server session",
     "wasm": "WASM",

@@ -4172,7 +4172,8 @@
   "api_errors": {
     "upload_no_space": "Pas assez d'espace libre sur le serveur : les téléversements doivent laisser {{reserveMb}} Mo libres. Demandez à un administrateur de libérer de l'espace.",
     "upload_quota_exceeded": "Ce téléversement dépasserait votre quota de stockage de {{quotaMb}} Mo. Supprimez les fichiers devenus inutiles, ou adressez-vous à un administrateur.",
-    "database_file_left_behind": "Un fichier laissé par une base supprimée occupe encore cet identifiant. Il est retiré automatiquement par le nettoyage du stockage, une fois âgé de plus d'une heure (quelques heures au plus) : réessayez plus tard, ou choisissez un autre identifiant."
+    "database_file_left_behind": "Un fichier laissé par une base supprimée occupe encore cet identifiant. Il est retiré automatiquement par le nettoyage du stockage, une fois âgé de plus d'une heure (quelques heures au plus) : réessayez plus tard, ou choisissez un autre identifiant.",
+    "query_time_limit": "La requête a dépassé la limite de {{minutes}} minutes et a été arrêtée. Une requête plus longue peut s’exécuter en tâche de fond : depuis un script R ou Python de l’IDE, « Exécuter le fichier en tâche de fond »."
   },
   "common": {
     "sql_form_linkr": "Version Linkr",
@@ -6501,6 +6502,7 @@
     "forbidden": "Vous n’êtes pas autorisé à ouvrir un terminal sur ce projet : l’exécution de code est désactivée sur ce serveur, ou votre rôle n’a pas le droit d’exécuter du code.",
     "shellExited": "[shell terminé]",
     "disconnected": "[déconnecté]",
+    "environment_not_accepted": "L’environnement de ce projet déclare des paquets que vous n’avez pas acceptés. Exécutez du code depuis l’éditeur pour les vérifier et les accepter, ou reconstruisez l’environnement depuis le panneau Environnements, puis rouvrez le terminal.",
     "renewedShell": "[session renouvelée — nouveau shell]",
     "serverKernel": "session serveur",
     "wasm": "WASM",

@@ -32,6 +32,7 @@ from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterator
 
 import duckdb
+from fastapi import HTTPException, status
 
 from app.config import settings
 from app.core.deferred import until_stopped
@@ -63,15 +64,24 @@ class QueryCancelled(Exception):
     """The query was cancelled before it started."""
 
 
-class TimedOut(Exception):
-    """The query ran past the time limit and was interrupted."""
+class TimedOut(HTTPException):
+    """The query ran past the time limit and was interrupted. A coded refusal
+    (`api_errors.query_time_limit`), so the client words it in its language; its
+    text is what a job's log and the MCP show."""
 
     def __init__(self, limit: int) -> None:
-        super().__init__(
+        self.text = (
             f"The query ran longer than the {_duration(limit)} limit and was stopped. "
             "A longer query can run as a background job: from an R or Python script in the IDE, "
             "Run file as background job."
         )
+        super().__init__(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": "query_time_limit", "message": self.text, "minutes": max(1, round(limit / 60))},
+        )
+
+    def __str__(self) -> str:
+        return self.text
 
 
 def _duration(seconds: int) -> str:

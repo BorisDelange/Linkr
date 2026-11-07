@@ -217,7 +217,10 @@ export class LinkrApi {
       try {
         const payload = await res.json() as { detail?: unknown }
         if (payload.detail !== undefined) {
-          detail = typeof payload.detail === 'string' ? payload.detail : JSON.stringify(payload.detail)
+          const message = (payload.detail as { message?: unknown } | null)?.message
+          detail = typeof payload.detail === 'string'
+            ? payload.detail
+            : typeof message === 'string' ? message : JSON.stringify(payload.detail)
         }
         const code = (payload.detail as { code?: string } | undefined)?.code
         const purpose = (payload.detail as { purpose?: string } | undefined)?.purpose

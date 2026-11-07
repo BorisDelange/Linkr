@@ -110,7 +110,7 @@ async def test_a_freeze_past_the_time_limit_is_stopped(client, monkeypatch):
     endless = "SELECT count(*) AS id, 1 AS patient_id FROM range(100000000000) t(i)"
     r = await asyncio.wait_for(client.post(f"{API}/cohorts/{cid}/materialize", headers=headers,
                                            json={"membershipSql": endless}), 30)
-    assert r.status_code == 422 and "limit" in r.json()["detail"]
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "query_time_limit"
     r = await asyncio.wait_for(client.post(f"{API}/cohorts/{cid}/materialize", headers=headers,
                                            json={"membershipSql": MEMBERSHIP}), 30)
     assert r.status_code == 200

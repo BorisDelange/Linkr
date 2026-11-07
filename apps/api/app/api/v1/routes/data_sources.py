@@ -442,8 +442,8 @@ async def query_data_source(
                 )
         except (query_cancel.QueryCancelled, duckdb.InterruptException):
             raise deferred.Stopped() from None
-        except query_cancel.TimedOut as e:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
+        except query_cancel.TimedOut:
+            raise
         except db_connect.ConnectionFailed as e:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, _connection_error(user, "query", e, source)) from None
         except ValueError as e:
@@ -1155,8 +1155,8 @@ async def assemble_concept_cache(
         mtime = await query_cancel.within_limit(
             lambda: data_source_service.assemble_concept_cache(db, source, login, body.select_sql), str(user.id),
         )
-    except query_cancel.TimedOut as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
+    except query_cancel.TimedOut:
+        raise
     except db_connect.ConnectionFailed as e:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, _connection_error(user, "concept_cache", e, source),
@@ -1186,6 +1186,8 @@ async def query_concept_cache(
         )
     except FileNotFoundError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No concept cache")
+    except query_cancel.TimedOut:
+        raise
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, redact_secrets(str(e)))
     return ConceptPageResult(rows=rows)

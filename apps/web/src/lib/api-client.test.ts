@@ -108,6 +108,13 @@ describe('formatApiError on a refusal with a translated code', () => {
     expect(summary).not.toContain('server sentence')
   })
 
+  it('words a query stopped at the time limit with its minutes', () => {
+    const raw = JSON.stringify({ detail: { code: 'query_time_limit', message: 'server sentence', minutes: 15 } })
+    const { summary } = formatApiError(new ApiError(422, raw))
+    expect(summary).toContain(i18n.t('api_errors.query_time_limit', { minutes: 15 }))
+    expect(summary).toContain('15')
+  })
+
   it('keeps the server\'s sentence for a code with no translation', () => {
     const raw = JSON.stringify({ detail: { code: 'something_else', message: 'server sentence' } })
     expect(formatApiError(new ApiError(409, raw)).summary).toContain('server sentence')
