@@ -30,7 +30,9 @@ export const MIN_APP_VERSION: Partial<Record<LayoutKind, string>> = {
   // ({ en, fr }); a 2.4.3 renders it as a string and the dashboard crashes.
   // 2.4.5: dashboards gained `events` and widgets an `eventIds` selection; a 2.4.4
   // drops the events silently and the control charts lose their markers.
-  'project': '2.4.5',
+  // 2.4.6: a dataset analysis carries no id (derived on import from dataset +
+  // name); a 2.4.5 gives every analysis of the project the same id and keeps one.
+  'project': '2.4.6',
   // 2.4.6: checks.json carries no check id (ids are derived from a check key on
   // import); a 2.4.5 importing a workspace or a rule-set file writes checks with
   // no id.

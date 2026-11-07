@@ -56,7 +56,9 @@ MIN_APP_VERSION: dict[str, str] = {
     "database": "2.4.6",
     # 2.4.5: dashboards gained events and widgets an eventIds selection; a 2.4.4
     # drops the events silently.
-    "project": "2.4.5",
+    # 2.4.6: a dataset analysis carries no id (derived on import from dataset +
+    # name); a 2.4.5 gives every analysis of the project the same id.
+    "project": "2.4.6",
     # 2.4.6: checks.json carries no check id; a 2.4.5 importing a workspace or a
     # rule-set file writes checks with no id.
     "dq-rule-set": "2.4.6",
