@@ -24,7 +24,7 @@ import { noteSeedMounted, trackDataSeed } from '@/lib/data-seed-gate'
 import {
   COHORT_BOARDS_DIR, DATABASE_COHORTS_DIR, attachTreeIds, createCohortBoard, parseSourceConceptIdEntries, patientDashboardKey,
   projectCohortBoardKeyId, reassemblePresetMapping, replaceDatabaseBoards, replaceDatabaseCohorts, resolveDashboardBundle, slugify,
-  storableImportedCohort,
+  storableImportedCohort, withExportedConnectionConfig,
   type CohortBoardBundle, type CompactSourceConceptIdEntries, type DashboardBundle,
 } from '@/lib/entity-io'
 import i18n from '@/lib/i18n'
@@ -443,7 +443,7 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
   // --- Connections (databases/) ---
   for (const path of projectIndex?.connections ?? []) {
     const conn = await fetchJson<import('@/types').IdeConnection>(`${base}/databases/${path}`)
-    if (conn) await storage.connections.create({ ...conn, projectUid }).catch(seedWriteFailed('connection', conn.id))
+    if (conn) await storage.connections.create({ ...withExportedConnectionConfig(conn), projectUid }).catch(seedWriteFailed('connection', conn.id))
   }
 
   // --- Dashboards ---
@@ -981,7 +981,7 @@ async function loadWorkspaceInternals(
       // export carries no connection, yet every reader dereferences
       // `connectionConfig.engine`. Overridden by `...ds` when the tree has one.
       connectionConfig: { engine: 'duckdb', fileIds: [], fileNames: [] },
-      ...ds,
+      ...withExportedConnectionConfig(ds),
       id,
       workspaceId: wsId,
       status: 'disconnected',

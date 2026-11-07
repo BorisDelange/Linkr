@@ -579,7 +579,7 @@ async def test_deletion_of_path_with_spaces_is_reported_unquoted_and_removable()
         # Re-export drops the spaced dataset folder. Status must surface the exact
         # unquoted path, which the client sends back as the selected deletion.
         z2 = _zip({"project.json": "{}"})
-        st = await g.status(getter, "u", z2, "main", None)
+        st = await g.status(getter, "u", z2, "main", remote)
         deleted = [f["path"] for f in st["files"] if f["changeType"] == "deleted"]
         assert deleted == [spaced]  # unquoted, byte-exact
 

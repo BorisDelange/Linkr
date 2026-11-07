@@ -164,20 +164,34 @@ async def ws_check(websocket: WebSocket):
     await websocket.close()
 
 
+async def _own_runnable(db: AsyncSession, app_id: str, user: User) -> web_apps.WebApp:
+    """`_own`, while its owner may still run code in its project: its log is that
+    code's output. An app whose owner lost that right is stopped."""
+    app = _own(app_id, user)
+    try:
+        await _require_code_execution(db, app.project_uid, user)
+    except HTTPException:
+        web_apps.manager.stop(app_id)
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "App not found")
+    return app
+
+
 @router.get("/{app_id}")
-async def get_app(app_id: str, user: User = Depends(get_current_user)):
+async def get_app(app_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Polled by the app's open tab, which counts as a visit: an app on screen
     is not idle because nobody clicked in it for an hour."""
-    app = _own(app_id, user)
+    app = await _own_runnable(db, app_id, user)
     app.touch()
     return {**app.public(), "log": list(app.log)}
 
 
 @router.post("/{app_id}/session", status_code=status.HTTP_204_NO_CONTENT)
-async def open_session(app_id: str, request: Request, user: User = Depends(get_current_user)):
+async def open_session(
+    app_id: str, request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+):
     """Let this browser open the app: called before its iframe or window is
     loaded, and again to renew the session."""
-    app = _own(app_id, user)
+    app = await _own_runnable(db, app_id, user)
     if web_apps.manager.running(app_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "App not found")
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -458,8 +472,9 @@ def _response_headers(upstream: httpx.Headers, app: web_apps.WebApp) -> list[tup
 )
 async def proxy_root(app_id: str):
     # Relative URLs in the app's page resolve against the folder, so it must end
-    # in a slash. Relative Location: correct behind any gateway prefix.
-    return RedirectResponse(f"{app_id}/proxy/", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+    # in a slash. A fixed relative Location: correct behind any gateway prefix, and
+    # nothing of the request in it can read as another origin.
+    return RedirectResponse("proxy/", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
 @router.api_route(

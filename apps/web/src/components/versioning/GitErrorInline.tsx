@@ -22,6 +22,7 @@ function codeMessage(t: (k: string) => string, code: GitErrorCode | undefined): 
     case 'export_failed': return t('versioning.git_error_export_failed')
     case 'archive_too_large': return t('versioning.git_error_archive_too_large')
     case 'hidden_projects': return t('versioning.git_error_hidden_projects')
+    case 'unreadable_content': return t('versioning.git_error_unreadable_content')
     default: return undefined
   }
 }

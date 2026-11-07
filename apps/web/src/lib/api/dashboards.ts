@@ -21,7 +21,7 @@ export const apiDashboardStorage: DashboardStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<Dashboard>(`${DASHBOARDS}/${id}`)
+      return await apiRequest<Dashboard>(`${DASHBOARDS}/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -32,24 +32,24 @@ export const apiDashboardStorage: DashboardStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${DASHBOARDS}/${id}`, {
+    await apiRequest(`${DASHBOARDS}/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(changes),
     })
   },
 
   delete: async (id) => {
-    await apiRequest(`${DASHBOARDS}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${DASHBOARDS}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }
 
 export const apiDashboardTabStorage: DashboardTabStorage = {
   getByDashboard: (dashboardId) =>
-    apiRequest<DashboardTab[]>(`${DASHBOARDS}/${dashboardId}/tabs`),
+    apiRequest<DashboardTab[]>(`${DASHBOARDS}/${encodeURIComponent(dashboardId)}/tabs`),
 
   getById: async (id) => {
     try {
-      return await apiRequest<DashboardTab>(`${DASHBOARDS}/tabs/${id}`)
+      return await apiRequest<DashboardTab>(`${DASHBOARDS}/tabs/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -60,28 +60,28 @@ export const apiDashboardTabStorage: DashboardTabStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${DASHBOARDS}/tabs/${id}`, {
+    await apiRequest(`${DASHBOARDS}/tabs/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(changes),
     })
   },
 
   delete: async (id) => {
-    await apiRequest(`${DASHBOARDS}/tabs/${id}`, { method: 'DELETE' })
+    await apiRequest(`${DASHBOARDS}/tabs/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   deleteByDashboard: async (dashboardId) => {
-    await apiRequest(`${DASHBOARDS}/${dashboardId}/tabs`, { method: 'DELETE' })
+    await apiRequest(`${DASHBOARDS}/${encodeURIComponent(dashboardId)}/tabs`, { method: 'DELETE' })
   },
 }
 
 export const apiDashboardWidgetStorage: DashboardWidgetStorage = {
   getByTab: (tabId) =>
-    apiRequest<DashboardWidget[]>(`${DASHBOARDS}/tabs/${tabId}/widgets`),
+    apiRequest<DashboardWidget[]>(`${DASHBOARDS}/tabs/${encodeURIComponent(tabId)}/widgets`),
 
   getById: async (id) => {
     try {
-      return await apiRequest<DashboardWidget>(`${DASHBOARDS}/widgets/${id}`)
+      return await apiRequest<DashboardWidget>(`${DASHBOARDS}/widgets/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -95,17 +95,17 @@ export const apiDashboardWidgetStorage: DashboardWidgetStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${DASHBOARDS}/widgets/${id}`, {
+    await apiRequest(`${DASHBOARDS}/widgets/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(changes),
     })
   },
 
   delete: async (id) => {
-    await apiRequest(`${DASHBOARDS}/widgets/${id}`, { method: 'DELETE' })
+    await apiRequest(`${DASHBOARDS}/widgets/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   deleteByTab: async (tabId) => {
-    await apiRequest(`${DASHBOARDS}/tabs/${tabId}/widgets`, { method: 'DELETE' })
+    await apiRequest(`${DASHBOARDS}/tabs/${encodeURIComponent(tabId)}/widgets`, { method: 'DELETE' })
   },
 }

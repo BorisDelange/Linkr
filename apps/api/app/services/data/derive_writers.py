@@ -32,7 +32,12 @@ from pathlib import Path
 import duckdb
 
 from app.services.data import community_engines
-from app.services.data.db_connect import _dsn, _engine_spec, _require_ident, _sql_path, attach_dsn
+from app.services.data.db_connect import (
+    _engine_spec,
+    _require_ident,
+    _sql_path,
+    attach_login,
+)
 from app.services.data.db_host_guard import check_db_host
 
 # Rows per Arrow batch sent to Oracle, and per Parquet file sent to Doris.
@@ -73,7 +78,7 @@ def writer_for(con: duckdb.DuckDBPyConnection, dest: Destination, alias: str) ->
     con.execute(f"LOAD {spec['extension']}")
     # Writable, deliberately: the one place Linkr writes into a database it did
     # not create, and only statements cohort_derive generates run.
-    attach_dsn(con, _dsn(dest.config, dest.password), alias, f"TYPE {spec['type']}")
+    attach_login(con, dest.config, dest.password, alias, f"TYPE {spec['type']}")
     if engine == "doris":
         return DorisWriter(con, alias, dest.config, dest.password)
     if engine == "postgresql":

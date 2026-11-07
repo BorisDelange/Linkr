@@ -6,6 +6,7 @@ from app.models.source_concept_id import SourceConceptIdEntry, SourceConceptIdRa
 from app.schemas.source_concept_id import (
     SourceConceptIdEntrySave,
     SourceConceptIdRangeSave,
+    entry_id,
 )
 
 
@@ -142,13 +143,23 @@ class EntryOfAnotherWorkspace(ValueError):
     """The entry id names a row that belongs to a different workspace."""
 
 
+def _names_its_own_workspace(row: SourceConceptIdEntry) -> bool:
+    return row.id == entry_id(row.workspace_id, row.badge_label, row.vocabulary_id, row.concept_code)
+
+
 async def _upsert_entry(db: AsyncSession, data: SourceConceptIdEntrySave) -> None:
     existing = await db.get(SourceConceptIdEntry, data.id)
     values = data.model_dump()
     # An entry is only ever written within its own workspace: an id held by
-    # another workspace is neither updated nor moved.
+    # another workspace is neither updated nor moved. A row whose id does not
+    # name its own workspace was never that workspace's to hold, so the
+    # workspace the id names takes it over.
     if existing is not None and existing.workspace_id != data.workspace_id:
-        raise EntryOfAnotherWorkspace(data.id)
+        if _names_its_own_workspace(existing):
+            raise EntryOfAnotherWorkspace(data.id)
+        await db.delete(existing)
+        await db.flush()
+        existing = None
     if existing is None:
         db.add(SourceConceptIdEntry(**values))
     else:

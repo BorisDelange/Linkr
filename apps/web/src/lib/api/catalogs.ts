@@ -17,7 +17,7 @@ export const apiDataCatalogStorage: DataCatalogStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<DataCatalog>(`${CATALOGS}/${id}`)
+      return await apiRequest<DataCatalog>(`${CATALOGS}/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -28,10 +28,10 @@ export const apiDataCatalogStorage: DataCatalogStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${CATALOGS}/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    await apiRequest(`${CATALOGS}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
   delete: async (id) => {
-    await apiRequest(`${CATALOGS}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${CATALOGS}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }

@@ -17,16 +17,24 @@ refuses to start.
 A query DuckDB hands to an external database (a pushed-down passthrough) does
 not stop on `interrupt()`: DuckDB waits for the remote statement to end. Such a
 query registers a hook (`on_cancel`) that stops it on the database's side.
+
+A query a user waits for (`within_limit`) is also interrupted once it has run
+`settings.query_timeout_seconds`, through the same cancel.
 """
 
+import asyncio
 import contextlib
 import contextvars
 import threading
 import time
+import uuid
 from collections import OrderedDict
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 
 import duckdb
+
+from app.config import settings
+from app.core.deferred import until_stopped
 
 # (query id, owner) of the query the current request runs, or None.
 current_query: contextvars.ContextVar[tuple[str, str] | None] = contextvars.ContextVar("current_query", default=None)
@@ -53,6 +61,21 @@ _interrupted: set[str] = set()
 
 class QueryCancelled(Exception):
     """The query was cancelled before it started."""
+
+
+class TimedOut(Exception):
+    """The query ran past the time limit and was interrupted."""
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(
+            f"The query ran longer than the {_duration(limit)} limit and was stopped. "
+            "A longer query can run as a background job: from an R or Python script in the IDE, "
+            "Run file as background job."
+        )
+
+
+def _duration(seconds: int) -> str:
+    return f"{seconds // 60}-minute" if seconds % 60 == 0 else f"{seconds}-second"
 
 
 @contextlib.contextmanager
@@ -159,3 +182,23 @@ def on_cancel(hook: Callable[[], None]) -> Iterator[None]:
         yield
     finally:
         _cancel_hook.reset(token)
+
+
+async def within_limit[T](work: Callable[[], Awaitable[T]], owner: str, query_id: str | None = None) -> T:
+    """Run `work`, which runs a query, as `owner`'s query `query_id`: its task
+    being cancelled (the jobs panel) interrupts the query, and so does its running
+    past `settings.query_timeout_seconds` (0: no limit), which raises `TimedOut`.
+    Either way it returns once the query has let go of its connection."""
+    query_id = query_id or uuid.uuid4().hex
+    limit = settings.query_timeout_seconds
+    token = current_query.set((query_id, owner))
+    try:
+        guarded = until_stopped(work(), lambda: cancel(query_id, owner))
+        if limit <= 0:
+            return await guarded
+        try:
+            return await asyncio.wait_for(guarded, limit)
+        except TimeoutError:
+            raise TimedOut(limit) from None
+    finally:
+        current_query.reset(token)

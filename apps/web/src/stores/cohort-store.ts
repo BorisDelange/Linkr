@@ -2,7 +2,9 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import { clearCohortMaterializationOnServer, materializeCohortOnServer } from '@/lib/api/cohorts'
-import { materializationFromRows } from '@/lib/cohort-materialization'
+import { acceptCode, withSqlAcceptance } from '@/lib/api/code-acceptance'
+import i18n from '@/lib/i18n'
+import { materializationFromRows, withUnfreezeOnRebind } from '@/lib/cohort-materialization'
 import { deleteCohortBoard } from '@/lib/cohort-board-storage'
 import { stampAuthored } from '@/stores/app-store'
 import { copyName } from '@/lib/copy-name'
@@ -361,11 +363,12 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     return clone.id
   },
 
-  updateCohort: async (id, changes) => {
+  updateCohort: async (id, edit) => {
     // Shown at once, saved behind: waiting for the round trip made every edit of
     // the criteria (a toggle, "disable all") lag by a server call. A failed save
     // puts the cohort back as it was, and the caller still sees the error.
     const before = get().cohorts.find((c) => c.id === id)
+    const changes = withUnfreezeOnRebind(before, edit)
     set((s) => ({
       cohorts: s.cohorts.map((c) =>
         c.id === id ? { ...c, ...changes, updatedAt: new Date().toISOString() } : c,
@@ -404,6 +407,8 @@ export const useCohortStore = create<CohortState>((set, get) => ({
   setCustomSql: async (id, sql) => {
     const changes: Partial<Cohort> = { customSql: sql }
     await getStorage().cohorts.update(id, changes)
+    // Its author wrote it: freezing their own cohort does not ask them about it.
+    if (isServerMode() && sql?.trim()) await acceptCode([sql]).catch(() => {})
     set((s) => ({
       cohorts: s.cohorts.map((c) =>
         c.id === id ? { ...c, customSql: sql, updatedAt: new Date().toISOString() } : c,
@@ -605,7 +610,12 @@ export const useCohortStore = create<CohortState>((set, get) => ({
         // The server runs the whole membership and stores it — the same endpoint
         // an agent (MCP freeze_cohort) calls. It runs the SQL as sent, bypassing
         // queryDataSource, so the class relations travel with it.
-        const saved = await materializeCohortOnServer(id, { membershipSql: withClassRelations(sql, schemaMapping, await engine.sourceTables(dataSourceId)), dataSourceId })
+        const body = { membershipSql: withClassRelations(sql, schemaMapping, await engine.sourceTables(dataSourceId)), dataSourceId }
+        const send = () => materializeCohortOnServer(id, body)
+        const saved = cohort.customSql?.trim()
+          ? await withSqlAcceptance(cohort.customSql, localized(cohort.name, i18n.language), send)
+          : await send()
+        if (!saved) throw new Error(i18n.t('code_acceptance.not_run'))
         if (!saved.materialization) throw new Error('The server stored no materialization')
         materialization = saved.materialization
       } else {

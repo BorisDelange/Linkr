@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { materializationFromRows, runMaterialization } from './cohort-materialization'
+import { materializationFromRows, runMaterialization, withUnfreezeOnRebind } from './cohort-materialization'
+import type { Cohort } from '@/types'
 
 describe('materializationFromRows', () => {
   it('keeps every level id and the distinct patients, as strings', () => {
@@ -34,5 +35,25 @@ describe('runMaterialization', () => {
 
   it('is none for a run that kept only its first rows', () => {
     expect(runMaterialization('c', 'visit', rows, 500_000)).toBeNull()
+  })
+})
+
+describe('withUnfreezeOnRebind', () => {
+  const frozen = {
+    id: 'c', dataSourceId: 'db1', resultCount: 2, attrition: [],
+    materialization: { level: 'patient', ids: ['1', '2'], patientIds: ['1', '2'], count: 2, materializedAt: 't', dataSourceId: 'db1' },
+  } as unknown as Cohort
+
+  it('drops the frozen membership and counts when the database changes', () => {
+    expect(withUnfreezeOnRebind(frozen, { dataSourceId: 'db2' })).toEqual({
+      materialization: undefined, resultCount: undefined, attrition: undefined, dataSourceId: 'db2',
+    })
+  })
+
+  it('keeps them for an edit of anything else, or a move to the database it was frozen on', () => {
+    expect(withUnfreezeOnRebind(frozen, { name: { en: 'x' } })).toEqual({ name: { en: 'x' } })
+    expect(withUnfreezeOnRebind(frozen, { dataSourceId: 'db1' })).toEqual({ dataSourceId: 'db1' })
+    const unbound = { ...frozen, dataSourceId: undefined } as Cohort
+    expect(withUnfreezeOnRebind(unbound, { dataSourceId: 'db1' })).toEqual({ dataSourceId: 'db1' })
   })
 })

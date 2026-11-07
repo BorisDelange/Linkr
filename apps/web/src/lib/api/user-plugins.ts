@@ -13,7 +13,7 @@ export const apiUserPluginStorage: UserPluginStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<UserPlugin>(`${PLUGINS}/${id}`)
+      return await apiRequest<UserPlugin>(`${PLUGINS}/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -24,10 +24,10 @@ export const apiUserPluginStorage: UserPluginStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${PLUGINS}/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    await apiRequest(`${PLUGINS}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
   delete: async (id) => {
-    await apiRequest(`${PLUGINS}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${PLUGINS}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }

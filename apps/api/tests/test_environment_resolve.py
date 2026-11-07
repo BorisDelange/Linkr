@@ -150,7 +150,7 @@ async def test_ensure_ready_streams_build_lines_to_on_log(monkeypatch, db):
     async def on_log(line: str) -> None:
         seen.append(line)
 
-    async def fake_build(job_db, uid, lang, on_log=None):
+    async def fake_build(job_db, uid, lang, on_log=None, accepted_spec=None):
         for line in ("installing dplyr", "installing ggplot2"):
             if on_log is not None:
                 on_log(line)
@@ -169,5 +169,6 @@ async def test_ensure_ready_streams_build_lines_to_on_log(monkeypatch, db):
 
     monkeypatch.setattr(E, "needs_build", fake_needs_build)
 
+    await E.accept_spec(db, user.id, project_uid, "r")
     await E.ensure_ready(db, project_uid, "r", user_id=user.id, on_log=on_log)
     assert seen == ["installing dplyr", "installing ggplot2"]

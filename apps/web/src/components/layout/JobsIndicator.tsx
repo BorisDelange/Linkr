@@ -17,7 +17,8 @@ import { cn } from '@/lib/utils'
 import { formatDuration } from '@/lib/format-helpers'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { useProjectRouteUid } from '@/hooks/use-project-route'
-import { listJobs, listWorkspaceJobs, cancelJob, clearJobs, clearWorkspaceJobs, onJobsChanged, type Job } from '@/lib/api/environments'
+import { listJobs, listWorkspaceJobs, listRunningJobs, cancelJob, clearJobs, clearWorkspaceJobs, onJobsChanged, type InstanceJob, type Job } from '@/lib/api/environments'
+import { useAuthStore } from '@/stores/auth-store'
 import { getJob } from '@/lib/api/query-jobs'
 import { openWebAppWindow, webAppFrameUrl } from '@/lib/api/web-apps'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
@@ -110,6 +111,24 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
   }, [enabled, server, projectUid, wsUid, reloadTick])
 
   const localQueries = useLocalQueries(!server)
+
+  // An administrator also sees, and may stop, every user's running jobs.
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin') && server
+  const [scope, setScope] = useState<'mine' | 'all'>('mine')
+  const showAll = isAdmin && scope === 'all'
+  const [instanceJobs, setInstanceJobs] = useState<InstanceJob[]>([])
+  useEffect(() => {
+    if (!showAll || !popoverOpen) return
+    let cancelled = false
+    const tick = () => {
+      listRunningJobs()
+        .then((all) => { if (!cancelled) setInstanceJobs(all) })
+        .catch((err) => console.warn('[jobs] listing the server\'s jobs failed', err))
+    }
+    tick()
+    const id = setInterval(tick, 3000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [showAll, popoverOpen, reloadTick])
 
   // The input and the log travel only with the single job: fetched once the
   // modal opens, the log again while the job runs.
@@ -306,8 +325,17 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         className="w-[34rem] p-2 text-xs"
       >
         <div className="mb-2.5 flex items-center justify-between">
-          <span className="font-medium">{t('jobs.recent')}</span>
-          <div className="flex items-center gap-3">
+          {isAdmin ? (
+            <Tabs value={scope} onValueChange={(v) => setScope(v as 'mine' | 'all')}>
+              <TabsList variant="line">
+                <TabsTrigger value="mine">{t('jobs.recent')}</TabsTrigger>
+                <TabsTrigger value="all">{t('jobs.all_users')}</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          ) : (
+            <span className="font-medium">{t('jobs.recent')}</span>
+          )}
+          {!showAll && <div className="flex items-center gap-3">
             {listed.some(canStop) && (
               <button
                 className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-destructive"
@@ -326,11 +354,14 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
                 {t('jobs.clear_all')}
               </button>
             )}
-          </div>
+          </div>}
         </div>
         {cancelError && (
           <p role="alert" className="mb-2 px-1.5 text-[10px] text-destructive">{cancelError}</p>
         )}
+        {showAll ? (
+          <InstanceJobList jobs={instanceJobs} onCancel={onCancel} stopping={stopping} />
+        ) : (<>
         <p className="mb-1.5 px-1.5 text-[10px] text-muted-foreground">{t(server ? 'jobs.queries_hint' : 'jobs.queries_hint_local')}</p>
         {listed.length === 0 && (
           <p className="px-1.5 py-3 text-center text-[10px] text-muted-foreground">{t('jobs.empty')}</p>
@@ -393,6 +424,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
             ))}
           </ul>
         </TooltipProvider>
+        </>)}
       </PopoverContent>
     </Popover>
 
@@ -464,6 +496,47 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    </>
+  )
+}
+
+/** Every user's queued and running jobs, for an administrator to stop. */
+function InstanceJobList({ jobs, onCancel, stopping }: {
+  jobs: InstanceJob[]
+  onCancel: (id: string) => Promise<void>
+  stopping: ReadonlySet<string>
+}) {
+  const { t } = useTranslation()
+  return (
+    <>
+      <p className="mb-1.5 px-1.5 text-[10px] text-muted-foreground">{t('jobs.all_users_hint')}</p>
+      {jobs.length === 0 && (
+        <p className="px-1.5 py-3 text-center text-[10px] text-muted-foreground">{t('jobs.all_users_empty')}</p>
+      )}
+      <ul className="flex max-h-[60vh] flex-col gap-1 overflow-y-auto">
+        {jobs.map((job) => (
+          <li key={job.id} className="flex items-center gap-1.5 rounded px-1.5 py-1 hover:bg-muted/50">
+            <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">
+              {formatJobTime(job.createdAt, job.kind === QUERY_KIND)}
+            </span>
+            <span className="flex shrink-0"><JobStatusIcon status={job.status} /></span>
+            <span className="min-w-0 flex-1 truncate py-px leading-normal" title={job.label}>{job.label}</span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">{job.username ?? '—'}</span>
+            <JobDuration job={job} className="shrink-0 text-[10px] text-muted-foreground" />
+            {job.cancellable !== false && (
+              <button
+                className="shrink-0 text-muted-foreground hover:text-destructive disabled:text-destructive"
+                onClick={() => void onCancel(job.id)}
+                disabled={stopping.has(job.id)}
+                aria-label={t(stopping.has(job.id) ? 'jobs.stopping' : 'jobs.cancel_tooltip')}
+                title={t(stopping.has(job.id) ? 'jobs.stopping' : 'jobs.cancel_tooltip')}
+              >
+                {stopping.has(job.id) ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
     </>
   )
 }

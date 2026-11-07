@@ -136,15 +136,15 @@ async def test_login_does_not_follow_a_retarget_even_if_left_in_place(db):
 
 
 def test_with_login_names_linkr_to_postgres():
-    login = creds.Login("me", "pw-for-tests-only", "user:1")
-    config = creds.with_login({"engine": "postgresql", "host": "h"}, login)
+    pg, mysql = {"engine": "postgresql", "host": "h"}, {"engine": "mysql", "host": "h"}
+    config = creds.with_login(pg, creds.Login("me", "pw-for-tests-only", "user:1", creds.full_target(pg)))
     assert config["username"] == "me" and config["application_name"] == "linkr"
-    assert "application_name" not in creds.with_login({"engine": "mysql"}, login)
+    assert "application_name" not in creds.with_login(mysql, creds.Login("me", "pw", "user:1", creds.full_target(mysql)))
 
 
 def test_pool_key_is_per_user():
     source = DataSource(id="s1", connection_config={"engine": "postgresql"})
-    a, b = creds.Login("a", "x", "user:1"), creds.Login("b", "y", "user:2")
+    a, b = creds.Login("a", "x", "user:1", ()), creds.Login("b", "y", "user:2", ())
     assert creds.pool_key(source, a) != creds.pool_key(source, b)
     assert creds.pool_key(source, None) == "s1"
 
@@ -172,9 +172,9 @@ async def test_my_login_is_tested_before_it_is_kept(client, db, monkeypatch):
 
     async def refuse(config):
         assert config["username"] == "me" and config["password"] == "bad"
-        return False, "password authentication failed", []
+        raise RuntimeError("password authentication failed")
 
-    monkeypatch.setattr(data_source_service, "test_connection", refuse)
+    monkeypatch.setattr(data_source_service, "probe_connection", refuse)
     r = await client.put(f"{API}/data-sources/{source_id}/my-login", headers=admin,
                          json={"username": "me", "password": "bad"})
     assert r.status_code == 422
@@ -185,9 +185,9 @@ async def test_my_login_roundtrip(client, db, monkeypatch):
     admin, source_id = await _setup(client, db)
 
     async def accept(config):
-        return True, None, []
+        return []
 
-    monkeypatch.setattr(data_source_service, "test_connection", accept)
+    monkeypatch.setattr(data_source_service, "probe_connection", accept)
     assert (await client.get(f"{API}/data-sources/{source_id}/my-login", headers=admin)).json()["hasLogin"] is False
 
     r = await client.put(f"{API}/data-sources/{source_id}/my-login", headers=admin,
@@ -251,9 +251,9 @@ async def test_logout_forgets_session_only_logins(client, db, monkeypatch):
     admin, source_id = await _setup(client, db)
 
     async def accept(config):
-        return True, None, []
+        return []
 
-    monkeypatch.setattr(data_source_service, "test_connection", accept)
+    monkeypatch.setattr(data_source_service, "probe_connection", accept)
     await client.put(f"{API}/data-sources/{source_id}/my-login", headers=admin,
                      json={"username": "me", "password": "pw-for-tests-only", "remember": False})
     assert (await client.get(f"{API}/data-sources/{source_id}/my-login", headers=admin)).json()["hasLogin"]

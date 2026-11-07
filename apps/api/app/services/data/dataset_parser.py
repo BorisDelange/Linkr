@@ -27,7 +27,13 @@ import duckdb
 
 from app.core import safe_zip
 from app.services.data.column_id import build_column_ids
-from app.services.data.file_reader import build_read_expr, cleanup_transcoded, confine_reader, is_excel
+from app.services.data.dataset_rows import reader_of
+from app.services.data.file_reader import (
+    build_read_expr,
+    cleanup_transcoded,
+    confine_reader,
+    is_excel,
+)
 from app.services.data.type_inference import (
     ASCII_WS,
     BOOL_FALSE,
@@ -172,7 +178,7 @@ def parquet_schema(path: Path) -> tuple[list[dict], int]:
     near-instant even on multi-GB files — unlike parse_blob, which fetchall()s
     every row. Column ids/types match parse_blob's shape (id = col_<slug>, one of
     the 4 canonical types). Used by the dataset listing / cache-meta path."""
-    con = duckdb.connect()
+    con = reader_of(path)
     try:
         expr = f"read_parquet({_sql_str(str(path))})"
         described = con.execute(f"DESCRIBE SELECT * FROM {expr}").fetchall()

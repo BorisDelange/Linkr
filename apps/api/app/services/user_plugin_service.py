@@ -41,12 +41,12 @@ async def create(db: AsyncSession, data: UserPluginCreate, owner: User) -> UserP
     return plugin
 
 
-async def update(db: AsyncSession, plugin: UserPlugin, data: UserPluginUpdate) -> UserPlugin:
+async def update(db: AsyncSession, plugin: UserPlugin, data: UserPluginUpdate, editor: User | None = None) -> UserPlugin:
     changes = data.model_dump(exclude_unset=True)
     git_secret.apply_to_entity(plugin, changes)
     for key, value in changes.items():
         setattr(plugin, key, value)
-    await author_provenance.relink_creator_on_update(db, plugin, changes)
+    await author_provenance.relink_creator_on_update(db, plugin, changes, editor)
     await db.commit()
     await db.refresh(plugin)
     return plugin

@@ -41,7 +41,7 @@ async def test_json_route_is_limited_before_authentication(client, monkeypatch):
     monkeypatch.setattr(settings, "max_json_body_mb", 2)
     big = b" " * (3 * MB)
     r = await client.post(f"{API}/workspaces", content=big, headers={"content-type": "application/json"})
-    assert r.status_code == 413
+    assert r.status_code == 401
     r = await client.post(f"{API}/workspaces", content=b"{}", headers={"content-type": "application/json"})
     assert r.status_code == 401
 
@@ -63,3 +63,30 @@ def test_multipart_and_streaming_routes_are_not_classed_as_whole_body():
 
     assert classed("POST", f"{API}/workspaces")
     assert not classed("POST", f"{API}/git/projects/p/commit-push")
+
+
+@pytest.mark.parametrize("authorization", [None, "Bearer not.a.jwt", "Bearer lnk_invalid"])
+async def test_a_large_body_needs_a_valid_credential_before_it_is_read(client, authorization):
+    headers = {"content-type": "application/json", **({"authorization": authorization} if authorization else {})}
+    body = b"[" + b"{}," * (MB // 3 * 2) + b"{}]"
+    assert len(body) > MB
+    r = await client.post(f"{API}/uploads", content=body, headers=headers)
+    assert r.status_code == 401
+    streamed = await client.post(f"{API}/uploads", content=_chunks(2 * MB), headers=headers)
+    assert streamed.status_code in (400, 413)
+
+
+async def test_a_large_body_with_a_valid_credential_reaches_the_route(client, monkeypatch):
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    token = (await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})).json()["access_token"]
+    session = {"authorization": f"Bearer {token}"}
+    key = (await client.post(f"{API}/auth/api-tokens", headers=session, json={"name": "k"})).json()["token"]
+    body = b" " * (2 * MB) + b"{}"
+    for authorization in (session["authorization"], f"Bearer {key}"):
+        r = await client.post(f"{API}/workspaces", content=body,
+                              headers={"content-type": "application/json", "authorization": authorization})
+        assert r.status_code == 422
+    monkeypatch.setattr(settings, "max_json_body_mb", 2)
+    r = await client.post(f"{API}/workspaces", content=b" " * (3 * MB),
+                          headers={"content-type": "application/json", **session})
+    assert r.status_code == 413

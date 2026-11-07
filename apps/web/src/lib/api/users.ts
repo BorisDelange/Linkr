@@ -11,7 +11,7 @@ export const apiUserStorage: UserStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<User>(`/users/${id}`)
+      return await apiRequest<User>(`/users/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -24,13 +24,13 @@ export const apiUserStorage: UserStorage = {
     }),
 
   update: async (id, changes) => {
-    await apiRequest(`/users/${id}`, {
+    await apiRequest(`/users/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(changes),
     })
   },
 
   delete: async (id) => {
-    await apiRequest(`/users/${id}`, { method: 'DELETE' })
+    await apiRequest(`/users/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }

@@ -24,7 +24,7 @@ from app.core.permissions import check_workspace_permission
 from app.models.data_source import DataSource
 from app.models.user import User
 from app.schemas.base import CamelModel
-from app.services import blob_store, data_source_service, fs_browser
+from app.services import blob_store, data_source_service, fs_browser, upload_ledger
 from app.services import vocabulary_library as lib
 from app.services.data import concept_cache_fs, connection_pool
 from app.services.execution import jobs
@@ -72,15 +72,18 @@ async def _export_files(db: AsyncSession, workspace_id: str, user: User, source:
     if source.files:
         out = []
         for f in source.files:
-            if not blob_store.exists(f.sha):
+            if not upload_ledger.holds(user.id, f.sha):
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Uploaded file not found: {f.file_name}")
             out.append((f.file_name, str(blob_store.path_for(f.sha))))
         return out
     if source.server_paths:
-        scope = await fs_browser.import_scope(db, None, user)
+        # The export is read here as a script would read it: with no browse roots,
+        # that needs code execution in the workspace.
+        scope = await fs_browser.import_scope(db, None, user, workspace_id=workspace_id)
         out = []
         for server_path in source.server_paths:
             try:
+                fs_browser.check_import_scope(scope)
                 fs_browser.validate_source_path(server_path, scope)
             except fs_browser.FsBrowseError as e:
                 raise HTTPException(e.status_code, str(e)) from e
@@ -116,6 +119,17 @@ async def get_library(
     }
 
 
+async def _inspect(files: list[tuple[str, str]]) -> dict:
+    """What the export holds. An extraction is kept only for an export that reads."""
+    try:
+        return await asyncio.to_thread(lambda: lib.inspect_export(lib.expand_zips(files)))
+    except Exception as e:
+        await asyncio.to_thread(lib.discard_zip_expansions, files)
+        if isinstance(e, (ValueError, zipfile.BadZipFile)):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+        raise
+
+
 @router.post("/inspect")
 async def inspect_export(
     workspace_id: str,
@@ -130,10 +144,7 @@ async def inspect_export(
     held = {v["vocabularyId"]: v for v in _inventory(await _library(db, workspace_id))}
 
     async def work() -> dict:
-        try:
-            found = await asyncio.to_thread(lambda: lib.inspect_export(lib.expand_zips(files)))
-        except (ValueError, zipfile.BadZipFile) as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        found = await _inspect(files)
         for v in found["vocabularies"]:
             v["libraryVersion"] = held.get(v["vocabularyId"], {}).get("vocabularyVersion")
             v["inLibrary"] = v["vocabularyId"] in held
@@ -162,10 +173,7 @@ async def start_import(
     source_label = _source_label(body.source, files)
 
     async def start() -> dict:
-        try:
-            found = await asyncio.to_thread(lambda: lib.inspect_export(lib.expand_zips(files)))
-        except (ValueError, zipfile.BadZipFile) as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        found = await _inspect(files)
         by_id = {v["vocabularyId"]: v for v in found["vocabularies"]}
         chosen = [v for v in body.vocabularies if v in by_id]
         if not chosen:

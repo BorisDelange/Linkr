@@ -16,7 +16,7 @@ vi.mock('@/lib/api-client', () => ({
 
 import { ApiError } from '@/lib/api-client'
 import { forgetDeclinedCode, useCodeAcceptancePrompt } from '@/stores/code-acceptance-prompt'
-import { withCodeAcceptance } from './code-acceptance'
+import { withCodeAcceptance, withSqlAcceptance } from './code-acceptance'
 
 const OK: RuntimeOutput = { stdout: 'ran', stderr: '', figures: [], table: null, html: null }
 const REQUIRED = new ApiError(428, JSON.stringify({ detail: { code: 'code_acceptance_required', message: 'no' } }))
@@ -123,5 +123,27 @@ describe('withCodeAcceptance', () => {
     const send = vi.fn(async () => { throw new ApiError(403, 'no') })
     await expect(withCodeAcceptance('x', 'python', undefined, send)).rejects.toThrow('no')
     expect(pending()).toEqual([])
+  })
+})
+
+describe('withSqlAcceptance', () => {
+  it('sends the request once the person accepted the stored SQL it shows them', async () => {
+    const accepted = new Set<string>()
+    const send = server(accepted)('SELECT 1')
+    const run = withSqlAcceptance('SELECT 1', 'Cohort', send)
+    await vi.waitFor(() => expect(pending()).toHaveLength(1))
+    expect(pending()[0]).toMatchObject({ code: 'SELECT 1', language: 'sql', label: 'Cohort' })
+    accepted.add('SELECT 1')
+    settle(true)
+    await expect(run).resolves.toBe(OK)
+  })
+
+  it('gives null and sends nothing more when the person declines', async () => {
+    const send = server(new Set())('SELECT 1')
+    const run = withSqlAcceptance('SELECT 1', undefined, send)
+    await vi.waitFor(() => expect(pending()).toHaveLength(1))
+    settle(false)
+    await expect(run).resolves.toBeNull()
+    expect(send).toHaveBeenCalledTimes(1)
   })
 })

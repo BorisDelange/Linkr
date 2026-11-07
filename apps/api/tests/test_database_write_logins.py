@@ -101,9 +101,8 @@ async def test_a_write_login_is_saved_and_tested_writable(client, monkeypatch):
 
     async def fake_test(config, password):
         tested.append((config["username"], password))
-        return True, None
 
-    monkeypatch.setattr(cohort_derive_service, "test_write_login", fake_test)
+    monkeypatch.setattr(cohort_derive_service, "probe_write_login", fake_test)
     headers = await _admin(client)
     ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
     closed = await _external(client, headers, ws, "closed")

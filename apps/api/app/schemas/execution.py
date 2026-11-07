@@ -194,3 +194,9 @@ class JobResponse(CamelModel):
     finished_at: datetime | None = None
     group_key: str | None = None
     group_label: str | None = None
+
+
+class AdminJobResponse(JobResponse):
+    """A job listed instance-wide for an administrator, with who started it."""
+
+    username: str | None = None

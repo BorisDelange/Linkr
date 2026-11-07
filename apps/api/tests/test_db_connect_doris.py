@@ -44,7 +44,7 @@ READ_ONLY_GRANTS = [{
 
 
 def test_doris_dsn_uses_the_mysql_keys():
-    assert db_connect._dsn(DORIS, None) == "host=doris.internal port=9030 database=omop user=reader"
+    assert db_connect._dsn(DORIS, None) == 'host="doris.internal" port=9030 database="omop" user="reader"'
 
 
 def test_doris_scope_is_its_database():
@@ -67,18 +67,17 @@ def test_doris_recipe_is_not_read_only_attach():
 def test_doris_attaches_without_read_only_and_checks_the_login():
     con = _FakeCon(READ_ONLY_GRANTS)
     db_connect._attach_external(con, "ext", DORIS, "it's")
-    attach = con.sql[0]
-    assert attach.endswith('AS "ext" (TYPE mysql)')
-    # The DSN's own quote is backslash-escaped, then doubled for the SQL literal.
-    assert "password=it\\''s" in attach
+    secret, attach = con.sql[0], con.sql[1]
+    assert attach.endswith('AS "ext" (TYPE mysql, SECRET "linkr_ext")')
+    assert "PASSWORD 'it''s'" in secret
     assert any("SHOW GRANTS" in s for s in con.sql)
 
 
 def test_mysql_still_attaches_read_only_without_a_grants_check():
     con = _FakeCon()
     db_connect._attach_external(con, "source", {**DORIS, "engine": "mysql"}, None)
-    assert con.sql == [con.sql[0]]
-    assert con.sql[0].endswith('AS "source" (TYPE mysql, READ_ONLY)')
+    assert len(con.sql) == 2
+    assert con.sql[1].endswith('AS "source" (TYPE mysql, READ_ONLY, SECRET "linkr_source")')
 
 
 def test_doris_login_that_can_write_is_refused():
@@ -451,6 +450,7 @@ def local_read(monkeypatch):
     monkeypatch.setattr(db_connect, "_connect", lambda extension: con)
     monkeypatch.setattr(db_connect, "_attach", lambda con, config, password: None)
     monkeypatch.setattr(db_connect, "_forbid_file_access", lambda con: None)
+    monkeypatch.setattr(db_connect, "_lock_down_user_sql", lambda con: None)
     monkeypatch.setattr(db_connect, "_external_search_path", lambda con, config: "ext")
 
     def run_read(con, search_path, sql, arrow):

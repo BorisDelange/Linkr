@@ -54,7 +54,7 @@ async def create(db: AsyncSession, data: WorkspaceCreate, owner: User) -> Worksp
 
 
 async def update(
-    db: AsyncSession, workspace: Workspace, data: WorkspaceUpdate
+    db: AsyncSession, workspace: Workspace, data: WorkspaceUpdate, editor: User | None = None
 ) -> Workspace:
     changes = data.model_dump(exclude_unset=True)
     if "default_env_options" in changes:
@@ -64,7 +64,7 @@ async def update(
     git_secret.apply_to_entity(workspace, changes)
     for key, value in changes.items():
         setattr(workspace, key, value)
-    await author_provenance.relink_creator_on_update(db, workspace, changes)
+    await author_provenance.relink_creator_on_update(db, workspace, changes, editor)
     await db.commit()
     await db.refresh(workspace)
     return workspace
@@ -117,13 +117,9 @@ async def delete(db: AsyncSession, workspace: Workspace) -> None:
             select(SqlScriptCollection.id).where(SqlScriptCollection.workspace_id == workspace_id)
         )).all(),
         "user-plugins": (await db.scalars(select(UserPlugin.id).where(UserPlugin.workspace_id == workspace_id))).all(),
-        "schema-presets": [
-            key
-            for row in (await db.execute(
-                select(SchemaPreset.id, SchemaPreset.preset_id).where(SchemaPreset.workspace_id == workspace_id)
-            )).all()
-            for key in row if key
-        ],
+        "schema-presets": (await db.scalars(
+            select(SchemaPreset.id).where(SchemaPreset.workspace_id == workspace_id)
+        )).all(),
     }
     job_ids = (await db.scalars(select(Job.id).where(
         or_(Job.workspace_id == workspace_id, Job.project_uid.in_(project_uids))

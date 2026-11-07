@@ -151,12 +151,26 @@ def _require_mirror_sources(project_uid: str, options: dict | None, *, lock_too:
                 "This environment's pyproject.toml declares a uv workspace, whose members are not "
                 "checked against the deployment's package mirror. Remove [tool.uv.workspace] from it."
             )
+        if _built_as_a_package(data):
+            raise ProvisionError(
+                "This environment's pyproject.toml builds the environment itself as a package ([build-system], "
+                "dynamic dependencies or [tool.uv] package = true), whose build code and requirements are not "
+                "checked against the deployment's package mirror. List the dependencies in [project] instead."
+            )
         for req in _manifest_requirements(data):
             reference = req.split(";", 1)[0].partition("@")[2].strip()
             if reference:
                 outside |= _hosts_outside(reference, allowed)
     if lock_too and lock.exists():
-        for url in _lock_urls(tomllib.loads(lock.read_text())):
+        locked = tomllib.loads(lock.read_text())
+        local = _lock_local_sources(locked)
+        if local:
+            raise ProvisionError(
+                "This environment's uv.lock installs from files on the server "
+                f"({', '.join(sorted(local))}), not from the deployment's package mirror. Remove those sources "
+                "from pyproject.toml; updating all packages then locks them again on the mirror."
+            )
+        for url in _lock_urls(locked):
             outside |= _hosts_outside(url, allowed)
     if outside:
         raise ProvisionError(
@@ -176,6 +190,30 @@ def _manifest_requirements(data: dict) -> list[str]:
         "dev-dependencies", "override-dependencies", "constraint-dependencies", "build-constraint-dependencies",
     )]
     return [req for group in groups if isinstance(group, list) for req in group if isinstance(req, str)]
+
+
+def _built_as_a_package(data: dict) -> bool:
+    """A managed environment is a virtual project: nothing of its own is built."""
+    dynamic = (data.get("project") or {}).get("dynamic") or []
+    tool_uv = (data.get("tool") or {}).get("uv") or {}
+    return (
+        "build-system" in data
+        or tool_uv.get("package") is True
+        or any(field in dynamic for field in ("dependencies", "optional-dependencies"))
+    )
+
+
+def _lock_local_sources(node) -> list[str]:
+    """What the lock would install from the server's own files. The only local
+    source a mirror allows is the virtual root itself."""
+    if isinstance(node, dict):
+        found = [str(v) for k, v in node.items() if k in ("path", "directory", "editable")]
+        if "virtual" in node and node["virtual"] != ".":
+            found.append(str(node["virtual"]))
+        return found + [p for v in node.values() for p in _lock_local_sources(v)]
+    if isinstance(node, list):
+        return [p for v in node for p in _lock_local_sources(v)]
+    return []
 
 
 def _lock_urls(node) -> list[str]:
@@ -276,9 +314,9 @@ async def build(project_uid: str, on_log=None, options: dict | None = None) -> B
         return BuildResult(ok=False, log=str(e))
     env = _uv_env(project_uid, options)
     if on_log is not None:
-        on_log(f"$ {settings.uv_bin} sync")
+        on_log(f"$ {settings.uv_bin} sync --no-install-project")
     proc = await asyncio.create_subprocess_exec(
-        settings.uv_bin, "sync",
+        settings.uv_bin, "sync", "--no-install-project",
         cwd=str(spec_dir),
         env=env,
         stdout=asyncio.subprocess.PIPE,

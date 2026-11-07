@@ -128,7 +128,7 @@ async def test_source_concept_ids_by_an_agent_are_notified(client):
         "workspaceId": ws, "part": "range", "action": "updated", "name": "2000000000–2001999999",
     }
 
-    entries = [{"id": f"e{i}", "workspaceId": ws, "badgeLabel": "Rennes", "vocabularyId": "LOCAL",
+    entries = [{"id": f"{ws}__Rennes__LOCAL__{i}", "workspaceId": ws, "badgeLabel": "Rennes", "vocabularyId": "LOCAL",
                 "conceptCode": str(i), "sourceConceptId": 2_000_000_000 + i} for i in range(3)]
     queue = notification_hub.subscribe(1)
     try:

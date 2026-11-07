@@ -23,7 +23,7 @@ export function queryFileSourceOnServer(
   projectId: string,
   sql: string,
 ): Promise<Record<string, unknown>[]> {
-  return apiRequest<Record<string, unknown>[]>(`${PROJ}/${projectId}/query`, {
+  return apiRequest<Record<string, unknown>[]>(`${PROJ}/${encodeURIComponent(projectId)}/query`, {
     method: 'POST',
     body: JSON.stringify({ sql }),
   })
@@ -46,14 +46,14 @@ export async function appendRawFileOnServer(
   text: string,
   reset = false,
 ): Promise<void> {
-  await apiRequest(`${PROJ}/${projectId}/raw-file/append`, {
+  await apiRequest(`${PROJ}/${encodeURIComponent(projectId)}/raw-file/append`, {
     method: 'POST',
     body: JSON.stringify({ text, reset }),
   })
 }
 
 export async function fetchRawFileFromServer(projectId: string): Promise<Uint8Array | null> {
-  const res = await apiFetch(`/api/v1${PROJ}/${projectId}/raw-file`)
+  const res = await apiFetch(`/api/v1${PROJ}/${encodeURIComponent(projectId)}/raw-file`)
   if (!res.ok) return null
   return new Uint8Array(await res.arrayBuffer())
 }
@@ -72,7 +72,7 @@ export async function fetchExportZipFromServer(
     for (const m of scores.methods) params.append('scoreMethods', m)
   }
   const query = params.size ? `?${params}` : ''
-  const res = await apiFetchFollowing(`/api/v1${PROJ}/${projectId}/export-zip${query}`)
+  const res = await apiFetchFollowing(`/api/v1${PROJ}/${encodeURIComponent(projectId)}/export-zip${query}`)
   // The route's only 400: a source-concepts file it cannot read, hence cannot mask.
   if (res.status === 400) throw new SourceConceptsUnreadableError()
   if (!res.ok) return null
@@ -200,7 +200,7 @@ async function uploadRawFile(projectId: string, project: Partial<MappingProject>
     const blob = new Blob([buffer as unknown as BlobPart], { type: 'application/octet-stream' })
     ;({ sha } = await uploadFileInChunks(blob, fileName))
   }
-  await apiRequest(`${PROJ}/${projectId}/raw-file`, {
+  await apiRequest(`${PROJ}/${encodeURIComponent(projectId)}/raw-file`, {
     method: 'POST',
     body: JSON.stringify({ sha, fileName }),
   })
@@ -233,7 +233,7 @@ async function patchServerRowCount(
     const total = typeof raw === 'number' ? raw : Number(raw)
     if (!Number.isFinite(total)) return
     const nextFsd = { ...fsd, rawFileBuffer: undefined, rows: [], totalRowCount: total }
-    await apiRequest(`${PROJ}/${projectId}`, {
+    await apiRequest(`${PROJ}/${encodeURIComponent(projectId)}`, {
       method: 'PATCH',
       body: JSON.stringify({ fileSourceData: nextFsd }),
     })
@@ -253,7 +253,7 @@ export const apiMappingProjectStorage: MappingProjectStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<MappingProject>(`${PROJ}/${id}`)
+      return await apiRequest<MappingProject>(`${PROJ}/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -276,7 +276,7 @@ export const apiMappingProjectStorage: MappingProjectStorage = {
     if ('versionedScoreMethods' in changes && changes.versionedScoreMethods === undefined) {
       body.versionedScoreMethods = null
     }
-    await apiRequest(`${PROJ}/${id}`, {
+    await apiRequest(`${PROJ}/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
     })
@@ -287,16 +287,16 @@ export const apiMappingProjectStorage: MappingProjectStorage = {
   },
 
   delete: async (id) => {
-    await apiRequest(`${PROJ}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${PROJ}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }
 
 export const apiConceptMappingStorage: ConceptMappingStorage = {
   getByProject: (projectId) =>
-    apiRequest<ConceptMapping[]>(`${PROJ}/${projectId}/mappings`),
+    apiRequest<ConceptMapping[]>(`${PROJ}/${encodeURIComponent(projectId)}/mappings`),
 
   getStats: (projectId) =>
-    apiRequest<MappingCountStats>(`${PROJ}/${projectId}/stats`),
+    apiRequest<MappingCountStats>(`${PROJ}/${encodeURIComponent(projectId)}/stats`),
 
   getMappedKeysForWorkspace: async (workspaceId, excludeProjectId) => {
     const keys = await apiRequest<string[]>(
@@ -320,11 +320,11 @@ export const apiConceptMappingStorage: ConceptMappingStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${MAP}/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    await apiRequest(`${MAP}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
   delete: async (id) => {
-    await apiRequest(`${MAP}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${MAP}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   deleteBatch: async (ids) => {
@@ -337,7 +337,7 @@ export const apiConceptMappingStorage: ConceptMappingStorage = {
   },
 
   deleteByProject: async (projectId) => {
-    await apiRequest(`${PROJ}/${projectId}/mappings`, { method: 'DELETE' })
+    await apiRequest(`${PROJ}/${encodeURIComponent(projectId)}/mappings`, { method: 'DELETE' })
   },
 
   deleteByProjectIds: async (projectIds) => {
@@ -366,7 +366,7 @@ export const apiServiceMappingStorage: ServiceMappingStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<ServiceMapping>(`${SVC}/${id}`)
+      return await apiRequest<ServiceMapping>(`${SVC}/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -377,11 +377,11 @@ export const apiServiceMappingStorage: ServiceMappingStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${SVC}/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    await apiRequest(`${SVC}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
   delete: async (id) => {
-    await apiRequest(`${SVC}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${SVC}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }
 

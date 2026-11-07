@@ -343,6 +343,11 @@ describe('database', () => {
     expect(at({ database: {}, cohort: {}, copiedUnproven: 'x' }).some((i) => i.pointer === '/derivedFrom/copiedUnproven' && i.severity === 'error')).toBe(true)
     expect(at({ database: {}, cohort: {}, copiedUnproven: ['x'] }).some((i) => i.pointer === '/derivedFrom/copiedUnproven')).toBe(false)
     expect(at('p').some((i) => i.severity === 'error')).toBe(true)
+    expect(at({
+      database: {}, cohort: {}, criteriaTree: {}, patientCount: 3, schemaName: 'dm_x', derivationId: 'tgt.dm_x',
+    }).filter((i) => i.severity === 'warning').map((i) => i.pointer).sort()).toEqual([
+      '/derivedFrom/derivationId', '/derivedFrom/patientCount', '/derivedFrom/schemaName',
+    ])
   })
 
   it('checks the options a derived database is rebuilt with', () => {
@@ -361,8 +366,15 @@ describe('database', () => {
       scope: 'patient', tables: [{ schema: null, table: 'person' }, { schema: 'icu', table: 'stays' }],
       variables: { conceptIds: [3004249], conceptNames: { 3004249: 'SBP' }, dictionaryKeys: ['vitals'] },
       birthPrecision: 'month',
-      pseudonymization: { method: 'hmac', keepKey: true, correspondence: { dataSourceId: 'k', schemaName: 'pseudo' } },
+      pseudonymization: { method: 'hmac', keepKey: true },
     })).toEqual([])
+    expect(at({
+      scope: 'patient',
+      pseudonymization: { method: 'hmac', keepKey: true, reuseKeyOf: 'k.s', correspondence: { dataSourceId: 'k', schemaName: 'pseudo' } },
+    }).sort()).toEqual([
+      '/derivedFrom/options/pseudonymization/correspondence',
+      '/derivedFrom/options/pseudonymization/reuseKeyOf',
+    ])
     expect(at({ scope: 'patient' })).toEqual([])
     expect(at('all')).toEqual(['/derivedFrom/options'])
     expect(at({

@@ -46,7 +46,7 @@ function makeStorage(): Storage {
     workspaces: { getById: async () => null, create: ok, update: ok },
     organizations: { getById: async () => null, create: ok },
     projects: { getById: async () => null, create: ok, update: ok, getAll: async () => [] },
-    dataSources: { getAll: async () => [] },
+    dataSources: { ...keyedStore('dataSources'), getAll: async () => [], getById: async () => null },
     etlPipelines: keyedStore('etlPipelines'),
     etlFiles: keyedStore('etlFiles'),
     sqlScriptCollections: keyedStore('sqlScriptCollections'),
@@ -91,6 +91,7 @@ const TREE: Record<string, unknown> = {
       etlFiles: { 'to-omop/scripts/10_person.sql': 'scripts/10_person.sql' },
       sqlCollections: ['checks'],
       sqlScriptFiles: { 'checks/scripts/count.sql': 'scripts/count.sql' },
+      databases: ['databases/remote/entity.json'],
     },
   },
   // Published manifests carry the portable `entityId` and no local `id`.
@@ -100,6 +101,10 @@ const TREE: Record<string, unknown> = {
   'ricdc/sql-scripts/checks/entity.json': { entityId: 'checks', type: 'sql-collection', name: { en: 'Checks' } },
   'ricdc/sql-scripts/checks/scripts/_tree.json': [{ path: 'count.sql', type: 'file', language: 'sql', order: 1 }],
   'ricdc/sql-scripts/checks/scripts/count.sql': 'SELECT 2',
+  'ricdc/databases/remote/entity.json': {
+    entityId: 'remote', type: 'database', name: { en: 'Remote' }, alias: 'remote',
+    connectionConfig: { engine: 'postgresql', host: '127.0.0.1', port: 55432, username: 'tree-user', password: 'tree-dummy-secret' },
+  },
   'ricdc/entity.json': { entityId: 'ricdc', name: { en: 'RiCDC' } },
   'ricdc/mapping-projects/adult-icu-rennes/entity.json': {
     entityId: 'adult-icu-rennes',
@@ -257,5 +262,14 @@ describe('seedWorkspaces — optional similarity scores', () => {
     await seedWorkspaces()
 
     expect(persistScoresFile).not.toHaveBeenCalled()
+  })
+})
+
+describe('seedWorkspaces — databases', () => {
+  it('never lets a seeded tree choose where a database connects or with which login', async () => {
+    const { seedWorkspaces } = await import('./seed-loader')
+    await seedWorkspaces()
+
+    expect(rows.dataSources?.map((d) => d.connectionConfig)).toEqual([{ engine: 'postgresql' }])
   })
 })

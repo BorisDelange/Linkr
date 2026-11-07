@@ -141,3 +141,87 @@ def test_under_a_mirror_no_part_of_the_manifest_reaches_another_host(tmp_path, m
     _spec_dir(tmp_path, monkeypatch, manifest)
     with pytest.raises(uv.ProvisionError):
         uv._require_mirror_sources("p", {}, lock_too=False)
+
+
+@pytest.mark.parametrize("manifest", [
+    (
+        '[project]\nname = "x"\nversion = "0"\ndynamic = ["dependencies"]\n'
+        '[build-system]\nrequires = ["setuptools"]\nbuild-backend = "setuptools.build_meta"\n'
+    ),
+    '[project]\nname = "x"\nversion = "0"\ndynamic = ["optional-dependencies"]\n',
+    (
+        '[project]\nname = "x"\nversion = "0"\ndependencies = []\n'
+        '[build-system]\nrequires = []\nbuild-backend = "vb"\nbackend-path = ["../../scripts/inner"]\n'
+    ),
+    '[project]\nname = "x"\nversion = "0"\ndependencies = []\n[tool.uv]\npackage = true\n',
+])
+def test_under_a_mirror_the_environment_is_never_built_as_a_package(tmp_path, monkeypatch, manifest):
+    _mirror(monkeypatch)
+    _spec_dir(tmp_path, monkeypatch, manifest)
+    with pytest.raises(uv.ProvisionError):
+        uv._require_mirror_sources("p", {}, lock_too=False)
+
+
+_LOCAL_LOCK = """\
+version = 1
+
+[[package]]
+name = "x"
+version = "0"
+source = {{ virtual = "." }}
+
+[[package]]
+name = "evil"
+version = "1.0"
+source = {source}
+{extra}
+"""
+
+
+@pytest.mark.parametrize("source, extra", [
+    ('{ directory = "../../scripts/evilpkg" }', ""),
+    ('{ editable = "../../scripts/evilpkg" }', ""),
+    ('{ path = "/srv/evil-1.0-py3-none-any.whl" }', ""),
+    ('{ virtual = "../../scripts/evilpkg" }', ""),
+    ('{ registry = "https://pypi.chu.local/simple" }', 'wheels = [{ path = "/srv/evil-1.0-py3-none-any.whl" }]'),
+])
+def test_under_a_mirror_a_lock_never_installs_from_local_files(tmp_path, monkeypatch, source, extra):
+    _mirror(monkeypatch)
+    _spec_dir(tmp_path, monkeypatch, '[project]\nname = "x"\nversion = "0"\ndependencies = ["evil"]\n',
+              _LOCAL_LOCK.format(source=source, extra=extra))
+    with pytest.raises(uv.ProvisionError):
+        uv._require_mirror_sources("p", {}, lock_too=True)
+
+
+def test_under_a_mirror_a_virtual_root_with_mirror_packages_is_synced(tmp_path, monkeypatch):
+    _mirror(monkeypatch)
+    _spec_dir(tmp_path, monkeypatch, '[project]\nname = "x"\nversion = "0"\ndependencies = ["evil"]\n',
+              _LOCAL_LOCK.format(source='{ registry = "https://pypi.chu.local/simple" }',
+                                 extra='wheels = [{ url = "https://pypi.chu.local/f/evil.whl" }]'))
+    uv._require_mirror_sources("p", {}, lock_too=True)
+
+
+def test_a_build_never_installs_the_environment_itself(tmp_path, monkeypatch):
+    _spec_dir(tmp_path, monkeypatch, '[project]\nname = "x"\nversion = "0"\ndependencies = []\n')
+    argv: list[tuple] = []
+
+    class _Proc:
+        stdout = None
+
+        async def wait(self):
+            return 0
+
+    async def fake_exec(*args, **kwargs):
+        argv.append(args)
+        proc = _Proc()
+
+        async def lines():
+            if False:
+                yield b""
+
+        proc.stdout = lines()
+        return proc
+
+    monkeypatch.setattr(uv.asyncio, "create_subprocess_exec", fake_exec)
+    assert uv.asyncio.run(uv.build("p")).ok
+    assert "--no-install-project" in argv[0]

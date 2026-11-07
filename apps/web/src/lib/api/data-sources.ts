@@ -40,7 +40,7 @@ export function testConnectionOnServer(
 /** Who would compute `sql` on the server (`execution`), asked without running it.
  *  Null where the server has no say: a database the pushdown does not serve. */
 export async function planQueryOnServer(dataSourceId: string, sql: string): Promise<QueryExecution | null> {
-  const res = await apiRequest<{ execution?: QueryExecution | null }>(`/data-sources/${dataSourceId}/query`, {
+  const res = await apiRequest<{ execution?: QueryExecution | null }>(`/data-sources/${encodeURIComponent(dataSourceId)}/query`, {
     method: 'POST',
     body: JSON.stringify({ sql, pushdown: true, plan: true }),
   })
@@ -73,7 +73,7 @@ export async function queryDataSourceOnServer(
 ): Promise<Record<string, unknown>[]> {
   const res = await cancellableOnServer(dataSourceId, signal, (queryId) =>
     apiRequest<{ rows: Record<string, unknown>[]; execution?: QueryExecution | null }>(
-      `/data-sources/${dataSourceId}/query`,
+      `/data-sources/${encodeURIComponent(dataSourceId)}/query`,
       {
         method: 'POST',
         body: JSON.stringify({
@@ -110,7 +110,7 @@ export async function cancellableOnServer<T>(
   const aborted = new Promise<never>((_, reject) => { rejectOnAbort = reject })
   const onAbort = () => {
     rejectOnAbort(signal.reason)
-    void apiRequest(`/data-sources/${dataSourceId}/query/cancel`, {
+    void apiRequest(`/data-sources/${encodeURIComponent(dataSourceId)}/query/cancel`, {
       method: 'POST',
       body: JSON.stringify({ queryId }),
     }).catch(() => {})
@@ -143,7 +143,7 @@ export function createFromDdlOnServer(
    *  the file was first created on a rebuild. */
   path?: string,
 ): Promise<{ connectionConfig?: ConnectionConfig }> {
-  return apiRequest(`/data-sources/${dataSourceId}/create-from-ddl`, {
+  return apiRequest(`/data-sources/${encodeURIComponent(dataSourceId)}/create-from-ddl`, {
     method: 'POST',
     body: JSON.stringify({ ddl, path }),
   })
@@ -175,7 +175,7 @@ export interface DerivePlanTable {
 /** What deriving a cohort of this database at `level`, keeping `scope`, would
  *  do with each table. */
 export function fetchDerivePlan(dataSourceId: string, level: CohortLevel, scope?: DeriveScope): Promise<DerivePlanTable[]> {
-  return apiRequest(`/data-sources/${dataSourceId}/derive-plan`, {
+  return apiRequest(`/data-sources/${encodeURIComponent(dataSourceId)}/derive-plan`, {
     method: 'POST',
     body: JSON.stringify({ level, ...(scope ? { scope } : {}) }),
   })
@@ -236,7 +236,7 @@ export interface DeriveRequest {
  * workspace — the footer's jobs panel follows it from there.
  */
 export async function deriveOnServer(dataSourceId: string, body: DeriveRequest): Promise<Job> {
-  const job = await apiRequest<Job>(`/data-sources/${dataSourceId}/derive`, {
+  const job = await apiRequest<Job>(`/data-sources/${encodeURIComponent(dataSourceId)}/derive`, {
     method: 'POST',
     body: JSON.stringify(body),
   })
@@ -247,7 +247,7 @@ export async function deriveOnServer(dataSourceId: string, body: DeriveRequest):
 /** Delete a database; `deleteData` also removes the file or SQL schema Linkr
  *  created for it. */
 export function deleteDataSourceOnServer(dataSourceId: string, opts: { deleteData: boolean }): Promise<void> {
-  return apiRequest(`/data-sources/${dataSourceId}?deleteData=${opts.deleteData}`, { method: 'DELETE' })
+  return apiRequest(`/data-sources/${encodeURIComponent(dataSourceId)}?deleteData=${opts.deleteData}`, { method: 'DELETE' })
 }
 
 /**
@@ -256,7 +256,7 @@ export function deleteDataSourceOnServer(dataSourceId: string, opts: { deleteDat
  * old one is gone afterwards. Returns the source with its new config.
  */
 export function moveDatabaseFileOnServer(dataSourceId: string, path?: string): Promise<DataSource> {
-  return apiRequest(`/data-sources/${dataSourceId}/move-file`, {
+  return apiRequest(`/data-sources/${encodeURIComponent(dataSourceId)}/move-file`, {
     method: 'POST',
     body: JSON.stringify({ path: path ?? null }),
   })
@@ -277,7 +277,7 @@ export async function runEtlOnServer(
   mappingData: Record<string, string> = {},
 ): Promise<Record<string, unknown>[]> {
   const res = await apiRequest<{ rows: Record<string, unknown>[] }>(
-    `/data-sources/${dataSourceId}/etl-run`,
+    `/data-sources/${encodeURIComponent(dataSourceId)}/etl-run`,
     { method: 'POST', body: JSON.stringify({ sql, roles, mappingData }) },
   )
   return res.rows
@@ -286,7 +286,7 @@ export async function runEtlOnServer(
 /** Stop the ETL run writing to this database, whoever started it. Resolves at
  *  once; the run then rolls back and frees the file. */
 export function stopEtlRunOnServer(dataSourceId: string): Promise<void> {
-  return apiRequest(`/data-sources/${dataSourceId}/etl-run/stop`, { method: 'POST' })
+  return apiRequest(`/data-sources/${encodeURIComponent(dataSourceId)}/etl-run/stop`, { method: 'POST' })
 }
 
 /** The server's 409 when an ETL run holds the database file: DuckDB cannot open
@@ -345,7 +345,7 @@ export function retestConnectionOnServer(
   dataSourceId: string,
   opts?: { promptLogin?: boolean },
 ): Promise<TestConnectionResult> {
-  return apiRequest<TestConnectionResult>(`/data-sources/${dataSourceId}/retest`, {
+  return apiRequest<TestConnectionResult>(`/data-sources/${encodeURIComponent(dataSourceId)}/retest`, {
     method: 'POST',
   }, opts)
 }
@@ -358,7 +358,7 @@ export function retestConnectionOnServer(
 export function fetchDataSourceSchema(
   dataSourceId: string,
 ): Promise<IntrospectedTable[]> {
-  return apiRequest<IntrospectedTable[]>(`/data-sources/${dataSourceId}/schema`)
+  return apiRequest<IntrospectedTable[]>(`/data-sources/${encodeURIComponent(dataSourceId)}/schema`)
 }
 
 /** One queryable table of a Parquet source, with the path(s) a script would read. */
@@ -404,7 +404,7 @@ export interface DatabaseConnectionInfo {
 export function fetchDatabaseConnectionInfo(
   dataSourceId: string,
 ): Promise<DatabaseConnectionInfo> {
-  return apiRequest<DatabaseConnectionInfo>(`/data-sources/${dataSourceId}/connection-info`)
+  return apiRequest<DatabaseConnectionInfo>(`/data-sources/${encodeURIComponent(dataSourceId)}/connection-info`)
 }
 
 export interface CompactStatus {
@@ -428,12 +428,12 @@ export interface CompactStatus {
  * table left behind. Server mode only, managed databases only.
  */
 export function compactDatabase(dataSourceId: string): Promise<CompactStatus> {
-  return apiRequest<CompactStatus>(`/data-sources/${dataSourceId}/compact`, { method: 'POST' })
+  return apiRequest<CompactStatus>(`/data-sources/${encodeURIComponent(dataSourceId)}/compact`, { method: 'POST' })
 }
 
 /** Progress of the compaction started by `compactDatabase`. */
 export function fetchCompactStatus(dataSourceId: string): Promise<CompactStatus> {
-  return apiRequest<CompactStatus>(`/data-sources/${dataSourceId}/compact`)
+  return apiRequest<CompactStatus>(`/data-sources/${encodeURIComponent(dataSourceId)}/compact`)
 }
 
 /**
@@ -453,7 +453,7 @@ export const apiDataSourceStorage: DataSourceStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<DataSource>(`/data-sources/${id}`)
+      return await apiRequest<DataSource>(`/data-sources/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -464,11 +464,11 @@ export const apiDataSourceStorage: DataSourceStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`/data-sources/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    await apiRequest(`/data-sources/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
   delete: async (id) => {
-    await apiRequest(`/data-sources/${id}`, { method: 'DELETE' })
+    await apiRequest(`/data-sources/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }
 
@@ -483,7 +483,7 @@ interface FileMeta {
 }
 
 async function fetchBlob(fileId: string): Promise<ArrayBuffer> {
-  const res = await apiFetch(`/api/v1/data-sources/files/${fileId}/blob`)
+  const res = await apiFetch(`/api/v1/data-sources/files/${encodeURIComponent(fileId)}/blob`)
   if (!res.ok) throw new Error(`blob fetch failed (${res.status})`)
   return res.arrayBuffer()
 }
@@ -513,14 +513,14 @@ async function toStoredFile(meta: FileMeta): Promise<StoredFile> {
  */
 export const apiFileStorage: FileStorage = {
   getByDataSource: async (dataSourceId) => {
-    const metas = await apiRequest<FileMeta[]>(`/data-sources/${dataSourceId}/files`)
+    const metas = await apiRequest<FileMeta[]>(`/data-sources/${encodeURIComponent(dataSourceId)}/files`)
     return Promise.all(metas.map(toStoredFile))
   },
 
   getById: async (id) => {
     // No single-file metadata endpoint; the blob carries the filename header.
     try {
-      const res = await apiFetch(`/api/v1/data-sources/files/${id}/blob`)
+      const res = await apiFetch(`/api/v1/data-sources/files/${encodeURIComponent(id)}/blob`)
       if (!res.ok) return undefined
       const data = await res.arrayBuffer()
       return {
@@ -546,13 +546,13 @@ export const apiFileStorage: FileStorage = {
   },
 
   delete: async (id) => {
-    await apiRequest(`/data-sources/files/${id}`, { method: 'DELETE' })
+    await apiRequest(`/data-sources/files/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   deleteByDataSource: async (dataSourceId) => {
-    const metas = await apiRequest<FileMeta[]>(`/data-sources/${dataSourceId}/files`)
+    const metas = await apiRequest<FileMeta[]>(`/data-sources/${encodeURIComponent(dataSourceId)}/files`)
     await Promise.all(
-      metas.map((m) => apiRequest(`/data-sources/files/${m.id}`, { method: 'DELETE' })),
+      metas.map((m) => apiRequest(`/data-sources/files/${encodeURIComponent(m.id)}`, { method: 'DELETE' })),
     )
   },
 
@@ -581,5 +581,5 @@ export interface FlightStatus {
 }
 
 export function fetchFlightStatus(dataSourceId: string): Promise<FlightStatus> {
-  return apiRequest<FlightStatus>(`/data-sources/${dataSourceId}/flight`)
+  return apiRequest<FlightStatus>(`/data-sources/${encodeURIComponent(dataSourceId)}/flight`)
 }

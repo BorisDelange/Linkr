@@ -23,7 +23,7 @@ from app.config import settings
 from app.core.deps import get_current_user
 from app.models.user import User
 from app.schemas.base import CamelModel
-from app.services import blob_store
+from app.services import blob_store, upload_ledger
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 
@@ -55,6 +55,13 @@ def _incoming_bytes(user_id: int | None = None) -> int:
     return sum(n for owner, n in _incoming.values() if user_id is None or owner == user_id)
 
 
+def limits_off() -> bool:
+    """Neither a free-space reserve nor a quota: any account can fill the data volume,
+    which in the shipped compose holds the app database. Off by default so that an
+    upgrade refuses no upload; the API says so at boot."""
+    return settings.upload_free_space_reserve_mb <= 0 and settings.upload_quota_mb <= 0
+
+
 def _require_room(incoming: int) -> None:
     """Writing `incoming` more bytes leaves the free space reserve untouched."""
     reserve_mb = settings.upload_free_space_reserve_mb
@@ -69,24 +76,10 @@ def _require_room(incoming: int) -> None:
         )
 
 
-def _ledger_path(user_id: int) -> Path:
-    return settings.data_path / "_uploads" / f"{user_id}.ledger"
-
-
-def _record_upload(user_id: int, sha: str, size: int) -> None:
-    # Written with the quota off too, so turning it on counts what is already held.
-    # No room for this line must not fail an upload that succeeded.
-    with contextlib.suppress(OSError):
-        path = _ledger_path(user_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a") as f:
-            f.write(f"{sha} {size}\n")
-
-
 def _blobs_held(user_id: int) -> int:
     """Bytes of what this user uploaded that the blob store still holds, whether
     a row references it yet or not. A blob another user uploaded too counts for both."""
-    path = _ledger_path(user_id)
+    path = upload_ledger.path_for(user_id)
     if not path.exists():
         return 0
     recorded = dict(line.split() for line in path.read_text().splitlines())
@@ -313,6 +306,6 @@ async def complete_upload(upload_id: str, user: User = Depends(get_current_user)
     assembled = await asyncio.to_thread(_assemble, d, total)
     sha, size = await blob_store.store_file(assembled)
     await asyncio.to_thread(_drop_session, d)
-    await asyncio.to_thread(_record_upload, user.id, sha, size)
+    await asyncio.to_thread(upload_ledger.record, user.id, sha, size)
 
     return CompleteResponse(sha=sha, size=size, file_name=meta["fileName"])

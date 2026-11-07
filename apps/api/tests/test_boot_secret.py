@@ -1,4 +1,4 @@
-"""An instance does not boot on the shipped default key, and is warned about any other weak one."""
+"""An instance does not boot on a key a shipped example names, and is warned about a short one."""
 
 import pytest
 
@@ -15,16 +15,17 @@ def test_a_generated_signing_key_is_not():
     assert not main.weak_secret_key("suitably-long-random-looking-value-0123456789")
 
 
-async def test_the_app_refuses_to_start_on_the_shipped_default(monkeypatch):
-    monkeypatch.setattr(settings, "secret_key", "dev-secret-change-in-production")
+@pytest.mark.parametrize("key", ["dev-secret-change-in-production", "change-me", "CHANGE-ME", " changeme "])
+async def test_the_app_refuses_to_start_on_a_key_an_example_names(monkeypatch, key):
+    monkeypatch.setattr(settings, "secret_key", key)
     monkeypatch.setattr(settings, "debug", False)
     with pytest.raises(RuntimeError, match="LINKR_SECRET_KEY"):
         async with main.lifespan(main.app):
             pass
 
 
-@pytest.mark.parametrize("key", ["change-me", "a-key-of-15-char"])
-async def test_an_instance_running_on_another_weak_key_still_starts_and_is_warned(monkeypatch, key):
+@pytest.mark.parametrize("key", ["a-key-of-15-char", "short"])
+async def test_an_instance_running_on_a_short_key_still_starts_and_is_warned(monkeypatch, key):
     class Reached(Exception):
         pass
 

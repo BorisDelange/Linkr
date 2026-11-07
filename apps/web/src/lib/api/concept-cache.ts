@@ -104,7 +104,7 @@ export async function getRelationRecords(
 export async function getConceptStats<T>(sourceId: string, conceptId: number): Promise<T | undefined> {
   try {
     const res = await apiRequest<{ stats: T }>(
-      `/data-sources/${encodeURIComponent(sourceId)}/concept-stats/${conceptId}`,
+      `/data-sources/${encodeURIComponent(sourceId)}/concept-stats/${encodeURIComponent(conceptId)}`,
     )
     return res.stats
   } catch {
@@ -119,7 +119,7 @@ export function saveConceptStats<T>(
   stats: T,
 ): Promise<void> {
   return apiRequest(
-    `/data-sources/${encodeURIComponent(sourceId)}/concept-stats/${conceptId}`,
+    `/data-sources/${encodeURIComponent(sourceId)}/concept-stats/${encodeURIComponent(conceptId)}`,
     { method: 'PUT', body: JSON.stringify({ stats }) },
   ).then(() => undefined)
 }

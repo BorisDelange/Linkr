@@ -34,10 +34,12 @@ import tempfile
 import zipfile
 import zlib
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
 
+import httpx
 import structlog
 
 from app.config import settings
@@ -305,6 +307,11 @@ def _reject_internal_host(url: str) -> None:
     host = parts.hostname
     if not host:
         raise GitError("remote URL has no host", "network")
+    # git's http client decodes a percent-encoded host (an IPv6 zone id included)
+    # and maps *.localhost to loopback, neither of which the lookup below sees.
+    bare = host.rstrip(".")
+    if "%" in host or bare == "localhost" or bare.endswith(".localhost"):
+        raise GitError("remote host is not allowed (internal address)", "network")
     try:
         infos = socket.getaddrinfo(host, parts.port or (443 if parts.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
     except OSError:
@@ -428,6 +435,8 @@ def _git_env() -> dict:
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_ASKPASS": "true",
+        # LFS content comes only through _lfs_pull, which checks where it is sent.
+        "GIT_LFS_SKIP_SMUDGE": "1",
         # No user/system gitconfig → no inherited credential.helper.
         "HOME": "/nonexistent-linkr-git-home",
         "GIT_CONFIG_NOSYSTEM": "1",
@@ -691,7 +700,209 @@ def _lfs_env(remote_url: str) -> dict:
     return env
 
 
-def _lfs_pull(repo: Path, token: str | None, remote_url: str) -> str | None:
+_LFS_MEDIA_TYPE = "application/vnd.git-lfs+json"
+_LFS_BATCH_SIZE = 100
+_LFS_MAX_REDIRECTS = 3
+_LFS_WORKERS = 4
+_LFS_SIZE_RE = re.compile(rb"^size (\d+)$", re.MULTILINE)
+
+
+class _LfsTransferRefused(Exception):
+    pass
+
+
+def _lfs_pointers(repo: Path, include: str | None) -> dict[str, tuple[int, list[Path]]]:
+    """The tree's LFS pointers: {oid: (size, the files naming it)}."""
+    found: dict[str, tuple[int, list[Path]]] = {}
+    for path in ([repo / include] if include else _tree_files(repo)):
+        if not path.is_file() or not _is_lfs_pointer(path):
+            continue
+        data = path.read_bytes()
+        oid, size = _lfs_pointer_oid(data), _LFS_SIZE_RE.search(data)
+        if oid and size:
+            found.setdefault(oid, (int(size.group(1)), []))[1].append(path)
+    return found
+
+
+def _lfs_download(client: httpx.Client, action: dict, auth, auth_host: str | None, oid: str, size: int, dest: Path) -> None:
+    """One object into `dest`, its hash checked. Where it lives is the server's answer,
+    so every hop passes the check a remote URL passes; git-lfs follows such a link
+    with no check, which is why it does not fetch them."""
+    url, headers = action["href"], dict(action.get("header") or {})
+    for _ in range(_LFS_MAX_REDIRECTS + 1):
+        _reject_internal_host(url)
+        same_host = urlsplit(url).hostname == auth_host
+        with client.stream("GET", url, headers=headers, auth=auth if same_host and "Authorization" not in headers else None) as res:
+            if res.is_redirect:
+                url = urljoin(url, res.headers.get("location", ""))
+                if urlsplit(url).hostname != auth_host:
+                    headers = {}
+                continue
+            if res.status_code != 200:
+                raise _LfsTransferRefused(f"HTTP {res.status_code}")
+            digest, written = hashlib.sha256(), 0
+            with dest.open("wb") as f:
+                for chunk in res.iter_bytes():
+                    written += len(chunk)
+                    if written > size:
+                        raise _LfsTransferRefused("larger than its pointer says")
+                    digest.update(chunk)
+                    f.write(chunk)
+            if written != size or digest.hexdigest() != oid:
+                raise _LfsTransferRefused("content is not what its pointer names")
+            return
+    raise _LfsTransferRefused("too many redirects")
+
+
+def _lfs_pull_http(repo: Path, remote_url: str, include: str | None) -> str | None:
+    """The LFS batch download of an http(s) remote. `None`, `"auth"` or `"other"`,
+    as `_lfs_pull`."""
+    pointers = _lfs_pointers(repo, include)
+    if not pointers:
+        return None
+    parts = urlsplit(_lfs_endpoint(remote_url))
+    auth = httpx.BasicAuth(unquote(parts.username), unquote(parts.password or "")) if parts.username else None
+    batch_url = urlunsplit(parts._replace(netloc=parts.netloc.rsplit("@", 1)[-1], path=f"{parts.path}/objects/batch"))
+    tmp = repo / ".git" / "linkr-lfs"
+    tmp.mkdir(exist_ok=True)
+    try:
+        _reject_internal_host(batch_url)
+        oids = list(pointers)
+        with httpx.Client(timeout=httpx.Timeout(_LFS_TIMEOUT, connect=30), follow_redirects=False) as client:
+            for start in range(0, len(oids), _LFS_BATCH_SIZE):
+                wanted = [{"oid": oid, "size": pointers[oid][0]} for oid in oids[start:start + _LFS_BATCH_SIZE]]
+                res = client.post(
+                    batch_url, auth=auth,
+                    headers={"Accept": _LFS_MEDIA_TYPE, "Content-Type": _LFS_MEDIA_TYPE},
+                    json={"operation": "download", "transfers": ["basic"], "objects": wanted},
+                )
+                if res.status_code in (401, 403):
+                    return "auth"
+                if res.status_code != 200:
+                    raise _LfsTransferRefused(f"batch answered HTTP {res.status_code}")
+
+                def fetch(entry: dict) -> None:
+                    oid, action = entry["oid"], entry["actions"]["download"]
+                    if oid not in pointers:
+                        raise _LfsTransferRefused("an object nobody asked for")
+                    dest = tmp / oid
+                    _lfs_download(client, action, auth, parts.hostname, oid, pointers[oid][0], dest)
+                    for path in pointers[oid][1]:
+                        shutil.copyfile(dest, path)
+                    dest.unlink()
+
+                with ThreadPoolExecutor(_LFS_WORKERS) as pool:
+                    list(pool.map(fetch, res.json()["objects"]))
+    except (httpx.HTTPError, GitError, _LfsTransferRefused, KeyError, TypeError, ValueError, OSError) as exc:
+        logger.warning("git lfs download failed: %s", _scrub(str(exc), parts.password))
+        return "other"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return None
+
+
+def _lfs_new_objects(repo: Path, commit: str, base: str | None) -> dict[str, int]:
+    """The LFS objects `commit`'s tree names that `base`'s does not: {oid: size}."""
+    known = set(_tree_oids(repo, base).values())
+    found: dict[str, int] = {}
+    for line in _run(repo, "ls-tree", "-r", "-l", commit).splitlines():
+        meta = line.partition("\t")[0].split()
+        if len(meta) != 4 or meta[1] != "blob" or meta[2] in known or not meta[3].isdigit():
+            continue
+        if int(meta[3]) > _LFS_POINTER_MAX_BYTES:
+            continue
+        data = _blob_bytes(repo, meta[2])
+        oid, size = _lfs_pointer_oid(data), _LFS_SIZE_RE.search(data or b"")
+        if oid and size:
+            found[oid] = int(size.group(1))
+    return found
+
+
+def _lfs_action(client: httpx.Client, method: str, action: dict, auth, auth_host: str | None, **kwargs) -> None:
+    """One upload or verify call. The address is the server's answer, so it passes
+    the check a remote URL passes, and a redirect is not followed."""
+    url, headers = action["href"], {**(action.get("header") or {}), **kwargs.pop("headers", {})}
+    _reject_internal_host(url)
+    same_host = urlsplit(url).hostname == auth_host
+    res = client.request(
+        method, url, headers=headers, auth=auth if same_host and "Authorization" not in headers else None, **kwargs,
+    )
+    if not 200 <= res.status_code < 300:
+        raise _LfsTransferRefused(f"{method} answered HTTP {res.status_code}")
+
+
+def _lfs_push_http(repo: Path, push_url: str, commit: str, base: str | None) -> None:
+    """Send the LFS objects `commit` adds over `base` to an http(s) remote's LFS
+    endpoint, before its refs. git-lfs would send them wherever the batch answer
+    says, so the push runs with GIT_LFS_SKIP_PUSH and this does it. Raises GitError."""
+    objects = _lfs_new_objects(repo, commit, base)
+    if not objects:
+        return
+    parts = urlsplit(_lfs_endpoint(push_url))
+    auth = httpx.BasicAuth(unquote(parts.username), unquote(parts.password or "")) if parts.username else None
+    batch_url = urlunsplit(parts._replace(netloc=parts.netloc.rsplit("@", 1)[-1], path=f"{parts.path}/objects/batch"))
+    store = repo / ".git" / "lfs" / "objects"
+
+    def upload(client: httpx.Client, entry: dict) -> None:
+        oid, actions = entry["oid"], entry.get("actions") or {}
+        if entry.get("error"):
+            raise _LfsTransferRefused(f"the server refused an object: {entry['error'].get('message', '')}")
+        if oid not in objects or "upload" not in actions:
+            return
+        path = store / oid[:2] / oid[2:4] / oid
+        if not path.is_file():
+            raise _LfsTransferRefused(f"object {oid} is not in the local store")
+
+        def chunks():
+            with path.open("rb") as f:
+                while chunk := f.read(1024 * 1024):
+                    yield chunk
+
+        _lfs_action(
+            client, "PUT", actions["upload"], auth, parts.hostname, content=chunks(),
+            headers={"Content-Type": "application/octet-stream", "Content-Length": str(objects[oid])},
+        )
+        if "verify" in actions:
+            _lfs_action(
+                client, "POST", actions["verify"], auth, parts.hostname,
+                json={"oid": oid, "size": objects[oid]},
+                headers={"Accept": _LFS_MEDIA_TYPE, "Content-Type": _LFS_MEDIA_TYPE},
+            )
+
+    try:
+        _reject_internal_host(batch_url)
+        oids = list(objects)
+        with httpx.Client(timeout=httpx.Timeout(_LFS_TIMEOUT, connect=30), follow_redirects=False) as client:
+            for start in range(0, len(oids), _LFS_BATCH_SIZE):
+                wanted = [{"oid": oid, "size": objects[oid]} for oid in oids[start:start + _LFS_BATCH_SIZE]]
+                res = client.post(
+                    batch_url, auth=auth,
+                    headers={"Accept": _LFS_MEDIA_TYPE, "Content-Type": _LFS_MEDIA_TYPE},
+                    json={"operation": "upload", "transfers": ["basic"], "objects": wanted},
+                )
+                if res.status_code in (401, 403):
+                    raise GitError("the LFS server refused the credentials", "auth_failed")
+                if res.status_code != 200:
+                    raise _LfsTransferRefused(f"batch answered HTTP {res.status_code}")
+                with ThreadPoolExecutor(_LFS_WORKERS) as pool:
+                    list(pool.map(lambda entry: upload(client, entry), res.json()["objects"]))
+    except GitError as exc:
+        raise GitError(_scrub(str(exc), parts.password), exc.code) from exc
+    except (httpx.HTTPError, _LfsTransferRefused, KeyError, TypeError, ValueError, OSError) as exc:
+        raise GitError(f"LFS upload failed: {_scrub(str(exc), parts.password)}") from exc
+
+
+def _push_env(repo: Path, push_url: str, commit: str, base: str | None) -> dict:
+    """The environment of the ref push, once an http(s) remote got its LFS objects
+    from `_lfs_push_http`. An ssh remote's are left to git-lfs, as its pull is."""
+    env = _lfs_env(push_url)
+    if urlsplit(push_url).scheme in ("http", "https") and _has_git_lfs():
+        _lfs_push_http(repo, push_url, commit, base)
+        env["GIT_LFS_SKIP_PUSH"] = "1"
+    return env
+
+
+def _lfs_pull(repo: Path, token: str | None, remote_url: str, include: str | None = None) -> str | None:
     """Download this repo's LFS objects from `remote_url`'s own LFS endpoint (with
     the credentials it carries). Returns None on success, else why it failed.
 
@@ -700,9 +911,11 @@ def _lfs_pull(repo: Path, token: str | None, remote_url: str) -> str | None:
     else (network, missing objects, timeout). Never raises: the tree and its
     metadata are still worth returning without the large files.
     """
+    if urlsplit(remote_url).scheme in ("http", "https"):
+        return _lfs_pull_http(repo, remote_url, include)
     try:
         proc = subprocess.run(
-            ["git", "-C", str(repo), "lfs", "pull"],
+            ["git", "-C", str(repo), "lfs", "pull", *(["--include", include] if include else [])],
             # LFS pulls the file CONTENT, which is the whole point of tracking it —
             # a demo database is tens of files. The plain git timeout is sized for
             # refs and metadata, so reusing it made an ordinary dataset look like a
@@ -730,8 +943,17 @@ def _ensure_lfs(repo: Path) -> None:
 
 
 def _ensure_repo(repo: Path, remote_url: str | None) -> None:
-    """Init the repo (idempotent) and set/refresh 'origin' without credentials."""
+    """Init the repo (idempotent) and set/refresh 'origin' without credentials.
+
+    The repository is shared by every user of the entity, and what it holds was
+    fetched from its remote with the token of whoever fetched it, so it is bound to
+    that remote: once the entity is unlinked or linked elsewhere, it starts empty
+    and its content is reachable again only through the remote, with the caller's
+    own credentials."""
     repo.mkdir(parents=True, exist_ok=True)
+    if (repo / ".git").is_dir() and _run(repo, "remote", "get-url", "origin", check=False).strip() != (remote_url or ""):
+        shutil.rmtree(repo)
+        repo.mkdir(parents=True)
     if not (repo / ".git").is_dir():
         _run(repo, "init", "-q")
         _run(repo, "config", "user.name", _COMMIT_NAME)
@@ -743,11 +965,8 @@ def _ensure_repo(repo: Path, remote_url: str | None) -> None:
     # then commit as a normal blob (see the Dockerfile which installs git-lfs).
     _ensure_lfs(repo)
     if remote_url:
-        current = _run(repo, "remote", "get-url", "origin", check=False).strip()
-        if not current:
+        if not _run(repo, "remote", "get-url", "origin", check=False).strip():
             _run(repo, "remote", "add", "origin", remote_url)
-        elif current != remote_url:
-            _run(repo, "remote", "set-url", "origin", remote_url)
         # Every LFS transfer of this tree (smudge on checkout, pre-push upload) goes
         # to the remote's own endpoint, never one the content names (_lfs_env).
         for key in _LFS_ENDPOINT_KEYS:
@@ -1117,10 +1336,7 @@ def _materialize_at(
         _run(repo, "lfs", "install", "--local", check=False)
         _run(repo, "remote", "set-url", "origin", ls_url, check=False)
         try:
-            subprocess.run(
-                ["git", "-C", str(repo), "lfs", "pull", "--include", path],
-                capture_output=True, text=True, timeout=_GIT_TIMEOUT, env=_lfs_env(ls_url),
-            )
+            _lfs_pull(repo, token, ls_url, include=path)
         finally:
             _run(repo, "remote", "set-url", "origin", remote_url, check=False)
         data = target.read_bytes()
@@ -1562,6 +1778,15 @@ def _tree_oids(repo: Path, commit: str | None) -> dict[str, str]:
     return oids
 
 
+def _is_ancestor(repo: Path, commit: str, of: str) -> bool:
+    """True when `commit` is `of` or one of its ancestors."""
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "merge-base", "--is-ancestor", commit, of],
+        capture_output=True, timeout=_GIT_TIMEOUT, env=_git_env(),
+    )
+    return proc.returncode == 0
+
+
 def _blob_bytes(repo: Path, oid: str) -> bytes | None:
     """A blob's raw bytes (`_run` decodes as text, which a binary file breaks)."""
     proc = subprocess.run(
@@ -1705,7 +1930,11 @@ async def merged_tree(
         _ensure_repo(repo, remote_url)
         if not remote_url:
             raise GitError("entity is not linked to a git remote", "unknown")
-        _sync_remote_branch(repo, branch, remote_url, token)
+        has_remote = _sync_remote_branch(repo, branch, remote_url, token)
+        if any(op.get("remote") for op in overrides.values()) and not (
+            has_remote and _is_ancestor(repo, remote_head, "FETCH_HEAD")
+        ):
+            raise GitError("the pull's remote commit is not on the remote branch any more", "not_found")
         files = _zip_files(zip_bytes)
         changed = [
             path for path, op in overrides.items()
@@ -2075,7 +2304,8 @@ async def commit_push(
             if remote_url:
                 _reject_internal_host(remote_url)
                 push_url = _with_credentials(remote_url, token)
-                _run(repo, "push", push_url, f"{target}:{target}", token=token, env_extra=_lfs_env(push_url))
+                env = _push_env(repo, push_url, head, base_head)
+                _run(repo, "push", push_url, f"{target}:{target}", token=token, env_extra=env)
                 pushed = True
         finally:
             if push_branch:

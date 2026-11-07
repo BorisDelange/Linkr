@@ -46,6 +46,7 @@ from app.schemas.dataset_fs import (
 from app.core.permissions import check_workspace_permission
 from app.models.data_source import DataSource
 from app.services import (
+    upload_ledger,
     blob_store,
     data_source_service,
     database_credential_service,
@@ -55,7 +56,7 @@ from app.services import (
     project_fs,
     undo_service,
 )
-from app.services.data import dataset_fs, dataset_parser, dataset_rows, file_reader
+from app.services.data import dataset_fs, dataset_parser, dataset_rows, file_reader, query_cancel
 from app.services.execution import jobs
 
 router = APIRouter(prefix="/dataset-files", tags=["dataset-files"])
@@ -233,6 +234,7 @@ async def stage_server_file(
             sha, size = await blob_store.store_copy(lambda: fs_browser.open_import_source(str(src), scope))
         except fs_browser.FsBrowseError as e:
             raise HTTPException(e.status_code, str(e))
+        await asyncio.to_thread(upload_ledger.record, user.id, sha, size)
         return DsStagedFile(sha=sha, size=size, file_name=src.name)
 
     return await deferred.respond(user.id, work, deferred.AsJob(f"Copy {src.name}", project_uid=body.project_uid))
@@ -265,9 +267,10 @@ async def preview_dataset(
     is exactly what gets imported. In server mode this replaces the browser
     (papaparse/xlsx) parse entirely."""
     await _check_project(db, body.project_uid, user, "datasets:write")
-    if not blob_store.exists(body.sha):
+    if not upload_ledger.holds(user.id, body.sha):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uploaded file not found")
     path = blob_store.path_for(body.sha)
+    audit.bind(action="preview", project_uid=body.project_uid, detail=f"upload {body.file_name} ({body.sha})")
     return await deferred.respond(
         user.id, lambda: _preview(path, body.file_name, body.parse_options)
     )
@@ -289,6 +292,7 @@ async def preview_dataset_path(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     if not raw.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
+    audit.bind(action="preview", project_uid=body.project_uid, detail=f"datasets/{body.path} with new import options")
     return await deferred.respond(
         user.id, lambda: _preview(raw, raw.name, body.parse_options)
     )
@@ -304,7 +308,7 @@ async def import_dataset(
     """Land an uploaded raw file into datasets/<path> on disk (the source of truth),
     then parse it into the Parquet cache and return the node with columns/rowCount."""
     await _check_project(db, body.project_uid, user, "datasets:write")
-    if not blob_store.exists(body.sha):
+    if not upload_ledger.holds(user.id, body.sha):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uploaded file not found")
     try:
         dst = project_fs.dataset_path(body.project_uid, body.path)
@@ -428,7 +432,11 @@ async def create_dataset_from_query(
             if target is None:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Database not found")
             try:
-                table = await data_source_service.query(session, target, login, body.sql, arrow=True)
+                table = await query_cancel.within_limit(
+                    lambda: data_source_service.query(session, target, login, body.sql, arrow=True), str(user.id),
+                )
+            except (query_cancel.QueryCancelled, duckdb.InterruptException):
+                raise deferred.Stopped() from None
             except HTTPException:  # an ETL run holding the file
                 raise
             except Exception as e:  # noqa: BLE001 — surface SQL errors to the caller

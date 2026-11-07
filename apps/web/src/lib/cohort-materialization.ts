@@ -4,7 +4,7 @@
  * stores the snapshot (POST /cohorts/{id}/materialize, whose
  * `cohort_service.build_materialization` mirrors `materializationFromRows`).
  */
-import type { CohortLevel, CohortMaterialization } from '@/types'
+import type { Cohort, CohortLevel, CohortMaterialization } from '@/types'
 import { cohortIdColumn } from '@/lib/duckdb/cohort-query'
 import { deterministicId } from '@/lib/deterministic-id'
 
@@ -46,4 +46,16 @@ export function runMaterialization(
     // must change whenever any member does.
     materializedAt: deterministicId(cohortId, ids.join('\n')),
   }
+}
+
+/**
+ * `changes` to a cohort, plus dropping its frozen membership and counts when
+ * they move it to another database than the one it was frozen on — as the
+ * server does on the same edit.
+ */
+export function withUnfreezeOnRebind(before: Cohort | undefined, changes: Partial<Cohort>): Partial<Cohort> {
+  const frozen = before?.materialization
+  if (!frozen || !('dataSourceId' in changes)) return changes
+  if (changes.dataSourceId === before.dataSourceId || changes.dataSourceId === frozen.dataSourceId) return changes
+  return { materialization: undefined, resultCount: undefined, attrition: undefined, ...changes }
 }

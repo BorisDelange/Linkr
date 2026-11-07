@@ -18,12 +18,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import crypto
-from app.core.redact import redact_secrets
 from app.models.cohort import Cohort
 from app.models.data_source import DataSource
 from app.models.pseudonym_key import PseudonymKey
 from app.schemas.data_source import DeriveRequest
-from app.services import data_source_service, database_credential_service
+from app.services import data_source_service, database_binding, database_credential_service
 from app.services.database_credential_service import Login
 from app.services.data import cohort_derive, connection_pool, db_connect, managed_db
 from app.services.execution import jobs
@@ -75,9 +74,10 @@ def takes_write_login(source: DataSource) -> bool:
     return _engine(source) in WRITE_LOGIN_ENGINES and bool((source.connection_config or {}).get("allowWrites"))
 
 
-async def test_write_login(config: dict, password: str | None) -> tuple[bool, str | None]:
-    """Whether a write login opens the database writable — no read-only check:
-    it is the derivation's, which only ever runs the statements it generates."""
+async def probe_write_login(config: dict, password: str | None) -> None:
+    """Open the database writable with a write login, or raise — no read-only
+    check: it is the derivation's, which only ever runs the statements it
+    generates."""
 
     def probe() -> None:
         con = cohort_derive._connect()
@@ -91,11 +91,7 @@ async def test_write_login(config: dict, password: str | None) -> tuple[bool, st
                 writer.close()
             con.close()
 
-    try:
-        await asyncio.to_thread(probe)
-    except Exception as exc:  # noqa: BLE001 — the driver's message is the diagnosis
-        return False, redact_secrets(str(exc))
-    return True, None
+    await asyncio.to_thread(probe)
 
 
 def _writable_target(
@@ -205,6 +201,8 @@ async def _target_spec(
 ) -> tuple[cohort_derive.TargetSpec, dict | None, str | None]:
     """Where the copy lands, and for a new database the config and newly claimed
     location it is written under. Raises DeriveError before anything runs."""
+    if database_binding.is_foreign(target, source.workspace_id):
+        raise DeriveError(database_binding.FOREIGN_DATABASE)
     t = body.target
     if t.kind == "new-database":
         await _check_new_database(source, target)
@@ -294,12 +292,23 @@ def _open_key(row: PseudonymKey) -> bytes:
     return base64.b64decode(raw)
 
 
+async def _own_key(db: AsyncSession, workspace_id: str | None, derivation: str) -> PseudonymKey | None:
+    """The key kept under `derivation`'s name. Its name comes from a database id
+    the client may choose: a key of another workspace is never this derivation's."""
+    row = await db.get(PseudonymKey, derivation)
+    if row is not None and row.workspace_id != workspace_id:
+        raise DeriveError("this database id names a derivation of another workspace")
+    return row
+
+
 async def _hmac_key(db: AsyncSession, workspace_id: str | None, derivation: str, body: DeriveRequest) -> bytes:
     """The key to draw with: another derivation's (a cohort followed over time),
     else this one's own, kept from its last build — which also stands in for a
     followed derivation deleted since — else a new one."""
     p = body.pseudonymization
-    own = await db.get(PseudonymKey, derivation) if p.keep_key else None
+    own = await _own_key(db, workspace_id, derivation)
+    if not p.keep_key:
+        own = None
     if p.reuse_key_of:
         row = await db.get(PseudonymKey, p.reuse_key_of)
         if row is not None and row.workspace_id == workspace_id:
@@ -334,7 +343,7 @@ async def _keep_key(
 ) -> None:
     """Kept, sealed, when asked; otherwise no key of an earlier build is left:
     its pseudonyms are no longer the ones in the database."""
-    row = await db.get(PseudonymKey, derivation)
+    row = await _own_key(db, source.workspace_id, derivation)
     keep = pseudonyms is not None and pseudonyms.method == "hmac" and body.pseudonymization.keep_key
     if not keep:
         if row is not None:
@@ -430,6 +439,9 @@ async def validate(
     request that starts the job answers 400 (or 428, a missing login) rather than
     queueing a job that fails."""
     _check_options(body)
+    if database_binding.is_foreign(target, source.workspace_id):
+        raise DeriveError(database_binding.FOREIGN_DATABASE)
+    await _own_key(db, source.workspace_id, derivation_id(target, body))
     if body.target.kind == "new-database" and not _created(target).get("file"):
         # A build replaces the database's content: never one others filled.
         if await data_source_service.holds_files_or_cohorts(db, target.id):

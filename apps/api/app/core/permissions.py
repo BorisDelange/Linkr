@@ -387,6 +387,26 @@ async def check_workspace_permission(
         )
 
 
+# What a project's export tree carries beside its settings: README, pipelines,
+# cohorts, concept lists, scripts and connections, dashboards, patient boards and
+# the data files marked for versioning. A route handing that tree out needs each.
+PROJECT_TREE_READS = (
+    "project-summary:read",
+    "pipeline:read",
+    "cohorts:read",
+    "concepts:read",
+    "ide:read",
+    "dashboards:read",
+    "patient-data:read",
+    "datasets:read",
+)
+
+
+async def unreadable_project_tree_reads(db: AsyncSession, project: Project, user: User) -> list[str]:
+    """The reads of PROJECT_TREE_READS that `user` lacks on `project`."""
+    return [p for p in PROJECT_TREE_READS if not await has_project_permission(db, project, user, p)]
+
+
 def require_project_permission(permission: str):
     """Dependency factory: require `permission` on the path project (3-dimension
     resolution, custom-role aware). Returns the loaded Project."""

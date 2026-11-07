@@ -27,12 +27,11 @@ from app.schemas.mapping_project import (
     ServiceMappingUpdate,
 )
 import asyncio
-import dataclasses
 import os
 import tempfile
 from pathlib import Path
 
-from app.services import blob_store, change_tracking, database_binding, fs_browser, notification_service, scores_export
+from app.services import blob_store, change_tracking, database_binding, fs_browser, notification_service, scores_export, upload_ledger
 from app.services import mapping_project_service as svc
 from app.services import source_concept_id_service as sci_svc
 from app.services.data.global_table_service import _localized
@@ -177,6 +176,7 @@ async def create_project(
     await check_workspace_permission(
         db, body.workspace_id, user, "concept-mapping:write"
     )
+    _keep_own_blobs(user, body)
     await database_binding.require_bindable(db, body.workspace_id, user, [body.data_source_id])
     await database_binding.require_bindable(
         db, body.workspace_id, user, [body.vocabulary_data_source_id], allow_vocabulary=True
@@ -204,6 +204,7 @@ async def update_project(
     db: AsyncSession = Depends(get_db),
 ):
     project = await _load_project(db, project_id, user, "concept-mapping:write")
+    _keep_own_blobs(user, body, project)
     await database_binding.require_bindable(
         db, project.workspace_id, user, database_binding.changed_ids(project, body, "data_source_id")
     )
@@ -212,7 +213,7 @@ async def update_project(
         allow_vocabulary=True,
     )
     before = change_tracking.changed_values(project, body.model_dump(exclude_unset=True))
-    project = await svc.update(db, project, body)
+    project = await svc.update(db, project, body, user)
     if before:
         await _notify(db, request, user, "updated", project, notify=not before.keys() <= _PROJECT_SIDE_FIELDS)
     return project
@@ -259,6 +260,17 @@ async def _load_global_table_inputs(db: AsyncSession, workspace_id: str):
 class GlobalTableBuild(CamelModel):
     workspace_id: str
     mode: str = "flat"  # 'flat' (project) | 'dedup' (badge)
+
+
+def _keep_own_blobs(user: User, body, project=None) -> None:
+    """A create or update names a file by its hash: one this project already holds,
+    or one the caller put in the store. Any other is left out rather than refused: an
+    import carries the hash its manifest had, then sends the file itself."""
+    for field in ("raw_file_sha", "scores_file_sha"):
+        sha = getattr(body, field, None)
+        if sha and sha != getattr(project, field, None) and not upload_ledger.holds(user.id, sha):
+            setattr(body, field, None)
+            body.model_fields_set.discard(field)
 
 
 @router.post(_PROJ + "/global-table/build")
@@ -380,7 +392,7 @@ async def set_raw_file(
     db: AsyncSession = Depends(get_db),
 ):
     project = await _load_project(db, project_id, user, "concept-mapping:write")
-    if not blob_store.exists(body.sha):
+    if not upload_ledger.holds(user.id, body.sha):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uploaded file not found")
     return await svc.update(
         db,
@@ -415,7 +427,8 @@ async def append_raw_file(
     base = None if body.reset else project.raw_file_sha
     if base and not blob_store.exists(base):
         base = None
-    sha, _size = await blob_store.append_bytes(base, body.text.encode("utf-8"))
+    sha, size = await blob_store.append_bytes(base, body.text.encode("utf-8"))
+    await asyncio.to_thread(upload_ledger.record, user.id, sha, size)
     return await svc.update(
         db,
         project,
@@ -490,7 +503,7 @@ async def set_scores_file(
     query index, and store the sha pointer. Returns the ScoresIndex the client
     caches for the "has suggestions" badges."""
     project = await _load_project(db, project_id, user, "concept-mapping:write")
-    if not blob_store.exists(body.sha):
+    if not upload_ledger.holds(user.id, body.sha):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uploaded file not found")
     path = str(blob_store.path_for(body.sha))
     ok, error = await asyncio.to_thread(scores_service.validate, path)
@@ -697,6 +710,8 @@ async def get_score_method_csv(
     data = next(iter(files.values()), None)
     if data is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No scores for this method")
+    audit.bind(action="download", workspace_id=project.workspace_id,
+               detail=f"mapping project {project.id} scores of method {method} ({len(data)} bytes)")
     return Response(content=data, media_type="text/csv")
 
 
@@ -724,7 +739,7 @@ async def import_score_csvs(
     for f in body.files:
         if scores_service.csv_path_for_method(f.method) is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Invalid method: {f.method}")
-        if not blob_store.exists(f.sha):
+        if not upload_ledger.holds(user.id, f.sha):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uploaded file not found")
         csvs.append((f.method, str(blob_store.path_for(f.sha))))
     if not csvs:
@@ -814,7 +829,10 @@ async def delete_scores_file(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _load_project(db, project_id, user, "concept-mapping:delete")
+    """Detach the whole scores file. The suggestions are project content an editor
+    writes and removes method by method (`scores/remove`), so clearing them all
+    answers to the same write permission."""
+    project = await _load_project(db, project_id, user, "concept-mapping:write")
     await svc.update(
         db,
         project,
@@ -841,24 +859,24 @@ async def import_server_file(
     """Copy a file already on the server into the blob store, so a mapping
     project can use it as its source like an uploaded one (then preview-columns
     with the returned sha). The file may sit wherever a database's server path
-    may — inside the browse roots, never Linkr's data folder, a system folder nor
-    a folder bound to a project — and the copy re-checks the file it opened."""
+    may — inside the browse roots, never Linkr's data folder, a system folder, a
+    folder bound to a project nor another workspace's database — and the copy
+    re-checks the file it opened. With no browse roots, it needs code execution in
+    the workspace: a text or spreadsheet file is read here as a script would."""
     await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:write")
     await check_workspace_permission(db, body.workspace_id, user, "databases:write")
     if not body.path:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No server file chosen")
-    scope = await fs_browser.import_scope(db, None, user)
-    # validate_source_path bounds the reach (as for a database); the copy scope
-    # only lets the guarded open run without browse roots, as a database may.
-    copy_scope = dataclasses.replace(scope, whole_fs_allowed=True)
+    scope = await fs_browser.import_scope(db, None, user, workspace_id=body.workspace_id)
     try:
         fs_browser.validate_source_path(body.path, scope)
-        src = fs_browser.validate_import_source(body.path, copy_scope)
+        src = fs_browser.validate_import_source(body.path, scope)
         if not fs_browser._matches_extensions(src.name, _SOURCE_FILE_EXTENSIONS):
             raise fs_browser.FsBrowseError("wrong_extension")
-        sha, size = await blob_store.store_copy(lambda: fs_browser.open_import_source(str(src), copy_scope))
+        sha, size = await blob_store.store_copy(lambda: fs_browser.open_import_source(str(src), scope))
     except fs_browser.FsBrowseError as e:
         raise HTTPException(e.status_code, str(e))
+    await asyncio.to_thread(upload_ledger.record, user.id, sha, size)
     return {"sha": sha, "fileName": src.name, "size": size}
 
 
@@ -888,7 +906,7 @@ async def preview_file_columns(
     await check_workspace_permission(
         db, body.workspace_id, user, "concept-mapping:write"
     )
-    if not blob_store.exists(body.sha):
+    if not upload_ledger.holds(user.id, body.sha):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Uploaded file not found")
     path = str(blob_store.path_for(body.sha))
     try:

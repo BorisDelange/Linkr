@@ -126,7 +126,7 @@ async def update_plugin(
 ):
     plugin = await _load(db, plugin_id, user, "plugins:write")
     before = change_tracking.changed_values(plugin, body.model_dump(exclude_unset=True))
-    plugin = await user_plugin_service.update(db, plugin, body)
+    plugin = await user_plugin_service.update(db, plugin, body, user)
     if before:
         only_files = before.keys() == {"files"}
         file = _file_change(before["files"] or {}, plugin.files or {}) if only_files else None

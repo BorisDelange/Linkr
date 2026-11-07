@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.permissions import has_project_permission
+from app.core.permissions import has_permission, has_project_permission, unreadable_project_tree_reads
 from app.models.mapping_project import MappingProject
 from app.models.project import Project
 from app.models.user import User
@@ -120,6 +120,7 @@ from app.services.workspace_export import (
     _eid,
     _json,
     _localized_en,
+    _portable_derived_from,
     _sanitize_connection_config,
     _slugify,
     _strip_instance_fields,
@@ -358,13 +359,41 @@ async def _list_workspace_projects(db: AsyncSession, workspace_id: str) -> list[
 
 
 async def unreadable_project_uids(db: AsyncSession, workspace_id: str, user: User) -> set[str]:
-    """The workspace's projects `user` may not read: a workspace-level read never
-    carries their content, whatever the caller holds on the workspace."""
+    """The workspace's projects `user` may not read whole: a workspace-level read
+    never carries their content, whatever the caller holds on the workspace."""
     return {
         project.uid
         for project in await _list_workspace_projects(db, workspace_id)
         if not await has_project_permission(db, project, user, "project-settings:read")
+        or await unreadable_project_tree_reads(db, project, user)
     }
+
+
+# Each part of a workspace tree, by its WorkspaceExportOptions section key, and the
+# read it takes. "summary" (the README) has no toggle: it is always written.
+SECTION_READS = {
+    "summary": "workspace-summary:read",
+    "projects": "projects:read",
+    "wiki": "wiki:read",
+    "schemas": "schemas:read",
+    "databases": "databases:read",
+    "sqlScripts": "sql-scripts:read",
+    "etl": "etl:read",
+    "dataQuality": "data-quality:read",
+    "conceptMapping": "concept-mapping:read",
+    "catalogs": "catalog:read",
+    "plugins": "plugins:read",
+}
+
+
+async def unreadable_sections(
+    db: AsyncSession, workspace_id: str, user: User, options: "WorkspaceExportOptions | None" = None
+) -> list[str]:
+    """The sections of the workspace tree (those `options` keeps) whose read `user` lacks."""
+    return [
+        key for key, permission in SECTION_READS.items()
+        if (options is None or options.on(key)) and not await has_permission(db, workspace_id, user, permission)
+    ]
 
 
 def _project_folder(project: Project) -> str:
@@ -1294,7 +1323,7 @@ async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]
     # its provenance snapshot back. A preset did not, so each re-export silently
     # dropped the publishing organization from the repo.
     await _attach_org(db, tree, ENTITY_MANIFEST, preset)
-    tree.update(await _entity_docs(db, "", dumped, "schema-preset", preset.preset_id))
+    tree.update(await _entity_docs(db, "", dumped, "schema-preset", preset.id))
     return tree
 
 
@@ -1314,6 +1343,8 @@ async def _data_source_sub_tree(db: AsyncSession, source, dumped: dict) -> dict[
     # holding the repo without its Parquet reports different numbers than one
     # that has them. Twin of DATA_SOURCE_LOCAL_FIELDS in entity-io.ts.
     stripped.pop("stats", None)
+    if isinstance(stripped.get("derivedFrom"), dict):
+        stripped["derivedFrom"] = _portable_derived_from(stripped["derivedFrom"])
     connection_config = stripped.pop("connectionConfig", None)
     schema_mapping = stripped.pop("schemaMapping", None)
     schema_overrides = stripped.pop("schemaOverrides", None)

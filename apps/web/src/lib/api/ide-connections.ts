@@ -15,7 +15,7 @@ export const apiIdeConnectionStorage: ConnectionStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<IdeConnection>(`${CONN}/${id}`)
+      return await apiRequest<IdeConnection>(`${CONN}/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -26,11 +26,11 @@ export const apiIdeConnectionStorage: ConnectionStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${CONN}/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    await apiRequest(`${CONN}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
   delete: async (id) => {
-    await apiRequest(`${CONN}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${CONN}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   deleteByProject: async (projectUid) => {

@@ -1,5 +1,9 @@
 import asyncio
+import concurrent.futures
 import contextlib
+import contextvars
+import functools
+import os
 import re
 import threading
 from collections.abc import Callable
@@ -14,8 +18,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit
 from app.models.cohort import Cohort
+from app.models.data_catalog import DataCatalog
 from app.models.data_source import DataSource, DataSourceFile, alias_key
+from app.models.dq_rule_set import DqRuleSet, DqRunHistory
+from app.models.etl_pipeline import EtlPipeline
+from app.models.project import Project
 from app.models.pseudonym_key import PseudonymKey
+from app.models.stats_cache import StatsCache
 from app.models.user import User
 from app.schemas.data_source import (
     DatabaseConnectionInfo,
@@ -234,19 +243,26 @@ def server_path(source_or_config) -> str | None:
     return str(raw) if raw else None
 
 
-async def enforce_server_path(db: AsyncSession, config: dict | None, user: User | None) -> None:
+async def enforce_server_path(
+    db: AsyncSession, config: dict | None, user: User | None, workspace_id: str | None = None,
+    stored: dict | None = None,
+) -> None:
     """Re-enforce the browse-root boundary wherever a config is PERSISTED. The
     picker validates client-side, but create/update take a plain JSON config — so
     without this a hand-made request could point a source at any file the server
     can read (/etc/passwd, Linkr's own database, another project's folder) and
     read it back through the query route. Without a `user` (an internal update
-    re-saving a stored config) only the reserved places are refused. Raises
+    re-saving a stored config) only the reserved places are refused. Another
+    workspace's database files are refused to a path newly set, not to the one
+    already `stored`: a mart registered in two workspaces keeps working. Raises
     FsBrowseError."""
     path = server_path(config or {})
     if not path:
         return
     scope = (
-        await fs_browser.import_scope(db, None, user)
+        await fs_browser.import_scope(
+            db, None, user, workspace_id=workspace_id, other_databases=path != server_path(stored or {}),
+        )
         if user is not None
         else fs_browser.FolderScope(whole_fs_allowed=False)
     )
@@ -265,7 +281,7 @@ async def enforce_root_cert(db: AsyncSession, config: dict | None, user: User | 
         raise fs_browser.FsBrowseError("sslrootcert is not a file path")
     if user is None or user.role != "admin":
         scope = (
-            await fs_browser.import_scope(db, None, user)
+            await fs_browser.import_scope(db, None, user, other_databases=False)
             if user is not None
             else fs_browser.FolderScope(whole_fs_allowed=False)
         )
@@ -369,11 +385,12 @@ def _refuse_file_left_behind(source_id: str | None) -> None:
 async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataSource:
     payload = data.model_dump(exclude_none=True)
     await ensure_alias_free(db, payload.get("workspace_id"), payload["alias"], payload.get("id"))
+    await _refuse_id_naming_a_key(db, payload.get("id"))
     # A foreign instance's created_by_id is meaningless here — never persist it;
     # stamp_creator derives the right local id (ORCID/email match, or NULL).
     payload.pop("created_by_id", None)
     config = payload.get("connection_config")
-    await enforce_server_path(db, config, owner)
+    await enforce_server_path(db, config, owner, payload.get("workspace_id"))
     await enforce_root_cert(db, config, owner)
     if (config or {}).get("managed"):
         _refuse_file_left_behind(payload.get("id"))
@@ -391,6 +408,7 @@ async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataS
     # Keyed by an id the client may choose, with no row to cascade from.
     concept_cache_fs.invalidate(source.id)
     await stats_cache_service.delete_with_prefix(db, "database", source.id)
+    await _forget_results(db, source.id, source.workspace_id, unlink_projects=False)
     await attachment_service.delete_readme_for_owner(db, "data-source", source.id)
     if login and database_credential_service.is_external(source):
         await database_credential_service.save(db, source, owner.id, *login, remember=True)
@@ -433,7 +451,7 @@ async def update(
     before = dict(source.connection_config or {})
     if "connection_config" in changes:
         editor = await db.get(User, editor_id) if editor_id is not None else None
-        await enforce_server_path(db, changes["connection_config"], editor)
+        await enforce_server_path(db, changes["connection_config"], editor, source.workspace_id, source.connection_config)
         await enforce_root_cert(db, changes["connection_config"], editor, source.connection_config)
         if (changes["connection_config"] or {}).get("managed") and not before.get("managed") and not built_managed_file:
             _refuse_file_left_behind(source.id)
@@ -463,7 +481,9 @@ async def update(
     # re-hydrating the importer's name over the snapshot it just stored.
     # After the setattr loop, like the other services: it must overwrite whatever
     # created_by_id the changes carried, not be overwritten by it.
-    await author_provenance.relink_creator_on_update(db, source, changes)
+    await author_provenance.relink_creator_on_update(
+        db, source, changes, await db.get(User, editor_id) if editor_id is not None else None,
+    )
     await _commit_alias(db, source.alias)
     await db.refresh(source)
     if retargeted or now_session_only:
@@ -527,15 +547,97 @@ async def _drop_created_data(source: DataSource, kind: str, login: Login | None)
     await asyncio.to_thread(cohort_derive.drop_schema, target)
 
 
+def _names_key_of(database_id: str):
+    """Rows that may name a key of derivations into `database_id` — narrowed
+    case-sensitively by `_is_key_of`, SQLite's LIKE ignoring case."""
+    return or_(PseudonymKey.id == database_id, PseudonymKey.id.startswith(f"{database_id}.", autoescape=True))
+
+
+def _is_key_of(key_id: str, database_id: str) -> bool:
+    return key_id == database_id or key_id.startswith(f"{database_id}.")
+
+
 async def _forget_pseudonym_keys(db: AsyncSession, source: DataSource, dropped_schema: bool) -> None:
     """The keys of the derivations written into this database, and of the schema
     it was declared for when that schema is dropped with it: nothing they drew
-    is left."""
-    ids = [PseudonymKey.id == source.id, PseudonymKey.id.like(f"{source.id}.%")]
+    is left. Only its own workspace's: a key's name is built from a database id
+    the client may choose, so it may also read as the name of another
+    workspace's derivation."""
     created = source.linkr_created or {}
-    if dropped_schema and created.get("targetId") and created.get("schema"):
-        ids.append(PseudonymKey.id == f"{created['targetId']}.{created['schema']}")
-    await db.execute(sa_delete(PseudonymKey).where(or_(*ids)))
+    schema_key = (
+        f"{created['targetId']}.{created['schema']}"
+        if dropped_schema and created.get("targetId") and created.get("schema") else None
+    )
+    candidates = (await db.execute(
+        select(PseudonymKey).where(
+            PseudonymKey.workspace_id == source.workspace_id,
+            or_(_names_key_of(source.id), PseudonymKey.id == (schema_key or source.id)),
+        )
+    )).scalars().all()
+    for row in candidates:
+        if _is_key_of(row.id, source.id) or row.id == schema_key:
+            await db.delete(row)
+
+
+async def _refuse_id_naming_a_key(db: AsyncSession, source_id: str | None) -> None:
+    """A database id never reads as the name of a kept key, which is the
+    database's id or `<id>.<schema>`."""
+    if not source_id:
+        return
+    rows = (await db.execute(select(PseudonymKey.id).where(_names_key_of(source_id)))).scalars().all()
+    if any(_is_key_of(key_id, source_id) for key_id in rows):
+        raise HTTPException(status.HTTP_409_CONFLICT, "This id is already in use: choose another one.")
+
+
+async def _forget_results(db: AsyncSession, source_id: str, workspace_id: str | None, *, unlink_projects: bool) -> None:
+    """What the entities of `workspace_id` computed from database `source_id` and
+    keep under its plain id: frozen cohorts, data-quality runs, catalog and ETL
+    results. The entities and their pointer stay, for a re-import. Another
+    workspace's rows are left alone: the id is the client's choice."""
+    projects = (await db.execute(select(Project).where(Project.workspace_id == workspace_id))).scalars().all()
+    cohorts = (await db.execute(select(Cohort).where(
+        Cohort.data_source_id == source_id, Cohort.project_uid.in_([p.uid for p in projects]),
+    ))).scalars().all() if projects else []
+    for cohort in cohorts:
+        cohort.materialization = None
+        cohort.result_count = None
+        cohort.attrition = None
+    if unlink_projects:
+        for project in projects:
+            ids = project.linked_data_source_ids or []
+            if source_id not in ids:
+                continue
+            refs = project.linked_data_source_refs or []
+            keep = [i for i, linked in enumerate(ids) if linked != source_id]
+            project.linked_data_source_ids = [ids[i] for i in keep]
+            project.linked_data_source_refs = [refs[i] if i < len(refs) else {} for i in keep]
+    await db.execute(sa_delete(DqRunHistory).where(
+        DqRunHistory.data_source_id == source_id, DqRunHistory.workspace_id == workspace_id,
+    ))
+    rule_sets = (await db.execute(select(DqRuleSet).where(
+        DqRuleSet.data_source_id == source_id, DqRuleSet.workspace_id == workspace_id,
+    ))).scalars().all()
+    for rule_set in rule_sets:
+        rule_set.last_score = None
+        rule_set.last_run_at = None
+        rule_set.last_run_duration_ms = None
+    catalogs = (await db.execute(select(DataCatalog).where(
+        DataCatalog.data_source_id == source_id, DataCatalog.workspace_id == workspace_id,
+    ))).scalars().all()
+    for catalog in catalogs:
+        catalog.status = "draft"
+        catalog.last_computed_at = None
+        catalog.last_compute_duration_ms = None
+        catalog.computed_steps = None
+        catalog.last_error = None
+    pipelines = (await db.execute(select(EtlPipeline.id).where(
+        EtlPipeline.workspace_id == workspace_id,
+        or_(EtlPipeline.source_data_source_id == source_id, EtlPipeline.target_data_source_id == source_id),
+    ))).scalars().all()
+    stale = [("catalog", c.id) for c in catalogs] + [("etl-quality", pid) for pid in pipelines]
+    for scope, key in stale:
+        await db.execute(sa_delete(StatsCache).where(StatsCache.scope == scope, StatsCache.cache_key == key))
+    await db.commit()
 
 
 async def delete(
@@ -558,7 +660,7 @@ async def delete(
     # A file created in a server folder the user chose is left there: they put it
     # outside Linkr's data folder to keep it, and may still use it outside Linkr.
     owns_default_file = is_managed(source) and not (source.connection_config or {}).get("managedPath")
-    source_id = source.id
+    source_id, workspace_id = source.id, source.workspace_id
     if created == "schema":
         await _forget_created_schema(db, source)
     await _forget_pseudonym_keys(db, source, dropped_schema=created == "schema")
@@ -571,6 +673,7 @@ async def delete(
     # the same id must start empty, not read what this one computed.
     await invalidate_concept_caches(db, source_id)
     await stats_cache_service.delete_with_prefix(db, "database", source_id)
+    await _forget_results(db, source_id, workspace_id, unlink_projects=True)
     await attachment_service.delete_readme_for_owner(db, "data-source", source_id)
     from app.services import git_service
 
@@ -1286,6 +1389,20 @@ def _audit(source: DataSource, action: str, detail: str | None = None) -> None:
     audit.bind(action=action, data_source_id=source.id, workspace_id=source.workspace_id, detail=detail)
 
 
+# Queries run on threads of their own: a burst of long ones then waits for each
+# other, never for the threads the rest of the API runs its file and database
+# work on (the loop's default executor).
+_QUERY_THREADS = concurrent.futures.ThreadPoolExecutor(
+    max_workers=min(32, (os.cpu_count() or 1) + 4), thread_name_prefix="linkr-query",
+)
+
+
+async def in_query_thread(fn: Callable, *args):
+    """`asyncio.to_thread`, on the query threads."""
+    ctx = contextvars.copy_context()
+    return await asyncio.get_running_loop().run_in_executor(_QUERY_THREADS, functools.partial(ctx.run, fn, *args))
+
+
 async def query(
     db: AsyncSession, source: DataSource, login: Login | None, sql: str, arrow: bool = False,
     pushdown: bool = False, native: bool = False,
@@ -1327,7 +1444,7 @@ async def _query(
     if engine in _EXTERNAL_ENGINES:
         if login is None:
             raise database_credential_service.CredentialRequired(source)
-        return await asyncio.to_thread(
+        return await in_query_thread(
             db_connect.query_external, with_login(config, login), login.password, sql,
             pool_key(source, login), arrow, pushdown, native,
         )
@@ -1337,7 +1454,7 @@ async def _query(
         path = managed_path(source)
         if not path.exists():
             raise ValueError("the database file is missing; recreate it")
-        return await asyncio.to_thread(
+        return await in_query_thread(
             db_connect.query_file, "duckdb", str(path), sql, source.id, arrow
         )
     if engine in _FILE_ENGINES:
@@ -1350,10 +1467,10 @@ async def _query(
             raise ValueError("no database file uploaded for this source")
         if _is_parquet_folder(config, files):
             known = _known_tables(source)
-            return await asyncio.to_thread(
+            return await in_query_thread(
                 db_connect.query_parquet_folder, files, known, sql, source.id, arrow
             )
-        return await asyncio.to_thread(
+        return await in_query_thread(
             db_connect.query_file, engine, files[0][1], sql, source.id, arrow
         )
     raise ValueError(f"queries not supported for engine: {engine}")
@@ -1411,7 +1528,7 @@ async def assemble_concept_cache(
     """Write the concept list from the units done so far; returns the new mtime."""
     _audit(source, "concept_cache_refresh", select_sql)
     config, password, files, known = await _materialize_inputs(db, source, login)
-    return await asyncio.to_thread(
+    return await in_query_thread(
         concept_cache_fs.assemble, config, password, files, known, select_sql, source.id,
     )
 
@@ -1453,7 +1570,7 @@ async def parquet_layout(db: AsyncSession, source: DataSource, checks: list[dict
 
 async def query_concept_cache(source_id: str, sql: str) -> list[dict]:
     """Run a page query against the source's cached concept Parquet."""
-    return await asyncio.to_thread(concept_cache_fs.query_page, source_id, sql)
+    return await in_query_thread(concept_cache_fs.query_page, source_id, sql)
 
 
 async def introspect(db: AsyncSession, source: DataSource, login: Login | None) -> list[dict]:
@@ -1516,17 +1633,20 @@ async def test_connection_stored(
     return await test_connection(config)
 
 
-async def test_connection(config: dict) -> tuple[bool, str | None, list[dict]]:
-    """Open a live connection using the (unpersisted) password in `config`,
-    introspect the schema, and return (ok, error, tables)."""
+async def probe_connection(config: dict) -> list[dict]:
+    """Open a live connection using the (unpersisted) password in `config` and
+    introspect the schema. Raises: a ValueError for Linkr's own refusals, any
+    other exception for the database's."""
     engine = config.get("engine")
     if engine not in _EXTERNAL_ENGINES:
-        return False, f"unsupported engine for server-side test: {engine}", []
-    password = config.get("password")
+        raise ValueError(f"unsupported engine for server-side test: {engine}")
+    return await asyncio.to_thread(db_connect.introspect_external, config, config.get("password"))
+
+
+async def test_connection(config: dict) -> tuple[bool, str | None, list[dict]]:
+    """`probe_connection` as (ok, error, tables): the error's whole text, for the
+    routes to pass through `_connection_error`."""
     try:
-        tables = await asyncio.to_thread(
-            db_connect.introspect_external, config, password
-        )
-        return True, None, tables
+        return True, None, await probe_connection(config)
     except Exception as e:  # noqa: BLE001 — surface driver/connection errors to the UI
-        return False, str(e), []
+        return False, db_connect.error_text(e), []

@@ -1,18 +1,25 @@
 """Refuse an oversized body before anything buffers it.
 
 FastAPI reads and parses a route's whole body before solving its dependencies, so
-the check cannot wait for authentication: it runs on the raw request. Routes with a
-form or no body model stream or spool theirs and enforce their own limits.
+the check cannot wait for authentication: it runs on the raw request. A body larger
+than the sign-in routes take needs a credential checked here first (a session or
+kernel token's signature, a live API key): parsing JSON costs many times its size,
+and a caller with none must not spend that. Routes with a form or no body model
+stream or spool theirs and enforce their own limits.
 """
 
 import re
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
+from jose import JWTError
 from starlette.routing import compile_path
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.config import settings
+from app.core import database
+from app.core.security import decode_token
+from app.services import api_token_service
 
 _MB = 1024 * 1024
 _SIGN_IN_PREFIXES = ("/api/v1/auth/", "/api/v1/setup/")
@@ -45,6 +52,20 @@ def _limit_for(app: FastAPI, method: str, path: str) -> int | None:
     return settings.max_json_body_mb * _MB if reads_whole_body else None
 
 
+async def _has_credential(scope: Scope) -> bool:
+    authorization = next((v for k, v in scope["headers"] if k == b"authorization"), b"").decode("latin-1")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return False
+    if api_token_service.is_api_token(token):
+        async with database.async_session() as db:
+            return await api_token_service.authenticate(db, token) is not None
+    try:
+        return decode_token(token).get("type") in ("access", "kernel")
+    except JWTError:
+        return False
+
+
 def _declared_length(scope: Scope) -> int | None:
     for name, value in scope["headers"]:
         if name == b"content-length":
@@ -65,6 +86,13 @@ class BodySizeLimitMiddleware:
         if limit is None:
             await self.app(scope, receive, send)
             return
+        if limit > _SIGN_IN_LIMIT and not await _has_credential(scope):
+            if declared is not None:
+                # What the route would answer once it had parsed the body: the
+                # client renews its session and sends again.
+                await _unauthenticated(scope, receive, send)
+                return
+            limit = _SIGN_IN_LIMIT
         if declared is not None and declared > limit:
             await _too_large(scope, receive, send)
             return
@@ -80,6 +108,10 @@ class BodySizeLimitMiddleware:
             return message
 
         await self.app(scope, counted, send)
+
+
+async def _unauthenticated(scope: Scope, receive: Receive, send: Send) -> None:
+    await JSONResponse({"detail": "Invalid or expired token"}, status_code=401)(scope, receive, send)
 
 
 async def _too_large(scope: Scope, receive: Receive, send: Send) -> None:

@@ -85,7 +85,7 @@ function scopePrefix(scope: FsScope): string {
     case 'workspace':
       return `/workspaces/${encodeURIComponent(scope.workspaceId)}/fs`
     case 'project-import':
-      return `/projects/${encodeURIComponent(scope.projectUid)}/fs/import/${scope.target}`
+      return `/projects/${encodeURIComponent(scope.projectUid)}/fs/import/${encodeURIComponent(scope.target)}`
   }
 }
 

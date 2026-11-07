@@ -203,7 +203,7 @@ async def test_the_exported_trees_carry_the_provenance_not_the_instance_state(cl
     await db.refresh(target)
 
     derived = json.loads((await build_database_tree(db, target))["entity.json"])
-    assert derived["derivedFrom"]["cohort"] == {"key": "five"} and derived["derivedFrom"]["patientCount"] == 5
+    assert derived["derivedFrom"]["cohort"] == {"key": "five"} and "patientCount" not in derived["derivedFrom"]
     assert derived["connectionConfig"] == {"engine": "duckdb", "managed": True}
 
     source = await db.get(DataSource, src)

@@ -1,4 +1,5 @@
 import { apiRequest, getApiBaseUrl } from '@/lib/api-client'
+import { withEnvironmentAcceptance } from '@/lib/api/code-acceptance'
 import { notifyJobsChanged } from '@/lib/api/environments'
 
 /**
@@ -104,10 +105,10 @@ export async function startWebApp(opts: {
   framework?: string
   command?: string
 }): Promise<WebApp> {
-  const app = await apiRequest<WebApp>('/apps', {
+  const app = await withEnvironmentAcceptance(() => apiRequest<WebApp>('/apps', {
     method: 'POST',
     body: JSON.stringify({ ...opts, publicPrefix: publicPrefix() }),
-  })
+  }))
   notifyJobsChanged()
   return app
 }

@@ -43,3 +43,34 @@ def scrub_row_values(text: str) -> str:
     for pattern, replacement in _UNQUOTED_VALUE:
         text = pattern.sub(replacement, text)
     return text
+
+
+# What a scrubbed message may still say in full: shapes in which nothing is left
+# that a row could have put there. Anything else keeps only its class.
+_LINE_TAIL = r"(?:\n\nLINE \d+: [^\n]*\n *\^)?"
+_VALUE_FREE = tuple(re.compile(shape, re.DOTALL) for shape in (
+    r"(?:Binder|Catalog|Parser|Syntax|Dependency|Permission) Error: .*",
+    r"Conversion Error: Could not convert string '\*\*\*' to [\w\[\](), ]+?"
+    r"(?: when casting from source column \w+)?" + _LINE_TAIL,
+    r'Conversion Error: invalid (?:date|timestamp|time) field format: "\*\*\*", expected format is \([\w:.+\- ]+\)'
+    r"(?: when casting from source column \w+)?" + _LINE_TAIL,
+    r"Conversion Error: Type \w+ with value \*\*\* can'\*\*\*'",
+    r"Out of Range Error: \*\*\*" + _LINE_TAIL,
+    r'Constraint Error: Duplicate key "\*\*\*" violates (?:primary key|unique) constraint[^\n"\']*',
+    r"Constraint Error: NOT NULL constraint failed: [\w.]+",
+    r"INTERRUPT Error: Interrupted!",
+    r"Out of Memory Error: [^\n\d'\"]*",
+))
+_ERROR_CLASS = re.compile(r"[A-Za-z][A-Za-z ]{0,40} Error|[A-Za-z_][\w.]{0,80}(?:Error|Exception)")
+WITHHELD = "[message withheld from the log]"
+
+
+def log_safe_error(text: str) -> str:
+    """A database error as the access log may hold it: in full only when its shape
+    holds no row value, else its class alone. The log is read by people with no
+    access to the database; whoever ran the statement gets the full text in the reply."""
+    scrubbed = scrub_row_values(text).strip()
+    if any(shape.fullmatch(scrubbed) for shape in _VALUE_FREE):
+        return scrubbed
+    head = scrubbed.split("\n", 1)[0].split(":", 1)[0].strip()
+    return f"{head}: {WITHHELD}" if _ERROR_CLASS.fullmatch(head) else WITHHELD

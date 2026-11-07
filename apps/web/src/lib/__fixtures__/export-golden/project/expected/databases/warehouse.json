@@ -4,7 +4,7 @@
   "source": "postgres",
   "dataSourceId": null,
   "connectionConfig": {
-    "host": "db.local"
+    "engine": "postgresql"
   },
   "status": "connected",
   "errorMessage": null,

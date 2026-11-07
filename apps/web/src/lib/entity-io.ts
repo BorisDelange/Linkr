@@ -593,9 +593,10 @@ export const DATA_FILE_EXTENSIONS = ['.csv', '.parquet', '.pq', '.xlsx', '.xls']
 // `cohort.tsv` or `results.json` leaves only when marked (a dataset's edit journal,
 // `.edits.json`, too: it holds the values typed into the dataset). Twin of
 // _CODE_EXTENSIONS / _CODE_NAMES (project_export.py), compared by the tests of each side.
+// `.html` is not on the list: a rendered report embeds the values it displays.
 const CODE_FILE_EXTENSIONS = new Set([
   '.sql', '.py', '.r', '.rmd', '.qmd', '.ipynb', '.rproj', '.jl', '.sh', '.bash', '.js', '.mjs', '.cjs', '.ts',
-  '.jsx', '.tsx', '.css', '.html', '.md', '.markdown', '.rst', '.tex', '.bib', '.yml', '.yaml', '.toml', '.ini',
+  '.jsx', '.tsx', '.css', '.md', '.markdown', '.rst', '.tex', '.bib', '.yml', '.yaml', '.toml', '.ini',
   '.cfg', '.lock',
 ])
 const CODE_FILE_NAMES = new Set([
@@ -609,6 +610,38 @@ export function isDataExtension(path: string): boolean {
   if (CODE_FILE_NAMES.has(name)) return false
   const dot = name.lastIndexOf('.')
   return dot <= 0 || !CODE_FILE_EXTENSIONS.has(name.slice(dot))
+}
+
+const isNotebook = (path: string) => path.toLowerCase().endsWith('.ipynb')
+
+/**
+ * A Jupyter notebook as code only: every code cell's `outputs` emptied and its
+ * `execution_count` cleared, since outputs hold the values a run displayed. The
+ * text comes back unchanged when there is nothing to clear, and null when it is
+ * not a notebook that parses. Twin of `_notebook_without_outputs` (project_export.py).
+ */
+export function notebookWithoutOutputs(content: string): string | null {
+  let nb: unknown
+  try {
+    nb = JSON.parse(content)
+  } catch {
+    return null
+  }
+  const cells = (nb as { cells?: unknown } | null)?.cells
+  if (!nb || typeof nb !== 'object' || Array.isArray(nb) || !Array.isArray(cells)) return null
+  let changed = false
+  for (const cell of cells as Record<string, unknown>[]) {
+    if (!cell || typeof cell !== 'object' || cell.cell_type !== 'code') continue
+    if (!(Array.isArray(cell.outputs) && cell.outputs.length === 0)) {
+      cell.outputs = []
+      changed = true
+    }
+    if (cell.execution_count != null) {
+      cell.execution_count = null
+      changed = true
+    }
+  }
+  return changed ? json(nb) : content
 }
 
 /** Escape a path for use as a literal `.gitignore` pattern (after the `!`). Git
@@ -1127,6 +1160,48 @@ const INSTANCE_FIELDS = [
 // different number than one that has them — a diff neither side can settle.
 const DATA_SOURCE_LOCAL_FIELDS = ['status', 'errorMessage', 'stats', 'unacceptedFreeSql'] as const
 
+/**
+ * What a derived database's `derivedFrom` records about THIS instance's build: the
+ * exact size of the cohort, and the server-side names it wrote to (schema, key
+ * name, correspondence target). None of it is needed to rebuild elsewhere.
+ * Twin of `_DERIVED_FROM_LOCAL` / `_PSEUDONYMIZATION_LOCAL` (workspace_export.py).
+ */
+const DERIVED_FROM_LOCAL_FIELDS = ['patientCount', 'schemaName', 'derivationId'] as const
+const PSEUDONYMIZATION_LOCAL_FIELDS = ['reuseKeyOf', 'correspondence'] as const
+
+/** `derivedFrom` as it may leave the instance (see DERIVED_FROM_LOCAL_FIELDS). */
+export function portableDerivedFrom(derived: DerivedFrom): DerivedFrom {
+  const out = { ...derived } as Record<string, unknown>
+  for (const f of DERIVED_FROM_LOCAL_FIELDS) delete out[f]
+  const pseudo = derived.options?.pseudonymization
+  if (pseudo) {
+    const kept = { ...pseudo } as Record<string, unknown>
+    for (const f of PSEUDONYMIZATION_LOCAL_FIELDS) delete kept[f]
+    out.options = { ...derived.options, pseudonymization: kept }
+  }
+  return out as unknown as DerivedFrom
+}
+
+/** A pulled `derivedFrom`, given back the local fields the row it lands on recorded,
+ *  so a pull onto the database it was exported from rebuilds as before. */
+function withLocalDerivedFrom(pulled: DerivedFrom, local: DerivedFrom | undefined): DerivedFrom {
+  if (!local) return pulled
+  const out = { ...pulled } as Record<string, unknown>
+  for (const f of DERIVED_FROM_LOCAL_FIELDS) {
+    if (local[f] != null && out[f] == null) out[f] = local[f]
+  }
+  const localPseudo = local.options?.pseudonymization
+  const pulledPseudo = pulled.options?.pseudonymization
+  if (localPseudo && pulledPseudo) {
+    const kept = { ...pulledPseudo } as Record<string, unknown>
+    for (const f of PSEUDONYMIZATION_LOCAL_FIELDS) {
+      if (localPseudo[f] != null && kept[f] == null) kept[f] = localPseudo[f]
+    }
+    out.options = { ...pulled.options, pseudonymization: kept }
+  }
+  return out as unknown as DerivedFrom
+}
+
 /** Return a copy of an entity's metadata without instance-specific fields.
  *  Accepts any object (interfaces without an index signature included). */
 /**
@@ -1382,13 +1457,18 @@ export async function buildProjectZip(
   // opt-in rule via `marked` (versionedDataFiles), on every exit: a .gitignore
   // protects a push, not a downloaded ZIP.
   const excluded = excludedCodeFiles(project)
-  const isLeftOut = (treePath: string) => (isDataExtension(treePath)
-    ? !options.localCopy && !marked.has(treePath)
-    : excluded.has(treePath))
+  const keepsResults = (treePath: string) => !!options.localCopy || marked.has(treePath)
+  // A notebook's results leave only when it is marked, as a data file's do.
+  const exportedContent = (treePath: string, content: string) =>
+    isNotebook(treePath) && !keepsResults(treePath) ? notebookWithoutOutputs(content) : content
+  const isLeftOut = (treePath: string, content: string | undefined) => {
+    if (isDataExtension(treePath)) return !keepsResults(treePath)
+    return excluded.has(treePath) || (content != null && exportedContent(treePath, content) == null)
+  }
   const includedScriptDataPaths: string[] = []
   if (ideFiles.length > 0) {
     const byId = new Map(ideFiles.map(f => [f.id, f]))
-    const treeFiles = ideFiles.filter((f) => !(f.type === 'file' && isLeftOut(buildIdePath(f, byId))))
+    const treeFiles = ideFiles.filter((f) => !(f.type === 'file' && isLeftOut(buildIdePath(f, byId), f.content)))
     // Only emit the tree when something survives the exclusions — otherwise every
     // script is excluded and we'd version a useless `scripts/_tree.json: []`.
     if (treeFiles.length > 0) {
@@ -1408,8 +1488,9 @@ export async function buildProjectZip(
     for (const f of ideFiles) {
       if (f.type === 'file' && f.content != null) {
         const treePath = buildIdePath(f, byId)
-        if (isLeftOut(treePath)) continue
-        zip.file(treePath, f.content)
+        const content = exportedContent(treePath, f.content)
+        if (content == null || isLeftOut(treePath, f.content)) continue
+        zip.file(treePath, content)
         if (isDataExtension(treePath) && marked.has(treePath)) {
           includedScriptDataPaths.push(treePath)
         }
@@ -1447,7 +1528,7 @@ export async function buildProjectZip(
   // --- databases/ (IDE connections) ---
   const connections = await storage.connections.getByProject(projectUid)
   for (const c of connections) {
-    zip.file(`databases/${slugify(c.name || c.id)}.json`, json(stripInstanceFields(c)))
+    zip.file(`databases/${slugify(c.name || c.id)}.json`, json(withExportedConnectionConfig(stripInstanceFields(c))))
   }
 
   // Dataset ids as the export writes them (datasets/_tree.json, below), so widget and
@@ -2552,7 +2633,7 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
   const connections: IdeConnection[] = []
   for (const [path, entry] of scanFolder(zip, 'databases/')) {
     if (path.endsWith('.json')) {
-      connections.push(JSON.parse(await entry.async('string')))
+      connections.push(withExportedConnectionConfig(JSON.parse(await entry.async('string')) as IdeConnection))
     }
   }
 
@@ -2817,6 +2898,7 @@ export async function buildDataSourceFolder(
   } = stripInstanceFields(source) as unknown as Record<string, unknown>
   const schemaMapping = schemaBaseMapping ?? stored
   for (const field of DATA_SOURCE_LOCAL_FIELDS) delete rest[field]
+  if (rest.derivedFrom) rest.derivedFrom = portableDerivedFrom(rest.derivedFrom as DerivedFrom)
   const meta: Record<string, unknown> = {
     ...stripEntityDocs(rest as unknown as DataSource),
     connectionConfig: connectionConfig
@@ -3721,7 +3803,7 @@ async function applyClonedDatabase(
     // across instances, the label names it here even when that preset is not
     // installed. Both travel with the repo.
     ...(meta.schemaSource ? { schemaSource: meta.schemaSource } : {}),
-    ...(meta.derivedFrom ? { derivedFrom: meta.derivedFrom } : {}),
+    ...(meta.derivedFrom ? { derivedFrom: withLocalDerivedFrom(portableDerivedFrom(meta.derivedFrom), existing?.derivedFrom) } : {}),
     status: keepData && existing ? existing.status : ('configuring' as const),
     ...(meta.isVocabularyReference ? { isVocabularyReference: true } : {}),
     ...(meta.version ? { version: meta.version } : {}),
@@ -4469,6 +4551,17 @@ export function sanitizeConnectionConfig(config: Record<string, unknown>): Recor
 }
 
 /**
+ * `row` with its `connectionConfig`, if any, reduced by `sanitizeConnectionConfig`.
+ * Applied on the way out and on the way in: where a database or connection points,
+ * and as whom, is set on the instance that holds it, never by a tree.
+ */
+export function withExportedConnectionConfig<T extends object>(row: T): T {
+  const config = (row as { connectionConfig?: unknown }).connectionConfig
+  if (config == null || typeof config !== 'object') return row
+  return { ...row, connectionConfig: sanitizeConnectionConfig(config as Record<string, unknown>) }
+}
+
+/**
  * A user plugin's bundled `plugin.json` — its own FUNCTIONAL manifest, which is
  * not renamed and is where a plugin names itself for its ecosystem.
  *
@@ -5194,14 +5287,14 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     if (docs.license) ds.license = docs.license
     databaseCohorts.set(ds.id, await readDatabaseCohorts(zipData, prefix))
     databaseBoards.set(ds.id, await readCohortBoards(zipData, prefix))
-    databases.push(ds)
+    databases.push(withExportedConnectionConfig(ds))
   }
   // Flat form written before databases moved to a folder: the whole row, mapping
   // and DDL inlined, in one file.
   for (const [path, entry] of Object.entries(zipData.files)) {
     if (!path.startsWith('databases/') || !path.endsWith('.json') || entry.dir) continue
     if (path.slice('databases/'.length).includes('/')) continue
-    databases.push(JSON.parse(await entry.async('string')))
+    databases.push(withExportedConnectionConfig(JSON.parse(await entry.async('string')) as Partial<DataSource>))
   }
 
   // --- wiki/ ---

@@ -1,10 +1,10 @@
 """db_connect DSN builder: client-controlled connection fields must not inject
 extra DSN keywords or break the ATTACH SQL literal.
 
-DuckDB's postgres/mysql ATTACH parser follows libpq's backslash escaping, NOT
-its ``key="value"`` double-quoting (double quotes would be taken as literal
-characters of the value). So each value is kept a single token by
-backslash-escaping the delimiters (space, backslash) and the single quote."""
+libpq (Postgres) follows backslash escaping and takes a double quote as an
+ordinary character, so each value is kept a single token by backslash-escaping
+the delimiters (blank space, backslash) and the single quote. The MySQL protocol's
+grammar is covered in test_external_attach_login.py."""
 
 import re
 

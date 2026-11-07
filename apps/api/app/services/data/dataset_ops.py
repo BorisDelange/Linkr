@@ -14,6 +14,7 @@ both sides look internally consistent while doing so. A shared fixture
 """
 
 import json
+import re
 
 # Stable row identity. Row position cannot be the key: ops are recorded against a
 # sorted, filtered, paginated view, and in server mode the client never sees the
@@ -30,6 +31,15 @@ _OP_KEY_ORDER = (
     "row", "column", "value", "values", "after", "order",
     "name", "colType", "index", "to", "toName",
 )
+
+
+# What the app mints (col_<slug>). An ops file can outlive the route's check, so a
+# replay holds to it too.
+_COLUMN_ID = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def is_column_id(value: object) -> bool:
+    return isinstance(value, str) and _COLUMN_ID.fullmatch(value) is not None
 
 
 def replay_ops(columns: list[dict], rows: list[dict], ops: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -106,7 +116,7 @@ def _remove_row(rows: list[dict], op: dict) -> None:
 
 def _add_column(columns: list[dict], rows: list[dict], op: dict) -> None:
     col_id = op.get("column")
-    if any(c["id"] == col_id for c in columns):
+    if not is_column_id(col_id) or any(c["id"] == col_id for c in columns):
         return
     index = op.get("index")
     at = len(columns) if index is None else max(0, min(int(index), len(columns)))
@@ -132,7 +142,7 @@ def _remove_column(columns: list[dict], rows: list[dict], op: dict) -> None:
 def _rename_column(columns: list[dict], rows: list[dict], op: dict) -> None:
     col_id, to = op.get("column"), op.get("to")
     col = next((c for c in columns if c["id"] == col_id), None)
-    if col is None or any(c["id"] == to for c in columns):
+    if col is None or not is_column_id(to) or any(c["id"] == to for c in columns):
         return
     col["id"] = to
     col["name"] = op.get("toName")

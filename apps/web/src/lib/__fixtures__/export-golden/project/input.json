@@ -202,7 +202,14 @@
       "source": "postgres",
       "dataSourceId": null,
       "connectionConfig": {
-        "host": "db.local"
+        "engine": "postgresql",
+        "host": "db.local",
+        "port": 5432,
+        "database": "dm",
+        "schema": "omop",
+        "username": "login",
+        "serverPath": "/srv/private/dm.duckdb",
+        "connectionString": "postgres://u:secret@db.local/dm"
       },
       "status": "connected",
       "errorMessage": null,

@@ -16,6 +16,7 @@ The UI never shows this distinction — it shows packages + a build/ready state.
 """
 
 import asyncio
+import json
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -247,16 +248,71 @@ async def upgrade(
     return await _mark_managed(db, env)
 
 
+# Spec filenames a language legitimately versions (manifest + lockfile + activation).
+SPEC_FILES: dict[str, tuple[str, ...]] = {
+    "python": ("pyproject.toml", "uv.lock", "requirements.txt"),
+    "r": ("renv.lock", ".Rprofile", "settings.json"),
+}
+
+
+def spec_text(project_uid: str, language: str) -> str:
+    """The text a user accepts before a run builds this env: every spec file and the
+    install options, headed by the project, since a relative path in a spec names
+    that project's own files."""
+    from app.services import project_fs
+    from app.services.execution import env_options
+
+    spec_dir = project_fs.env_spec_dir(project_uid, language)
+    parts = [f"# {language_label(language)} environment of project {project_uid}"]
+    for name in SPEC_FILES[language]:
+        path = spec_dir / name
+        if path.is_file():
+            parts.append(f"# --- {name} ---\n{path.read_text(encoding='utf-8', errors='replace')}")
+    options = env_options.mask_credentials(env_options.read_env_override(project_uid, language))
+    if options:
+        parts.append(f"# --- options.json ---\n{json.dumps(options, indent=2, sort_keys=True)}")
+    return "\n\n".join(parts) + "\n"
+
+
+async def accept_spec(db: AsyncSession, user_id: int, project_uid: str, language: str) -> None:
+    from app.services import code_acceptance_service
+
+    await code_acceptance_service.accept_by(db, user_id, [spec_text(project_uid, language)])
+
+
+async def require_spec_accepted(db: AsyncSession, user_id: int, project_uid: str, language: str) -> str:
+    """The spec's text, once `user_id` has accepted it."""
+    from app.services import code_acceptance_service
+
+    text = spec_text(project_uid, language)
+    if not await code_acceptance_service.is_accepted_by(db, user_id, text):
+        raise code_acceptance_service.EnvironmentNotAccepted(language, text)
+    return text
+
+
 async def build(
-    db: AsyncSession, project_uid: str, language: str, on_log=None
+    db: AsyncSession,
+    project_uid: str,
+    language: str,
+    on_log=None,
+    accepted_by: int | None = None,
+    accepted_spec: str | None = None,
 ) -> Environment:
     """Materialise the env's venv/library from its lockfile (manual, explicit).
     Flips status building → ready/error and records the resolved interpreter.
     ``on_log`` (if given) receives each build output line — used by the job runner
-    to stream into the job's log tail."""
+    to stream into the job's log tail. ``accepted_by``: the user building it by
+    their own choice, whose acceptance of the spec this records. ``accepted_spec``:
+    the spec a run was allowed to build, refused once the spec on disk differs."""
+    from app.services.execution.uv_provisioner import ProvisionError
+
     prov = _provisioner(language)
     env = await resolve(db, project_uid, language)
     opts = await resolve_options(db, project_uid, language)
+    if accepted_spec is not None and spec_text(project_uid, language) != accepted_spec:
+        raise ProvisionError("The environment changed after it was accepted: run again to review it.")
+    if accepted_by is not None:
+        await accept_spec(db, accepted_by, project_uid, language)
     env.status = "building"
     await db.commit()
     result = await prov.build(project_uid, on_log=on_log, options=opts)
@@ -279,8 +335,6 @@ async def build(
         # Persist the env's error status (above) but signal the failure so the
         # calling job is marked 'error', not 'done' — otherwise a broken build
         # shows a green "done" in the jobs panel.
-        from app.services.execution.uv_provisioner import ProvisionError
-
         raise ProvisionError(result.log.strip() or "Environment build failed")
     return env
 
@@ -318,7 +372,9 @@ async def ensure_ready(
 ) -> Environment:
     """Make the env runnable before code executes: if it declares packages but
     isn't built yet, build it now (auto-build on first run) as a tracked job so the
-    user sees it in the jobs panel. An empty/ready env returns immediately.
+    user sees it in the jobs panel. An empty/ready env returns immediately. A build
+    waits for `user_id`'s acceptance of the spec (EnvironmentNotAccepted): it runs
+    package code the spec names, whoever wrote it.
 
     ``on_log`` (optional, may be async) receives each build output line as it is
     produced, so a caller with a live channel (the IDE's kernel WebSocket) can show
@@ -326,6 +382,7 @@ async def ensure_ready(
     env = await resolve(db, project_uid, language)
     if not needs_build(env):
         return env
+    accepted = await require_spec_accepted(db, user_id, project_uid, language)
     from app.core.database import async_session
     from app.services.execution import jobs
 
@@ -357,7 +414,7 @@ async def ensure_ready(
         async with jobs.live_log(handle) as to_job:
             try:
                 async with async_session() as job_db:
-                    await build(job_db, project_uid, language, on_log=collect)
+                    await build(job_db, project_uid, language, on_log=collect, accepted_spec=accepted)
             finally:
                 if pump_task is not None:
                     # Let the queued lines drain before cancelling the pump.
@@ -399,6 +456,7 @@ async def run_package_op_as_job(
     async def body(handle) -> None:
         async with jobs.live_log(handle) as on_log, async_session() as job_db:
             await op(job_db, on_log)
+            await accept_spec(job_db, user_id, project_uid, language)
             ok["done"] = True
 
     await jobs.run_now(job.id, body)

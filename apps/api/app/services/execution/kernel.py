@@ -21,6 +21,7 @@ or when the process dies. In-memory only — variables are lost on server restar
 
 import asyncio
 import base64
+import contextlib
 import json
 import os
 import signal
@@ -1690,6 +1691,45 @@ class EphemeralConcurrency:
 
 
 _ephemeral_gate = EphemeralConcurrency()
+
+
+class EphemeralBusy(Exception):
+    """A user already has as many ephemeral runs waiting as one may queue."""
+
+
+class EphemeralShares:
+    """One user's share of the ephemeral slots, taken before the shared gate: a
+    user's excess runs wait on their own share, so another user's widget still
+    finds a slot. Past `QUEUE_PER_USER` runs in flight, a new one is turned away."""
+
+    QUEUE_PER_USER = 100
+
+    def __init__(self) -> None:
+        self._held: dict[int, tuple[asyncio.Semaphore, int]] = {}
+
+    @staticmethod
+    def _size() -> int:
+        n = settings.widget_max_concurrency
+        return max(1, n - max(1, n // 4))
+
+    @contextlib.asynccontextmanager
+    async def slot(self, user_id: int):
+        share, count = self._held.get(user_id) or (asyncio.Semaphore(self._size()), 0)
+        if count >= self.QUEUE_PER_USER:
+            raise EphemeralBusy("Too many runs waiting: wait for some to finish.")
+        self._held[user_id] = (share, count + 1)
+        try:
+            async with share:
+                yield
+        finally:
+            _, count = self._held[user_id]
+            if count <= 1:
+                del self._held[user_id]
+            else:
+                self._held[user_id] = (share, count - 1)
+
+
+ephemeral_shares = EphemeralShares()
 
 
 # Background refill/prewarm tasks are retained here: the event loop keeps only a

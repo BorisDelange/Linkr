@@ -20,7 +20,7 @@ export const apiCohortStorage: CohortStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<Cohort>(`${COHORTS}/${id}`)
+      return await apiRequest<Cohort>(`${COHORTS}/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -31,11 +31,11 @@ export const apiCohortStorage: CohortStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${COHORTS}/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    await apiRequest(`${COHORTS}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
   delete: async (id) => {
-    await apiRequest(`${COHORTS}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${COHORTS}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }
 

@@ -40,7 +40,7 @@ export async function persistScoresFileOnServer(
   file: File,
 ): Promise<ScoresIndex | null> {
   const { sha } = await uploadFileInChunks(file, file.name)
-  const wire = await apiRequest<ScoresIndexWire>(`${PROJ}/${projectId}/scores-file`, {
+  const wire = await apiRequest<ScoresIndexWire>(`${PROJ}/${encodeURIComponent(projectId)}/scores-file`, {
     method: 'POST',
     body: JSON.stringify({ sha, fileName: file.name }),
   })
@@ -50,7 +50,7 @@ export async function persistScoresFileOnServer(
 /** Rebuild the query index from the already-attached parquet (no upload). Null
  *  when the project has no scores file. */
 export async function fetchScoresIndexFromServer(projectId: string): Promise<ScoresIndex | null> {
-  const wire = await apiRequest<ScoresIndexWire | null>(`${PROJ}/${projectId}/scores-index`)
+  const wire = await apiRequest<ScoresIndexWire | null>(`${PROJ}/${encodeURIComponent(projectId)}/scores-index`)
   return wire ? toScoresIndex(wire) : null
 }
 
@@ -58,7 +58,7 @@ export async function fetchScoresIndexFromServer(projectId: string): Promise<Sco
  *  project has no scores file — without downloading the (large) parquet. */
 export async function fetchScoresFileSizeFromServer(projectId: string): Promise<number> {
   const wire = await apiRequest<(ScoresIndexWire & { fileSize?: number }) | null>(
-    `${PROJ}/${projectId}/scores-index`,
+    `${PROJ}/${encodeURIComponent(projectId)}/scores-index`,
   )
   return wire?.fileSize ?? 0
 }
@@ -69,7 +69,7 @@ export function queryScoresForSourceOnServer(
   vocabId: string,
   code: string,
 ): Promise<ParsedScoreRow[]> {
-  return apiRequest<ParsedScoreRow[]>(`${PROJ}/${projectId}/scores/query`, {
+  return apiRequest<ParsedScoreRow[]>(`${PROJ}/${encodeURIComponent(projectId)}/scores/query`, {
     method: 'POST',
     body: JSON.stringify({ vocabularyId: vocabId, conceptCode: code }),
   })
@@ -81,7 +81,7 @@ export async function removeScoreMethodsOnServer(
   projectId: string,
   methods: string[],
 ): Promise<{ index: ScoresIndex | null; removed: number }> {
-  const res = await apiRequest<{ index: ScoresIndexWire | null; removed: number }>(`${PROJ}/${projectId}/scores/remove`, {
+  const res = await apiRequest<{ index: ScoresIndexWire | null; removed: number }>(`${PROJ}/${encodeURIComponent(projectId)}/scores/remove`, {
     method: 'POST',
     body: JSON.stringify({ methods }),
   })
@@ -89,7 +89,7 @@ export async function removeScoreMethodsOnServer(
 }
 
 export async function deleteScoresFileOnServer(projectId: string): Promise<void> {
-  await apiRequest(`${PROJ}/${projectId}/scores-file`, { method: 'DELETE' })
+  await apiRequest(`${PROJ}/${encodeURIComponent(projectId)}/scores-file`, { method: 'DELETE' })
 }
 
 /** Download the scores parquet bytes from the blob store (for export), only the
@@ -97,12 +97,12 @@ export async function deleteScoresFileOnServer(projectId: string): Promise<void>
  *  so export fetches them here. Null when there is nothing to send. */
 export async function fetchScoresFileFromServer(projectId: string, methods?: string[]): Promise<Uint8Array | null> {
   const query = methods ? `?${methods.map((m) => `methods=${encodeURIComponent(m)}`).join('&')}` : ''
-  return bytesOrNullOn404(await apiFetch(`/api/v1${PROJ}/${projectId}/scores-file${query}`))
+  return bytesOrNullOn404(await apiFetch(`/api/v1${PROJ}/${encodeURIComponent(projectId)}/scores-file${query}`))
 }
 
 /** One method's versioned CSV. Null when the method has no rows. */
 export async function fetchScoreMethodCsvFromServer(projectId: string, method: string): Promise<Uint8Array | null> {
-  return bytesOrNullOn404(await apiFetch(`/api/v1${PROJ}/${projectId}/scores/method-csv?method=${encodeURIComponent(method)}`))
+  return bytesOrNullOn404(await apiFetch(`/api/v1${PROJ}/${encodeURIComponent(projectId)}/scores/method-csv?method=${encodeURIComponent(method)}`))
 }
 
 // Only a 404 means "nothing to send": any other failure must reach the caller,
@@ -115,7 +115,7 @@ async function bytesOrNullOn404(res: Response): Promise<Uint8Array | null> {
 
 /** Per method: row count and CSV size. [] when the project has no scores file. */
 export function fetchScoreMethodStatsFromServer(projectId: string): Promise<ScoreMethodStat[]> {
-  return apiRequest<ScoreMethodStat[]>(`${PROJ}/${projectId}/scores/methods`)
+  return apiRequest<ScoreMethodStat[]>(`${PROJ}/${encodeURIComponent(projectId)}/scores/methods`)
 }
 
 /** Replace each method's rows with those of its CSV (an import bringing
@@ -130,7 +130,7 @@ export async function importScoreCsvsOnServer(
     const { sha } = await uploadFileInChunks(file, file.name)
     files.push({ method, sha })
   }
-  const wire = await apiRequest<ScoresIndexWire | null>(`${PROJ}/${projectId}/scores/import-csv`, {
+  const wire = await apiRequest<ScoresIndexWire | null>(`${PROJ}/${encodeURIComponent(projectId)}/scores/import-csv`, {
     method: 'POST',
     body: JSON.stringify({ files }),
   })
@@ -145,7 +145,7 @@ export async function pullScoreMethodsOnServer(
   methods: string[],
   removed: string[],
 ): Promise<ScoresIndex | null> {
-  const wire = await apiRequest<ScoresIndexWire | null>(`/git/mapping-projects/${projectId}/pull-scores`, {
+  const wire = await apiRequest<ScoresIndexWire | null>(`/git/mapping-projects/${encodeURIComponent(projectId)}/pull-scores`, {
     method: 'POST',
     body: JSON.stringify({ branch, methods, removed }),
   })

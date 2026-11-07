@@ -350,6 +350,9 @@ export interface CohortMaterialization {
   count: number
   /** When the snapshot was frozen (ISO timestamp). */
   materializedAt: string
+  /** The database it was frozen on (server mode); a snapshot of another
+   *  database than the cohort's is not served as frozen. */
+  dataSourceId?: string
 }
 
 // --- Attrition ---

@@ -96,7 +96,7 @@ export interface GitCommitResult {
 }
 
 function base(scope: GitScope, id: string): string {
-  return `/git/${scope}/${encodeURIComponent(id)}`
+  return `/git/${encodeURIComponent(scope)}/${encodeURIComponent(id)}`
 }
 
 /** POST a multipart form (ZIP + fields) through apiFetch, parsing the JSON result.
@@ -206,7 +206,7 @@ export interface GitVerifyResult {
 // entity's export tree, so the operation never reached the remote. It is reported
 // as its own code because the git-flavoured wording sends the user to check a
 // token and a URL that had nothing to do with it.
-export type GitErrorCode = 'auth_required' | 'auth_failed' | 'not_found' | 'network' | 'pull_required' | 'export_failed' | 'archive_too_large' | 'hidden_projects' | 'unknown'
+export type GitErrorCode = 'auth_required' | 'auth_failed' | 'not_found' | 'network' | 'pull_required' | 'export_failed' | 'archive_too_large' | 'hidden_projects' | 'unreadable_content' | 'unknown'
 
 /** A git operation failed: `code` drives the friendly message, `rawMessage` is
  *  the underlying git output shown on demand. */
@@ -454,13 +454,13 @@ export const linkedTypeForScope: Partial<Record<GitScope, string>> = Object.from
 )
 
 export async function gitContentStatusList(workspaceId: string): Promise<GitContentStatus[]> {
-  const res = await apiFetch(`/api/v1/git/workspaces/${workspaceId}/content-status`)
+  const res = await apiFetch(`/api/v1/git/workspaces/${encodeURIComponent(workspaceId)}/content-status`)
   if (!res.ok) throw await gitError(res)
   return res.json()
 }
 
 export async function gitSetContentStatus(workspaceId: string, scope: GitScope, entityId: string, status: 'pending' | 'failed'): Promise<void> {
-  const res = await apiFetch(`/api/v1/git/workspaces/${workspaceId}/content-status`, {
+  const res = await apiFetch(`/api/v1/git/workspaces/${encodeURIComponent(workspaceId)}/content-status`, {
     method: 'PUT',
     body: JSON.stringify({ scope, entityId, status }),
   })
@@ -468,6 +468,6 @@ export async function gitSetContentStatus(workspaceId: string, scope: GitScope, 
 }
 
 export async function gitClearContentStatus(workspaceId: string, scope: GitScope, entityId: string): Promise<void> {
-  const res = await apiFetch(`/api/v1/git/workspaces/${workspaceId}/content-status/${scope}/${entityId}`, { method: 'DELETE' })
+  const res = await apiFetch(`/api/v1/git/workspaces/${encodeURIComponent(workspaceId)}/content-status/${encodeURIComponent(scope)}/${encodeURIComponent(entityId)}`, { method: 'DELETE' })
   if (!res.ok) throw await gitError(res)
 }

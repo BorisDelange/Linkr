@@ -19,6 +19,7 @@ from app.core.permissions import seed_default_roles
 from app.core.security import pwd_context
 from app.main import app
 from app.models.base import Base
+from app.services import blob_store, upload_ledger
 
 # Tests register and log users in constantly, and production-cost bcrypt
 # (~440 ms per hash or verify) dominated the suite's runtime. 4 is bcrypt's
@@ -78,6 +79,14 @@ def _own_app_ports(monkeypatch):
 
 
 _SHARED_DUCKDB_EXTENSIONS = Path(__file__).resolve().parents[3] / ".cache" / "duckdb-extensions"
+
+
+@pytest.fixture(autouse=True)
+def _a_stored_blob_counts_as_the_callers(request, monkeypatch):
+    """Most tests put a file straight in the blob store, then attach it by its hash:
+    what they test comes after. test_blob_ownership.py tests that step."""
+    if not request.node.get_closest_marker("blob_ownership"):
+        monkeypatch.setattr(upload_ledger, "holds", lambda _user_id, sha: blob_store.exists(sha))
 
 
 @pytest.fixture(autouse=True)

@@ -45,7 +45,7 @@ export function startImportOnServer(workspaceId: string, source: ServerExportSou
 }
 
 export function fetchImportState(workspaceId: string, importId: string): Promise<ServerImportState> {
-  return apiRequest(`${base(workspaceId)}/imports/${importId}`)
+  return apiRequest(`${base(workspaceId)}/imports/${encodeURIComponent(importId)}`)
 }
 
 export async function removeVocabularyOnServer(workspaceId: string, vocabularyId: string): Promise<void> {

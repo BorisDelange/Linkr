@@ -18,20 +18,20 @@ interface StatsCacheWire {
 export const apiDatabaseStatsCacheStorage: DatabaseStatsCacheStorage = {
   async get(dataSourceId) {
     const wire = await apiRequest<StatsCacheWire | null>(
-      `/data-sources/${dataSourceId}/stats-cache`,
+      `/data-sources/${encodeURIComponent(dataSourceId)}/stats-cache`,
     )
     if (!wire) return undefined
     return { ...(wire.payload as object), dataSourceId, computedAt: wire.computedAt } as DatabaseStatsCache
   },
   async save(cache) {
     const { dataSourceId, computedAt, ...payload } = cache
-    await apiRequest(`/data-sources/${dataSourceId}/stats-cache`, {
+    await apiRequest(`/data-sources/${encodeURIComponent(dataSourceId)}/stats-cache`, {
       method: 'PUT',
       body: JSON.stringify({ computedAt, payload }),
     })
   },
   async delete(dataSourceId) {
-    await apiRequest(`/data-sources/${dataSourceId}/stats-cache`, { method: 'DELETE' })
+    await apiRequest(`/data-sources/${encodeURIComponent(dataSourceId)}/stats-cache`, { method: 'DELETE' })
   },
 }
 
@@ -39,20 +39,20 @@ export const apiDatabaseStatsCacheStorage: DatabaseStatsCacheStorage = {
 export const apiCatalogResultStorage: CatalogResultStorage = {
   async get(catalogId) {
     const wire = await apiRequest<StatsCacheWire | null>(
-      `/data-catalogs/${catalogId}/results-cache`,
+      `/data-catalogs/${encodeURIComponent(catalogId)}/results-cache`,
     )
     if (!wire) return undefined
     return { ...(wire.payload as object), catalogId, computedAt: wire.computedAt } as CatalogResultCache
   },
   async save(cache) {
     const { catalogId, computedAt, ...payload } = cache
-    await apiRequest(`/data-catalogs/${catalogId}/results-cache`, {
+    await apiRequest(`/data-catalogs/${encodeURIComponent(catalogId)}/results-cache`, {
       method: 'PUT',
       body: JSON.stringify({ computedAt, payload }),
     })
   },
   async delete(catalogId) {
-    await apiRequest(`/data-catalogs/${catalogId}/results-cache`, { method: 'DELETE' })
+    await apiRequest(`/data-catalogs/${encodeURIComponent(catalogId)}/results-cache`, { method: 'DELETE' })
   },
 }
 
@@ -62,19 +62,19 @@ export const apiCatalogResultStorage: CatalogResultStorage = {
 export const apiEtlQualityCacheStorage: EtlQualityCacheStorage = {
   async get(pipelineId) {
     const wire = await apiRequest<StatsCacheWire | null>(
-      `/etl-pipelines/${pipelineId}/quality-cache`,
+      `/etl-pipelines/${encodeURIComponent(pipelineId)}/quality-cache`,
     )
     if (!wire) return undefined
     return { ...(wire.payload as object), pipelineId, computedAt: wire.computedAt } as EtlQualityCache
   },
   async save(cache) {
     const { pipelineId, computedAt, ...payload } = cache
-    await apiRequest(`/etl-pipelines/${pipelineId}/quality-cache`, {
+    await apiRequest(`/etl-pipelines/${encodeURIComponent(pipelineId)}/quality-cache`, {
       method: 'PUT',
       body: JSON.stringify({ computedAt, payload }),
     })
   },
   async delete(pipelineId) {
-    await apiRequest(`/etl-pipelines/${pipelineId}/quality-cache`, { method: 'DELETE' })
+    await apiRequest(`/etl-pipelines/${encodeURIComponent(pipelineId)}/quality-cache`, { method: 'DELETE' })
   },
 }

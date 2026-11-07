@@ -6,7 +6,7 @@
  */
 import { checkLocalized, checkString, isObject } from '../check.js'
 import { IssueBag, type Issue } from '../issue.js'
-import { readJson, type EntityTree } from '../tree.js'
+import { filesIn, readJson, type EntityTree } from '../tree.js'
 import { validateDashboards } from './dashboards.js'
 import { validateDatasets } from './datasets.js'
 import { validateCohortBoardFiles, validateCohortFiles } from './records.js'
@@ -23,8 +23,37 @@ export function validateProject(tree: EntityTree): Issue[] {
   validateScripts(tree, bag)
   validateCohortFiles(tree, bag)
   validateCohortBoardFiles(tree, bag)
+  validateConnectionFiles(tree, bag)
 
   return bag.all()
+}
+
+/** The `connectionConfig` keys an IDE connection may carry in a tree — the same
+ *  allowlist as a database's (`sanitizeConnectionConfig` in the app). */
+const PORTABLE_CONNECTION_KEYS = new Set(['engine', 'inMemory', 'managed'])
+
+/** `databases/*.json`: a project's IDE connections. Where one points, and as
+ *  whom, is set on the importing instance, so a tree names neither. */
+function validateConnectionFiles(tree: EntityTree, bag: IssueBag): void {
+  for (const path of filesIn(tree, 'databases', '.json')) {
+    const parsed = readJson(tree, path)
+    if (!parsed.ok) {
+      bag.error(path, '', 'invalid-json', `Cannot parse JSON: ${parsed.error}`)
+      continue
+    }
+    const config = isObject(parsed.value) ? parsed.value.connectionConfig : undefined
+    if (config == null) continue
+    if (!isObject(config)) {
+      bag.error(path, '/connectionConfig', 'wrong-type', '`connectionConfig` must be an object.')
+      continue
+    }
+    const extra = Object.keys(config).filter((k) => !PORTABLE_CONNECTION_KEYS.has(k)).sort()
+    if (extra.length > 0) {
+      bag.error(path, '/connectionConfig', 'wrong-type',
+        `A connection must not carry ${extra.map((k) => `\`${k}\``).join(', ')}: a tree would publish where it points and as whom.`,
+        'keep only `engine`, `inMemory` and `managed`; the importing instance supplies the rest')
+    }
+  }
 }
 
 function validateProjectFile(tree: EntityTree, bag: IssueBag): void {

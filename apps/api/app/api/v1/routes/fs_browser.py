@@ -6,6 +6,7 @@ answer to the permission of what they feed (see below). The heavy lifting lives 
 there. Server mode only — front-only has no server filesystem to browse."""
 
 import asyncio
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -61,19 +62,37 @@ def _split_extensions(raw: str | None) -> list[str] | None:
     return [p for p in (part.strip() for part in raw.split(",")) if p]
 
 
+def _in_own_folder(project: Project, path: str) -> bool:
+    """`path` is inside the project's own folder in Linkr's data folder, where its
+    default bindings live: the picker's "reset to default" jump lands there."""
+    if not path:
+        return False
+    own = project_fs.project_dir(project.uid).resolve()
+    target = Path(path).expanduser().resolve()
+    return target == own or own in target.parents
+
+
 @router.get("/list-dir")
 async def list_dir(
     path: str = Query("", description="Absolute server path; empty = a browse root"),
     include_files: bool = Query(False, alias="includeFiles"),
     extensions: str | None = Query(None, description="Comma-separated, e.g. .parquet,.csv"),
-    _project: Project = Depends(require_project_permission("project-settings:write")),
-    _user: User = Depends(get_current_user),
+    project: Project = Depends(require_project_permission("project-settings:write")),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
+    """Browse for a folder to bind. What a binding would refuse — Linkr's data
+    folder, system folders, other projects' folders and other workspaces' databases
+    — is neither listed nor opened, the project's own default folders aside."""
     _guard()
+    await fs_browser.require_unconfined_reach(db, project, user)
     try:
-        return fs_browser.list_dir(path, include_files, _split_extensions(extensions))
+        if _in_own_folder(project, path):
+            return fs_browser.list_dir(path, include_files, _split_extensions(extensions))
+        scope = await fs_browser.import_scope(db, project, user)
+        return fs_browser.source_list_dir(path, include_files, _split_extensions(extensions), scope)
     except fs_browser.FsBrowseError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        raise HTTPException(exc.status_code, str(exc)) from exc
 
 
 class ValidateBody(BaseModel):
@@ -83,10 +102,12 @@ class ValidateBody(BaseModel):
 @router.post("/validate")
 async def validate_dir(
     body: ValidateBody,
-    _project: Project = Depends(require_project_permission("project-settings:write")),
-    _user: User = Depends(get_current_user),
+    project: Project = Depends(require_project_permission("project-settings:write")),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     _guard()
+    await fs_browser.require_unconfined_reach(db, project, user)
     return fs_browser.validate_dir(body.path)
 
 
@@ -107,6 +128,7 @@ async def rebind_copy(
     The binding change itself is a normal project update; this only moves bytes,
     between folders the caller could bind."""
     _guard()
+    await fs_browser.require_unconfined_reach(db, project, user)
     scope = await fs_browser.import_scope(db, project, user)
     try:
         # A folder of gigabytes takes minutes: off the event loop, or every other
@@ -167,10 +189,11 @@ async def ws_list_dir(
     db: AsyncSession = Depends(get_db),
 ):
     await check_workspace_permission(db, workspace_id, user, "databases:write")
+    scope = await fs_browser.import_scope(db, None, user, workspace_id=workspace_id)
     try:
-        return fs_browser.list_dir(path, include_files, _split_extensions(extensions))
+        return fs_browser.source_list_dir(path, include_files, _split_extensions(extensions), scope)
     except fs_browser.FsBrowseError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        raise HTTPException(exc.status_code, str(exc)) from exc
 
 
 class ValidatePathBody(BaseModel):

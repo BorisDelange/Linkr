@@ -88,7 +88,7 @@ export interface SemanticSearchResult {
 
 export const SYNTACTIC_METHODS = ['syntactic/jaro-winkler', 'syntactic/token-sort', 'syntactic/ngram-idf'] as const
 
-const base = (workspaceId: string) => `/workspaces/${workspaceId}/suggestion-engines`
+const base = (workspaceId: string) => `/workspaces/${encodeURIComponent(workspaceId)}/suggestion-engines`
 
 function started(job: Job): Job {
   notifyJobsChanged()
@@ -143,11 +143,11 @@ export async function uploadEmbeddingModel(
 }
 
 export async function downloadEmbeddingModel(workspaceId: string, modelId: string): Promise<Job> {
-  return started(await apiRequest<Job>(`${base(workspaceId)}/models/${modelId}/download`, { method: 'POST' }))
+  return started(await apiRequest<Job>(`${base(workspaceId)}/models/${encodeURIComponent(modelId)}/download`, { method: 'POST' }))
 }
 
 export function deleteEmbeddingModel(workspaceId: string, modelId: string): Promise<void> {
-  return apiRequest(`${base(workspaceId)}/models/${modelId}`, { method: 'DELETE' })
+  return apiRequest(`${base(workspaceId)}/models/${encodeURIComponent(modelId)}`, { method: 'DELETE' })
 }
 
 export function createEmbeddingConfig(workspaceId: string, body: ConfigInput): Promise<EmbeddingConfig> {
@@ -155,15 +155,15 @@ export function createEmbeddingConfig(workspaceId: string, body: ConfigInput): P
 }
 
 export function updateEmbeddingConfig(workspaceId: string, configId: string, body: ConfigInput): Promise<EmbeddingConfig> {
-  return apiRequest(`${base(workspaceId)}/configs/${configId}`, { method: 'PATCH', body: JSON.stringify(body) })
+  return apiRequest(`${base(workspaceId)}/configs/${encodeURIComponent(configId)}`, { method: 'PATCH', body: JSON.stringify(body) })
 }
 
 export function deleteEmbeddingConfig(workspaceId: string, configId: string): Promise<void> {
-  return apiRequest(`${base(workspaceId)}/configs/${configId}`, { method: 'DELETE' })
+  return apiRequest(`${base(workspaceId)}/configs/${encodeURIComponent(configId)}`, { method: 'DELETE' })
 }
 
 export async function buildEmbeddingIndex(workspaceId: string, configId: string, rebuild = false): Promise<Job> {
-  return started(await apiRequest<Job>(`${base(workspaceId)}/configs/${configId}/build`, {
+  return started(await apiRequest<Job>(`${base(workspaceId)}/configs/${encodeURIComponent(configId)}/build`, {
     method: 'POST',
     body: JSON.stringify({ rebuild }),
   }))
@@ -178,7 +178,7 @@ export interface ComputeScoresInput {
 }
 
 export async function computeSuggestionScores(projectId: string, body: ComputeScoresInput): Promise<Job> {
-  return started(await apiRequest<Job>(`/mapping-projects/${projectId}/scores/compute`, {
+  return started(await apiRequest<Job>(`/mapping-projects/${encodeURIComponent(projectId)}/scores/compute`, {
     method: 'POST',
     body: JSON.stringify(body),
   }))
@@ -195,16 +195,16 @@ export interface PausedScores {
 
 /** The project's scores computation still running, if any, and the paused one. */
 export function getScoresCompute(projectId: string): Promise<{ jobId: string | null; paused: PausedScores | null }> {
-  return apiRequest(`/mapping-projects/${projectId}/scores/compute`)
+  return apiRequest(`/mapping-projects/${encodeURIComponent(projectId)}/scores/compute`)
 }
 
 /** Stop the running computation, keeping what it finished. */
 export async function pauseScoresCompute(projectId: string): Promise<void> {
-  await apiRequest(`/mapping-projects/${projectId}/scores/compute/pause`, { method: 'POST' })
+  await apiRequest(`/mapping-projects/${encodeURIComponent(projectId)}/scores/compute/pause`, { method: 'POST' })
 }
 
 export async function resumeScoresCompute(projectId: string): Promise<Job> {
-  return started(await apiRequest<Job>(`/mapping-projects/${projectId}/scores/compute/resume`, { method: 'POST' }))
+  return started(await apiRequest<Job>(`/mapping-projects/${encodeURIComponent(projectId)}/scores/compute/resume`, { method: 'POST' }))
 }
 
 const FINISHED = new Set(['done', 'error', 'cancelled'])

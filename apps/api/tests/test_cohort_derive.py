@@ -386,6 +386,7 @@ def test_a_derivation_from_a_parquet_source_still_reads_its_own_files(tmp_path):
 def test_a_stored_definition_running_text_is_refused_beside_a_database_that_runs_it(source, tmp_path, monkeypatch):
     from app.services.data import db_connect
 
+    members = cohort_derive.compute_members(source, ONE_PATIENT)
     con = duckdb.connect(source.spec["path"])
     con.execute("LOAD json")
     serialized = con.execute("SELECT json_serialize_sql('SELECT 1')").fetchone()[0].replace("'", "''")
@@ -393,7 +394,8 @@ def test_a_stored_definition_running_text_is_refused_beside_a_database_that_runs
     con.close()
     monkeypatch.setattr(db_connect, "_has_passthrough_attach", lambda _con: True)
     target = TargetSpec("file", path=str(tmp_path / "out.duckdb"), fresh_file=True)
-    members = cohort_derive.compute_members(source, ONE_PATIENT)
+    with pytest.raises(ValueError):
+        cohort_derive.compute_members(source, ONE_PATIENT)
     with pytest.raises(ValueError):
         cohort_derive.derive(source, target, members, MAPPING, "patient", True)
 

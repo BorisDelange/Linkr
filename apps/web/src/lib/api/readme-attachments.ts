@@ -8,7 +8,7 @@ const BASE = '/readme-attachments'
 type Meta = Omit<ReadmeAttachment, 'data'>
 
 async function withData(meta: Meta): Promise<ReadmeAttachment> {
-  const res = await apiFetch(`/api/v1${BASE}/${meta.id}/blob`)
+  const res = await apiFetch(`/api/v1${BASE}/${encodeURIComponent(meta.id)}/blob`)
   const data = res.ok ? await res.arrayBuffer() : new ArrayBuffer(0)
   return { ...meta, data }
 }
@@ -44,7 +44,7 @@ export const apiReadmeAttachmentStorage: ReadmeAttachmentStorage = {
   },
 
   delete: async (id) => {
-    await apiRequest(`${BASE}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${BASE}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   deleteByOwner: async (ownerType, ownerId) => {

@@ -239,16 +239,18 @@ function checkDerivationOptions(bag: IssueBag, path: string, options: unknown): 
   if (typeof pseudo.keepKey !== 'boolean') {
     bag.error(path, `${at}/pseudonymization/keepKey`, 'wrong-type', '`keepKey` must be a boolean.')
   }
-  if (pseudo.reuseKeyOf != null && typeof pseudo.reuseKeyOf !== 'string') {
-    bag.error(path, `${at}/pseudonymization/reuseKeyOf`, 'wrong-type', '`reuseKeyOf` names a derivation.')
-  }
-  const corr = pseudo.correspondence
-  if (corr != null && !(isObject(corr) && typeof corr.dataSourceId === 'string' && typeof corr.schemaName === 'string'
-    && (corr.tableName == null || typeof corr.tableName === 'string'))) {
-    bag.error(path, `${at}/pseudonymization/correspondence`, 'wrong-type',
-      '`correspondence` is { dataSourceId, schemaName, tableName? }.')
+  for (const field of ['reuseKeyOf', 'correspondence']) {
+    if (pseudo[field] != null) {
+      bag.warn(path, `${at}/pseudonymization/${field}`, 'legacy-format',
+        `\`${field}\` names a key or a table of the instance that built the database; exports omit it.`,
+        `remove \`${field}\`; the importing instance chooses its own`)
+    }
   }
 }
+
+/** What a derived database's `derivedFrom` records about the build on its own
+ *  instance — the exact cohort size and the server-side names it wrote to. */
+const DERIVED_FROM_LOCAL_FIELDS = ['patientCount', 'schemaName', 'derivationId'] as const
 
 export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {
   const bag = new IssueBag()
@@ -458,6 +460,13 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
           'No `criteriaTree`: the derived database no longer says which criteria built it.')
       }
       if (derived.options != null) checkDerivationOptions(bag, path, derived.options)
+      for (const field of DERIVED_FROM_LOCAL_FIELDS) {
+        if (derived[field] != null) {
+          bag.warn(path, `/derivedFrom/${field}`, 'legacy-format',
+            `\`${field}\` describes the build on the instance that made it; exports omit it.`,
+            `remove \`${field}\``)
+        }
+      }
       if (derived.copiedUnproven != null
         && !(Array.isArray(derived.copiedUnproven) && derived.copiedUnproven.every((t) => typeof t === 'string'))) {
         bag.error(path, '/derivedFrom/copiedUnproven', 'wrong-type', '`copiedUnproven` lists table names.')

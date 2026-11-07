@@ -17,6 +17,7 @@ from app.core.security import (
     create_refresh_token,
     decode_token,
     password_policy_error,
+    password_stamp,
     predates_password_change,
     set_password_async,
     verify_password_async,
@@ -40,9 +41,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def _issue_tokens(user: User) -> TokenResponse:
+    """Session tokens for `user` as read when its credential was checked: they
+    carry that row's password state, so a change committed meanwhile ends them."""
+    stamp = password_stamp(user)
     return TokenResponse(
-        access_token=create_access_token(user.id, user.username, user.role),
-        refresh_token=create_refresh_token(user.id, user.username, user.role),
+        access_token=create_access_token(user.id, user.username, user.role, stamp),
+        refresh_token=create_refresh_token(user.id, user.username, user.role, stamp),
         user=UserResponse.model_validate(user),
     )
 
@@ -207,8 +211,12 @@ async def change_password(
     if error := password_policy_error(body.new_password, user.username):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, error)
     await set_password_async(user, body.new_password)
+    await db.commit()
+    # After the change commits: a key created meanwhile is revoked here, or seen
+    # by create_api_token's re-read of the row.
     await api_token_service.revoke_all(db, user.id)
     await db.commit()
+    await db.refresh(user)
     database_credential_service.forget_session_logins(user.id)
     audit.bind(action="password_change")
     return _issue_tokens(user)
@@ -232,9 +240,14 @@ async def create_api_token(
     user: User = Depends(get_session_user),
     db: AsyncSession = Depends(get_db),
 ):
+    stamp = password_stamp(user)
     token, plaintext = await api_token_service.create_token(
         db, user, body.name, body.expires_in_days
     )
+    await db.refresh(user)
+    if password_stamp(user) != stamp:
+        await api_token_service.revoke_token(db, user, token.id)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session ended by a password change")
     return ApiTokenCreated(**ApiTokenResponse.model_validate(token).model_dump(), token=plaintext)
 
 

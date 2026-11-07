@@ -7,7 +7,8 @@
     "decline": "Ne pas exécuter",
     "unnamed": "Code sans nom",
     "not_run": "Non exécuté : vous n’avez pas accepté ce code.",
-    "review": "Vérifier le code"
+    "review": "Vérifier le code",
+    "environment": "Paquets de l’environnement {{language}} du projet, installés sur le serveur avant l’exécution du code"
   },
   "app": {
     "loading": "Chargement…"
@@ -2843,6 +2844,7 @@
     "git_error_archive_too_large": "Ce contenu est trop volumineux pour être traité par le serveur, rien n'a donc été modifié. Un administrateur peut relever la limite.",
     "git_error_export_failed": "Linkr n'a pas pu construire l'export de cette entité, rien n'a donc été envoyé au dépôt. Ce n'est pas un problème de connexion.",
     "git_error_hidden_projects": "Cet espace de travail contient un projet auquel vous n'avez pas accès : son versionnement ne vous est donc pas disponible. Demandez à un propriétaire de l'espace.",
+    "git_error_unreadable_content": "Ce contenu comprend des éléments que votre rôle ne vous permet pas de lire : son versionnement ne vous est donc pas disponible. Demandez à un propriétaire de l'espace.",
     "git_error_details": "Afficher l'erreur complète",
     "lfs_add": "Suivre avec Git LFS",
     "lfs_remove": "Retirer de Git LFS",
@@ -3248,6 +3250,7 @@
     "temporary_password": "Mot de passe temporaire",
     "new_password_optional": "Nouveau mot de passe (facultatif)",
     "leave_blank_keep": "Laisser vide pour conserver l'actuel",
+    "own_password_from_profile": "Votre propre mot de passe se change depuis votre profil (Changer le mot de passe), qui demande l'actuel.",
     "password_required": "Un mot de passe est requis.",
     "confirm_password": "Confirmer le mot de passe",
     "invalid_orcid": "ORCID invalide (format attendu 0000-0000-0000-0000).",
@@ -4043,6 +4046,9 @@
     "title_one": "{{count}} tâche",
     "title_other": "{{count}} tâches",
     "recent": "Tâches récentes",
+    "all_users": "Toutes les tâches en cours",
+    "all_users_hint": "Toutes les tâches en attente ou en cours sur le serveur, quel que soit l’utilisateur qui les a lancées. En tant qu’administrateur, vous pouvez arrêter chacune d’elles.",
+    "all_users_empty": "Aucune tâche en cours sur le serveur.",
     "cancel": "Annuler",
     "cancel_tooltip": "Interrompre cette tâche",
     "group_count_one": "{{count}} tâche",

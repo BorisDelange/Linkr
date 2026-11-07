@@ -62,12 +62,17 @@ async def reconcile_repo_dirs(db: AsyncSession) -> int:
     """
     from app.services import git_service
 
-    result = await db.execute(select(SchemaPreset))
+    presets = list((await db.execute(select(SchemaPreset))).scalars().all())
     moved = 0
-    for preset in result.scalars().all():
-        if preset.id and preset.preset_id and preset.id != preset.preset_id:
-            if git_service.rename_repo("schema-presets", preset.preset_id, preset.id):
-                moved += 1
+    for preset in presets:
+        if not (preset.id and preset.preset_id and preset.id != preset.preset_id):
+            continue
+        # A preset_id is the client's to choose: a folder another row may hold is
+        # not this row's to take.
+        if any(other is not preset and preset.preset_id in (other.id, other.preset_id) for other in presets):
+            continue
+        if git_service.rename_repo("schema-presets", preset.preset_id, preset.id):
+            moved += 1
     return moved
 
 
@@ -140,15 +145,12 @@ async def save(
 async def delete(db: AsyncSession, preset: SchemaPreset) -> None:
     from app.services import git_service
 
-    # Attachments and the repo dir are keyed by the entity key, which is `id`
-    # since revision e6f7a8b9c0d1. `preset_id` is cleaned up too: a row created
-    # before the move owns its attachments and its repo under that name, and
-    # they equal each other anyway wherever the backfill ran.
-    keys = {k for k in (preset.id, preset.preset_id) if k}
+    # Attachments and the repo dir are keyed by `id` since revision e6f7a8b9c0d1,
+    # never by `preset_id`: the client chooses it, and another row may hold it.
+    key = preset.id
     await db.delete(preset)
     await db.commit()
-    for key in keys:
-        # The README attachments' owner is polymorphic (no FK), so clean them here.
-        await attachment_service.delete_readme_for_owner(db, "schema-preset", key)
-        # Remove the on-disk versioning working tree so it doesn't linger as an orphan.
-        git_service.remove_repo("schema-presets", key)
+    # The README attachments' owner is polymorphic (no FK), so clean them here.
+    await attachment_service.delete_readme_for_owner(db, "schema-preset", key)
+    # Remove the on-disk versioning working tree so it doesn't linger as an orphan.
+    git_service.remove_repo("schema-presets", key)

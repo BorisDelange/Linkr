@@ -66,14 +66,14 @@ async def create(db: AsyncSession, data: MappingProjectCreate, owner: User) -> M
 
 
 async def update(
-    db: AsyncSession, project: MappingProject, data: MappingProjectUpdate
+    db: AsyncSession, project: MappingProject, data: MappingProjectUpdate, editor: User | None = None
 ) -> MappingProject:
     changes = data.model_dump(exclude_unset=True)
     git_secret.apply_to_entity(project, changes)
     old_sha = project.raw_file_sha
     for key, value in changes.items():
         setattr(project, key, value)
-    await author_provenance.relink_creator_on_update(db, project, changes)
+    await author_provenance.relink_creator_on_update(db, project, changes, editor)
     await db.commit()
     await db.refresh(project)
     # A replaced source CSV leaves the previous blob orphaned — release it.

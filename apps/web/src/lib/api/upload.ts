@@ -45,7 +45,7 @@ export async function uploadFileInChunks(
     if (done.has(i)) continue
     const start = i * CHUNK_SIZE
     const slice = blob.slice(start, start + CHUNK_SIZE)
-    const res = await apiFetch(`/api/v1/uploads/${uploadId}/chunk?index=${i}`, {
+    const res = await apiFetch(`/api/v1/uploads/${encodeURIComponent(uploadId)}/chunk?index=${i}`, {
       method: 'PUT',
       body: slice,
       headers: { 'Content-Type': 'application/octet-stream' },
@@ -57,5 +57,5 @@ export async function uploadFileInChunks(
     onProgress?.((i + 1) / totalChunks)
   }
 
-  return requestStating<CompleteResponse>(`/uploads/${uploadId}/complete`, { method: 'POST' })
+  return requestStating<CompleteResponse>(`/uploads/${encodeURIComponent(uploadId)}/complete`, { method: 'POST' })
 }

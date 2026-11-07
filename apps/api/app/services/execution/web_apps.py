@@ -29,10 +29,14 @@ from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import structlog
+
 from app.config import settings
 from app.services.execution import jobs
 from app.services.execution.child_env import child_env
 from app.services.execution.kernel import R_LIB_SETUP, RuntimeSpec
+
+logger = structlog.get_logger()
 
 # ── Presets ──────────────────────────────────────────────────────────────────
 
@@ -405,6 +409,25 @@ class AppManager:
                 self._log(app, f"[linkr] Stopped after {settings.app_idle_timeout_minutes} min without a visit.")
                 self.stop(app.app_id)
 
+    async def stop_unpermitted(self) -> None:
+        """Stop the apps whose owner may no longer run code in their project: an
+        app runs with the project's data for as long as it lives."""
+        from app.core.database import async_session
+        from app.core.permissions import has_project_permission
+        from app.models.project import Project
+        from app.models.user import User
+
+        async with async_session() as db:
+            for app in list(self._apps.values()):
+                owner = await db.get(User, app.user_id)
+                project = await db.get(Project, app.project_uid)
+                if (
+                    owner is None or not owner.is_active or project is None
+                    or not await has_project_permission(db, project, owner, "ide:execute")
+                ):
+                    self._log(app, "[linkr] Stopped: its owner may no longer run code in this project.")
+                    self.stop(app.app_id)
+
     async def start(
         self,
         db,
@@ -593,3 +616,8 @@ async def run_idle_sweeper() -> None:
     while True:
         await asyncio.sleep(_SWEEP_SECONDS)
         manager.sweep_idle()
+        try:
+            await manager.stop_unpermitted()
+        except Exception:
+            # A failed lookup must not end the sweeper: it tries again next time.
+            logger.exception("web_app_permission_sweep_failed")

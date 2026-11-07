@@ -172,6 +172,27 @@ def _sanitize_connection_config(config: dict) -> dict:
     return {k: config[k] for k in _CONNECTION_CONFIG_EXPORTED if config.get(k) is not None}
 
 
+#: Twin of ``DERIVED_FROM_LOCAL_FIELDS`` / ``PSEUDONYMIZATION_LOCAL_FIELDS``
+#: (entity-io.ts): what a derived database's ``derivedFrom`` records about this
+#: instance's build — the exact cohort size and the server-side names it wrote to.
+_DERIVED_FROM_LOCAL = ("patientCount", "schemaName", "derivationId")
+_PSEUDONYMIZATION_LOCAL = ("reuseKeyOf", "correspondence")
+
+
+def _portable_derived_from(derived: dict) -> dict:
+    """Port of ``portableDerivedFrom`` (entity-io.ts): ``derivedFrom`` as it may
+    leave the instance, keys in their stored order."""
+    out = {k: v for k, v in derived.items() if k not in _DERIVED_FROM_LOCAL}
+    options = out.get("options")
+    pseudo = options.get("pseudonymization") if isinstance(options, dict) else None
+    if isinstance(pseudo, dict):
+        out["options"] = {
+            **options,
+            "pseudonymization": {k: v for k, v in pseudo.items() if k not in _PSEUDONYMIZATION_LOCAL},
+        }
+    return out
+
+
 # --- git link manifest ------------------------------------------------------
 
 

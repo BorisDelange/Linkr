@@ -21,7 +21,7 @@ from app.models.job import Job
 from app.models.user import User
 from app.schemas.base import CamelModel
 from app.schemas.execution import JobResponse
-from app.services import blob_store, fs_browser
+from app.services import blob_store, fs_browser, upload_ledger
 from app.services import mapping_project_service as mapping_svc
 from app.services.execution import jobs
 from app.services.suggestions import registry, runtime, tasks, worker
@@ -200,7 +200,7 @@ async def create_model(
         if not body.files:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "No file uploaded")
         for f in body.files:
-            if not blob_store.exists(f.sha):
+            if not upload_ledger.holds(user.id, f.sha):
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Uploaded file not found: {f.file_name}")
         try:
             await asyncio.to_thread(
@@ -214,7 +214,7 @@ async def create_model(
     else:
         path = (body.server_path or "").strip()
         try:
-            fs_browser.validate_source_path(path, await fs_browser.import_scope(db, None, user))
+            fs_browser.validate_source_path(path, await fs_browser.import_scope(db, None, user, workspace_id=workspace_id))
         except fs_browser.FsBrowseError as e:
             raise HTTPException(e.status_code, str(e)) from e
         model.update(serverPath=path, name=(body.name or Path(path).name).strip())

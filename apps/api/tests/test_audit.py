@@ -33,7 +33,7 @@ def test_write_query_and_chain():
     assert total == 3
     assert [r["seq"] for r in rows] == [3, 2, 1]
     assert rows[0]["detail"] == "SELECT 2"
-    assert audit.verify() == {"ok": True, "checked": 3, "brokenAtSeq": None}
+    assert audit.verify() == {"ok": True, "checked": 3, "brokenAtSeq": None, "brokenSeqs": []}
 
 
 def test_detail_is_truncated():
@@ -71,7 +71,7 @@ def test_lines_from_before_the_request_id_still_verify():
             f.write(json.dumps({**old, "hash": prev}) + "\n")
     audit._writer.state = None
     audit.write({"user_id": 1, "action": "query", "request_id": "abc123"})
-    assert audit.verify() == {"ok": True, "checked": 3, "brokenAtSeq": None}
+    assert audit.verify() == {"ok": True, "checked": 3, "brokenAtSeq": None, "brokenSeqs": []}
 
     lines = path.read_text().splitlines()
     tampered = json.loads(lines[2])
@@ -143,9 +143,9 @@ def test_a_missing_head_is_a_break_until_retention_explains_it():
     [path] = _files("*.jsonl")
     path.write_text("".join(path.read_text().splitlines(keepends=True)[1:]))
 
-    assert audit.verify() == {"ok": False, "checked": 0, "brokenAtSeq": 2}
+    assert audit.verify() == {"ok": False, "checked": 0, "brokenAtSeq": 2, "brokenSeqs": [2]}
     later = _today() + timedelta(days=settings.audit_retention_days + 62)
-    assert audit.verify(later) == {"ok": True, "checked": 2, "brokenAtSeq": None}
+    assert audit.verify(later) == {"ok": True, "checked": 2, "brokenAtSeq": None, "brokenSeqs": []}
 
 
 def test_compaction_appends_to_an_existing_month(monkeypatch):
@@ -520,7 +520,7 @@ def test_lines_the_file_missed_are_stated_in_the_chain(monkeypatch, stdout_copy)
     [gap] = audit.query(filters={"action": ["audit_gap"]})[0]
     assert gap["detail"].startswith("3 ")
     assert [e["action"] for e in stdout_copy] == ["audit_gap", "query"]
-    assert audit.verify() == {"ok": True, "checked": 3, "brokenAtSeq": None}
+    assert audit.verify() == {"ok": True, "checked": 3, "brokenAtSeq": None, "brokenSeqs": []}
 
 
 def test_a_write_the_system_cuts_short_is_finished(monkeypatch):
@@ -544,7 +544,7 @@ def test_a_damaged_tail_never_stops_the_log_after_a_restart(tail):
     audit.write({"user_id": 1, "action": "query", "detail": "SELECT 2"})
 
     assert day.read_bytes().startswith(whole)
-    assert audit.verify() == {"ok": True, "checked": 4, "brokenAtSeq": None}
+    assert audit.verify() == {"ok": True, "checked": 4, "brokenAtSeq": None, "brokenSeqs": []}
     [note] = audit.query(filters={"action": ["audit_tail_set_aside"]})[0]
     [kept] = list(day.parent.glob("*.quarantine"))
     assert kept.read_bytes() == tail and kept.name in note["detail"]
@@ -569,7 +569,7 @@ def test_a_damaged_line_inside_a_day_leaves_the_rest_readable_and_shows_as_a_bre
     day.write_text("\n".join([lines[0], lines[1][:30], lines[2]]) + "\n")
 
     assert audit.query()[1] == 2
-    assert audit.verify() == {"ok": False, "checked": 1, "brokenAtSeq": 3}
+    assert audit.verify() == {"ok": False, "checked": 1, "brokenAtSeq": 3, "brokenSeqs": [3]}
 
 
 def test_compaction_folds_a_day_with_a_damaged_tail_after_a_restart():

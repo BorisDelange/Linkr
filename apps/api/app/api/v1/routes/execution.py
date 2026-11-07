@@ -220,8 +220,10 @@ async def execute_code(
         login = await database_credential_service.resolve_login(db, source, user.id)
 
         async def resolver(sql: str):
+            # Its own session: the request's is released before the run.
             with audit.event_scope():
-                return await data_source_service.query(db, source, login, sql)
+                async with async_session() as query_db:
+                    return await data_source_service.query(query_db, source, login, sql)
 
     if body.language not in ("python", "r"):
         raise HTTPException(
@@ -238,14 +240,23 @@ async def execute_code(
         environment = await environments.ensure_ready(
             db, body.project_uid, body.language, user.id
         )
-        try:
-            out = await kernel.run_ephemeral(
-                body.language, body.project_uid, code, environment, resolver
-            )
-        except runtime.ExecutionError as e:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
-        return _shape_output(out)
+        await db.close()
+        return _shape_output(await _run_ephemeral(
+            user, body.language, body.project_uid, code, environment, resolver
+        ))
     return await _run_in_kernel(db, body.project_uid, user, body.language, body.session_id, code, resolver)
+
+
+async def _run_ephemeral(user: User, language: str, project_uid: str, code: str, environment, resolver=None):
+    """A run in a fresh process, within the caller's share of the slots. The caller
+    has released its database session: a run can queue and last for minutes."""
+    try:
+        async with kernel.ephemeral_shares.slot(user.id):
+            return await kernel.run_ephemeral(language, project_uid, code, environment, resolver)
+    except kernel.EphemeralBusy as e:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(e))
+    except runtime.ExecutionError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
 
 
 @router.post("/run-as-job", response_model=JobResponse)
@@ -298,6 +309,7 @@ async def _run_in_kernel(
     # Auto-build the project env on first run if it declares packages but isn't
     # materialised yet (build is visible as a job); an empty/ready env is instant.
     environment = await environments.ensure_ready(db, project_uid, language, user.id)
+    await db.close()
     try:
         try:
             k = await kernel.manager.get(
@@ -385,11 +397,8 @@ async def render_component(
     # of component widgets renders IN PARALLEL — the old shared __app__ kernel
     # serialised them on its lock. environment=None → the app interpreter
     # (sys.executable, which ships the render deps), never the project's managed env.
-    try:
-        out = await kernel.run_ephemeral("python", body.project_uid, code, environment=None)
-    except runtime.ExecutionError as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
-    return _shape_output(out)
+    await db.close()
+    return _shape_output(await _run_ephemeral(user, "python", body.project_uid, code, None))
 
 
 @router.post("/prewarm", status_code=status.HTTP_202_ACCEPTED)
@@ -575,6 +584,12 @@ async def _terminal_kernel_loop(
         # `library(...)` fails. The build can take minutes, so stream a notice + its
         # log to the console — the client would otherwise sit on "Loading R runtime".
         if environments.needs_build(environment):
+            try:
+                await environments.require_spec_accepted(db, user.id, project_uid, language)
+            except code_acceptance_service.EnvironmentNotAccepted as e:
+                await websocket.send_json({"type": "error", **e.detail})
+                await websocket.close()
+                return
             await websocket.send_json({
                 "type": "stdout",
                 "data": f"Building {environments.language_label(language)} environment…\n",

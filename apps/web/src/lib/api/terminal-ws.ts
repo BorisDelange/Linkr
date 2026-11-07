@@ -35,6 +35,10 @@ export interface TerminalMessage {
   /** On 'done': the code raised. Distinct from having written to stderr, which R
    *  does for warnings and messages too. */
   failed?: boolean
+  /** On 'error': a refusal the client answers ('environment_acceptance_required'). */
+  code?: string
+  language?: string
+  spec?: string
 }
 
 /** How long the handshake may stay pending before we give up on it. */

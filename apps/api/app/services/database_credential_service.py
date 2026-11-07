@@ -51,9 +51,18 @@ PURPOSES = (READ, WRITE)
 
 @dataclass(frozen=True)
 class Login:
+    """A login as resolved for one database at one target (`full_target`): it
+    opens that target only — work that waited while the database was re-pointed
+    holds a copy `forget_all` cannot reach."""
+
     username: str
     password: str
     principal: str
+    target: tuple
+    source_id: str = ""
+    workspace_id: str | None = None
+    session_only: bool = False
+    purpose: str = READ
 
 
 class CredentialRequired(HTTPException):
@@ -62,16 +71,19 @@ class CredentialRequired(HTTPException):
     the model to ask the user."""
 
     def __init__(self, source: DataSource, purpose: str = READ):
+        self._require(source.id, source.workspace_id, bool(source.require_session_only), purpose)
+
+    def _require(self, source_id: str, workspace_id: str | None, session_only: bool, purpose: str) -> None:
         audit.bind(
-            data_source_id=source.id, workspace_id=source.workspace_id,
-            error="no login for this database" if purpose == READ else "no write login for this database",
+            data_source_id=source_id, workspace_id=workspace_id,
+            connection_error="no login for this database" if purpose == READ else "no write login for this database",
         )
         super().__init__(
             status.HTTP_428_PRECONDITION_REQUIRED,
             {
                 "code": "database_credential_required",
-                "dataSourceId": source.id,
-                "sessionOnly": bool(source.require_session_only),
+                "dataSourceId": source_id,
+                "sessionOnly": session_only,
                 "purpose": purpose,
                 "message": (
                     "Enter your own account for this database in Linkr to use it." if purpose == READ
@@ -79,6 +91,13 @@ class CredentialRequired(HTTPException):
                 ),
             },
         )
+
+
+class LoginRetargeted(CredentialRequired):
+    """The database was re-pointed since `login` was resolved: asked again."""
+
+    def __init__(self, login: Login):
+        self._require(login.source_id, login.workspace_id, login.session_only, login.purpose)
 
 
 def is_external(source: DataSource) -> bool:
@@ -103,11 +122,13 @@ def target_of(config: dict | None) -> tuple:
 _RETARGET_KEYS = ("flightPort", "httpPort", "httpTls", "sslrootcert")
 
 
-def target_changed(before: dict | None, after: dict | None) -> bool:
-    def other(config: dict | None) -> tuple:
-        return tuple(str((config or {}).get(k) or "") for k in _RETARGET_KEYS)
+def full_target(config: dict | None) -> tuple:
+    """Every setting that decides where a login is sent."""
+    return target_of(config) + tuple(str((config or {}).get(k) or "") for k in _RETARGET_KEYS)
 
-    return target_of(before) != target_of(after) or other(before) != other(after)
+
+def target_changed(before: dict | None, after: dict | None) -> bool:
+    return full_target(before) != full_target(after)
 
 
 def secret_context(user_id: int, source: DataSource, purpose: str = READ) -> str:
@@ -127,6 +148,8 @@ def with_login(config: dict, login: Login | None) -> dict:
     out = dict(config)
     if login is None:
         return out
+    if login.target != full_target(config):
+        raise LoginRetargeted(login)
     out["username"] = login.username
     if out.get("engine") == "postgresql":
         out["application_name"] = "linkr"
@@ -215,8 +238,15 @@ async def resolve_login(db: AsyncSession, source: DataSource, user_id: int, purp
     if not is_external(source):
         return None
     principal = principal_for(source, user_id) + ("" if purpose == READ else f":{purpose}")
+
+    def bound(username: str, password: str) -> Login:
+        return Login(
+            username, password, principal, full_target(source.connection_config),
+            source.id, source.workspace_id, bool(source.require_session_only), purpose,
+        )
+
     if (entry := _session_get(user_id, source, purpose)) is not None:
-        return Login(entry.username, entry.password, principal)
+        return bound(entry.username, entry.password)
     if source.require_session_only:
         raise CredentialRequired(source, purpose)
     row = await _row(db, user_id, source.id, purpose)
@@ -237,7 +267,7 @@ async def resolve_login(db: AsyncSession, source: DataSource, user_id: int, purp
     if last is None or now - last > _LAST_USED_RESOLUTION or row in db.dirty:
         row.last_used_at = now
         await db.commit()
-    return Login(row.username, password, principal)
+    return bound(row.username, password)
 
 
 # --- Management ------------------------------------------------------------

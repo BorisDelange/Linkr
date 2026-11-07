@@ -14,15 +14,15 @@ export const apiDataDictionaryStorage: DataDictionaryStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${BASE}/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    await apiRequest(`${BASE}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
   delete: async (id) => {
-    await apiRequest(`${BASE}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${BASE}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   sync: (id, content) =>
-    apiRequest<DictionarySyncResult>(`${BASE}/${id}/content`, {
+    apiRequest<DictionarySyncResult>(`${BASE}/${encodeURIComponent(id)}/content`, {
       method: 'PUT',
       body: JSON.stringify({
         conceptSets: content.conceptSets,

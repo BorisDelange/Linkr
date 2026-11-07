@@ -346,3 +346,17 @@ async def test_a_chunk_the_client_abandons_leaves_no_partial_file(client, monkey
         pass
     assert not list((settings.data_path / "_tmp" / uid).glob("*.part"))
     assert not uploads._incoming
+
+
+def test_the_api_says_at_boot_when_uploads_can_fill_the_data_volume(monkeypatch):
+    from app.api.v1.routes import uploads
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "upload_free_space_reserve_mb", 0)
+    monkeypatch.setattr(settings, "upload_quota_mb", 0)
+    assert uploads.limits_off()
+    monkeypatch.setattr(settings, "upload_quota_mb", 1024)
+    assert not uploads.limits_off()
+    monkeypatch.setattr(settings, "upload_quota_mb", 0)
+    monkeypatch.setattr(settings, "upload_free_space_reserve_mb", 5120)
+    assert not uploads.limits_off()

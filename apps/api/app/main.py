@@ -61,7 +61,7 @@ from app.api.v1.routes.entity_visits import router as entity_visits_router
 from app.api.v1.routes.setup import router as setup_router
 from app.api.v1.routes.sql_scripts import router as sql_scripts_router
 from app.api.v1.routes.storage import router as storage_router
-from app.api.v1.routes.uploads import router as uploads_router
+from app.api.v1.routes.uploads import limits_off as uploads_limits_off, router as uploads_router
 from app.api.v1.routes.users import router as users_router
 from app.api.v1.routes.wiki_pages import router as wiki_pages_router
 from app.api.v1.routes.workspaces import PROJECTS_LEFT_OUT_HEADER, router as workspaces_router
@@ -83,19 +83,19 @@ def weak_secret_key(key: str) -> bool:
 async def lifespan(app: FastAPI):
     setup_logging(debug=settings.debug)
     hardening.forbid_same_user_inspection()
-    # The secret_key signs every JWT. Booting with the shipped default in a real
-    # deployment would let anyone forge admin tokens. Any other weak key only warns:
-    # refusing it would stop instances already running, on an upgrade.
-    if settings.secret_key == _INSECURE_SECRET and not settings.debug:
+    # The secret_key signs every JWT. Booting on a key an example names in a real
+    # deployment would let anyone forge admin tokens. A short key only warns: refusing
+    # it would stop instances already running, on an upgrade.
+    if settings.secret_key.strip().lower() in _EXAMPLE_SECRETS and not settings.debug:
         raise RuntimeError(
-            "LINKR_SECRET_KEY is still the insecure default. Set a strong secret "
+            "LINKR_SECRET_KEY is a value from an example. Set a strong secret "
             "(python3 -c 'import secrets; print(secrets.token_urlsafe(48))') "
             "or run with LINKR_DEBUG=true for local development."
         )
     if weak_secret_key(settings.secret_key) and not settings.debug:
         logger.warning(
             "weak_secret_key",
-            advice=f"LINKR_SECRET_KEY is an example value or shorter than {_MIN_SECRET_LENGTH} characters: "
+            advice=f"LINKR_SECRET_KEY is shorter than {_MIN_SECRET_LENGTH} characters: "
             "anyone who guesses it can sign in as anyone. Replacing it signs everyone out.",
         )
     # A wildcard CORS origin combined with allow_credentials=True (below) would let
@@ -109,6 +109,12 @@ async def lifespan(app: FastAPI):
                 "or run with LINKR_DEBUG=true for local development."
             )
         logger.warning("cors_wildcard_with_credentials", origins=settings.cors_origin_list)
+    if uploads_limits_off():
+        logger.warning(
+            "upload_limits_off",
+            advice="Neither LINKR_UPLOAD_FREE_SPACE_RESERVE_MB nor LINKR_UPLOAD_QUOTA_MB is set: any account "
+            "can fill the data volume with uploads, and a full volume stops every write to the app database.",
+        )
     trusted_header_error = trusted_header.configuration_error()
     if trusted_header_error:
         raise RuntimeError(trusted_header_error)

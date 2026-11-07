@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import get_current_admin, get_current_user
+from app.core.deps import get_current_admin, get_current_user, get_session_admin
 from app.models.user import User
 from app.schemas.user import (
     UserCreate,
@@ -37,7 +37,7 @@ async def list_users(
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     body: UserCreate,
-    _admin: User = Depends(get_current_admin),
+    _admin: User = Depends(get_session_admin),
     db: AsyncSession = Depends(get_db),
 ):
     return await user_service.create(db, body)
@@ -59,7 +59,7 @@ async def get_user(
 async def update_user(
     user_id: int,
     body: UserUpdate,
-    admin: User = Depends(get_current_admin),
+    admin: User = Depends(get_session_admin),
     db: AsyncSession = Depends(get_db),
 ):
     user = await user_service.get(db, user_id)
@@ -71,7 +71,7 @@ async def update_user(
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     user_id: int,
-    admin: User = Depends(get_current_admin),
+    admin: User = Depends(get_session_admin),
     db: AsyncSession = Depends(get_db),
 ):
     user = await user_service.get(db, user_id)

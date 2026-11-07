@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     # Bound on an .xlsx once decompressed. The Excel reader loads the shared strings
     # part whole, at about 3.5x its size, so that part gets an eighth of this.
     max_excel_inflated_mb: int = 4096
+    # Bound on the vocabulary zips extracted beside the libraries (between an
+    # inspect and its import), all of them together. A full ATHENA export
+    # expands to about 10 GB.
+    max_vocabulary_extraction_mb: int = 30720
 
     # Code execution
     enable_code_execution: bool = True
@@ -153,6 +157,11 @@ class Settings(BaseSettings):
     # than that resets the deadline every line and runs forever, pinning a
     # max_build_concurrency slot (shared with env builds) until it's manually killed.
     job_timeout_seconds: int = 1800
+    # Wall-clock limit of a query its user waits for (`/query`, a cohort freeze,
+    # a dataset from a query, the concept list): past it the query is interrupted
+    # and its lane slot, thread and connection freed. 0: no limit. Query jobs and
+    # ETL runs are not bound by it.
+    query_timeout_seconds: int = 900
     # Heavy queries run as jobs (a data catalog's counts…): how many at once. Each
     # opens its own DuckDB, which sizes its memory on the whole container, so two
     # big ones together can get the container killed. Own queue: never waits on,

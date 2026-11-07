@@ -495,6 +495,7 @@ def compute_members(source: SourceSpec, membership_sql: str):
     con = _connect()
     try:
         _attach_role(con, "source", source.spec)
+        _reject_stored_passthrough(con, ["source"])
         # Set before the lock: the client SQL must not be able to move it.
         con.execute(f"SET search_path='{_source_search_path(con, source)}'")
         _forbid_file_access(con, _source_files(source))

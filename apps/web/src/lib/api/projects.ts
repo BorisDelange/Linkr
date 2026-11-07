@@ -23,7 +23,7 @@ export const apiProjectStorage: ProjectStorage = {
 
   getById: async (uid) => {
     try {
-      return await apiRequest<Project>(`/projects/${uid}`)
+      return await apiRequest<Project>(`/projects/${encodeURIComponent(uid)}`)
     } catch {
       return undefined
     }
@@ -37,20 +37,20 @@ export const apiProjectStorage: ProjectStorage = {
   },
 
   update: async (uid, changes) => {
-    await apiRequest(`/projects/${uid}`, {
+    await apiRequest(`/projects/${encodeURIComponent(uid)}`, {
       method: 'PATCH',
       body: JSON.stringify(changes),
     })
   },
 
   setFolderBindings: async (uid, bindings) => {
-    await apiRequest(`/projects/${uid}/folder-bindings`, {
+    await apiRequest(`/projects/${encodeURIComponent(uid)}/folder-bindings`, {
       method: 'PATCH',
       body: JSON.stringify(bindings),
     })
   },
 
   delete: async (uid) => {
-    await apiRequest(`/projects/${uid}`, { method: 'DELETE' })
+    await apiRequest(`/projects/${encodeURIComponent(uid)}`, { method: 'DELETE' })
   },
 }

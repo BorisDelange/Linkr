@@ -93,6 +93,14 @@ def _ext_dir() -> str:
 # What ends a `--` comment for DuckDB. A bare \r counts: see _line_comment_end.
 _LINE_END_RE = re.compile(r"\r\n|[\r\n]")
 
+# Code points DuckDB's parser skips as blank space while its tokenizer reads them as
+# part of a word (scanned on DuckDB 1.5.5; test_sql_guard_unicode.py scans again).
+_PARSER_SPACE_CHARS = (
+    "\u00a0\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+    "\u200b\u202f\u205f\u2060\u3000\ufeff"
+)
+_PARSER_SPACES = str.maketrans(dict.fromkeys(_PARSER_SPACE_CHARS, " "))
+
 
 def _require_ident(value: str, what: str) -> str:
     if not isinstance(value, str) or _SAFE_IDENT.fullmatch(value) is None:
@@ -232,15 +240,23 @@ def _connect(extension: str) -> duckdb.DuckDBPyConnection:
     return con
 
 
-def _dsn_value(value: str) -> str:
-    """Escape a libpq/MySQL DSN value so it stays a single opaque token.
+def _mysql_dsn_value(value: str) -> str:
+    """A MySQL-protocol DSN value as one token of the mysql extension's grammar:
+    double-quoted, a backslash escaping only a backslash or a double quote. Bare,
+    it would end at any blank space, and a leading double-quoted part would end
+    the value with the rest read as the next `key=value` (`"d"host=x`)."""
+    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
-    DuckDB's postgres/mysql ATTACH parser does NOT understand libpq's
-    ``key="value"`` double-quoting — it would take the quotes as literal
-    characters of the value (``host="localhost"`` → it tries to resolve the host
-    name ``"localhost"``, quotes included, and fails). What it does honour is
-    libpq's backslash escaping: any character can be escaped with ``\\``, so we
-    backslash-escape the delimiters (space, backslash) and the single quote.
+
+def _dsn_value(value: str) -> str:
+    """Escape a libpq (Postgres) DSN value so it stays a single opaque token.
+
+    libpq quotes a value with single quotes, not double ones: a double quote is
+    an ordinary character of the value (``host="localhost"`` resolves the name
+    ``"localhost"``, quotes included). It also honours backslash escaping: any
+    character can be escaped with ``\\``, so we backslash-escape the delimiters
+    (blank space, backslash) and the single quote. The MySQL protocol reads
+    another grammar: `_mysql_dsn_value`.
 
     Single quotes matter because the whole DSN is later wrapped in a
     single-quoted SQL literal (``ATTACH '<dsn>' ...``); a raw single quote in a
@@ -275,30 +291,68 @@ def port_of(config: dict) -> int | None:
 
 
 def _dsn(config: dict, password: str | None) -> str:
-    """Build a key=value DSN. Both the libpq (Postgres) and MySQL ATTACH strings
-    accept host/port/user/password; the database key differs (dbname vs database).
-    Every client-controlled value is quoted (see _dsn_value). Every external
-    connection is built here, so this is where the host allowlist applies."""
+    """Build a key=value DSN, for a client that opens the connection itself. Both
+    the libpq (Postgres) and MySQL ATTACH strings accept host/port/user/password;
+    the database key differs (dbname vs database). Every client-controlled value is
+    quoted in its engine's grammar. The host allowlist applies here too."""
     check_db_host(config.get("host"))
     is_mysql = config.get("engine") in _MYSQL_PROTOCOL
+    value = _mysql_dsn_value if is_mysql else _dsn_value
     parts: list[str] = []
     if host := config.get("host"):
-        parts.append(f"host={_dsn_value(host)}")
+        parts.append(f"host={value(host)}")
     if port := port_of(config):
         parts.append(f"port={port}")
     if database := config.get("database"):
         key = "database" if is_mysql else "dbname"
-        parts.append(f"{key}={_dsn_value(database)}")
+        parts.append(f"{key}={value(database)}")
     if username := config.get("username"):
-        parts.append(f"user={_dsn_value(username)}")
+        parts.append(f"user={value(username)}")
     if password:
-        parts.append(f"password={_dsn_value(password)}")
-    if not is_mysql:
-        if sslmode := config.get("sslmode"):
-            parts.append(f"sslmode={_dsn_value(sslmode)}")
-        if app_name := config.get("application_name"):
-            parts.append(f"application_name={_dsn_value(app_name)}")
+        parts.append(f"password={value(password)}")
+    if not is_mysql and (options := _dsn_options(config)):
+        parts.append(options)
     return " ".join(parts)
+
+
+def _dsn_options(config: dict) -> str:
+    """The Postgres connection options that are no part of the login."""
+    parts = []
+    if sslmode := config.get("sslmode"):
+        parts.append(f"sslmode={_dsn_value(sslmode)}")
+    if app_name := config.get("application_name"):
+        parts.append(f"application_name={_dsn_value(app_name)}")
+    return " ".join(parts)
+
+
+def _secret_literal(value) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def attach_login(
+    con: duckdb.DuckDBPyConnection, config: dict, password: str | None, alias: str, options: str,
+) -> None:
+    """ATTACH a PostgreSQL or MySQL-protocol database under `alias` (already a safe
+    identifier), its login in a temporary secret. DuckDB shows an attached
+    database's path to any query (`duckdb_databases()`, `PRAGMA database_list`),
+    so the path holds no part of the login. The host allowlist applies here."""
+    check_db_host(config.get("host"))
+    fields = []
+    if host := config.get("host"):
+        fields.append(f"HOST {_secret_literal(host)}")
+    if port := port_of(config):
+        fields.append(f"PORT {int(port)}")
+    if database := config.get("database"):
+        fields.append(f"DATABASE {_secret_literal(database)}")
+    if username := config.get("username"):
+        fields.append(f"USER {_secret_literal(username)}")
+    if password:
+        fields.append(f"PASSWORD {_secret_literal(password)}")
+    spec = _engine_spec(config)
+    secret = community_engines.secret_name(alias)
+    con.execute(f'CREATE OR REPLACE TEMPORARY SECRET "{secret}" (TYPE {spec["type"]}, {", ".join(fields)})')
+    path = "" if config.get("engine") in _MYSQL_PROTOCOL else _dsn_options(config)
+    attach_dsn(con, path, alias, f'{options}, SECRET "{secret}"')
 
 
 def attach_recipe(config: dict, password: str | None) -> dict:
@@ -369,6 +423,27 @@ def _require_read_only_doris_login(con: duckdb.DuckDBPyConnection, alias: str) -
         )
 
 
+class ConnectionFailed(Exception):
+    """An external database did not open. The driver's text names the hosts and
+    ports that answer, so the exception reads as a reference to the logs, where
+    the text goes; `driver_text` keeps it for an instance admin
+    (routes/data_sources._connection_error). Linkr's own refusals (a host not
+    allowed, a login that is not read-only) are ValueErrors and stay readable."""
+
+    def __init__(self, driver_text: str):
+        from app.core import audit
+
+        self.driver_text = driver_text
+        logger.info("connection to an external database failed: %s", driver_text)
+        audit.bind(connection_error=driver_text)
+        super().__init__(audit.with_reference("Connection failed"))
+
+
+def error_text(exc: BaseException) -> str:
+    """The whole text of `exc`, a connection failure's driver text included."""
+    return exc.driver_text if isinstance(exc, ConnectionFailed) else str(exc)
+
+
 def _attach_external(
     con: duckdb.DuckDBPyConnection, alias: str, config: dict, password: str | None,
 ) -> None:
@@ -376,32 +451,32 @@ def _attach_external(
     read-only — by the ATTACH where the engine allows it, else by its login."""
     if config.get("engine") in community_engines.COMMUNITY_EXTENSIONS:
         check_db_host(config.get("host"))
-        community_engines.attach(con, alias, config, password)
+        try:
+            community_engines.attach(con, alias, config, password)
+        except duckdb.Error as exc:
+            raise ConnectionFailed(redact_secrets(str(exc))) from None
         return
     spec = _engine_spec(config)
     options = f"TYPE {spec['type']}" + (", READ_ONLY" if spec["read_only"] else "")
-    attach_dsn(con, _dsn(config, password), alias, options)
+    attach_login(con, config, password, alias, options)
     if config.get("engine") == "doris":
         _require_read_only_doris_login(con, alias)
 
 
 def attach_dsn(con: duckdb.DuckDBPyConnection, dsn: str, alias: str, options: str) -> None:
-    """ATTACH a DSN built by `_dsn` under `alias` (already a safe identifier).
+    """ATTACH a DSN under `alias` (already a safe identifier).
 
     The postgres and mysql extensions quote the whole DSN in their connection
-    error, password included; that text reaches the API's replies, job logs and
-    the access log, so it is redacted here, where it is raised. `from None`: the
-    original would otherwise travel on as the cause, in every traceback."""
+    error, password included: it is redacted here, where it is raised, and kept
+    out of replies (ConnectionFailed). `from None`: the original would otherwise
+    travel on as the cause, in every traceback."""
     # The DSN goes into a single-quoted SQL literal; double any single quote a
     # value may still legitimately contain (e.g. a password) so it can't close it.
     literal = dsn.replace("'", "''")
     try:
         con.execute(f"ATTACH '{literal}' AS \"{alias}\" ({options})")
     except duckdb.Error as exc:
-        text = redact_secrets(str(exc))
-        if text == str(exc):
-            raise
-        raise type(exc)(text) from None
+        raise ConnectionFailed(redact_secrets(str(exc))) from None
 
 
 def _attach(con: duckdb.DuckDBPyConnection, config: dict, password: str | None) -> None:
@@ -428,7 +503,8 @@ def _dollar_tag(sql: str, at: int) -> str | None:
     character the `$` belongs to that identifier, as it does for DuckDB's parser."""
     if sql[at] != "$":
         return None
-    if at > 0 and (sql[at - 1].isalnum() or sql[at - 1] in "_$" or ord(sql[at - 1]) >= 0x80):
+    before = sql[at - 1] if at > 0 else " "
+    if before.isalnum() or before in "_$" or (ord(before) >= 0x80 and before not in _PARSER_SPACE_CHARS):
         return None
     j = at + 1
     while j < len(sql) and (sql[j].isalnum() or sql[j] == "_"):
@@ -458,7 +534,7 @@ def _strip_leading_noise(stmt: str) -> str:
     i = 0
     n = len(stmt)
     while i < n:
-        if stmt[i].isspace():
+        if stmt[i].isspace() or stmt[i] in _PARSER_SPACE_CHARS:
             i += 1
         elif stmt.startswith("--", i):
             i = _line_comment_end(stmt, i)
@@ -720,18 +796,37 @@ def _reject_forbidden_statements(sql: str, dynamic_hint: str = "") -> None:
 _TOKEN_END = re.compile(r"\s|/\*|--")
 
 
+def _as_parsed(stmt: str) -> str:
+    """`stmt` as the parser reads it, for the checks: its blank code points made
+    spaces, one character for one, so an offset in it is an offset in `stmt`."""
+    return stmt.translate(_PARSER_SPACES)
+
+
 def _tokens(stmt: str) -> list[tuple[int, "duckdb.token_type"]]:
-    """DuckDB's tokens of `stmt` but its comments, which 2.0 reports as tokens."""
-    return [t for t in duckdb.tokenize(stmt) if t[1] != duckdb.token_type.comment]
+    """DuckDB's tokens of `stmt` but its comments, which 2.0 reports as tokens, at
+    character offsets into `stmt`: tokenize counts UTF-8 bytes."""
+    text = _as_parsed(stmt)
+    tokens = [t for t in duckdb.tokenize(text) if t[1] != duckdb.token_type.comment]
+    if text.isascii():
+        return tokens
+    out = []
+    char = byte = 0
+    for pos, kind in tokens:
+        while byte < pos:
+            byte += len(text[char].encode("utf-8"))
+            char += 1
+        out.append((char, kind))
+    return out
 
 
 def _token_texts(stmt: str) -> list[tuple[str, "duckdb.token_type"]]:
     """(text, kind) per token, upper-cased, without the trailing whitespace or comment."""
-    tokens = _tokens(stmt)
-    ends = [pos for pos, _ in tokens[1:]] + [len(stmt)]
+    text = _as_parsed(stmt)
+    tokens = _tokens(text)
+    ends = [pos for pos, _ in tokens[1:]] + [len(text)]
     out = []
     for i, (pos, kind) in enumerate(tokens):
-        raw = stmt[pos:ends[i]]
+        raw = text[pos:ends[i]]
         m = _TOKEN_END.search(raw)
         out.append(((raw[:m.start()] if m else raw).upper(), kind))
     return out
@@ -747,18 +842,42 @@ def _leading_match(pattern: re.Pattern[str], stmt: str) -> re.Match[str] | None:
 
 def _copies_to_a_file(stmt: str) -> bool:
     """Whether `stmt` is a `COPY … TO` (writes out) rather than a `COPY … FROM`
-    (loads in): the first FROM/TO keyword outside parentheses after COPY decides,
-    so `COPY (SELECT … FROM t) TO` reads as TO."""
-    depth = 0
-    for i, (text, kind) in enumerate(_token_texts(stmt)):
-        if i == 0:
-            if kind != duckdb.token_type.keyword or text != "COPY":
-                return False
-        elif kind == duckdb.token_type.operator:
-            depth += text.count("(") - text.count(")")
-        elif depth == 0 and kind == duckdb.token_type.keyword and text in ("FROM", "TO"):
-            return text == "TO"
-    return False
+    (loads in), read from the grammar: COPY, then a parenthesised query or a dotted
+    name with an optional column list, then the direction. A name part may be a
+    keyword (`main.from`); only operator tokens count as parentheses, so a `')'`
+    literal or a `"("` name cannot end a group."""
+    tokens = _token_texts(stmt)
+    if not tokens or tokens[0][1] != duckdb.token_type.keyword or tokens[0][0] != "COPY":
+        return False
+    n = len(tokens)
+    operator = duckdb.token_type.operator
+
+    def opens_group(i: int) -> bool:
+        return i < n and tokens[i][1] == operator and tokens[i][0].startswith("(")
+
+    def past_group(i: int) -> int:
+        depth = 0
+        while i < n:
+            if tokens[i][1] == operator:
+                depth += tokens[i][0].count("(") - tokens[i][0].count(")")
+            i += 1
+            if depth <= 0:
+                break
+        return i
+
+    i = 1
+    if opens_group(i):
+        i = past_group(i)
+    else:
+        while i < n:
+            i += 1
+            if i < n and tokens[i][0] == ".":
+                i += 1
+            else:
+                break
+        if opens_group(i):
+            i = past_group(i)
+    return i < n and tokens[i][0] == "TO"
 
 
 def _explained(stmt: str) -> tuple[str, bool] | None:
@@ -979,6 +1098,7 @@ def query_external(
         con = _connect(spec["extension"])
         _attach(con, config, password)
         _forbid_file_access(con)
+        _lock_down_user_sql(con)
         return con
 
     def _read(con: duckdb.DuckDBPyConnection):
@@ -1062,16 +1182,19 @@ def query_file(
         _lock_down_user_sql(con)
         return con
 
+    def _run(con: duckdb.DuckDBPyConnection):
+        # On each run: the file may have changed under a warm connection.
+        _reject_stored_passthrough(con, [_ATTACH_ALIAS])
+        return _run_isolated(con, _file_search_path(con), sql, arrow)
+
     if pool_key is None:
         con = _setup()
         try:
-            return _run_isolated(con, _file_search_path(con), sql, arrow)
+            return _run(con)
         finally:
             con.close()
 
-    return connection_pool.run_pooled(
-        pool_key, _setup, lambda con: _run_isolated(con, _file_search_path(con), sql, arrow)
-    )
+    return connection_pool.run_pooled(pool_key, _setup, _run)
 
 
 def _file_search_path(con: duckdb.DuckDBPyConnection) -> str:
@@ -1463,6 +1586,7 @@ def _source_setup(
         con = _open()
         con.execute(f"SET extension_directory = '{_sql_path(_ext_dir())}'")
         _attach_file(con, str(engine), path)
+        _reject_stored_passthrough(con, [_ATTACH_ALIAS])
         return con
 
     return _setup_file, lambda _con: f"memory,{_ATTACH_ALIAS}", []
@@ -1531,6 +1655,7 @@ def materialize_parquet(
         _forbid_file_access(con, [*readable, *view_files, tmp.as_posix()])
         _lock_down_user_sql(con)
         con.execute(f"SET search_path='{_sql_path(search_path(con))}'")
+        select_sql = _statements_to_run(con, select_sql)[0]
 
         def _copy(query: str) -> None:
             with query_cancel.tracking(con):
@@ -1558,7 +1683,8 @@ def query_cached_parquet(path: str, sql: str) -> list[dict]:
         _reject_session_statements(sql)
         _forbid_file_access(con, [path])
         _lock_down_user_sql(con)
-        return _run_statements(con, "memory", sql)
+        with query_cancel.tracking(con):
+            return _run_statements(con, "memory", sql)
     finally:
         con.close()
 

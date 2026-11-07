@@ -340,4 +340,16 @@ describe('validateProject', () => {
     expect(validateProject(tree({ 'cohort-boards/gone.json': board }))
       .find((i) => i.path === 'cohort-boards/gone.json')?.code).toBe('orphan-record')
   })
+
+  it('flags an IDE connection that names where it points or as whom', () => {
+    const tree = (connectionConfig: unknown) => new MemoryTree({
+      'project.json': JSON.stringify({ name: { en: 'P' }, projectId: 'p', appVersion: '2.3.3' }),
+      'databases/remote.json': JSON.stringify({ name: 'Remote', source: 'custom', connectionConfig }),
+    })
+    expect(validateProject(tree({ engine: 'postgresql' }))).toEqual([])
+    const issues = validateProject(tree({ engine: 'postgresql', host: 'h.example', username: 'u', serverPath: '/srv/x.duckdb' }))
+    expect(issues).toHaveLength(1)
+    expect(issues[0]).toMatchObject({ path: 'databases/remote.json', pointer: '/connectionConfig', severity: 'error' })
+    expect(issues[0].message).toContain('`host`')
+  })
 })

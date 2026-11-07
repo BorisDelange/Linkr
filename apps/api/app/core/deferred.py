@@ -29,6 +29,7 @@ import contextvars
 import logging
 import time
 import uuid
+import weakref
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
@@ -36,6 +37,7 @@ from typing import Any, TypeVar
 from fastapi import HTTPException, status
 from fastapi.responses import JSONResponse
 
+from app.core import audit
 from app.core.database import async_session
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,12 @@ _KEEP_SECONDS = 600.0
 # Work keeps running after its client gives up, so without a cap one user could
 # pile up any number of multi-minute imports. Counts the work past WAIT_SECONDS.
 MAX_RUNNING_PER_USER = 4
+# Each running work holds an app-database connection and a worker thread, both
+# shared by every user: one user's run a few at a time, the rest wait their turn
+# holding neither. A page's burst of queries waits rather than fails; past the
+# ceiling, counted from admission, a request is refused at once.
+MAX_CONCURRENT_PER_USER = 6
+MAX_IN_FLIGHT_PER_USER = 100
 
 
 T = TypeVar("T")
@@ -74,6 +82,26 @@ class _Entry:
 
 _tasks: dict[str, _Entry] = {}
 _running: dict[str, int] = {}
+_in_flight: dict[str, int] = {}
+# Per event loop: a semaphore belongs to the loop it first waited in.
+_user_slots: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, asyncio.Semaphore]]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _user_slot(user_id: str) -> asyncio.Semaphore:
+    slots = _user_slots.setdefault(asyncio.get_running_loop(), {})
+    if user_id not in slots:
+        slots[user_id] = asyncio.Semaphore(MAX_CONCURRENT_PER_USER)
+    return slots[user_id]
+
+
+def _land(user_id: str) -> None:
+    left = _in_flight.get(user_id, 1) - 1
+    if left > 0:
+        _in_flight[user_id] = left
+    else:
+        _in_flight.pop(user_id, None)
 
 
 def _pending_response(task_id: str) -> JSONResponse:
@@ -165,35 +193,41 @@ async def respond(user_id: str, work: Callable[[], Awaitable[Any]], as_job: AsJo
     from app.services.execution import jobs
 
     _sweep()
-    if _running.get(user_id, 0) >= MAX_RUNNING_PER_USER:
+    if _running.get(user_id, 0) >= MAX_RUNNING_PER_USER or _in_flight.get(user_id, 0) >= MAX_IN_FLIGHT_PER_USER:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             "Too many long-running requests in progress; wait for one to finish.",
         )
-
-    started = _Started(as_job is None or as_job.lane is None)
-    job_id: str | None = None
-    if as_job is not None and as_job.always and (as_job.project_uid or as_job.workspace_id):
-        async with session() as db:
-            job = await jobs.create(
-                db, as_job.project_uid, int(user_id), as_job.kind, as_job.label,
-                workspace_id=as_job.workspace_id, input=as_job.input, running=started.now,
-                group_key=as_job.group_key, group_label=as_job.group_label,
-            )
-        job_id = job.id
+    _in_flight[user_id] = _in_flight.get(user_id, 0) + 1
+    try:
+        started = _Started(as_job is None or as_job.lane is None)
+        job_id: str | None = None
+        if as_job is not None and as_job.always and (as_job.project_uid or as_job.workspace_id):
+            async with session() as db:
+                job = await jobs.create(
+                    db, as_job.project_uid, int(user_id), as_job.kind, as_job.label,
+                    workspace_id=as_job.workspace_id, input=as_job.input, running=started.now,
+                    group_key=as_job.group_key, group_label=as_job.group_label,
+                )
+            job_id = job.id
+    except BaseException:
+        _land(user_id)
+        raise
     token = current_job.set(job_id)
 
     async def run() -> Any:
-        if started.now:
-            return await work()
-        async with jobs.lane_slot(as_job.lane):
-            await started.mark()
-            return await work()
+        async with _user_slot(user_id):
+            if started.now:
+                return await work()
+            async with jobs.lane_slot(as_job.lane):
+                await started.mark()
+                return await work()
 
     # Created with the job in its context: the work reads it there.
     task = asyncio.create_task(run())
     current_job.reset(token)
     task.add_done_callback(_on_done)
+    task.add_done_callback(lambda _: _land(user_id))
     if job_id is not None:
         async with started.lock:
             started.job_id = job_id
@@ -206,12 +240,14 @@ async def respond(user_id: str, work: Callable[[], Awaitable[Any]], as_job: AsJo
         if task.cancelled() and not asyncio.current_task().cancelling():
             raise CancelledFromPanel() from None
         task.add_done_callback(_log_failure_left_behind)
+        audit.follow(task)
         raise
     except TimeoutError:
         # Only long work counts against the cap: every query goes through here,
         # and a page firing a few at once must not be refused.
         _running[user_id] = _running.get(user_id, 0) + 1
         task.add_done_callback(lambda _: _release(user_id))
+        audit.follow(task)
         task_id = uuid.uuid4().hex
         # An entity outside any project and workspace (a user's own settings) has
         # no panel to show in: it stays a plain deferred request.

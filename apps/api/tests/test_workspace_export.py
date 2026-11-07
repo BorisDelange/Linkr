@@ -46,6 +46,7 @@ from app.services.entity_docs import entity_doc_files, license_meta, strip_entit
 from app.services.workspace_export import (
     _build_wiki_section,
     _dictionary_links,
+    _portable_derived_from,
     _sanitize_connection_config,
     _slugify,
     _strip_instance_fields,
@@ -348,6 +349,8 @@ def _build_tree() -> dict[str, bytes]:
         stripped.pop("errorMessage", None)
         # Row counts of this instance's copy, recomputed on every mount.
         stripped.pop("stats", None)
+        if isinstance(stripped.get("derivedFrom"), dict):
+            stripped["derivedFrom"] = _portable_derived_from(stripped["derivedFrom"])
         connection_config = stripped.pop("connectionConfig", None)
         schema_mapping = stripped.pop("schemaMapping", None)
         schema_overrides = stripped.pop("schemaOverrides", None)

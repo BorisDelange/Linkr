@@ -113,12 +113,29 @@ def _issued_at(now: datetime) -> dict:
     return {"iat": now, "iat_us": _epoch_us(now)}
 
 
+def password_stamp(user) -> int:
+    """The password state a session is issued from: the microsecond of the last
+    change, 0 for none. Read from the same row the credential was checked against."""
+    changed = user.password_changed_at
+    if changed is None:
+        return 0
+    if changed.tzinfo is None:
+        changed = changed.replace(tzinfo=timezone.utc)
+    return _epoch_us(changed)
+
+
 def predates_password_change(payload: dict, user) -> bool:
     """Whether a session token was issued before `user` last set a password.
 
-    A token without `iat_us` (minted before it existed) is compared by `iat`, its
-    change floored to the second: the tokens handed out right after the change,
-    in the same second, must stay valid."""
+    A token carries the password state it was issued from (`pwd`), compared for
+    equality: one issued from a row read before a change refuses once the change
+    commits, however late it was minted. A token without it (minted before it
+    existed) is compared by `iat_us`, or by `iat` with the change floored to the
+    second: the tokens handed out right after the change, in the same second,
+    must stay valid."""
+    stamp = payload.get("pwd")
+    if isinstance(stamp, int):
+        return stamp != password_stamp(user)
     changed = user.password_changed_at
     if changed is None:
         return False
@@ -130,30 +147,31 @@ def predates_password_change(payload: dict, user) -> bool:
     return int(payload.get("iat", 0)) < int(changed.timestamp())
 
 
-def create_access_token(user_id: int, username: str, role: str) -> str:
+def _session_token(kind: str, user_id: int, username: str, role: str, lifetime: timedelta, stamp: int | None) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user_id),
         "username": username,
         "role": role,
-        "type": "access",
+        "type": kind,
         **_issued_at(now),
-        "exp": now + timedelta(minutes=settings.access_token_expire_minutes),
+        "exp": now + lifetime,
     }
+    if stamp is not None:
+        payload["pwd"] = stamp
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
-def create_refresh_token(user_id: int, username: str, role: str) -> str:
-    now = datetime.now(timezone.utc)
-    payload = {
-        "sub": str(user_id),
-        "username": username,
-        "role": role,
-        "type": "refresh",
-        **_issued_at(now),
-        "exp": now + timedelta(days=settings.refresh_token_expire_days),
-    }
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+def create_access_token(user_id: int, username: str, role: str, stamp: int | None = None) -> str:
+    return _session_token(
+        "access", user_id, username, role, timedelta(minutes=settings.access_token_expire_minutes), stamp,
+    )
+
+
+def create_refresh_token(user_id: int, username: str, role: str, stamp: int | None = None) -> str:
+    return _session_token(
+        "refresh", user_id, username, role, timedelta(days=settings.refresh_token_expire_days), stamp,
+    )
 
 
 def create_kernel_token(user_id: int, username: str, role: str, project_uid: str, *, via: str) -> str:

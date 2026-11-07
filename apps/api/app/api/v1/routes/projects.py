@@ -1,15 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.core import audit, deferred
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import (
-    check_project_permission,
     check_workspace_permission,
     require_project_permission,
 )
+from app.models.cohort import Cohort
 from app.models.data_source import DataSource
 from app.models.project import Project
 from app.models.user import User
@@ -96,6 +96,22 @@ async def _leave_links_behind(db: AsyncSession, project, body: ProjectUpdate, wo
     body.linked_data_source_refs = [(refs or [])[i] for i in keep if i < len(refs or [])]
 
 
+async def _leave_results_behind(db: AsyncSession, project, body: ProjectUpdate) -> None:
+    """A moving project's cohorts drop what they computed on the databases of the
+    workspace it leaves. A frozen membership does not record which database it
+    came from, so every cohort's results go."""
+    kept = set(body.linked_data_source_ids or []) if "linked_data_source_ids" in body.model_fields_set \
+        else set(project.linked_data_source_ids or [])
+    cohorts = (await db.execute(select(Cohort).where(Cohort.project_uid == project.uid))).scalars()
+    for cohort in cohorts:
+        cohort.materialization = None
+        cohort.result_count = None
+        cohort.attrition = None
+        if cohort.data_source_id not in kept:
+            cohort.data_source_id = None
+            cohort.data_source_ref = None
+
+
 async def _check_target_workspace(db: AsyncSession, workspace_id: str | None, user: User) -> None:
     """A project lands in a workspace only with projects:write there."""
     if workspace_id is None:
@@ -130,9 +146,12 @@ async def export_zip(
     project's versionedDataFiles marking. See docs/architecture.md."""
     from fastapi.responses import Response
 
+    from app.core.permissions import unreadable_project_tree_reads
     from app.services.project_export import _slugify
     from app.services.project_export_assemble import assemble_project_zip
 
+    if await unreadable_project_tree_reads(db, project, user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This project holds content your role does not read")
     project_uid, workspace_id = project.uid, project.workspace_id
     name = project.name.get("en") if isinstance(project.name, dict) else project.name
     slug = _slugify(name or project_uid)
@@ -175,9 +194,11 @@ async def update_project(
         await _leave_links_behind(db, project, body, workspace_id)
     added = [i for i in fields.get("linked_data_source_ids") or [] if i not in (project.linked_data_source_ids or [])]
     await database_binding.require_bindable(db, workspace_id, user, added, project=project)
+    if workspace_id != project.workspace_id:
+        await _leave_results_behind(db, project, body)
     fields = body.model_dump(exclude_unset=True)
     before = change_tracking.changed_values(project, fields)
-    project = await project_service.update(db, project, body)
+    project = await project_service.update(db, project, body, user)
     if before:
         link = None
         if before.keys() <= _LINK_FIELDS and "linked_data_source_ids" in before:
@@ -200,9 +221,7 @@ async def update_folder_bindings(
     # out-of-roots / non-existent bind before it reaches the IDE/dataset file routes.
     bindings = [path for path in fields.values() if path]
     if bindings:
-        # With no browse roots a binding reaches any folder the API can, like running code.
-        if not (settings.fs_browse_roots or "").strip():
-            await check_project_permission(db, project, user, "ide:execute")
+        await fs_browser.require_unconfined_reach(db, project, user)
         scope = await fs_browser.import_scope(db, project, user)
         for path in bindings:
             try:

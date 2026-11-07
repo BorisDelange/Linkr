@@ -11,6 +11,7 @@ log is part of what the cache is derived from — see dataset_ops.
 
 import hashlib
 import json
+import posixpath
 import uuid
 from pathlib import Path
 
@@ -27,7 +28,15 @@ def _cache_root(project_uid: str) -> Path:
     return d
 
 
+def _is_canonical(rel: str) -> bool:
+    return not rel.startswith("/") and posixpath.normpath(rel) == rel
+
+
 def _key(rel: str) -> str:
+    """The cache key of the dataset at `rel`, spelled as the listing spells it:
+    `./a.csv` names the same file as `a.csv`, and would get a cache of its own."""
+    if not _is_canonical(rel):
+        raise ValueError(f"not a dataset path: {rel}")
     return hashlib.sha1(rel.encode("utf-8")).hexdigest()[:16]
 
 
@@ -228,6 +237,8 @@ def resolve_cache(
     .parquet raw file is used directly as its own cache; once it has ops, it gets a
     real cache like any other file, since the raw itself must never be written to.
     """
+    if not _is_canonical(rel):
+        raise FileNotFoundError(rel)
     raw = project_fs.dataset_path(project_uid, rel)
     if not raw.is_file():
         raise FileNotFoundError(rel)

@@ -63,15 +63,15 @@ def test_text_without_a_dsn_password_is_unchanged():
         assert redact_secrets(text) == text
 
 
-def test_a_failed_attach_raises_the_same_error_redacted():
+def test_a_failed_attach_raises_its_error_redacted():
     class Con:
         def execute(self, sql):
             raise duckdb.IOException(POSTGRES)
 
-    with pytest.raises(duckdb.IOException) as raised:
+    with pytest.raises(db_connect.ConnectionFailed) as raised:
         db_connect.attach_dsn(Con(), "host=10.0.0.5 password=S3cret", "ext", "TYPE postgres")
-    assert "S3cret" not in str(raised.value) and raised.value.__cause__ is None
-    assert raised.value.__suppress_context__
+    assert "S3cret" not in str(raised.value) and "S3cret" not in raised.value.driver_text
+    assert raised.value.__cause__ is None and raised.value.__suppress_context__
 
 
 def test_the_access_log_never_keeps_it():

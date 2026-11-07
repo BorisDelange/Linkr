@@ -11,16 +11,21 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core import deferred
+from app.core import audit, deferred
 from app.core.database import async_session, get_db
-from app.core.deps import get_current_user
-from app.core.permissions import check_workspace_permission, has_project_permission
+from app.core.deps import get_current_admin, get_current_user
+from app.core.permissions import (
+    check_workspace_permission,
+    has_permission,
+    has_project_permission,
+)
 from app.models.job import Job
 from app.models.project import Project
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.schemas.execution import (
     AddPackagesRequest,
+    AdminJobResponse,
     EnvironmentResponse,
     ImportEnvSpecRequest,
     JobResponse,
@@ -240,15 +245,6 @@ async def add_env_packages(
     )
 
 
-# Spec filenames a language legitimately versions (manifest + lockfile + activation).
-# An import may only (re)write these; anything else is refused so a crafted ZIP can't
-# drop arbitrary files into the project dir.
-_SPEC_FILES = {
-    "python": {"pyproject.toml", "uv.lock", "requirements.txt"},
-    "r": {"renv.lock", ".Rprofile", "settings.json"},
-}
-
-
 @router.post(
     "/projects/{project_uid}/environments/{language}/spec",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -261,11 +257,12 @@ async def import_env_spec(
     db: AsyncSession = Depends(get_db),
 ):
     """Restore a managed environment's declarative spec on disk (project import /
-    git clone). Writes only the recognised spec files into environments/<language>/;
-    the venv/library is rebuilt from it on demand. No build is triggered here."""
+    git clone). Writes only the recognised spec files into environments/<language>/,
+    so a crafted ZIP can't drop arbitrary files into the project dir. No build is
+    triggered here; a run builds it once its user has accepted the spec."""
     await _require_ide(db, project_uid, user, "write")
     _valid_language(language)
-    allowed = _SPEC_FILES[language]
+    allowed = environments.SPEC_FILES[language]
     spec_dir = project_fs.env_spec_dir(project_uid, language)
     for f in body.files:
         # Base name only — reject any path separators / traversal before it touches
@@ -335,6 +332,7 @@ async def install_preset(
                 env = await environments.install_preset(session, project_uid, language, packages)
             except (ValueError, ProvisionError) as e:
                 raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+            await environments.accept_spec(session, user.id, project_uid, language)
             return _env_response(env)
 
     # Re-locking a whole preset takes minutes: past `deferred.WAIT_SECONDS` it goes
@@ -382,7 +380,8 @@ async def build_environment(
 ):
     """Kick off a manual environment build as a tracked, cancellable job. Returns
     the queued job immediately; poll GET /projects/{uid}/jobs for progress and the
-    env's status. The build runs behind the bounded executor (won't block others)."""
+    env's status. The build runs behind the bounded executor (won't block others).
+    Building it oneself accepts its spec: a later run need not ask."""
     await _require_ide_install(db, project_uid, user)
     _valid_language(language)
     label = f"Build {environments.language_label(language)} environment"
@@ -393,7 +392,7 @@ async def build_environment(
 
     async def body(handle: jobs.JobHandle) -> None:
         async with jobs.live_log(handle) as on_log, async_session() as job_db:
-            await environments.build(job_db, project_uid, language, on_log=on_log)
+            await environments.build(job_db, project_uid, language, on_log=on_log, accepted_by=user.id)
 
     jobs.launch(job.id, body)
     return JobResponse.model_validate(job, from_attributes=True)
@@ -458,6 +457,26 @@ async def clear_finished_workspace_jobs(
     await jobs.clear_finished(db, None, user.id, workspace_id=workspace_id)
 
 
+async def _may_read_jobs_of(db: AsyncSession, job: Job, user: User) -> bool:
+    if job.project_uid is not None:
+        project = await db.get(Project, job.project_uid)
+        return project is not None and await has_project_permission(db, project, user, "ide:read")
+    return await has_permission(db, job.workspace_id, user, "databases:read")
+
+
+@router.get("/jobs/running", response_model=list[AdminJobResponse])
+async def list_running_jobs(
+    _admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every queued or running job of the instance, whoever started it, newest
+    first — for an administrator to find and stop what holds the server."""
+    return [
+        AdminJobResponse(**_listed(job).model_dump(), username=username)
+        for job, username in await jobs.list_running_everywhere(db)
+    ]
+
+
 @router.get("/jobs/{job_id}", response_model=JobResponse)
 async def get_job(
     job_id: str,
@@ -466,10 +485,12 @@ async def get_job(
     db: AsyncSession = Depends(get_db),
 ):
     """One job, for a client that started it and follows it without the panel
-    (an agent polling a derivation). Only the owner may read it, like cancel.
-    Its input (up to 200 KB) only `withInput`: a follower polls every second or so."""
+    (an agent polling a derivation). Only its owner may read it, and only while
+    they may still read its project or workspace, as the job lists require: its
+    output comes from that data. Its input (up to 200 KB) only `withInput`: a
+    follower polls every second or so."""
     job = await db.get(Job, job_id)
-    if job is None or job.user_id != user.id:
+    if job is None or job.user_id != user.id or not await _may_read_jobs_of(db, job, user):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
     response = _detail(job)
     return response if with_input else response.model_copy(update={"input": None})
@@ -481,10 +502,14 @@ async def cancel_job(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Cancel a live job. Only the owner may cancel it."""
+    """Cancel a live job: its owner's, or any job for an administrator — the way
+    to stop a runaway query or build of someone else's. A query is interrupted
+    on its database, as its owner's stop would."""
     job = await db.get(Job, job_id)
-    if job is None:
+    if job is None or (job.user_id != user.id and user.role != "admin"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
-    if job.user_id != user.id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not your job")
+    audit.bind(
+        action="job_cancel", project_uid=job.project_uid, workspace_id=job.workspace_id,
+        detail=f"{job.kind} job {job.id} of user {job.user_id}: {job.label}",
+    )
     await jobs.cancel(db, job)

@@ -34,7 +34,7 @@ from pathlib import Path
 import duckdb
 
 from app.config import settings
-from app.core import path_ids
+from app.core import path_ids, safe_zip
 from app.services.data.db_connect import _ext_dir, skip_glob_path
 
 # Column types of the OMOP CDM v5.4 vocabulary tables. Every import is cast to
@@ -187,7 +187,7 @@ def _is_zip(name: str) -> bool:
 # An extraction nothing has read for this long is left over (an inspect with no
 # import after it): the next extraction removes it.
 ZIP_EXTRACTION_TTL_SECONDS = 24 * 3600
-# Free space kept beyond what an extraction writes.
+# Free space kept beyond what the extractions hold, as a share of them.
 ZIP_EXTRACTION_MARGIN = 0.1
 
 
@@ -223,10 +223,38 @@ def _prune_zip_extractions(keep: Path) -> None:
             shutil.rmtree(d, ignore_errors=True)
 
 
-def _check_free_space(wanted: list[zipfile.ZipInfo], dest: Path) -> None:
-    needed = sum(info.file_size for info in wanted)
+def _kept_bytes(excluding: set[Path]) -> int:
+    root = _zip_root()
+    if not root.is_dir():
+        return 0
+    total = 0
+    for d in root.iterdir():
+        if d in excluding or not d.is_dir():
+            continue
+        for p in d.rglob("*"):
+            try:
+                if p.is_file() and not p.is_symlink():
+                    total += p.stat().st_size
+            except OSError:
+                continue
+    return total
+
+
+def _check_room(needed: int, kept: int, dest: Path) -> None:
+    """The extractions, kept and new together, stay within the configured bound and
+    leave free both the upload reserve and a tenth of what they hold."""
+    ceiling = settings.max_vocabulary_extraction_mb * 1024 * 1024
+    if kept + needed > ceiling:
+        raise ValueError(
+            f"The zip would expand to {needed / 1e9:.1f} GB of vocabulary files, beside "
+            f"{kept / 1e9:.1f} GB already extracted: above the {ceiling / 1e9:.1f} GB allowed. "
+            "Import or discard the export inspected before, or ask an administrator to raise "
+            "LINKR_MAX_VOCABULARY_EXTRACTION_MB."
+        )
+    dest.mkdir(parents=True, exist_ok=True)
     free = shutil.disk_usage(dest).free
-    if needed * (1 + ZIP_EXTRACTION_MARGIN) > free:
+    floor = max(settings.upload_free_space_reserve_mb * 1024 * 1024, ZIP_EXTRACTION_MARGIN * (kept + needed))
+    if free - needed < floor:
         raise ValueError(
             f"Not enough disk space to extract the zip: {needed / 1e9:.1f} GB of vocabulary files, "
             f"{free / 1e9:.1f} GB free"
@@ -239,37 +267,61 @@ def expand_zips(files: ExportFiles) -> ExportFiles:
     ATHENA delivers its export as one zip of CSVs. Each zip is extracted once
     beside the libraries — inspecting then importing it reads the same copy —
     and only its vocabulary tables; `discard_zip_expansions` removes the copy.
-    Raises ValueError when the disk cannot hold the extracted files.
+    Every zip of the request is sized before any is written. Raises ValueError
+    when the extraction would exceed its bound or the disk's room.
     """
+    ceiling = settings.max_vocabulary_extraction_mb * 1024 * 1024
+    planned: list[tuple[str, Path, list[zipfile.ZipInfo] | None]] = []
+    try:
+        for name, path in files:
+            if not _is_zip(name) or any(path == seen for seen, _, _ in planned):
+                continue
+            dest = _zip_dir(path)
+            _prune_zip_extractions(dest)
+            done = dest / ".complete"
+            if done.exists():
+                done.touch()
+                planned.append((path, dest, None))
+                continue
+            with zipfile.ZipFile(path) as zf:
+                members = safe_zip.checked_members(zf, max_bytes=ceiling)
+            planned.append((path, dest, [info for info in members if table_of(info.filename)]))
+    except safe_zip.ZipTooLarge as exc:
+        raise ValueError(f"The zip cannot be extracted: {exc}") from exc
+
+    pending = [(path, dest, wanted) for path, dest, wanted in planned if wanted is not None]
+    if pending:
+        for _, dest, _ in pending:
+            shutil.rmtree(dest, ignore_errors=True)
+        needed = sum(info.file_size for _, _, wanted in pending for info in wanted)
+        _check_room(needed, _kept_bytes({dest for _, dest, _ in pending}), _zip_root())
+    for path, dest, wanted in pending:
+        dest.mkdir(parents=True)
+        try:
+            with zipfile.ZipFile(path) as zf:
+                for info in wanted:
+                    target = (dest / info.filename).resolve()
+                    # A crafted entry name (`../../x`) must not write outside dest.
+                    if not target.is_relative_to(dest.resolve()):
+                        continue
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with open(target, "wb") as dst:
+                        safe_zip.copy_member(zf, info, dst)
+        except BaseException as exc:
+            shutil.rmtree(dest, ignore_errors=True)
+            if isinstance(exc, safe_zip.ZipTooLarge):
+                raise ValueError(f"The zip cannot be extracted: {exc}") from exc
+            raise
+        (dest / ".complete").touch()
+
+    extracted = {path: dest for path, dest, _ in planned}
     out: ExportFiles = []
     for name, path in files:
         if not _is_zip(name):
             out.append((name, path))
             continue
-        dest = _zip_dir(path)
+        dest = extracted[path]
         done = dest / ".complete"
-        _prune_zip_extractions(dest)
-        if done.exists():
-            done.touch()
-        else:
-            shutil.rmtree(dest, ignore_errors=True)
-            dest.mkdir(parents=True)
-            try:
-                with zipfile.ZipFile(path) as zf:
-                    wanted = [info for info in zf.infolist() if not info.is_dir() and table_of(info.filename)]
-                    _check_free_space(wanted, dest)
-                    for info in wanted:
-                        target = (dest / info.filename).resolve()
-                        # A crafted entry name (`../../x`) must not write outside dest.
-                        if not target.is_relative_to(dest.resolve()):
-                            continue
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        with zf.open(info) as src, open(target, "wb") as dst:
-                            shutil.copyfileobj(src, dst, 1024 * 1024)
-            except BaseException:
-                shutil.rmtree(dest, ignore_errors=True)
-                raise
-            done.touch()
         out.extend(
             (str(p.relative_to(dest)), str(p))
             for p in sorted(dest.rglob("*"))

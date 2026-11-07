@@ -3,6 +3,7 @@ binding and a server-file import may point at: never Linkr's data folder, and
 another project's bound folder only with `project-folders:read`."""
 
 import sqlite3
+from pathlib import Path
 
 from app.config import settings
 from app.models.project import Project
@@ -62,6 +63,18 @@ async def test_a_workspace_viewer_reads_only_the_sqlite_database_it_was_given(cl
         )
         assert refused.status_code == 400
         assert "secret" not in refused.text
+
+
+async def test_the_database_folder_picker_leaves_linkrs_data_folder_out(client, seed_roles):
+    settings.data_path.mkdir(parents=True, exist_ok=True)
+    h = await _admin_headers(client)
+    ws = await _workspace(client, h)
+    listing = f"{API}/workspaces/{ws}/fs/list-dir"
+
+    assert (await client.get(listing, headers=h, params={"path": str(settings.data_path)})).status_code == 403
+    above = await client.get(listing, headers=h, params={"path": str(settings.data_path.parent)})
+    assert above.status_code == 200
+    assert str(settings.data_path.resolve()) not in [str(Path(e["path"]).resolve()) for e in above.json()["entries"]]
 
 
 async def test_a_database_cannot_point_inside_linkrs_data_folder(client, seed_roles, tmp_path_factory):

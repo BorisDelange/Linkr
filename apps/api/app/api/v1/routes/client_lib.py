@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_kernel_user
-from app.core.permissions import has_permission
+from app.core.permissions import check_project_permission, has_permission
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.data_source import ClientDatabase
@@ -51,6 +51,7 @@ async def list_databases(
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Insufficient workspace permissions"
         )
+    await check_project_permission(db, project, user, "project-databases:read")
 
     linked = set(project.linked_data_source_ids or [])
     sources = await data_source_service.list_for_workspace(db, project.workspace_id)

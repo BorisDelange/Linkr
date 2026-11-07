@@ -172,10 +172,20 @@ async def get_kernel_user(
     return user
 
 
-async def get_current_admin(user: User = Depends(get_current_user)) -> User:
+def _require_admin(user: User) -> User:
     if user.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required",
         )
     return user
+
+
+async def get_current_admin(user: User = Depends(get_current_user)) -> User:
+    return _require_admin(user)
+
+
+async def get_session_admin(user: User = Depends(get_session_user)) -> User:
+    """An admin's session, never an API key: what creates accounts or sets their
+    passwords would otherwise let a leaked key give itself a session."""
+    return _require_admin(user)

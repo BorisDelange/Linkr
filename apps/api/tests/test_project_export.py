@@ -380,6 +380,53 @@ def test_reference_csv_under_scripts_ignored_unless_marked():
     assert "!scripts/reference/concepts.csv" in marked[".gitignore"].decode()
 
 
+_NOTEBOOK = json.dumps({
+    "cells": [
+        {"cell_type": "markdown", "metadata": {}, "source": ["# Cohort"]},
+        {
+            "cell_type": "code", "execution_count": 3, "metadata": {}, "source": ["print(df)"],
+            "outputs": [{"output_type": "stream", "name": "stdout", "text": ["patient_id=DUMMY-NB"]}],
+        },
+    ],
+    "metadata": {"kernelspec": {"name": "python3"}}, "nbformat": 4, "nbformat_minor": 5,
+}, indent=1)
+
+
+def _results_tree(marked: set[str]) -> dict[str, bytes]:
+    files = [
+        {"id": "a", "name": "nb.ipynb", "type": "file", "parentId": None, "content": _NOTEBOOK, "path": "nb.ipynb"},
+        {"id": "b", "name": "report.html", "type": "file", "parentId": None, "content": "<p>DUMMY-HTML</p>", "path": "report.html"},
+        {"id": "c", "name": "broken.ipynb", "type": "file", "parentId": None, "content": "{ DUMMY-BROKEN", "path": "broken.ipynb"},
+    ]
+    return build_project_tree(
+        project={"uid": "p", "name": {"en": "P"}},
+        organization=None,
+        ide_files=files,
+        pipelines=[], cohorts=[], connections=[], dashboards=[],
+        dataset_files=[], dataset_analyses={}, dataset_data={}, dataset_raw_files={},
+        attachments=[], attachment_blobs={},
+        versioned_data_files=marked,
+    )
+
+
+def test_an_unmarked_notebook_leaves_without_outputs_and_a_rendered_page_not_at_all():
+    tree = _results_tree(set())
+    nb = json.loads(tree["scripts/nb.ipynb"])
+    assert nb["cells"][1] == {"cell_type": "code", "execution_count": None, "metadata": {}, "source": ["print(df)"], "outputs": []}
+    assert b"DUMMY" not in b"".join(tree.values())
+    assert [n["path"] for n in json.loads(tree["scripts/_tree.json"])] == ["nb.ipynb"]
+    # Same bytes as the browser builder (entity-io.ts notebookWithoutOutputs → json()).
+    assert tree["scripts/nb.ipynb"].decode() == json.dumps(nb, indent=2, ensure_ascii=False)
+
+
+def test_a_marked_notebook_or_page_leaves_as_written():
+    tree = _results_tree({"scripts/nb.ipynb", "scripts/report.html", "scripts/broken.ipynb"})
+    assert tree["scripts/nb.ipynb"] == _NOTEBOOK.encode()
+    assert tree["scripts/report.html"] == b"<p>DUMMY-HTML</p>"
+    assert tree["scripts/broken.ipynb"] == b"{ DUMMY-BROKEN"
+    assert "!scripts/report.html" in tree[".gitignore"].decode()
+
+
 def test_excluded_code_file_omitted_from_tree():
     # Code files are versioned by default; an excludedFiles entry (its scripts/ tree
     # path) omits the file from the tree AND from scripts/_tree.json entirely — must

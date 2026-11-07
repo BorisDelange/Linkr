@@ -35,8 +35,27 @@ def _owner_details(owner: User) -> dict:
     }
 
 
-async def _match_local_user(db: AsyncSession, details: dict) -> User | None:
-    """Find a local account for an imported author, by ORCID then email."""
+async def _may_read_email(db: AsyncSession, caller: User | None, account: User) -> bool:
+    """Whether `caller` can already read `account`'s email: their own, as an
+    administrator, or in the member list of a workspace they share."""
+    from app.core.permissions import has_permission
+    from app.models.workspace_member import WorkspaceMember
+
+    if caller is None:
+        return False
+    if caller.id == account.id or caller.role == "admin":
+        return True
+    workspaces = await db.scalars(select(WorkspaceMember.workspace_id).where(WorkspaceMember.user_id == account.id))
+    for workspace_id in workspaces.all():
+        if await has_permission(db, workspace_id, caller, "workspace-members:read"):
+            return True
+    return False
+
+
+async def _match_local_user(db: AsyncSession, details: dict, caller: User | None) -> User | None:
+    """Find a local account for an imported author, by ORCID then email. The email
+    match answers only for an account whose email `caller` may already read: an
+    author snapshot is not a way to look accounts up."""
     orcid = (details or {}).get("orcid")
     if orcid:
         result = await db.execute(select(User).where(User.orcid == orcid))
@@ -47,12 +66,12 @@ async def _match_local_user(db: AsyncSession, details: dict) -> User | None:
     if email:
         result = await db.execute(select(User).where(User.email == email))
         user = result.scalars().first()
-        if user:
+        if user and await _may_read_email(db, caller, user):
             return user
     return None
 
 
-async def relink_creator_on_update(db: AsyncSession, entity, changes: dict) -> None:
+async def relink_creator_on_update(db: AsyncSession, entity, changes: dict, editor: User | None = None) -> None:
     """Re-resolve created_by_id when an update rewrites the author snapshot
     without pinning an id — a git clone re-applying the repo's metadata over a
     pointer-created record. The pointer create had no snapshot, so stamp_creator
@@ -61,12 +80,12 @@ async def relink_creator_on_update(db: AsyncSession, entity, changes: dict) -> N
     instead of the repo's real author. Same resolution as stamp_creator:
     local match by ORCID/email, else NULL and the frozen snapshot displays.
     An explicit created_by_id in the changes (author re-attribution editor)
-    always wins and skips this."""
+    always wins and skips this. Without an `editor`, only an ORCID re-links."""
     if "created_by_id" in changes:
         return
     if "created_by" not in changes and "created_by_details" not in changes:
         return
-    match = await _match_local_user(db, changes.get("created_by_details") or {})
+    match = await _match_local_user(db, changes.get("created_by_details") or {}, editor)
     entity.created_by_id = match.id if match else None
 
 
@@ -82,7 +101,7 @@ async def stamp_creator(db: AsyncSession, entity, payload: dict, owner: User) ->
     if snapshot:
         entity.created_by = payload.get("created_by")
         entity.created_by_details = payload.get("created_by_details")
-        match = await _match_local_user(db, payload.get("created_by_details") or {})
+        match = await _match_local_user(db, payload.get("created_by_details") or {}, owner)
         entity.created_by_id = match.id if match else None
     else:
         full = f"{owner.first_name or ''} {owner.last_name or ''}".strip()

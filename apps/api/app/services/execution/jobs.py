@@ -24,6 +24,7 @@ from app.config import settings
 from app.core.database import async_session
 from app.core.redact import redact_secrets, scrub_row_values
 from app.models.job import Job
+from app.models.user import User
 
 # Live tasks by job id, so cancel() can reach a running job's asyncio.Task.
 _tasks: dict[str, asyncio.Task] = {}
@@ -417,6 +418,19 @@ async def list_active(
     if not older:
         return list(listed)
     return sorted([*listed, *older], key=lambda j: j.created_at, reverse=True)
+
+
+async def list_running_everywhere(db: AsyncSession) -> list[tuple[Job, str]]:
+    """Every queued or running job of the instance with its user's name, newest
+    first, at most `LISTED_JOBS`."""
+    rows = await db.execute(
+        select(Job, User.username)
+        .join(User, User.id == Job.user_id)
+        .where(Job.status.in_(_ACTIVE))
+        .order_by(Job.created_at.desc())
+        .limit(LISTED_JOBS)
+    )
+    return [(job, username) for job, username in rows.all()]
 
 
 async def clear_finished(

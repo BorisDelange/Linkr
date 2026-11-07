@@ -47,7 +47,7 @@ export function startQueryJob(
   queries: readonly QueryJobItem[],
   { pushdown = true, keepGoing = false, shareLane = false }: { pushdown?: boolean; keepGoing?: boolean; shareLane?: boolean } = {},
 ): Promise<Job> {
-  return apiRequest<Job>(`/data-sources/${dataSourceId}/query-jobs`, {
+  return apiRequest<Job>(`/data-sources/${encodeURIComponent(dataSourceId)}/query-jobs`, {
     method: 'POST',
     body: JSON.stringify({ label, queries, pushdown, keepGoing, shareLane }),
   })
@@ -103,7 +103,7 @@ export function getJob(jobId: string, { withInput = false }: { withInput?: boole
 
 export async function queryJobRows(dataSourceId: string, jobId: string, key: string): Promise<Record<string, unknown>[]> {
   const res = await apiRequest<{ rows: Record<string, unknown>[] }>(
-    `/data-sources/${dataSourceId}/query-jobs/${encodeURIComponent(jobId)}/results/${encodeURIComponent(key)}`,
+    `/data-sources/${encodeURIComponent(dataSourceId)}/query-jobs/${encodeURIComponent(jobId)}/results/${encodeURIComponent(key)}`,
   )
   return res.rows
 }

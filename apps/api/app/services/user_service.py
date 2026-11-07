@@ -56,6 +56,11 @@ async def update(
     # An admin can't disable their own account (nor demote themselves out of admin)
     # — it's the fast path to locking yourself out; do it from another admin.
     if acting_user is not None and acting_user.id == user.id:
+        if data.password is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Change your own password from your profile, with the current one",
+            )
         if changes.get("is_active") is False:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -95,8 +100,11 @@ async def update(
         setattr(user, key, value)
     if data.password is not None:
         await set_password_async(user, data.password)
-        await api_token_service.revoke_all(db, user.id)
     await db.commit()
+    if data.password is not None:
+        # After the change commits, as in /auth/change-password.
+        await api_token_service.revoke_all(db, user.id)
+        await db.commit()
     await db.refresh(user)
     if data.password is not None or changes.get("is_active") is False:
         database_credential_service.forget_session_logins(user.id)

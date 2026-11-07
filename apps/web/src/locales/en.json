@@ -7,7 +7,8 @@
     "decline": "Do not run",
     "unnamed": "Unnamed code",
     "not_run": "Not run: you have not accepted this code.",
-    "review": "Review the code"
+    "review": "Review the code",
+    "environment": "Packages of the project's {{language}} environment, installed on the server before the code runs"
   },
   "app": {
     "loading": "Loading…"
@@ -2843,6 +2844,7 @@
     "git_error_archive_too_large": "This content is too large for the server to process, so nothing was changed. An administrator can raise the limit.",
     "git_error_export_failed": "Linkr could not build this entity's export, so nothing was sent to the repository. This is not a connection problem.",
     "git_error_hidden_projects": "This workspace holds a project you have no access to, so its versioning is not available to you. Ask a workspace owner.",
+    "git_error_unreadable_content": "This holds content your role does not let you read, so its versioning is not available to you. Ask a workspace owner.",
     "git_error_details": "Show the full error",
     "lfs_add": "Track with Git LFS",
     "lfs_remove": "Remove from Git LFS",
@@ -3248,6 +3250,7 @@
     "temporary_password": "Temporary password",
     "new_password_optional": "New password (optional)",
     "leave_blank_keep": "Leave blank to keep current",
+    "own_password_from_profile": "Your own password is changed from your profile (Change password), which asks for the current one.",
     "password_required": "A password is required.",
     "confirm_password": "Confirm password",
     "invalid_orcid": "Invalid ORCID iD (expected 0000-0000-0000-0000).",
@@ -4043,6 +4046,9 @@
     "title_one": "{{count}} job",
     "title_other": "{{count}} jobs",
     "recent": "Recent jobs",
+    "all_users": "All running jobs",
+    "all_users_hint": "Every queued or running job on the server, whoever started it. As an administrator you can stop any of them.",
+    "all_users_empty": "No job is running on the server.",
     "cancel": "Cancel",
     "cancel_tooltip": "Stop this job",
     "group_count_one": "{{count}} job",

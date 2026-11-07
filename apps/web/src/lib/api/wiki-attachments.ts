@@ -7,7 +7,7 @@ const BASE = '/wiki-attachments'
 type Meta = Omit<WikiAttachment, 'data'>
 
 async function withData(meta: Meta): Promise<WikiAttachment> {
-  const res = await apiFetch(`/api/v1${BASE}/${meta.id}/blob`)
+  const res = await apiFetch(`/api/v1${BASE}/${encodeURIComponent(meta.id)}/blob`)
   const data = res.ok ? await res.arrayBuffer() : new ArrayBuffer(0)
   return { ...meta, data }
 }
@@ -40,7 +40,7 @@ export const apiWikiAttachmentStorage: WikiAttachmentStorage = {
   },
 
   delete: async (id) => {
-    await apiRequest(`${BASE}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${BASE}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   deleteByPage: async (pageId) => {

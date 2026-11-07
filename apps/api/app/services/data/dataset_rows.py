@@ -154,9 +154,19 @@ def write_parquet(
     return parquet_path
 
 
+def reader_of(path: Path) -> duckdb.DuckDBPyConnection:
+    """A connection that reads `path` and no other file. `read_parquet` expands
+    `*`, `?` and `[` against the disk, so the name a path check validated is not
+    always the file it would open: here such a match is refused."""
+    con = duckdb.connect()
+    con.execute(f"SET allowed_paths=[{_sql_str(path.as_posix())}]")
+    con.execute("SET enable_external_access=false")
+    return con
+
+
 def read_parquet(path: Path, offset: int | None = None, limit: int | None = None) -> list[dict]:
     """Read rows back as dicts keyed by columnId. Optional LIMIT/OFFSET page."""
-    con = duckdb.connect()
+    con = reader_of(path)
     try:
         sql = f"SELECT * FROM read_parquet({_sql_str(path.as_posix())})"
         if limit is not None:
@@ -308,7 +318,7 @@ def query_page(
     """
     where, params = _build_where(filters or [], na or [], col_types)
     src = _source_expr(path, columns)
-    con = duckdb.connect()
+    con = reader_of(path)
     try:
         cache_key = _count_cache_key(path, where, params)
         total = _count_cache.get(cache_key)
@@ -451,7 +461,7 @@ def distinct_values(
     ident = _quote_ident(col_id)
     src = _source_expr(path, columns)
     v = f"CAST({ident} AS VARCHAR)"
-    con = duckdb.connect()
+    con = reader_of(path)
     try:
         where = f"WHERE {ident} IS NOT NULL"
         params: list[Any] = []
@@ -482,7 +492,7 @@ def column_stats(
         return {}
     ident = _quote_ident(col_id)
     src = _source_expr(path, columns)
-    con = duckdb.connect()
+    con = reader_of(path)
     try:
         total, non_null, distinct = con.execute(
             f"SELECT count(*), count({ident}), count(DISTINCT {ident}) FROM {src}"

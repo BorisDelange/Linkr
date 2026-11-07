@@ -20,11 +20,13 @@ multi-user deployment should set the roots.
 
 An import never exceeds what its user could already read: with empty roots it
 needs code execution on the project (a script reads the same files), and the
-kernel-only system folders, Linkr's own data folder and the folders other projects
-are bound to are always refused — the copy runs in the API process, which can read
-what kernels cannot. A binding and a database's `serverPath` answer to the same
-refusal (``FolderScope``): either one would otherwise re-expose those folders
-through the IDE file routes or the query route.
+kernel-only system folders, Linkr's own data folder, the folders other projects
+are bound to and the files of other workspaces' databases are always refused — the
+copy runs in the API process, which can read what kernels cannot. A binding and a
+database's `serverPath` answer to the same refusal (``FolderScope``): either one
+would otherwise re-expose those folders through the IDE file routes or the query
+route. With no browse roots, a project's own folder routes (picker, copy, binding)
+need code execution on it, as an import does.
 """
 
 import os
@@ -308,6 +310,21 @@ async def whole_fs_import_allowed(db: "AsyncSession", project: "Project", user: 
     return settings.enable_code_execution and await has_project_permission(db, project, user, "ide:execute")
 
 
+async def _whole_fs_allowed_in_workspace(db: "AsyncSession", workspace_id: str, user: "User") -> bool:
+    from app.core.permissions import has_permission
+
+    return settings.enable_code_execution and await has_permission(db, workspace_id, user, "ide:execute")
+
+
+async def require_unconfined_reach(db: "AsyncSession", project: "Project", user: "User") -> None:
+    """With no browse roots, a project folder route reaches any folder the API can,
+    as a script would: it needs code execution on the project. Raises 403."""
+    from app.core.permissions import check_project_permission
+
+    if not _browse_roots():
+        await check_project_permission(db, project, user, "ide:execute")
+
+
 def _identity(path: Path) -> tuple[int, int] | None:
     try:
         st = path.stat()
@@ -390,15 +407,31 @@ class FolderScope:
         return {ident for d in _SYSTEM_DIRS for ident in _lineage(d)}
 
 
-async def import_scope(db: "AsyncSession", project: "Project | None", user: "User") -> FolderScope:
-    """`user`'s scope for `project`, or for a database (`project` None: every
-    binding is another project's, and the whole filesystem is never open)."""
+async def import_scope(
+    db: "AsyncSession",
+    project: "Project | None",
+    user: "User",
+    *,
+    workspace_id: str | None = None,
+    other_databases: bool = True,
+) -> FolderScope:
+    """`user`'s scope for `project`, or for a workspace's database or import
+    (`project` None: every binding is another project's). The files of databases
+    outside the project's or `workspace_id`'s workspace count as foreign too, unless
+    `other_databases` is False. The whole filesystem opens to code execution rights
+    on the project, or with no project on the workspace."""
     from sqlalchemy import select
 
     from app.core.permissions import has_global_permission
+    from app.models.data_source import DataSource
     from app.models.project import Project as ProjectModel
 
-    whole_fs_allowed = project is not None and await whole_fs_import_allowed(db, project, user)
+    if workspace_id is None and project is not None:
+        workspace_id = project.workspace_id
+    if project is not None:
+        whole_fs_allowed = await whole_fs_import_allowed(db, project, user)
+    else:
+        whole_fs_allowed = workspace_id is not None and await _whole_fs_allowed_in_workspace(db, workspace_id, user)
     if await has_global_permission(db, user, "project-folders:read"):
         return FolderScope(whole_fs_allowed=whole_fs_allowed, sees_project_folders=True)
 
@@ -410,6 +443,15 @@ async def import_scope(db: "AsyncSession", project: "Project | None", user: "Use
     own: set[str] = set()
     for uid, *paths in rows.all():
         (own if uid == own_uid else foreign).update(p for p in paths if p)
+    if other_databases:
+        query = select(DataSource.connection_config)
+        if workspace_id is not None:
+            query = query.where((DataSource.workspace_id != workspace_id) | DataSource.workspace_id.is_(None))
+        for (config,) in (await db.execute(query)).all():
+            foreign.update(
+                p for p in ((config or {}).get("serverPath"), (config or {}).get("managedPath"))
+                if isinstance(p, str) and p
+            )
     return FolderScope(
         whole_fs_allowed=whole_fs_allowed,
         foreign_bound=frozenset(foreign),
@@ -464,7 +506,7 @@ def _import_refusal(target: Path, scope: FolderScope) -> str | None:
     return None
 
 
-def _check_import_scope(scope: FolderScope) -> None:
+def check_import_scope(scope: FolderScope) -> None:
     if not _browse_roots() and not scope.whole_fs_allowed:
         raise FsImportForbidden(IMPORT_NEEDS_EXECUTION)
 
@@ -472,12 +514,24 @@ def _check_import_scope(scope: FolderScope) -> None:
 def import_list_dir(path: str, extensions: list[str] | None, scope: FolderScope) -> dict:
     """`list_dir` for the import picker: the same boundary `validate_import_source`
     enforces, so the picker never offers a folder or file it would then refuse."""
-    _check_import_scope(scope)
+    check_import_scope(scope)
     if path:
         reason = _import_refusal(Path(path).expanduser().resolve(), scope)
         if reason:
             raise FsImportForbidden(reason)
     listing = list_dir(path, True, extensions)
+    listing["entries"] = [e for e in listing["entries"] if _import_refusal(Path(e["path"]).resolve(), scope) is None]
+    return listing
+
+
+def source_list_dir(path: str, include_files: bool, extensions: list[str] | None, scope: FolderScope) -> dict:
+    """`list_dir` for a database's picker. A folder holding a refused one stays
+    navigable; the refused one, and what is inside it, is neither offered nor listed."""
+    if path:
+        reason = _import_refusal(Path(path).expanduser().resolve(), scope)
+        if reason:
+            raise FsImportForbidden(reason)
+    listing = list_dir(path, include_files, extensions)
     listing["entries"] = [e for e in listing["entries"] if _import_refusal(Path(e["path"]).resolve(), scope) is None]
     return listing
 
@@ -495,7 +549,7 @@ def validate_import_source(path: str, scope: FolderScope) -> Path:
     Raises FsBrowseError, whose `status_code` the route answers with."""
     if not path:
         raise FsBrowseError("No server file chosen")
-    _check_import_scope(scope)
+    check_import_scope(scope)
     target = Path(path).expanduser().resolve()
     if not _within_roots(target):
         raise FsBrowseError("Path is outside the allowed browse roots")
@@ -657,7 +711,10 @@ def validate_dir(path: str) -> dict:
 
 
 def _link_refused(path: Path, scope: FolderScope) -> bool:
-    return path.is_symlink() and _overlap_refusal(path.resolve(), scope) is not None
+    if not path.is_symlink():
+        return False
+    target = path.resolve()
+    return not _within_roots(target) or _overlap_refusal(target, scope) is not None
 
 
 def copy_tree(src: str, dst: str, on_conflict: str, scope: FolderScope) -> dict:
@@ -668,7 +725,8 @@ def copy_tree(src: str, dst: str, on_conflict: str, scope: FolderScope) -> dict:
 
     The copy runs in the API process, which reads what kernels cannot, so both
     folders answer to the binding rule, and so does whatever a link inside them
-    leads to: a link into a refused place is skipped, on either side."""
+    leads to: a link out of the browse roots or into a refused place is skipped,
+    on either side."""
     if on_conflict not in ("ignore", "overwrite", "keep_both"):
         raise FsBrowseError("Invalid conflict strategy")
     if not src or not dst:

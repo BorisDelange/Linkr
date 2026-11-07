@@ -15,7 +15,7 @@ export const apiPipelineStorage: PipelineStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<Pipeline>(`/pipelines/${id}`)
+      return await apiRequest<Pipeline>(`/pipelines/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -26,10 +26,10 @@ export const apiPipelineStorage: PipelineStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`/pipelines/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    await apiRequest(`/pipelines/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
   delete: async (id) => {
-    await apiRequest(`/pipelines/${id}`, { method: 'DELETE' })
+    await apiRequest(`/pipelines/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }

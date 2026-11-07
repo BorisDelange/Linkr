@@ -82,6 +82,14 @@ protects a user from stored content, not from their own modified client, which `
 lets run anything anyway. Client-only (WASM) deployments have no such gate: code runs in the
 visitor's browser and no server holds a kernel or a secret.
 
+A project environment's spec is stored code too: building it runs the package code it names.
+A run of any purpose, a terminal or a web app that would first build it
+(`environments.ensure_ready`) is refused (428 `environment_acceptance_required` with the text,
+an error message on a terminal) until the running user has accepted `environments.spec_text`:
+every spec file and the install options, headed by the project, since a relative path in a
+spec names that project's files. Building it oneself or changing its packages, both behind
+`ide:execute`, records that acceptance. An environment already built asks nothing.
+
 **A tree does not set trust-bearing workspace settings.** `workspaceFromManifest` lists what
 a workspace manifest may say; package index, default packages, git remote, push policy and
 the local key are out. Landing on an existing workspace by lineage asks first
@@ -95,9 +103,15 @@ the local key are out. Landing on an existing workspace by lineage asks first
 `POST /data-sources/test-connection` needs `databases:write` in the workspace it names
 and answers "Connection failed"; so do `/retest`, `/schema` and `/flight` of a stored
 external source (a managed or uploaded file keeps its message, which names only its own
-file). Only an instance admin gets the driver's text in the reply; for everyone else it
-goes to the server log and the access log's error column, and the reply quotes the
-request's reference to find it there (`routes/data_sources._connection_error`). The password the postgres/mysql extensions
+file), `PUT /my-login` (for both purposes, worded as a login to check), and every route
+whose ATTACH fails: the failure is raised as `db_connect.ConnectionFailed`, which reads
+as that reference wherever it surfaces (a query, a query job, a cohort freeze, a dataset
+from a query), while the caller's own SQL errors and Linkr's refusals (a host not
+allowed, a login that is not read-only) keep their text. Only an instance admin gets the
+driver's text in the reply, on the routes that pass it through
+`routes/data_sources._connection_error`; for everyone else it goes to the server log and
+the access log's error column, and the reply quotes the request's reference to find it
+there. The password the postgres/mysql extensions
 quote back in that text is redacted where the ATTACH raises it (`db_connect.attach_dsn`,
 `core/redact.py`), and again by `audit.bind`. Why an
 allowlist and not a block of private addresses: in an SPE the datamart *is* on a
@@ -133,7 +147,13 @@ public default), a project's index stays on the hosts the server and workspace l
 over https too, and every package installed comes from that mirror: an R install, update or
 build refuses, naming each package, a `renv.lock` record or requested package that renv
 would fetch from anywhere else (`renv_provisioner._require_mirror_sources`; a Bioconductor
-record included, since the R mirror setting is a single CRAN-type repository). Why: the project file travels with git, so it must not be able to point
+record included, since the R mirror setting is a single CRAN-type repository), and restores
+from a copy of `renv.lock` reduced to each record's repository fields, since renv also fetches
+a record from a git URL or a local path it carries (`_mirror_lockfile`). A Python build
+installs the dependencies, never the environment itself (`uv sync --no-install-project`); under
+a mirror it refuses a manifest that would build the environment as a package
+(`[build-system]`, dynamic dependencies, `tool.uv.package`) and a lock source on the server's
+own files (`uv_provisioner._require_mirror_sources`). Why: the project file travels with git, so it must not be able to point
 installs at a host of its author's choosing. Resolving, installing or building packages
 runs their code on the server, so those routes take `ide:execute` on top of `ide:write`;
 `ide:write` alone edits the spec and the options.
@@ -320,8 +340,13 @@ to the first admin (`/setup/initialize`) and to passwords an admin sets
 (`user_service.create` / `update`). Setting a password stamps `users.password_changed_at`,
 and every session token (access, refresh, WebSocket) issued before it is refused
 (`security.predates_password_change`): refresh rotation would otherwise keep a stolen
-session alive for ever. The caller of `change-password` gets fresh tokens back. `iat` has
-whole-second resolution, so a token issued in the very second of the change survives.
+session alive for ever. A session token carries the password state of the row it was
+issued from (`pwd`, `security.password_stamp`), compared for equality: a refresh or a login
+that read the row before a change committed is refused once it has, however late it
+minted. A token from before that claim falls back to `iat_us`. The caller of
+`change-password` gets fresh tokens back. API keys are revoked after the change commits,
+and `POST /auth/api-tokens` re-reads the row after creating one, so a key created during
+the change does not outlive it.
 Kernel tokens are not checked — they live in a running kernel's environment and expire
 within `kernel_token_expire_minutes` (12 h).
 
@@ -373,8 +398,10 @@ else gets 404.
 
 FastAPI reads a route's whole body before its dependencies, so size is checked on the raw
 request (`core/body_limit.py`): 1 MB under `/auth` and `/setup` (nginx refuses it first),
-`LINKR_MAX_JSON_BODY_MB` (64) on any route with a JSON body. Form uploads and raw streams
-pass, and enforce their own limits.
+`LINKR_MAX_JSON_BODY_MB` (64) on any route with a JSON body. Above 1 MB the body needs a
+credential checked on the raw request (a session or kernel token's signature, a live API
+key), else 401 before it is read: parsing JSON costs many times its size. Form uploads and
+raw streams pass, and enforce their own limits.
 
 Until `/setup/initialize` has run, whoever reaches the web port could claim the instance,
 so that route asks for a token only the server's log or `LINKR_SETUP_TOKEN` gives

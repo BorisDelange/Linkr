@@ -13,7 +13,7 @@ export const apiConceptListStorage: ConceptListStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<ConceptList>(`${LISTS}/${id}`)
+      return await apiRequest<ConceptList>(`${LISTS}/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -24,10 +24,10 @@ export const apiConceptListStorage: ConceptListStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${LISTS}/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    await apiRequest(`${LISTS}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
   delete: async (id) => {
-    await apiRequest(`${LISTS}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${LISTS}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }

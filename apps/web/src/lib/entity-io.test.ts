@@ -567,6 +567,17 @@ describe('parseProjectZip — project.json without timestamps', () => {
   // A clean git export drops `uid` and often has no lineage yet (lineageId: null).
   // Its only identifier is the stable `projectId` — the parse guard must accept it,
   // else a valid bundle (e.g. the NeoCLIP repo) is rejected as "not a project".
+  it('never lets a tree choose where an IDE connection points or with which login', async () => {
+    const zip = new JSZip()
+    zip.file('project.json', JSON.stringify({ projectId: 'p', name: { en: 'P' } }))
+    zip.file('databases/remote.json', JSON.stringify({
+      id: 'cx', name: 'Remote', source: 'custom',
+      connectionConfig: { engine: 'postgresql', host: 'h.example', username: 'u', password: 'p', serverPath: '/srv/x.duckdb' },
+    }))
+    const parsed = await parseProjectZip(await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File)
+    expect(parsed!.connections.map((c) => c.connectionConfig)).toEqual([{ engine: 'postgresql' }])
+  })
+
   it('parses a project identified only by projectId (no uid, null lineageId)', async () => {
     const zip = new JSZip()
     zip.file('project.json', JSON.stringify({
@@ -601,6 +612,24 @@ describe('parseWorkspaceZip — what a tree may decide', () => {
     for (const field of ['defaultEnvOptions', 'defaultEnvPackages', 'gitRemoteConfig', 'gitPushPolicy']) {
       expect(workspace).not.toHaveProperty(field)
     }
+  })
+
+  it('never lets a tree choose where a database connects or with which login', async () => {
+    const hostile = {
+      engine: 'postgresql', host: '127.0.0.1', port: 55432, database: 'warehouse',
+      sslmode: 'disable', username: 'tree-user', password: 'tree-dummy-secret',
+    }
+    const zip = new JSZip()
+    zip.file('workspace.json', JSON.stringify({ name: { en: 'W' } }))
+    zip.file('databases/remote/entity.json', JSON.stringify({
+      entityType: 'database', name: { en: 'Remote' }, alias: 'remote', connectionConfig: hostile,
+    }))
+    zip.file('databases/flat.json', JSON.stringify({
+      id: 'flat', name: { en: 'Flat' }, alias: 'flat', connectionConfig: hostile,
+    }))
+    const parsed = (await parseWorkspaceZip(await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File))!
+    expect(parsed.databases).toHaveLength(2)
+    for (const ds of parsed.databases) expect(ds.connectionConfig).toEqual({ engine: 'postgresql' })
   })
 })
 
@@ -3115,6 +3144,50 @@ describe('export — local database ids never travel', () => {
     })
   })
 
+  describe('what a project ZIP carries of a notebook\'s results', () => {
+    const notebook = JSON.stringify({
+      cells: [
+        { cell_type: 'markdown', metadata: {}, source: ['# Cohort'] },
+        {
+          cell_type: 'code', execution_count: 3, metadata: {}, source: ['print(df)'],
+          outputs: [{ output_type: 'stream', name: 'stdout', text: ['patient_id=DUMMY-NB'] }],
+        },
+      ],
+      metadata: { kernelspec: { name: 'python3' } }, nbformat: 4, nbformat_minor: 5,
+    }, null, 1)
+    const file = (id: string, name: string, content: string) => ({ id, name, type: 'file', parentId: null, content, projectUid: 'p1' })
+    const storageMarking = (marked: string[]) => new Proxy({
+      projects: { getById: async () => ({ uid: 'p1', name: { en: 'P' }, config: { versionedDataFiles: marked } }) },
+      ideFiles: {
+        getByProject: async () => [
+          file('a', 'nb.ipynb', notebook), file('b', 'report.html', '<p>DUMMY-HTML</p>'), file('c', 'broken.ipynb', '{ DUMMY-BROKEN'),
+        ],
+      },
+    }, {
+      get: (t, p) => (p in t ? t[p as keyof typeof t] : new Proxy({}, { get: () => async () => [] })),
+    }) as unknown as Storage
+    const build = async (marked: string[]) =>
+      JSZip.loadAsync(await (await buildProjectZip('p1', storageMarking(marked), {}))!.blob.arrayBuffer())
+
+    it('a notebook nobody marked leaves without its outputs, a rendered page not at all', async () => {
+      const zip = await build([])
+      const nb = JSON.parse(await zip.files['scripts/nb.ipynb'].async('string'))
+      expect(nb.cells[1]).toEqual({ cell_type: 'code', execution_count: null, metadata: {}, source: ['print(df)'], outputs: [] })
+      expect(nb.cells[0].source).toEqual(['# Cohort'])
+      expect(zip.files['scripts/report.html']).toBeUndefined()
+      expect(zip.files['scripts/broken.ipynb']).toBeUndefined()
+      const listing = (JSON.parse(await zip.files['scripts/_tree.json'].async('string')) as { path: string }[]).map((n) => n.path)
+      expect(listing).toEqual(['nb.ipynb'])
+    })
+
+    it('a marked notebook or page leaves as written', async () => {
+      const zip = await build(['scripts/nb.ipynb', 'scripts/report.html', 'scripts/broken.ipynb'])
+      expect(await zip.files['scripts/nb.ipynb'].async('string')).toBe(notebook)
+      expect(await zip.files['scripts/report.html'].async('string')).toBe('<p>DUMMY-HTML</p>')
+      expect(await zip.files['scripts/broken.ipynb'].async('string')).toBe('{ DUMMY-BROKEN')
+    })
+  })
+
   it('removes the IDE database id from a project\'s config, keeping its pointer', async () => {
     // The id lives inside `config`, not at the top level, so INSTANCE_FIELDS
     // cannot reach it — buildProjectZip strips it, and project_export.py mirrors
@@ -3702,7 +3775,7 @@ describe('folder bindings stay machine-local', () => {
 
 
 describe('which files count as data', () => {
-  it.each(['a.csv', 'b.TSV', 'c.txt', 'results.json', 'd.parquet', 'e.xlsx', 'noextension', 'photo.png', 'data.edits.json'])(
+  it.each(['a.csv', 'b.TSV', 'c.txt', 'results.json', 'd.parquet', 'e.xlsx', 'noextension', 'photo.png', 'data.edits.json', 'report.html', 'report.HTM'])(
     '%s stays out unless marked', (name) => {
       expect(isDataExtension(`scripts/${name}`)).toBe(true)
     })

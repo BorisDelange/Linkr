@@ -45,6 +45,49 @@ function isAcceptanceRefusal(err: unknown): boolean {
   }
 }
 
+/** The server builds a project's environment before a run only once this user has
+ *  accepted its spec, which names the package code the build runs. */
+export interface EnvironmentRefusal {
+  language: 'python' | 'r'
+  spec: string
+}
+
+/** `detail`: a 428's detail, or a terminal's error message. */
+export function environmentRefusal(detail: unknown): EnvironmentRefusal | null {
+  const d = detail as { code?: unknown; language?: unknown; spec?: unknown } | null | undefined
+  if (d?.code !== 'environment_acceptance_required' || typeof d.spec !== 'string') return null
+  return { language: d.language === 'r' ? 'r' : 'python', spec: d.spec }
+}
+
+function environmentRefusalOf(err: unknown): EnvironmentRefusal | null {
+  if (!(err instanceof ApiError) || err.status !== 428) return null
+  try {
+    return environmentRefusal(JSON.parse(err.message)?.detail)
+  } catch {
+    return null
+  }
+}
+
+export function requestEnvironmentAcceptance(refusal: EnvironmentRefusal): Promise<boolean> {
+  return requestCodeAcceptance({
+    code: refusal.spec,
+    language: refusal.language,
+    label: i18n.t('code_acceptance.environment', { language: refusal.language === 'r' ? 'R' : 'Python' }),
+  })
+}
+
+/** Run `send`; when the server asks for the environment's acceptance, get it, then
+ *  run once more. Declined: the refusal is thrown as it came. */
+export async function withEnvironmentAcceptance<T>(send: () => Promise<T>): Promise<T> {
+  try {
+    return await send()
+  } catch (err) {
+    const refusal = environmentRefusalOf(err)
+    if (!refusal || !await requestEnvironmentAcceptance(refusal)) throw err
+  }
+  return send()
+}
+
 async function obtainAcceptance(code: string, language: RuntimeLanguage, review?: CodeReview): Promise<boolean> {
   if (review?.authored || (review?.source && await isCodeAccepted(review.source))) {
     await acceptCode([code])
@@ -53,13 +96,9 @@ async function obtainAcceptance(code: string, language: RuntimeLanguage, review?
   return requestCodeAcceptance({ code, language, source: review?.source, label: review?.label })
 }
 
-/** Run `send`; when the server asks for an acceptance, get it, then run once more. */
-export async function withCodeAcceptance(
-  code: string,
-  language: RuntimeLanguage,
-  review: CodeReview | undefined,
-  send: () => Promise<RuntimeOutput>,
-): Promise<RuntimeOutput> {
+/** Run `send`; when the server asks for an acceptance, get it, then run once more.
+ *  Null when the person declines. */
+async function retryOnAcceptance<T>(send: () => Promise<T>, obtain: () => Promise<boolean>): Promise<T | null> {
   // More than one round: code that joined the dialog as its answer was being saved
   // is refused once more, and asks again rather than failing.
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -68,9 +107,24 @@ export async function withCodeAcceptance(
     } catch (err) {
       if (!isAcceptanceRefusal(err) || attempt === 2) throw err
     }
-    if (!await obtainAcceptance(code, language, review)) break
+    if (!await obtain()) break
   }
-  return {
+  return null
+}
+
+export async function withCodeAcceptance(
+  code: string,
+  language: RuntimeLanguage,
+  review: CodeReview | undefined,
+  send: () => Promise<RuntimeOutput>,
+): Promise<RuntimeOutput> {
+  let output: RuntimeOutput | null = null
+  try {
+    output = await retryOnAcceptance(() => withEnvironmentAcceptance(send), () => obtainAcceptance(code, language, review))
+  } catch (err) {
+    if (!environmentRefusalOf(err)) throw err
+  }
+  return output ?? {
     stdout: '',
     stderr: i18n.t('code_acceptance.not_run'),
     figures: [],
@@ -78,4 +132,10 @@ export async function withCodeAcceptance(
     html: null,
     notAccepted: true,
   }
+}
+
+/** Run a request the server holds until the person accepts the stored SQL it runs
+ *  (a cohort's custom SQL on an external database). Null when they decline. */
+export function withSqlAcceptance<T>(code: string, label: string | undefined, send: () => Promise<T>): Promise<T | null> {
+  return retryOnAcceptance(send, () => requestCodeAcceptance({ code, language: 'sql', label }))
 }

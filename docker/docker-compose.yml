@@ -48,6 +48,14 @@ services:
       # - LINKR_TRUSTED_HEADER=X-Remote-User
       # - LINKR_TRUSTED_PROXIES=172.16.0.0/12
       # - LINKR_TRUSTED_PROXY_SECRET=${LINKR_TRUSTED_PROXY_SECRET}
+      # Upload limits, off unless set: the free space an upload must leave on the
+      # data volume (which holds the app database, so a full volume stops every
+      # write), and what each user may hold in uploads. Off, any account can fill it.
+      # - LINKR_UPLOAD_FREE_SPACE_RESERVE_MB=5120
+      # - LINKR_UPLOAD_QUOTA_MB=20480
+      # How long a query a user waits for may run before it is stopped, in seconds
+      # (default 900; 0: no limit). Longer work runs as a background job.
+      # - LINKR_QUERY_TIMEOUT_SECONDS=900
     volumes:
       - linkr-data:/var/lib/linkr
     # An external database (Doris, Postgres…) on this same host is reached as

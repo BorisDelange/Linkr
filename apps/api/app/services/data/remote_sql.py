@@ -74,6 +74,7 @@ _NUMERIC = _INTEGER | {T.FLOAT, T.DOUBLE, T.DECIMAL}
 _TEXT = {T.VARCHAR, T.TEXT, T.CHAR, T.NCHAR, T.NVARCHAR}
 _TEMPORAL = {T.DATE, T.DATETIME, T.TIMESTAMP, T.TIMESTAMPNTZ, T.TIMESTAMP_S, T.TIMESTAMP_MS, T.TIMESTAMP_NS}
 _NULL = {T.NULL}
+_PORTABLE_TYPES = _NUMERIC | _TEXT | _TEMPORAL | {T.BOOLEAN}
 # DuckDB's TIMESTAMP, which sqlglot types TIMESTAMPNTZ once read.
 _PLAIN_TIMESTAMP = {T.TIMESTAMP, T.TIMESTAMPNTZ}
 
@@ -424,6 +425,9 @@ def _check_node(node: exp.Expression) -> None:
     if isinstance(node, exp.Tuple) and not isinstance(node.parent, exp.In):
         # COUNT(DISTINCT (a, b)) counts NULL members in DuckDB, skips them elsewhere.
         raise NotPortable("row value")
+    if isinstance(node, exp.DataType) and node.this not in _PORTABLE_TYPES:
+        # A user-defined type keeps its quoted name, which sqlglot prints bare.
+        raise NotPortable(f"type {node.this.value}")
     if isinstance(node, exp.Cast):
         if _is_patient_key(node.this) and node.to.this in _INTEGER:
             return

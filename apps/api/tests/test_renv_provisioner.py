@@ -267,3 +267,64 @@ def test_update_all_never_writes_a_lockfile_name_it_has_not_validated(tmp_path, 
     with pytest.raises(InvalidPackageSpec):
         R.upgrade("p")
     assert calls == []
+
+
+@pytest.mark.parametrize("repository", ["bioc", "BioConductor", "rforge", "R-Forge"])
+def test_under_a_mirror_a_record_from_a_repository_renv_resolves_itself_is_refused(tmp_path, monkeypatch, repository):
+    _r_mirror(monkeypatch)
+    _lock_with(tmp_path, monkeypatch, {"glue": {"Source": "Repository", "Repository": repository}})
+    with pytest.raises(R.ProvisionError, match="package glue comes from"):
+        R._require_mirror_sources("p", {})
+
+
+def _captured_restore(monkeypatch) -> list[tuple]:
+    argv: list[tuple] = []
+
+    class _Proc:
+        async def wait(self):
+            return 0
+
+    async def fake_exec(*args, **kwargs):
+        argv.append(args)
+        proc = _Proc()
+
+        async def lines():
+            if False:
+                yield b""
+
+        proc.stdout = lines()
+        return proc
+
+    monkeypatch.setattr(R.asyncio, "create_subprocess_exec", fake_exec)
+    return argv
+
+
+def _restored_lock(argv: list[tuple]) -> dict:
+    import re
+
+    code = argv[0][-1]
+    path = re.search(r"renv::restore\(lockfile='([^']+)'", code).group(1)
+    return json.loads(open(path).read())
+
+
+@pytest.mark.parametrize("record", [
+    {"Source": "Repository", "Repository": "CRAN", "Path": "../../scripts/evroute"},
+    {"Source": "Repository", "Repository": "CRAN", "RemoteUrl": "http://127.0.0.2/git/evgit.git", "RemoteSha": "abc"},
+    {"Source": "Repository", "Repository": "CRAN", "git_url": "http://127.0.0.2/git/evbio.git",
+     "git_branch": "main", "git_last_commit": "abc"},
+])
+def test_under_a_mirror_a_restore_reads_nothing_of_a_record_but_its_repository_fields(tmp_path, monkeypatch, record):
+    _r_mirror(monkeypatch)
+    _lock_with(tmp_path, monkeypatch, {"evpkg": record})
+    argv = _captured_restore(monkeypatch)
+
+    assert R.asyncio.run(R.build("p")).ok
+    restored = _restored_lock(argv)["Packages"]["evpkg"]
+    assert restored == {"Package": "evpkg", "Version": "1.0.0", "Source": "Repository", "Repository": "CRAN"}
+
+
+def test_without_a_mirror_a_restore_reads_the_lockfile_as_it_is(tmp_path, monkeypatch):
+    _lock_with(tmp_path, monkeypatch, {"glue": _GITHUB})
+    argv = _captured_restore(monkeypatch)
+    assert R.asyncio.run(R.build("p")).ok
+    assert "renv::restore(lockfile='renv.lock'" in argv[0][-1]

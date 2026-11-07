@@ -25,14 +25,14 @@ export interface EnvPackage {
 }
 
 export function listEnvironments(projectUid: string): Promise<ProjectEnvironment[]> {
-  return apiRequest(`/projects/${projectUid}/environments`)
+  return apiRequest(`/projects/${encodeURIComponent(projectUid)}/environments`)
 }
 
 export function listEnvPackages(
   projectUid: string,
   language: 'python' | 'r',
 ): Promise<EnvPackage[]> {
-  return apiRequest(`/projects/${projectUid}/environments/${language}/packages`)
+  return apiRequest(`/projects/${encodeURIComponent(projectUid)}/environments/${encodeURIComponent(language)}/packages`)
 }
 
 /** Result of an on-demand "check for updates": which installed packages have a
@@ -48,7 +48,7 @@ export function getEnvUpdates(
   projectUid: string,
   language: 'python' | 'r',
 ): Promise<EnvUpdates | null> {
-  return apiRequest(`/projects/${projectUid}/environments/${language}/updates`)
+  return apiRequest(`/projects/${encodeURIComponent(projectUid)}/environments/${encodeURIComponent(language)}/updates`)
 }
 
 /** Run the on-demand outdated check (one batch repo query) and cache it. Only call
@@ -57,7 +57,7 @@ export function checkEnvUpdates(
   projectUid: string,
   language: 'python' | 'r',
 ): Promise<EnvUpdates> {
-  return apiRequest(`/projects/${projectUid}/environments/${language}/updates`, { method: 'POST' })
+  return apiRequest(`/projects/${encodeURIComponent(projectUid)}/environments/${encodeURIComponent(language)}/updates`, { method: 'POST' })
 }
 
 export function addEnvPackages(
@@ -65,7 +65,7 @@ export function addEnvPackages(
   language: 'python' | 'r',
   packages: string[],
 ): Promise<ProjectEnvironment> {
-  return apiRequest(`/projects/${projectUid}/environments/${language}/packages`, {
+  return apiRequest(`/projects/${encodeURIComponent(projectUid)}/environments/${encodeURIComponent(language)}/packages`, {
     method: 'POST',
     body: JSON.stringify({ packages }),
   })
@@ -79,7 +79,7 @@ export function importEnvSpec(
   language: 'python' | 'r',
   files: { name: string; content: string }[],
 ): Promise<void> {
-  return apiRequest(`/projects/${projectUid}/environments/${language}/spec`, {
+  return apiRequest(`/projects/${encodeURIComponent(projectUid)}/environments/${encodeURIComponent(language)}/spec`, {
     method: 'POST',
     body: JSON.stringify({ files }),
   })
@@ -91,7 +91,7 @@ export function removeEnvPackage(
   pkg: string,
 ): Promise<ProjectEnvironment> {
   return apiRequest(
-    `/projects/${projectUid}/environments/${language}/packages/${encodeURIComponent(pkg)}`,
+    `/projects/${encodeURIComponent(projectUid)}/environments/${encodeURIComponent(language)}/packages/${encodeURIComponent(pkg)}`,
     { method: 'DELETE' },
   )
 }
@@ -152,7 +152,7 @@ export function buildEnvironment(
   projectUid: string,
   language: 'python' | 'r',
 ): Promise<Job> {
-  return apiRequest(`/projects/${projectUid}/environments/${language}/build`, {
+  return apiRequest(`/projects/${encodeURIComponent(projectUid)}/environments/${encodeURIComponent(language)}/build`, {
     method: 'POST',
   })
 }
@@ -162,7 +162,7 @@ export function installPreset(
   projectUid: string,
   language: 'python' | 'r',
 ): Promise<ProjectEnvironment> {
-  return apiRequest(`/projects/${projectUid}/environments/${language}/preset`, {
+  return apiRequest(`/projects/${encodeURIComponent(projectUid)}/environments/${encodeURIComponent(language)}/preset`, {
     method: 'POST',
   })
 }
@@ -174,7 +174,7 @@ export function upgradeEnvPackages(
   pkg?: string,
 ): Promise<ProjectEnvironment> {
   const q = pkg ? `?package=${encodeURIComponent(pkg)}` : ''
-  return apiRequest(`/projects/${projectUid}/environments/${language}/upgrade${q}`, {
+  return apiRequest(`/projects/${encodeURIComponent(projectUid)}/environments/${encodeURIComponent(language)}/upgrade${q}`, {
     method: 'POST',
   })
 }
@@ -198,7 +198,7 @@ export function getEnvOptions(
   projectUid: string,
   language: 'python' | 'r',
 ): Promise<EnvOptionsResponse> {
-  return apiRequest(`/projects/${projectUid}/environments/${language}/options`)
+  return apiRequest(`/projects/${encodeURIComponent(projectUid)}/environments/${encodeURIComponent(language)}/options`)
 }
 
 export function setEnvOptions(
@@ -206,14 +206,14 @@ export function setEnvOptions(
   language: 'python' | 'r',
   options: EnvInstallOptions,
 ): Promise<EnvOptionsResponse> {
-  return apiRequest(`/projects/${projectUid}/environments/${language}/options`, {
+  return apiRequest(`/projects/${encodeURIComponent(projectUid)}/environments/${encodeURIComponent(language)}/options`, {
     method: 'PUT',
     body: JSON.stringify(options),
   })
 }
 
 export function listJobs(projectUid: string): Promise<Job[]> {
-  return apiRequest(`/projects/${projectUid}/jobs`)
+  return apiRequest(`/projects/${encodeURIComponent(projectUid)}/jobs`)
 }
 
 const JOBS_CHANGED = 'linkr:jobs-changed'
@@ -230,11 +230,21 @@ export function onJobsChanged(handler: () => void): () => void {
 }
 
 export function listWorkspaceJobs(workspaceId: string): Promise<Job[]> {
-  return apiRequest(`/workspaces/${workspaceId}/jobs`)
+  return apiRequest(`/workspaces/${encodeURIComponent(workspaceId)}/jobs`)
 }
 
 export function clearWorkspaceJobs(workspaceId: string): Promise<void> {
-  return apiRequest(`/workspaces/${workspaceId}/jobs`, { method: 'DELETE' })
+  return apiRequest(`/workspaces/${encodeURIComponent(workspaceId)}/jobs`, { method: 'DELETE' })
+}
+
+/** A job listed instance-wide for an administrator, with who started it. */
+export interface InstanceJob extends Job {
+  username: string | null
+}
+
+/** Every queued or running job of the server, whoever started it (admin only). */
+export function listRunningJobs(): Promise<InstanceJob[]> {
+  return apiRequest('/jobs/running')
 }
 
 export function cancelJob(jobId: string): Promise<void> {
@@ -243,5 +253,5 @@ export function cancelJob(jobId: string): Promise<void> {
 
 /** Remove the project's finished jobs (done/error/cancelled); keeps active ones. */
 export function clearJobs(projectUid: string): Promise<void> {
-  return apiRequest(`/projects/${projectUid}/jobs`, { method: 'DELETE' })
+  return apiRequest(`/projects/${encodeURIComponent(projectUid)}/jobs`, { method: 'DELETE' })
 }

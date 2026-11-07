@@ -11,7 +11,7 @@ export const apiRoleStorage: RoleStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<Role>(`/roles/${id}`)
+      return await apiRequest<Role>(`/roles/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -24,14 +24,14 @@ export const apiRoleStorage: RoleStorage = {
     }),
 
   update: async (id, changes) => {
-    await apiRequest(`/roles/${id}`, {
+    await apiRequest(`/roles/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(changes),
     })
   },
 
   delete: async (id) => {
-    await apiRequest(`/roles/${id}`, { method: 'DELETE' })
+    await apiRequest(`/roles/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   getPermissions: () => apiRequest<Permission[]>('/roles/permissions'),

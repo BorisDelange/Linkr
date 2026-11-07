@@ -75,13 +75,13 @@ async def create(db: AsyncSession, data: ProjectCreate, owner: User) -> Project:
 
 
 async def update(
-    db: AsyncSession, project: Project, data: ProjectUpdate
+    db: AsyncSession, project: Project, data: ProjectUpdate, editor: User | None = None
 ) -> Project:
     changes = data.model_dump(exclude_unset=True)
     git_secret.apply_to_entity(project, changes)
     for key, value in changes.items():
         setattr(project, key, value)
-    await author_provenance.relink_creator_on_update(db, project, changes)
+    await author_provenance.relink_creator_on_update(db, project, changes, editor)
     await db.commit()
     await db.refresh(project)
     return project

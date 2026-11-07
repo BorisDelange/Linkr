@@ -9,7 +9,11 @@ the ZIP into the entity's git working tree and runs the requested git operation
 pull a remote in server mode (no in-browser CORS proxy needed).
 
 Read ops (status/diff/branches) require viewer; write ops (commit/push) require
-editor. Access tokens are stored per (user, host) by git_credential_service and
+editor. A read op takes an uploaded export only from a writer: it lands in the
+entity's repository. A route reading a project or workspace tree also needs the
+read of every resource that tree carries.
+
+Access tokens are stored per (user, host) by git_credential_service and
 resolved for the acting user from the remote URL — never per entity, so one user
 never pushes with another's token. Tokens are decrypted server-side and never
 leave the server.
@@ -40,8 +44,11 @@ from app.core.deps import get_current_admin, get_current_user
 from app.core.permissions import (
     effective_workspace_permissions,
     has_global_permission,
+    has_permission,
+    has_project_permission,
     require_permission,
     require_project_permission,
+    unreadable_project_tree_reads,
 )
 from app.models.mapping_project import MappingProject
 from app.models.user import User
@@ -92,6 +99,7 @@ from app.services.workspace_export_assemble import (
     WorkspaceExportOptions,
     assemble_workspace_zip,
     unreadable_project_uids,
+    unreadable_sections,
 )
 
 logger = structlog.get_logger()
@@ -159,6 +167,50 @@ async def _guard(coro) -> dict:
         return await coro
     except git_service.GitError as exc:
         raise _git_http_error(exc) from exc
+
+
+async def _writer_upload(file: UploadFile | None, may_write) -> UploadFile | None:
+    """A read route builds the export itself. One sent by the client is written into
+    the entity's repository, so only a caller `may_write()` approves may send it."""
+    if file is not None and not await may_write():
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Only a writer of this entity may send its export"
+        )
+    return file
+
+
+def _tree_refused(what: str) -> HTTPException:
+    return HTTPException(
+        status.HTTP_403_FORBIDDEN,
+        detail={
+            "code": "unreadable_content",
+            "message": f"This {what} holds content your role does not read, so its versioned tree is not available to you.",
+        },
+    )
+
+
+def _project_tree(permission: str):
+    """The path project, for a route that reads or writes its whole versioned tree:
+    beside `permission`, every read of what that tree carries."""
+
+    async def dep(
+        project=Depends(require_project_permission(permission)),
+        db: AsyncSession = Depends(get_db),
+        user: User = Depends(get_current_user),
+    ):
+        if await unreadable_project_tree_reads(db, project, user):
+            raise _tree_refused("project")
+        return project
+
+    return dep
+
+
+def _project_writer(db, project, user: User):
+    return lambda: has_project_permission(db, project, user, "project-settings:write")
+
+
+def _workspace_writer(db, workspace_id: str, user: User, permission: str):
+    return lambda: has_permission(db, workspace_id, user, permission)
 
 
 async def _pushed(user: User, as_job: deferred.AsJob | None, commit, anchor: tuple[str, str, str] | None = None):
@@ -420,10 +472,11 @@ def _push_anchors(row) -> tuple[str | None, str | None]:
 async def project_status(
     file: UploadFile | None = File(None),
     branch: str | None = Form(None),
-    project=Depends(require_project_permission("project-settings:read")),
+    project=Depends(_project_tree("project-settings:read")),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    file = await _writer_upload(file, _project_writer(db, project, user))
     result = await _guard(
         git_service.status(
             git_service.project_repo_getter,
@@ -444,10 +497,11 @@ async def project_diff(
     branch: str | None = Form(None),
     # Set by the client for a renamed file: HEAD only knows it under this name.
     old_path: str | None = Form(None),
-    project=Depends(require_project_permission("project-settings:read")),
+    project=Depends(_project_tree("project-settings:read")),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    file = await _writer_upload(file, _project_writer(db, project, user))
     return await _guard(
         git_service.diff(
             git_service.project_repo_getter,
@@ -483,7 +537,7 @@ async def project_propose(
     branch: str | None = Form(None),
     paths: list[str] | None = Form(None),
     file: UploadFile | None = File(None),
-    project=Depends(require_project_permission("project-settings:write")),
+    project=Depends(_project_tree("project-settings:write")),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -507,10 +561,11 @@ async def project_proposals(
 async def project_three_way(
     file: UploadFile | None = File(None),
     branch: str | None = Form(None),
-    project=Depends(require_project_permission("project-settings:read")),
+    project=Depends(_project_tree("project-settings:read")),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    file = await _writer_upload(file, _project_writer(db, project, user))
     return await _three_way(
         db, "projects", project.uid, git_service.project_repo_getter,
         await _project_zip_bytes(db, project, file), _default_branch(project, branch),
@@ -524,10 +579,11 @@ async def project_merged_tree(
     overrides: str = Form("{}"),
     file: UploadFile | None = File(None),
     branch: str | None = Form(None),
-    project=Depends(require_project_permission("project-settings:read")),
+    project=Depends(_project_tree("project-settings:read")),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    file = await _writer_upload(file, _project_writer(db, project, user))
     return await _merged_tree(
         git_service.project_repo_getter, project.uid, await _project_zip_bytes(db, project, file),
         _default_branch(project, branch), _remote_url(project), await _token(db, user, project),
@@ -541,7 +597,7 @@ async def project_commit_push(
     message: str = Form(...),
     branch: str | None = Form(None),
     paths: list[str] | None = Form(None),
-    project=Depends(require_project_permission("project-settings:write")),
+    project=Depends(_project_tree("project-settings:write")),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -624,9 +680,9 @@ async def _load_workspace(workspace_id: str, db: AsyncSession, _member) -> Works
 
 async def _load_workspace_tree(workspace_id: str, db: AsyncSession, user: User) -> Workspace:
     """The workspace, for a route that reads or writes its whole versioned tree. A
-    tree without a project the caller may not read would show it as deleted and
-    commit that deletion, and the repository's history holds its content either
-    way, so the route is refused rather than filtered."""
+    tree without a project or a section the caller may not read would show it as
+    deleted and commit that deletion, and the repository's history holds its
+    content either way, so the route is refused rather than filtered."""
     ws = await _load_workspace(workspace_id, db, user)
     if await unreadable_project_uids(db, ws.id, user):
         raise HTTPException(
@@ -636,6 +692,8 @@ async def _load_workspace_tree(workspace_id: str, db: AsyncSession, user: User) 
                 "message": "This workspace holds a project you have no access to, so its versioned tree is not available to you.",
             },
         )
+    if await unreadable_sections(db, ws.id, user):
+        raise _tree_refused("workspace")
     return ws
 
 
@@ -648,6 +706,7 @@ async def workspace_status(
     _member=Depends(require_permission("workspace-settings:read")),
 ):
     ws = await _load_workspace_tree(workspace_id, db, _member)
+    file = await _writer_upload(file, _workspace_writer(db, ws.id, _member, "workspace-settings:write"))
     result = await _guard(
         git_service.status(
             git_service.workspace_repo_getter,
@@ -673,6 +732,7 @@ async def workspace_diff(
     _member=Depends(require_permission("workspace-settings:read")),
 ):
     ws = await _load_workspace_tree(workspace_id, db, _member)
+    file = await _writer_upload(file, _workspace_writer(db, ws.id, _member, "workspace-settings:write"))
     return await _guard(
         git_service.diff(
             git_service.workspace_repo_getter,
@@ -807,6 +867,7 @@ async def workspace_three_way(
     _member=Depends(require_permission("workspace-settings:read")),
 ):
     ws = await _load_workspace_tree(workspace_id, db, _member)
+    file = await _writer_upload(file, _workspace_writer(db, ws.id, _member, "workspace-settings:write"))
     return await _three_way(
         db, "workspaces", ws.id, git_service.workspace_repo_getter,
         await _workspace_zip_bytes(db, ws, file), _default_branch(ws, branch),
@@ -825,6 +886,7 @@ async def workspace_merged_tree(
     _member=Depends(require_permission("workspace-settings:read")),
 ):
     ws = await _load_workspace_tree(workspace_id, db, _member)
+    file = await _writer_upload(file, _workspace_writer(db, ws.id, _member, "workspace-settings:write"))
     return await _merged_tree(
         git_service.workspace_repo_getter, ws.id, await _workspace_zip_bytes(db, ws, file),
         _default_branch(ws, branch), _remote_url(ws), await _token(db, _member, ws),
@@ -861,6 +923,7 @@ async def mapping_project_status(
     mp = await _load_mapping_project(
         mapping_project_id, db, user, "concept-mapping:read"
     )
+    file = await _writer_upload(file, _workspace_writer(db, mp.workspace_id, user, "concept-mapping:write"))
     result = await _guard(
         git_service.status(
             git_service.mapping_project_repo_getter,
@@ -893,6 +956,7 @@ async def mapping_project_diff(
     mp = await _load_mapping_project(
         mapping_project_id, db, user, "concept-mapping:read"
     )
+    file = await _writer_upload(file, _workspace_writer(db, mp.workspace_id, user, "concept-mapping:write"))
     # Only the requested file is assembled: the full export tree is ~38 MB for a
     # real project, and building it per diff click cost about a minute.
     zip_bytes = (
@@ -1044,6 +1108,7 @@ async def mapping_project_three_way(
     user: User = Depends(get_current_user),
 ):
     mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
+    file = await _writer_upload(file, _workspace_writer(db, mp.workspace_id, user, "concept-mapping:write"))
     return await _three_way(
         db, "mapping-projects", mp.id, git_service.mapping_project_repo_getter,
         await _mapping_project_zip_bytes(db, mp, file), _default_branch(mp, branch),
@@ -1062,6 +1127,7 @@ async def mapping_project_merged_tree(
     user: User = Depends(get_current_user),
 ):
     mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
+    file = await _writer_upload(file, _workspace_writer(db, mp.workspace_id, user, "concept-mapping:write"))
     return await _merged_tree(
         git_service.mapping_project_repo_getter, mp.id, await _mapping_project_zip_bytes(db, mp, file),
         _default_branch(mp, branch), _remote_url(mp), await _token(db, user, mp),
@@ -1253,6 +1319,7 @@ async def sql_collection_status(
     user: User = Depends(get_current_user),
 ):
     c = await _load_sql_collection(collection_id, db, user, "sql-scripts:read")
+    file = await _writer_upload(file, _workspace_writer(db, c.workspace_id, user, "sql-scripts:write"))
     result = await _guard(
         git_service.status(
             git_service.sql_collection_repo_getter,
@@ -1280,6 +1347,7 @@ async def sql_collection_diff(
     user: User = Depends(get_current_user),
 ):
     c = await _load_sql_collection(collection_id, db, user, "sql-scripts:read")
+    file = await _writer_upload(file, _workspace_writer(db, c.workspace_id, user, "sql-scripts:write"))
     return await _guard(
         git_service.diff(
             git_service.sql_collection_repo_getter,
@@ -1390,6 +1458,7 @@ async def sql_collection_three_way(
     user: User = Depends(get_current_user),
 ):
     c = await _load_sql_collection(collection_id, db, user, "sql-scripts:read")
+    file = await _writer_upload(file, _workspace_writer(db, c.workspace_id, user, "sql-scripts:write"))
     return await _three_way(
         db, "sql-script-collections", c.id, git_service.sql_collection_repo_getter,
         await _sql_collection_zip_bytes(db, c, file), _default_branch(c, branch),
@@ -1408,6 +1477,7 @@ async def sql_collection_merged_tree(
     user: User = Depends(get_current_user),
 ):
     c = await _load_sql_collection(collection_id, db, user, "sql-scripts:read")
+    file = await _writer_upload(file, _workspace_writer(db, c.workspace_id, user, "sql-scripts:write"))
     return await _merged_tree(
         git_service.sql_collection_repo_getter, c.id, await _sql_collection_zip_bytes(db, c, file),
         _default_branch(c, branch), _remote_url(c), await _token(db, user, c), remote_head, overrides,
@@ -1502,6 +1572,7 @@ def _register_entity_git_routes(
         e = await _load_workspace_entity(
             get_fn, entity_id, db, user, read_perm, not_found
         )
+        file = await _writer_upload(file, _workspace_writer(db, e.workspace_id, user, write_perm))
         result = await _guard(
             git_service.status(
                 repo_getter,
@@ -1532,6 +1603,7 @@ def _register_entity_git_routes(
         e = await _load_workspace_entity(
             get_fn, entity_id, db, user, read_perm, not_found
         )
+        file = await _writer_upload(file, _workspace_writer(db, e.workspace_id, user, write_perm))
         return await _guard(
             git_service.diff(
                 repo_getter,
@@ -1646,6 +1718,7 @@ def _register_entity_git_routes(
         user: User = Depends(get_current_user),
     ):
         e = await _load_workspace_entity(get_fn, entity_id, db, user, read_perm, not_found)
+        file = await _writer_upload(file, _workspace_writer(db, e.workspace_id, user, write_perm))
         return await _three_way(
             db, prefix, _entity_id(e), repo_getter, await _zip_bytes(db, e, file),
             _default_branch(e, branch), _remote_url(e), await _token(db, user, e),
@@ -1662,6 +1735,7 @@ def _register_entity_git_routes(
         user: User = Depends(get_current_user),
     ):
         e = await _load_workspace_entity(get_fn, entity_id, db, user, read_perm, not_found)
+        file = await _writer_upload(file, _workspace_writer(db, e.workspace_id, user, write_perm))
         return await _merged_tree(
             repo_getter, _entity_id(e), await _zip_bytes(db, e, file), _default_branch(e, branch),
             _remote_url(e), await _token(db, user, e), remote_head, overrides,

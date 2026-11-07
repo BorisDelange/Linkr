@@ -1,6 +1,7 @@
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.project import Project
 from app.models.project_member import ProjectMember
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember
@@ -37,10 +38,24 @@ async def upsert_workspace_member(
 async def remove_workspace_member(
     db: AsyncSession, workspace_id: str, user_id: int
 ) -> bool:
+    """Removing a member ends their access to every project of the workspace,
+    so their overrides there go too, except a ``none`` one: re-adding them must
+    not unhide a project hidden from them."""
     member = await db.get(WorkspaceMember, (workspace_id, user_id))
     if member is None:
         return False
     await db.delete(member)
+    await db.execute(
+        delete(ProjectMember)
+        .where(
+            ProjectMember.user_id == user_id,
+            ProjectMember.role != "none",
+            ProjectMember.project_uid.in_(
+                select(Project.uid).where(Project.workspace_id == workspace_id)
+            ),
+        )
+        .execution_options(synchronize_session=False)
+    )
     await db.commit()
     return True
 

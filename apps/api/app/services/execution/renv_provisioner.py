@@ -169,10 +169,20 @@ _ARCHIVE_SUFFIXES = (".tar.gz", ".tgz", ".zip")
 _MIRROR_ADVICE = "not from the deployment's package mirror"
 
 
+# Repository names renv resolves from its own settings, not the override.
+_OWN_REPOSITORIES = {"bioc", "bioconductor", "rforge", "r-forge"}
+# What a restore under a mirror reads of a record: renv also fetches a record from
+# a git URL or a local path it carries, whatever its Source says.
+_RESTORED_FIELDS = ("Package", "Version", "Source", "Repository", "Hash", "Requirements")
+
+
 def _record_origin_outside(record: dict, allowed: set[str]) -> str | None:
     source = str(record.get("Source") or record.get("RemoteType") or "").strip().lower()
     if source not in _REPOSITORY_SOURCES:
         return _SOURCE_LABELS.get(source, source or "an unknown source")
+    repository = record.get("Repository")
+    if isinstance(repository, str) and repository.strip().lower() in _OWN_REPOSITORIES:
+        return repository
     for key in ("Repository", "RemoteRepos"):
         value = record.get(key)
         if isinstance(value, str) and "://" in value:
@@ -218,6 +228,24 @@ def _require_mirror_sources(project_uid: str, options: dict | None, packages: li
         if name.lower().endswith(_ARCHIVE_SUFFIXES) or (_spec_dir(project_uid) / name).exists():
             origins[name] = "a local file"
     _refuse_off_mirror(origins)
+
+
+def _mirror_lockfile(project_uid: str) -> Path:
+    """renv.lock reduced to the fields a repository install reads, for a restore
+    under a mirror; `_require_mirror_sources` has accepted every record first."""
+    data = json.loads(_lock_path(project_uid).read_text())
+    packages = {
+        str(name): {
+            **{k: record[k] for k in _RESTORED_FIELDS if k in record},
+            "Package": str(record.get("Package") or name),
+            "Source": "Repository",
+        }
+        for name, record in (data.get("Packages") or {}).items()
+        if isinstance(record, dict)
+    }
+    path = project_fs.cache_dir(project_uid) / "renv-mirror.lock"
+    path.write_text(json.dumps({"R": data.get("R") or {}, "Packages": packages}, indent=2))
+    return path
 
 
 def list_packages(project_uid: str) -> list[dict]:
@@ -683,10 +711,13 @@ async def build(project_uid: str, on_log=None, options: dict | None = None) -> B
     # RENV_PATHS_LIBRARY isn't enough — renv restores into a default location.
     # Forward-slash the path so it's a valid R string literal on every OS.
     lib = str(_library_dir(project_uid)).replace("\\", "/")
+    lockfile = "renv.lock"
+    if env_options.confined_hosts("r", options or {}):
+        lockfile = str(_mirror_lockfile(project_uid)).replace("\\", "/")
     restore_code = (
         _method_prefix(options)
         + _isolation_prefix(project_uid)
-        + f"renv::restore(lockfile='renv.lock', library='{lib}', prompt=FALSE)"
+        + f"renv::restore(lockfile='{lockfile}', library='{lib}', prompt=FALSE)"
     )
     if on_log is not None:
         on_log(f"$ {settings.rscript_bin} --vanilla -e {restore_code!r}")

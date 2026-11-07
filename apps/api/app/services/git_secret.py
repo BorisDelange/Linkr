@@ -7,16 +7,26 @@ per (user, host), by git_credential_service — so this module only splits the t
 off the config; the caller stores it against the user.
 """
 
+import re
 from urllib.parse import unquote, urlsplit, urlunsplit
 
 from app.core.redact import redact_secrets
+
+# `user@host:path`, git's scp-like ssh form: the user is an ssh login, no secret.
+_SCP_REMOTE = re.compile(r"[\w.-]+@[^/]+:")
 
 
 def split_url(url: str) -> tuple[str, str | None]:
     """(`url` without credentials, the password it held). An http(s) remote loses
     its whole userinfo (a token may be the name alone), any remote its query and
-    fragment; an ssh user names no secret and stays. A form with no scheme
-    (`git@host:repo`) holds nothing to split."""
+    fragment; an ssh user names no secret and stays. A form with no scheme that
+    carries a userinfo or a query is read as the https remote git would reach
+    (`oauth2:TOKEN@host/r` → `https://host/r`); `git@host:repo` stays as written."""
+    if "://" not in url and not _SCP_REMOTE.match(url):
+        clean, password = split_url(f"https://{url}")
+        if clean != f"https://{url}":
+            return clean, password
+        return url, None
     try:
         parts = urlsplit(url)
         host = parts.hostname and parts.netloc.rsplit("@", 1)[-1]

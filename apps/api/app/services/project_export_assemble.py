@@ -20,6 +20,7 @@ matter — the golden tests pin them. See docs/architecture.md ("Fullstack Stora
 
 import asyncio
 import io
+import re
 import zipfile
 from datetime import datetime
 
@@ -64,19 +65,38 @@ from app.schemas.concept_list import ConceptListResponse
 from app.services.project_export import build_project_tree
 
 
+# The user:password part of an http(s) URL, up to the last `@` before the URL's end
+# (a password may hold `@`), never past a quote, whitespace or the next URL.
+_URL_USERINFO = re.compile(r"(https?://)(?:(?!https?://)[^\s\"'])*@", re.IGNORECASE)
+
+
+def _without_url_credentials(content: bytes) -> bytes:
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return content
+    clean = _URL_USERINFO.sub(r"\1", text)
+    return content if clean == text else clean.encode("utf-8")
+
+
 def _read_env_specs(project_uid: str) -> dict[str, bytes]:
     """Read a project's managed-environment specs (manifest + lockfile) off disk as
-    ``{"environments/<lang>/<file>": bytes}`` for the export tree. Only the spec is
-    versioned — the materialised venv/library under .cache/ is skipped. Empty when
-    no managed env has been created."""
+    ``{"environments/<lang>/<file>": bytes}`` for the export tree. Only the spec
+    files and the install options are versioned — the materialised venv/library
+    under .cache/ is skipped — and a package mirror's credentials never leave in a
+    URL: every reader of the project gets the export. Empty when no managed env has
+    been created."""
+    from app.services.execution.environments import SPEC_FILES
+
     specs: dict[str, bytes] = {}
     for language in ("python", "r"):
         spec_dir = project_fs.env_spec_dir(project_uid, language)
         if not spec_dir.exists():
             continue
-        for entry in sorted(spec_dir.iterdir()):
+        for name in sorted((*SPEC_FILES[language], "options.json")):
+            entry = spec_dir / name
             if entry.is_file():
-                specs[f"environments/{language}/{entry.name}"] = entry.read_bytes()
+                specs[f"environments/{language}/{name}"] = _without_url_credentials(entry.read_bytes())
     return specs
 
 

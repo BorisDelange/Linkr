@@ -27,7 +27,7 @@ export const apiWikiPageStorage: WikiPageStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<WikiPage>(`/wiki-pages/${id}`)
+      return await apiRequest<WikiPage>(`/wiki-pages/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -41,14 +41,14 @@ export const apiWikiPageStorage: WikiPageStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`/wiki-pages/${id}`, {
+    await apiRequest(`/wiki-pages/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(changes),
     })
   },
 
   delete: async (id) => {
-    await apiRequest(`/wiki-pages/${id}`, { method: 'DELETE' })
+    await apiRequest(`/wiki-pages/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   deleteByWorkspace: async (workspaceId) => {

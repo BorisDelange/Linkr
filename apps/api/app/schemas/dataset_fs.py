@@ -1,4 +1,7 @@
+from pydantic import field_validator
+
 from app.schemas.base import CamelModel
+from app.services.data.dataset_ops import is_column_id
 
 
 class DsNodeResponse(CamelModel):
@@ -136,6 +139,15 @@ class DsOps(CamelModel):
     path: str
     ops: list[dict]
     replace: bool = False
+
+    @field_validator("ops")
+    @classmethod
+    def _column_ids_as_minted(cls, ops: list[dict]) -> list[dict]:
+        for op in ops:
+            minted = {"addColumn": "column", "renameColumn": "to"}.get(op.get("type"))
+            if minted and not is_column_id(op.get(minted)):
+                raise ValueError("a column id holds letters, digits, '_' and '-' only")
+        return ops
 
 
 class DsOpsResponse(CamelModel):

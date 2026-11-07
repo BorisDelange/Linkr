@@ -49,7 +49,10 @@ dependencies = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 # The pre-push hook runs `-m "not slow"`: mark a test slow to keep it out of a push.
-markers = ["slow: too slow for the pre-push hook; runs in a full `pytest`"]
+markers = [
+    "slow: too slow for the pre-push hook; runs in a full `pytest`",
+    "blob_ownership: leaves the check that a caller uploaded the blob it names in place",
+]
 
 [project.optional-dependencies]
 dev = [

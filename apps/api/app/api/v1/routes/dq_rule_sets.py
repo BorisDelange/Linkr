@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission
+from app.core.redact import scrub_row_values
 from app.models.dq_rule_set import DqCustomCheck, DqRuleSet, DqRunHistory
 from app.models.user import User
 from app.schemas.dq_rule_set import (
@@ -38,6 +39,29 @@ async def _load_rule_set(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     await check_workspace_permission(db, rule_set.workspace_id, user, permission)
     return rule_set
+
+
+async def _require_database_read(db: AsyncSession, rule_set: DqRuleSet, user: User) -> None:
+    """A check's SQL runs on the rule set's database and its results come from
+    it: writing the one or reading the other asks the right to read that database."""
+    await check_workspace_permission(db, rule_set.workspace_id, user, "databases:read")
+
+
+def _writes_sql(checks: list[DqCustomCheckCreate] | list[DqCustomCheckUpdate]) -> bool:
+    return any(c.sql or c.explore_sql for c in checks)
+
+
+def _scrub_report(report: dict | None) -> dict | None:
+    """A stored run outlives the reply and has other readers: it keeps the error,
+    not the row values a failed statement quoted."""
+    if not isinstance(report, dict) or not isinstance(report.get("results"), list):
+        return report
+    results = [
+        {**r, "errorMessage": scrub_row_values(r["errorMessage"])}
+        if isinstance(r, dict) and isinstance(r.get("errorMessage"), str) else r
+        for r in report["results"]
+    ]
+    return {**report, "results": results}
 
 
 async def _load_check(
@@ -243,6 +267,8 @@ async def create_checks(
     request, one transaction."""
     rule_set = await _load_rule_set(db, rule_set_id, user, "data-quality:write")
     _require_own_checks(rule_set_id, body)
+    if _writes_sql(body):
+        await _require_database_read(db, rule_set, user)
     try:
         checks = await dq_rule_set_service.create_checks(db, body)
     except (dq_rule_set_service.ChecksTooMany, dq_rule_set_service.ChecksConflict) as exc:
@@ -263,6 +289,8 @@ async def replace_checks(
     previous checks stay when the new ones do not validate."""
     rule_set = await _load_rule_set(db, rule_set_id, user, "data-quality:delete")
     _require_own_checks(rule_set_id, body)
+    if _writes_sql(body):
+        await _require_database_read(db, rule_set, user)
     try:
         checks = await dq_rule_set_service.replace_checks(db, rule_set_id, body)
     except (dq_rule_set_service.ChecksTooMany, dq_rule_set_service.ChecksConflict) as exc:
@@ -282,6 +310,8 @@ async def update_checks(
     """Several checks changed together (a group renamed, checks moved or
     disabled): all or none."""
     rule_set = await _load_rule_set(db, rule_set_id, user, "data-quality:write")
+    if _writes_sql(body):
+        await _require_database_read(db, rule_set, user)
     targets = {p.id for p in body}
     before = {
         c.id: _check_state(c) for c in await dq_rule_set_service.list_checks(db, rule_set_id) if c.id in targets
@@ -337,6 +367,8 @@ async def create_check(
     db: AsyncSession = Depends(get_db),
 ):
     rule_set = await _load_rule_set(db, body.rule_set_id, user, "data-quality:write")
+    if _writes_sql([body]):
+        await _require_database_read(db, rule_set, user)
     check = await dq_rule_set_service.create_check(db, body)
     await _notify(db, request, user, "updated", rule_set, check=("created", check.name))
     return check
@@ -351,6 +383,8 @@ async def update_check(
     db: AsyncSession = Depends(get_db),
 ):
     check = await _load_check(db, check_id, user, "data-quality:write")
+    if _writes_sql([body]):
+        await _require_database_read(db, await dq_rule_set_service.get(db, check.rule_set_id), user)
     before = _check_state(check)
     try:
         check = await dq_rule_set_service.update_check(db, check, body)
@@ -397,13 +431,20 @@ async def _load_run(
     return run
 
 
+async def _load_run_results(db: AsyncSession, run_id: str, user: User, permission: str) -> DqRunHistory:
+    run = await _load_run(db, run_id, user, permission)
+    await check_workspace_permission(db, run.workspace_id, user, "databases:read")
+    return run
+
+
 @router.get(_SET + "/{rule_set_id}/runs", response_model=list[DqRunHistoryResponse])
 async def list_runs(
     rule_set_id: str,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_rule_set(db, rule_set_id, user, "data-quality:read")
+    rule_set = await _load_rule_set(db, rule_set_id, user, "data-quality:read")
+    await _require_database_read(db, rule_set, user)
     return await dq_rule_set_service.list_runs(db, rule_set_id)
 
 
@@ -429,7 +470,9 @@ async def create_run(
     rule_set = await _load_rule_set(db, body.rule_set_id, user, "data-quality:write")
     # Trust the rule set's workspace, not the client-supplied one.
     body.workspace_id = rule_set.workspace_id
+    await _require_database_read(db, rule_set, user)
     await database_binding.require_stored_local(db, rule_set.workspace_id, rule_set.data_source_id, body.data_source_id)
+    body.report = _scrub_report(body.report)
     try:
         run = await dq_rule_set_service.create_run(db, body)
     except dq_rule_set_service.RunIdTaken as e:
@@ -446,8 +489,10 @@ async def update_run(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    run = await _load_run(db, run_id, user, "data-quality:write")
+    run = await _load_run_results(db, run_id, user, "data-quality:write")
     await database_binding.require_stored_local(db, run.workspace_id, run.data_source_id)
+    if "report" in body.model_fields_set:
+        body.report = _scrub_report(body.report)
     run = await dq_rule_set_service.update_run(db, run, body)
     await _notify_runs(db, request, user, run.rule_set_id, run.workspace_id)
     return run

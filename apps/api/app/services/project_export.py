@@ -20,6 +20,7 @@ mode) and returns the file tree — the DB/disk/blob reads live in the caller
 (project_export_assemble).
 """
 
+import json
 import re
 import unicodedata
 from typing import Any
@@ -37,6 +38,7 @@ from app.services.export_layout import (
     with_entity_type,
 )
 from app.services.org_snapshot import org_snapshot
+from app.services.workspace_export import _sanitize_connection_config
 
 # Fields specific to the exporting instance/deployment, dropped from every
 # exported entity's metadata — mirrors INSTANCE_FIELDS in
@@ -627,9 +629,10 @@ def _readme_files(readme: Any) -> dict[str, bytes]:
 # Twin of CODE_FILE_EXTENSIONS / CODE_FILE_NAMES (entity-io.ts), compared by the
 # tests of each side: what is not known as code or a document counts as data, so
 # a script's `cohort.tsv` or `results.json` leaves only when marked.
+# `.html` is not on the list: a rendered report embeds the values it displays.
 _CODE_EXTENSIONS = frozenset({
     ".sql", ".py", ".r", ".rmd", ".qmd", ".ipynb", ".rproj", ".jl", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ts",
-    ".jsx", ".tsx", ".css", ".html", ".md", ".markdown", ".rst", ".tex", ".bib", ".yml", ".yaml", ".toml", ".ini",
+    ".jsx", ".tsx", ".css", ".md", ".markdown", ".rst", ".tex", ".bib", ".yml", ".yaml", ".toml", ".ini",
     ".cfg", ".lock",
 })
 _CODE_NAMES = frozenset({
@@ -644,6 +647,34 @@ def _is_data_ext(path: str) -> bool:
         return False
     dot = name.rfind(".")
     return dot <= 0 or name[dot:] not in _CODE_EXTENSIONS
+
+
+def _is_notebook(path: str) -> bool:
+    return path.lower().endswith(".ipynb")
+
+
+def _notebook_without_outputs(content: str) -> str | None:
+    """Port of ``notebookWithoutOutputs`` (entity-io.ts): every code cell's
+    ``outputs`` emptied and ``execution_count`` cleared, the text unchanged when
+    there is nothing to clear, None when it is not a notebook that parses."""
+    try:
+        nb = json.loads(content)
+    except ValueError:
+        return None
+    cells = nb.get("cells") if isinstance(nb, dict) else None
+    if not isinstance(cells, list):
+        return None
+    changed = False
+    for cell in cells:
+        if not isinstance(cell, dict) or cell.get("cell_type") != "code":
+            continue
+        if cell.get("outputs") != []:
+            cell["outputs"] = []
+            changed = True
+        if cell.get("execution_count") is not None:
+            cell["execution_count"] = None
+            changed = True
+    return _json(nb).decode("utf-8") if changed else content
 
 
 def _gitignore_escape(p: str) -> str:
@@ -801,6 +832,12 @@ def build_project_tree(
     if ide:
         by_id = {f["id"]: f for f in ide}
 
+        def _exported_content(tp: str, content: str) -> str | None:
+            # A notebook's results leave only when it is marked, as a data file's do.
+            if _is_notebook(tp) and tp not in versioned_data_files:
+                return _notebook_without_outputs(content)
+            return content
+
         def _left_out(f: dict) -> bool:
             # Code files are versioned by default; an excludedFiles entry omits the
             # file from the tree entirely. Data files opt IN via versioned_data_files,
@@ -808,7 +845,10 @@ def build_project_tree(
             if f.get("type") != "file":
                 return False
             tp = _ide_path(f, by_id)
-            return tp not in versioned_data_files if _is_data_ext(tp) else tp in excluded
+            if _is_data_ext(tp):
+                return tp not in versioned_data_files
+            content = f.get("content")
+            return tp in excluded or (content is not None and _exported_content(tp, str(content)) is None)
 
         tree_files = [f for f in ide if not _left_out(f)]
         # Only emit the tree when something survives the exclusions — otherwise every
@@ -834,10 +874,11 @@ def build_project_tree(
             )
         for f in ide:
             if f.get("type") == "file" and f.get("content") is not None:
-                if _left_out(f):
-                    continue
                 tree_path = _ide_path(f, by_id)
-                tree[tree_path] = str(f["content"]).encode("utf-8")
+                content = _exported_content(tree_path, str(f["content"]))
+                if content is None or _left_out(f):
+                    continue
+                tree[tree_path] = content.encode("utf-8")
                 # Marked (key = its scripts/ path): re-included past the ignore rules.
                 if _is_data_ext(tree_path):
                     included_data_paths.append(tree_path)
@@ -872,9 +913,10 @@ def build_project_tree(
         )
 
     for c in connections:
-        tree[f"databases/{_slugify(c.get('name') or c['id'])}.json"] = _json(
-            _strip_instance_fields(c)
-        )
+        exported = _strip_instance_fields(c)
+        if isinstance(exported.get("connectionConfig"), dict):
+            exported["connectionConfig"] = _sanitize_connection_config(exported["connectionConfig"])
+        tree[f"databases/{_slugify(c.get('name') or c['id'])}.json"] = _json(exported)
 
     for group in dashboards:
         d = group["dashboard"]

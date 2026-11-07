@@ -92,16 +92,20 @@ def _member_id(value) -> str:
 
 
 def build_materialization(
-    level: str, ids: list, patient_ids: list, materialized_at: datetime
+    level: str, ids: list, patient_ids: list, materialized_at: datetime, data_source_id: str | None = None,
 ) -> dict:
     """The frozen membership stored on a cohort (CohortMaterialization on the
-    front), from the `id` and `patient_id` columns of its membership query."""
+    front), from the `id` and `patient_id` columns of its membership query run
+    on database `data_source_id`."""
     members = [_member_id(v) for v in ids if v is not None]
     patients = dict.fromkeys(_member_id(v) for v in patient_ids if v is not None)
-    return {
+    materialization = {
         "level": level,
         "ids": members,
         "patientIds": list(patients),
         "count": len(members),
         "materializedAt": materialized_at.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
     }
+    if data_source_id is not None:
+        materialization["dataSourceId"] = data_source_id
+    return materialization

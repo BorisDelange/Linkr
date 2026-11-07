@@ -1,7 +1,21 @@
 from datetime import datetime
 
+from pydantic import model_validator
+
 from app.core.path_ids import SegmentId
 from app.schemas.base import CamelModel
+
+
+def served_materialization(materialization: dict | None, data_source_id: str | None) -> dict | None:
+    """A cohort's frozen membership, unless it was frozen on another database than
+    the one the cohort now runs on: its ids are then not that database's. One
+    frozen before the database was recorded is taken as the cohort's."""
+    if materialization is None:
+        return None
+    frozen_on = materialization.get("dataSourceId")
+    if frozen_on is not None and data_source_id is not None and frozen_on != data_source_id:
+        return None
+    return materialization
 
 
 class CohortCreate(CamelModel):
@@ -66,6 +80,11 @@ class CohortResponse(CamelModel):
     created_at: datetime
     updated_at: datetime
     version: str
+
+    @model_validator(mode="after")
+    def _only_this_databases_members(self) -> "CohortResponse":
+        self.materialization = served_materialization(self.materialization, self.data_source_id)
+        return self
 
 
 class CohortMaterializeRequest(CamelModel):

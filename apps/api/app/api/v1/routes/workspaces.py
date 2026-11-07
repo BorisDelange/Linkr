@@ -103,6 +103,7 @@ async def export_zip(
         WorkspaceExportOptions,
         assemble_workspace_zip,
         unreadable_project_uids,
+        unreadable_sections,
     )
 
     workspace = await workspace_service.get(db, workspace_id)
@@ -115,6 +116,12 @@ async def export_zip(
         sections=opts.sections,
         exclude_entities={**opts.exclude_entities, **dict.fromkeys(unreadable, True)},
     )
+    sections = await unreadable_sections(db, workspace_id, user, options)
+    if sections:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"Your role does not read these sections; leave them out of the export: {', '.join(sections)}",
+        )
     # How many, never which: the caller may not know these projects exist.
     left_out = len(unreadable) if options.on("projects") else 0
     name = workspace.name.get("en") if isinstance(workspace.name, dict) else workspace.name
@@ -161,7 +168,7 @@ async def update_workspace(
     if workspace is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     changed = change_tracking.changed_values(workspace, body.model_dump(exclude_unset=True))
-    workspace = await workspace_service.update(db, workspace, body)
+    workspace = await workspace_service.update(db, workspace, body, user)
     if changed:
         await _notify(db, request, user, "updated", workspace, notify=not changed.keys() <= _SIDE_FIELDS)
     return workspace

@@ -1,10 +1,11 @@
 import asyncio
 from datetime import UTC, datetime
 
+import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import deferred
+from app.core import audit, deferred
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission
@@ -16,8 +17,10 @@ from app.schemas.cohort import (
     CohortMaterializeRequest,
     CohortResponse,
     CohortUpdate,
+    served_materialization,
 )
 from app.services import (
+    code_acceptance_service,
     cohort_access,
     cohort_service,
     data_source_service,
@@ -26,6 +29,7 @@ from app.services import (
     notification_service,
     undo_service,
 )
+from app.services.data import query_cancel
 from app.services.execution import jobs
 
 router = APIRouter(prefix="/cohorts", tags=["cohorts"])
@@ -38,6 +42,25 @@ async def _load(db: AsyncSession, cohort_id: str, user: User, permission: str) -
         db, cohort.project_uid, cohort.owner_data_source_id, user, permission
     )
     return cohort
+
+
+def _log_member_reads(cohorts: list[Cohort]) -> None:
+    """A frozen cohort's member ids are rows of patients: reading them is logged."""
+    frozen = [
+        (c, served["ids"]) for c in cohorts
+        if (served := served_materialization(c.materialization, c.data_source_id) or {}).get("ids")
+    ]
+    if not frozen:
+        return
+    projects = {c.project_uid for c, _ in frozen}
+    owners = {c.owner_data_source_id for c, _ in frozen}
+    audit.bind(
+        action="preview",
+        project_uid=next(iter(projects)) if len(projects) == 1 else None,
+        data_source_id=next(iter(owners)) if len(owners) == 1 else None,
+        row_count=sum(len(ids) for _, ids in frozen),
+        detail="frozen members of cohort " + ", ".join(c.id for c, _ in frozen),
+    )
 
 
 async def _require_bindable(db: AsyncSession, project_uid: str, user: User, source_ids: list[str]) -> None:
@@ -54,11 +77,14 @@ async def list_cohorts(
 ):
     if project_uid is not None:
         await cohort_access.require_project_access(db, project_uid, user, "cohorts:read")
-        return await cohort_service.list_for_project(db, project_uid)
-    if data_source_id is not None:
+        cohorts = await cohort_service.list_for_project(db, project_uid)
+    elif data_source_id is not None:
         await cohort_access.require_database_access(db, data_source_id, user, "cohorts:read")
-        return await cohort_service.list_for_database(db, data_source_id)
-    return await cohort_service.list_for_user(db, user)
+        cohorts = await cohort_service.list_for_database(db, data_source_id)
+    else:
+        cohorts = await cohort_service.list_for_user(db, user)
+    _log_member_reads(cohorts)
+    return cohorts
 
 
 @router.post("", response_model=CohortResponse, status_code=status.HTTP_201_CREATED)
@@ -96,7 +122,9 @@ async def get_cohort(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _load(db, cohort_id, user, "cohorts:read")
+    cohort = await _load(db, cohort_id, user, "cohorts:read")
+    _log_member_reads([cohort])
+    return cohort
 
 
 @router.patch("/{cohort_id}", response_model=CohortResponse)
@@ -114,6 +142,17 @@ async def update_cohort(
         await _require_bindable(db, cohort.project_uid, user, database_binding.changed_ids(cohort, body, "data_source_id"))
     # Only what the write actually alters: a run re-saving its count with an
     # unchanged definition must not read as an edit.
+    # Frozen ids and counts are the old database's: they go with the change, as
+    # an unfreeze would drop them.
+    unfrozen = (
+        cohort.materialization is not None
+        and "data_source_id" in body.model_fields_set and body.data_source_id != cohort.data_source_id
+        and cohort.materialization.get("dataSourceId") != body.data_source_id
+    )
+    if unfrozen:
+        for field in ("materialization", "result_count", "attrition"):
+            if field not in body.model_fields_set:
+                setattr(body, field, None)
     changed = {k for k, v in body.model_dump(exclude_unset=True).items() if getattr(cohort, k) != v}
     before = undo_service.cohort_snapshot(cohort)
     cohort = await cohort_service.update(db, cohort, body)
@@ -125,6 +164,8 @@ async def update_cohort(
         undo=undo_service.updated("cohort", cohort, before),
         notify=not notification_service.is_derived_only(changed),
     )
+    if unfrozen and cohort.materialization is None:
+        await _record_materialization(db, request, user, cohort, "deleted", None, None)
     return cohort
 
 
@@ -184,6 +225,11 @@ async def materialize_cohort(
     source_id = body.data_source_id or cohort.data_source_id
     if not source_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "no database to run the cohort on")
+    if cohort.data_source_id and source_id != cohort.data_source_id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "This cohort runs on another database: freeze it on that one, or change its database first",
+        )
     project = await db.get(Project, cohort.project_uid)
     if source_id not in (project.linked_data_source_ids or []):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "This database is not linked to the project")
@@ -193,6 +239,10 @@ async def materialize_cohort(
     if database_binding.is_foreign(source, project.workspace_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, database_binding.FOREIGN_DATABASE)
     await check_workspace_permission(db, source.workspace_id, user, "databases:read")
+    # The stored SQL runs under this user's own login and its result lands where
+    # its author reads it: as with a schema mapping's SQL, the user accepts it first.
+    if database_credential_service.is_external(source) and (cohort.custom_sql or "").strip():
+        await code_acceptance_service.require_accepted(db, user, "cohort", cohort.custom_sql)
     login = await database_credential_service.resolve_login(db, source, user.id)
 
     async def work() -> CohortResponse:
@@ -204,7 +254,12 @@ async def materialize_cohort(
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Cohort or database not found")
             try:
                 # The app's own membership query: an external database may compute it, and stream it over Flight.
-                table = await data_source_service.query(session, target, login, body.membership_sql, arrow=True, pushdown=True)
+                table = await query_cancel.within_limit(
+                    lambda: data_source_service.query(session, target, login, body.membership_sql, arrow=True, pushdown=True),
+                    str(user.id),
+                )
+            except (query_cancel.QueryCancelled, duckdb.InterruptException):
+                raise deferred.Stopped() from None
             except ValueError as e:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
             except HTTPException:  # an ETL run holding the file
@@ -219,7 +274,7 @@ async def materialize_cohort(
             materialization = await asyncio.to_thread(
                 cohort_service.build_materialization,
                 fresh.level, table.column("id").to_pylist(), table.column("patient_id").to_pylist(),
-                datetime.now(UTC),
+                datetime.now(UTC), source_id,
             )
             # Undone by unfreezing — only a first freeze: an earlier id list is not kept.
             before = {**undo_service.cohort_snapshot(fresh), "materialization": None} if fresh.materialization is None else None

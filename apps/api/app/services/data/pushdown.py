@@ -16,6 +16,7 @@ from collections.abc import Callable
 
 import duckdb
 
+from app.core.redact import scrub_row_values
 from app.services.data import (
     db_connect,
     flight,
@@ -161,7 +162,7 @@ def _pushed_down(con: duckdb.DuckDBPyConnection, config: dict, sql: str) -> remo
     try:
         return remote_sql.to_remote(sql, engine, _table_lookup(con, config))
     except remote_sql.NotPortable as exc:
-        logger.info("query not pushed down (%s)", exc)
+        logger.info("query not pushed down (%s)", scrub_row_values(str(exc)))
         _record("linkr", _ANSI.sub("", str(exc)).splitlines()[0])
         return None
 
@@ -254,7 +255,7 @@ class _RemoteKill:
             finally:
                 con.close()
         except Exception as exc:  # the statement then runs to its end, as before
-            logger.warning("could not stop a pushed-down query on the database: %s", exc)
+            logger.warning("could not stop a pushed-down query on the database: %s", scrub_row_values(str(exc)))
 
 
 def _with_pushdown(
@@ -312,7 +313,7 @@ def _run_on_oracle(
     except oracle_client.OracleQueryFailed as exc:
         if not exc.refused:
             raise RemoteQueryFailed(str(exc)) from exc
-        logger.warning("pushed-down query refused by Oracle, ran it locally: %s", exc)
+        logger.warning("pushed-down query refused by Oracle, ran it locally: %s", scrub_row_values(str(exc)))
         _record("linkr", f"refused by the database: {exc}")
         return run(sql)
     view = f"_oracle_{uuid.uuid4().hex}"

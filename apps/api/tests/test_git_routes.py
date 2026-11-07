@@ -471,9 +471,9 @@ async def test_status_export_cannot_reach_the_repository_config(client, db, tmp_
     admin = await _bootstrap_admin(client)
     ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "WS"}})).json()["id"]
     await client.post(f"{API}/projects", headers=admin, json={"workspaceId": ws, "uid": "p-meta", "name": {"en": "P"}})
-    viewer = await _user(client, db, "viewer")
-    viewer_id = (await client.get(f"{API}/auth/me", headers=viewer)).json()["id"]
-    await client.put(f"{API}/workspaces/{ws}/members", headers=admin, json={"userId": viewer_id, "role": "viewer"})
+    editor = await _user(client, db, "editor")
+    editor_id = (await client.get(f"{API}/auth/me", headers=editor)).json()["id"]
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin, json={"userId": editor_id, "role": "editor"})
     marker = tmp_path / "marker"
     export = _zip({
         ".git/config": f'[core]\n\trepositoryformatversion = 0\n[filter "x"]\n\tclean = touch {marker}; cat\n',
@@ -482,14 +482,14 @@ async def test_status_export_cannot_reach_the_repository_config(client, db, tmp_
     })
 
     r = await client.post(
-        f"{API}/git/projects/p-meta/status", headers=viewer,
+        f"{API}/git/projects/p-meta/status", headers=editor,
         files={"file": ("export.zip", export, "application/zip")}, data={"branch": "main"},
     )
 
     assert r.status_code == 400
     assert not marker.exists()
     legit = await client.post(
-        f"{API}/git/projects/p-meta/status", headers=viewer,
+        f"{API}/git/projects/p-meta/status", headers=editor,
         files={"file": ("export.zip", _zip({"entity.json": "{}"}), "application/zip")}, data={"branch": "main"},
     )
     assert legit.status_code == 200 and not marker.exists()

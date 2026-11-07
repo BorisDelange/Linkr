@@ -8,7 +8,7 @@ export const apiOrganizationStorage: OrganizationStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<Organization>(`/organizations/${id}`)
+      return await apiRequest<Organization>(`/organizations/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -22,13 +22,13 @@ export const apiOrganizationStorage: OrganizationStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`/organizations/${id}`, {
+    await apiRequest(`/organizations/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(changes),
     })
   },
 
   delete: async (id) => {
-    await apiRequest(`/organizations/${id}`, { method: 'DELETE' })
+    await apiRequest(`/organizations/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }

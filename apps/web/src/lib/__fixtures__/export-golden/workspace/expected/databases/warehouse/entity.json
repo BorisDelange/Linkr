@@ -5,6 +5,35 @@
   "description": null,
   "sourceType": "postgres",
   "isVocabularyReference": false,
+  "derivedFrom": {
+    "database": {
+      "lineageId": "lin-parent",
+      "entityId": "parent",
+      "label": "Parent"
+    },
+    "cohort": {
+      "key": "three",
+      "name": {
+        "en": "Three"
+      }
+    },
+    "level": "patient",
+    "criteriaTree": {
+      "kind": "group",
+      "id": "root",
+      "operator": "AND",
+      "children": []
+    },
+    "target": "schema",
+    "options": {
+      "scope": "patient",
+      "pseudonymization": {
+        "method": "hmac",
+        "keepKey": true
+      }
+    },
+    "builtAt": "2026-10-01T00:00:00.000Z"
+  },
   "connectionConfig": {
     "engine": "postgres"
   },

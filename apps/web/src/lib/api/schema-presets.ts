@@ -30,6 +30,6 @@ export const apiSchemaPresetStorage: SchemaPresetStorage = {
 
   delete: async (id) => {
     // The route resolves either identity, so the id can go straight through.
-    await apiRequest(`/schema-presets/${id}`, { method: 'DELETE' })
+    await apiRequest(`/schema-presets/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }

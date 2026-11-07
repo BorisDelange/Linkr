@@ -30,7 +30,7 @@ def validate_spec(spec: dict) -> dict:
     method = spec.get("method")
     if method not in _ALLOWED_METHODS:
         method = "pearson"
-    return {"names": names, "method": method}
+    return {"names": list(dict.fromkeys(names)), "method": method}
 
 
 def build_code(spec: dict) -> str:

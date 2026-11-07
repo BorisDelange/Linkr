@@ -284,6 +284,26 @@
    "stats": null,
    "errorMessage": null,
    "isVocabularyReference": false,
+   "derivedFrom": {
+     "database": { "lineageId": "lin-parent", "entityId": "parent", "label": "Parent" },
+     "cohort": { "key": "three", "name": { "en": "Three" } },
+     "level": "patient",
+     "criteriaTree": { "kind": "group", "id": "root", "operator": "AND", "children": [] },
+     "target": "schema",
+     "options": {
+       "scope": "patient",
+       "pseudonymization": {
+         "method": "hmac",
+         "keepKey": true,
+         "reuseKeyOf": "local-db-id.dm_other",
+         "correspondence": { "dataSourceId": "local-corr-id", "schemaName": "dm_private_corr", "tableName": "linkr_pseudonyms" }
+       }
+     },
+     "derivationId": "tgt.dm_cohort_private",
+     "schemaName": "dm_cohort_private",
+     "builtAt": "2026-10-01T00:00:00.000Z",
+     "patientCount": 3
+   },
    "origin": "user",
    "createdById": null,
    "createdBy": "Boris Delange",

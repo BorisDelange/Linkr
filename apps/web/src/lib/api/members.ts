@@ -52,40 +52,40 @@ export const membersApi = {
    *  = no access). permissions is the flat "resource:action" list for gating. */
   myWorkspaceRole: (workspaceId: string) =>
     apiRequest<{ role: MemberRole | null; permissions: string[] }>(
-      `/workspaces/${workspaceId}/my-role`,
+      `/workspaces/${encodeURIComponent(workspaceId)}/my-role`,
     ),
 
   /** The current user's effective role + permissions on a project. */
   myProjectRole: (projectUid: string) =>
     apiRequest<{ role: MemberRole | null; permissions: string[] }>(
-      `/projects/${projectUid}/my-role`,
+      `/projects/${encodeURIComponent(projectUid)}/my-role`,
     ),
 
   listWorkspace: (workspaceId: string) =>
-    apiRequest<WorkspaceMember[]>(`/workspaces/${workspaceId}/members`),
+    apiRequest<WorkspaceMember[]>(`/workspaces/${encodeURIComponent(workspaceId)}/members`),
 
   upsertWorkspace: (workspaceId: string, body: MemberWrite) =>
-    apiRequest<WorkspaceMember>(`/workspaces/${workspaceId}/members`, {
+    apiRequest<WorkspaceMember>(`/workspaces/${encodeURIComponent(workspaceId)}/members`, {
       method: 'PUT',
       body: JSON.stringify(body),
     }),
 
   removeWorkspace: (workspaceId: string, userId: number) =>
-    apiRequest<void>(`/workspaces/${workspaceId}/members/${userId}`, {
+    apiRequest<void>(`/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(userId)}`, {
       method: 'DELETE',
     }),
 
   listProject: (projectUid: string) =>
-    apiRequest<ProjectMember[]>(`/projects/${projectUid}/members`),
+    apiRequest<ProjectMember[]>(`/projects/${encodeURIComponent(projectUid)}/members`),
 
   upsertProject: (projectUid: string, body: MemberWrite) =>
-    apiRequest<ProjectMember>(`/projects/${projectUid}/members`, {
+    apiRequest<ProjectMember>(`/projects/${encodeURIComponent(projectUid)}/members`, {
       method: 'PUT',
       body: JSON.stringify(body),
     }),
 
   removeProject: (projectUid: string, userId: number) =>
-    apiRequest<void>(`/projects/${projectUid}/members/${userId}`, {
+    apiRequest<void>(`/projects/${encodeURIComponent(projectUid)}/members/${encodeURIComponent(userId)}`, {
       method: 'DELETE',
     }),
 }

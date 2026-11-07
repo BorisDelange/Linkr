@@ -37,7 +37,7 @@ export const apiWorkspaceStorage: WorkspaceStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<Workspace>(`/workspaces/${id}`)
+      return await apiRequest<Workspace>(`/workspaces/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -51,13 +51,13 @@ export const apiWorkspaceStorage: WorkspaceStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`/workspaces/${id}`, {
+    await apiRequest(`/workspaces/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(changes),
     })
   },
 
   delete: async (id) => {
-    await apiRequest(`/workspaces/${id}`, { method: 'DELETE' })
+    await apiRequest(`/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }

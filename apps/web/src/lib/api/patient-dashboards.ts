@@ -30,7 +30,7 @@ export const apiPatientDashboardStorage: PatientDashboardStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<PatientDashboard>(`${BOARDS}/${id}`)
+      return await apiRequest<PatientDashboard>(`${BOARDS}/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -41,24 +41,24 @@ export const apiPatientDashboardStorage: PatientDashboardStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${BOARDS}/${id}`, {
+    await apiRequest(`${BOARDS}/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(changes),
     })
   },
 
   delete: async (id) => {
-    await apiRequest(`${BOARDS}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${BOARDS}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }
 
 export const apiPatientDashboardTabStorage: PatientDashboardTabStorage = {
   getByDashboard: (patientDashboardId) =>
-    apiRequest<PatientDashboardTab[]>(`${BOARDS}/${patientDashboardId}/tabs`),
+    apiRequest<PatientDashboardTab[]>(`${BOARDS}/${encodeURIComponent(patientDashboardId)}/tabs`),
 
   getById: async (id) => {
     try {
-      return await apiRequest<PatientDashboardTab>(`${BOARDS}/tabs/${id}`)
+      return await apiRequest<PatientDashboardTab>(`${BOARDS}/tabs/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -69,28 +69,28 @@ export const apiPatientDashboardTabStorage: PatientDashboardTabStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${BOARDS}/tabs/${id}`, {
+    await apiRequest(`${BOARDS}/tabs/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(changes),
     })
   },
 
   delete: async (id) => {
-    await apiRequest(`${BOARDS}/tabs/${id}`, { method: 'DELETE' })
+    await apiRequest(`${BOARDS}/tabs/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   deleteByDashboard: async (patientDashboardId) => {
-    await apiRequest(`${BOARDS}/${patientDashboardId}/tabs`, { method: 'DELETE' })
+    await apiRequest(`${BOARDS}/${encodeURIComponent(patientDashboardId)}/tabs`, { method: 'DELETE' })
   },
 }
 
 export const apiPatientDashboardWidgetStorage: PatientDashboardWidgetStorage = {
   getByTab: (tabId) =>
-    apiRequest<PatientDashboardWidget[]>(`${BOARDS}/tabs/${tabId}/widgets`),
+    apiRequest<PatientDashboardWidget[]>(`${BOARDS}/tabs/${encodeURIComponent(tabId)}/widgets`),
 
   getById: async (id) => {
     try {
-      return await apiRequest<PatientDashboardWidget>(`${BOARDS}/widgets/${id}`)
+      return await apiRequest<PatientDashboardWidget>(`${BOARDS}/widgets/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -104,17 +104,17 @@ export const apiPatientDashboardWidgetStorage: PatientDashboardWidgetStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${BOARDS}/widgets/${id}`, {
+    await apiRequest(`${BOARDS}/widgets/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(changes),
     })
   },
 
   delete: async (id) => {
-    await apiRequest(`${BOARDS}/widgets/${id}`, { method: 'DELETE' })
+    await apiRequest(`${BOARDS}/widgets/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   deleteByTab: async (tabId) => {
-    await apiRequest(`${BOARDS}/tabs/${tabId}/widgets`, { method: 'DELETE' })
+    await apiRequest(`${BOARDS}/tabs/${encodeURIComponent(tabId)}/widgets`, { method: 'DELETE' })
   },
 }

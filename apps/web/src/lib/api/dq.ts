@@ -15,7 +15,7 @@ export const apiDqRuleSetStorage: DqRuleSetStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<DqRuleSet>(`${SET}/${id}`)
+      return await apiRequest<DqRuleSet>(`${SET}/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -26,18 +26,18 @@ export const apiDqRuleSetStorage: DqRuleSetStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${SET}/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    await apiRequest(`${SET}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
   delete: async (id) => {
-    await apiRequest(`${SET}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${SET}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }
 
 /** Server-mode DQ custom check storage (a rule set's checks). */
 export const apiDqCustomCheckStorage: DqCustomCheckStorage = {
   getByRuleSet: (ruleSetId) =>
-    apiRequest<DqCustomCheck[]>(`${SET}/${ruleSetId}/checks`),
+    apiRequest<DqCustomCheck[]>(`${SET}/${encodeURIComponent(ruleSetId)}/checks`),
 
   getById: async (id) => {
     // No single-check GET endpoint; callers resolve checks via getByRuleSet.
@@ -50,55 +50,55 @@ export const apiDqCustomCheckStorage: DqCustomCheckStorage = {
   },
 
   createMany: async (ruleSetId, checks) => {
-    await apiRequest(`${SET}/${ruleSetId}/checks`, { method: 'POST', body: JSON.stringify(checks) })
+    await apiRequest(`${SET}/${encodeURIComponent(ruleSetId)}/checks`, { method: 'POST', body: JSON.stringify(checks) })
   },
 
   replaceByRuleSet: async (ruleSetId, checks) => {
-    await apiRequest(`${SET}/${ruleSetId}/checks`, { method: 'PUT', body: JSON.stringify(checks) })
+    await apiRequest(`${SET}/${encodeURIComponent(ruleSetId)}/checks`, { method: 'PUT', body: JSON.stringify(checks) })
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${CHECK}/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    await apiRequest(`${CHECK}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
   updateMany: async (ruleSetId, patches) => {
-    await apiRequest(`${SET}/${ruleSetId}/checks`, {
+    await apiRequest(`${SET}/${encodeURIComponent(ruleSetId)}/checks`, {
       method: 'PATCH',
       body: JSON.stringify(patches.map(({ id, changes }) => ({ ...changes, id }))),
     })
   },
 
   delete: async (id) => {
-    await apiRequest(`${CHECK}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${CHECK}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   deleteMany: async (ruleSetId, ids) => {
-    await apiRequest(`${SET}/${ruleSetId}/checks/batch-delete`, { method: 'POST', body: JSON.stringify({ ids }) })
+    await apiRequest(`${SET}/${encodeURIComponent(ruleSetId)}/checks/batch-delete`, { method: 'POST', body: JSON.stringify({ ids }) })
   },
 
   deleteByRuleSet: async (ruleSetId) => {
-    await apiRequest(`${SET}/${ruleSetId}/checks`, { method: 'DELETE' })
+    await apiRequest(`${SET}/${encodeURIComponent(ruleSetId)}/checks`, { method: 'DELETE' })
   },
 }
 
 /** Server-mode DQ scan-run history storage (a rule set's past runs). */
 export const apiDqRunHistoryStorage: DqRunHistoryStorage = {
   getByRuleSet: (ruleSetId) =>
-    apiRequest<DqRunHistoryEntry[]>(`${SET}/${ruleSetId}/runs`),
+    apiRequest<DqRunHistoryEntry[]>(`${SET}/${encodeURIComponent(ruleSetId)}/runs`),
 
   create: async (entry) => {
     await apiRequest(RUN, { method: 'POST', body: JSON.stringify(entry) })
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${RUN}/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    await apiRequest(`${RUN}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
   delete: async (id) => {
-    await apiRequest(`${RUN}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${RUN}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   deleteByRuleSet: async (ruleSetId) => {
-    await apiRequest(`${SET}/${ruleSetId}/runs`, { method: 'DELETE' })
+    await apiRequest(`${SET}/${encodeURIComponent(ruleSetId)}/runs`, { method: 'DELETE' })
   },
 }

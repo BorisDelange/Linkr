@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 
 from app.core import audit
 from app.core.permissions import require_global_permission
@@ -75,4 +75,15 @@ async def export_entries(
 @router.get("/verify", response_model=AuditVerifyResult)
 async def verify_chain(_user: User = Depends(require_global_permission("audit-log:read"))):
     result = await asyncio.to_thread(audit.verify)
-    return AuditVerifyResult(ok=result["ok"], checked=result["checked"], broken_at_seq=result["brokenAtSeq"])
+    return AuditVerifyResult(
+        ok=result["ok"], checked=result["checked"], broken_at_seq=result["brokenAtSeq"], broken_seqs=result["brokenSeqs"],
+    )
+
+
+@router.get("/details/{digest}", response_class=PlainTextResponse)
+async def full_detail(digest: str, _user: User = Depends(require_global_permission("audit-log:read"))):
+    """The whole text of a detail its line shortened, by the sha256 the line names."""
+    text = await asyncio.to_thread(audit.full_detail, digest)
+    if text is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    return PlainTextResponse(text)

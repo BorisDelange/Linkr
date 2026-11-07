@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission
+from app.core.redact import scrub_row_values
 from app.models.etl_pipeline import EtlFile, EtlPipeline, EtlRunHistory
 from app.models.user import User
 from app.schemas.etl_pipeline import (
@@ -35,6 +36,24 @@ async def _load_pipeline(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     await check_workspace_permission(db, pipeline.workspace_id, user, permission)
     return pipeline
+
+
+async def _require_database_read(db: AsyncSession, pipeline: EtlPipeline, user: User) -> None:
+    """A script runs on the pipeline's databases and its runs report on them:
+    writing the one or reading the other asks the right to read those databases."""
+    await check_workspace_permission(db, pipeline.workspace_id, user, "databases:read")
+
+
+def _scrub_scripts(scripts: list | None) -> list | None:
+    """A stored run outlives the reply and has other readers: it keeps the error,
+    not the row values a failed statement quoted."""
+    if not isinstance(scripts, list):
+        return scripts
+    return [
+        {**log, **{k: scrub_row_values(log[k]) for k in ("error", "output") if isinstance(log.get(k), str)}}
+        if isinstance(log, dict) else log
+        for log in scripts
+    ]
 
 
 async def _load_file(
@@ -229,6 +248,8 @@ async def create_file(
     db: AsyncSession = Depends(get_db),
 ):
     pipeline = await _load_pipeline(db, body.pipeline_id, user, "etl:write")
+    if body.content:
+        await _require_database_read(db, pipeline, user)
     await database_binding.require_bindable(db, pipeline.workspace_id, user, [body.data_source_id])
     node = await etl_pipeline_service.create_file(db, body)
     await _notify(
@@ -249,6 +270,8 @@ async def update_file(
 ):
     node = await _load_file(db, file_id, user, "etl:write")
     owner = await etl_pipeline_service.get(db, node.pipeline_id)
+    if body.content and body.content != node.content:
+        await _require_database_read(db, owner, user)
     await database_binding.require_bindable(
         db, owner.workspace_id, user, database_binding.changed_ids(node, body, "data_source_id")
     )
@@ -292,7 +315,8 @@ async def list_runs(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_pipeline(db, pipeline_id, user, "etl:read")
+    pipeline = await _load_pipeline(db, pipeline_id, user, "etl:read")
+    await _require_database_read(db, pipeline, user)
     return await etl_pipeline_service.list_runs(db, pipeline_id)
 
 
@@ -306,6 +330,8 @@ async def create_run(
     # Authorized through the pipeline's workspace, which is why pipeline_id is
     # required on the schema rather than optional.
     pipeline = await _load_pipeline(db, body.pipeline_id, user, "etl:write")
+    await _require_database_read(db, pipeline, user)
+    body.scripts = _scrub_scripts(body.scripts)
     # Every client records its run before the first script: refused here, a pipeline
     # or a script still pointing at another workspace's database never starts.
     scripts = await etl_pipeline_service.list_files(db, pipeline.id)
@@ -330,6 +356,9 @@ async def update_run(
     db: AsyncSession = Depends(get_db),
 ):
     run = await _load_run(db, run_id, user, "etl:write")
+    await _require_database_read(db, await etl_pipeline_service.get(db, run.pipeline_id), user)
+    if "scripts" in body.model_fields_set:
+        body.scripts = _scrub_scripts(body.scripts)
     run = await etl_pipeline_service.update_run(db, run, body)
     await _notify_runs(db, request, user, run.pipeline_id)
     return run
@@ -380,7 +409,8 @@ async def get_quality_cache(
     db: AsyncSession = Depends(get_db),
 ):
     """The shared per-concept quality table for this pipeline (null if none)."""
-    await _load_pipeline(db, pipeline_id, user, "etl:read")
+    pipeline = await _load_pipeline(db, pipeline_id, user, "etl:read")
+    await _require_database_read(db, pipeline, user)
     row = await stats_cache_service.get(db, _QUALITY_SCOPE, pipeline_id)
     if row is None:
         return None
@@ -398,7 +428,8 @@ async def save_quality_cache(
     db: AsyncSession = Depends(get_db),
 ):
     """Store the table a client just computed, sharing it with the workspace."""
-    await _load_pipeline(db, pipeline_id, user, "etl:write")
+    pipeline = await _load_pipeline(db, pipeline_id, user, "etl:write")
+    await _require_database_read(db, pipeline, user)
     await stats_cache_service.save(
         db, _QUALITY_SCOPE, pipeline_id, body.computed_at, body.payload
     )

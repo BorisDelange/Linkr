@@ -11,11 +11,15 @@ request and WebSocket; the auth dependencies name the actor (`set_actor`); the
 few places that touch data add what they touched (`bind`). One line is written
 when the request ends — only for requests that read data, change something, or
 were refused, so UI polling does not flood it. Jobs, which outlive their request,
-open their own context (`job_scope`), and an event inside a long-lived connection
-gets a line of its own (`event`, `event_scope`).
+open their own context (`job_scope`); work a request answered before it ended
+(core/deferred) writes a second line when it does (`follow`); and an event inside a
+long-lived connection gets a line of its own (`event`, `event_scope`).
 
-**Never result data.** `detail` holds the SQL or code (truncated), which may
-itself name a patient, so reading the log is `audit-log:read`, or one's own.
+**Never result data.** `detail` holds the SQL or code, which may itself name a
+patient, so reading the log is `audit-log:read`, or one's own. A detail too long
+for the line keeps its two ends and its sha256 there, and its whole text in
+``audit/details/<sha256>.txt.gz``, under the same retention. `error` keeps a
+database's message only in a shape that holds no row value, else its class.
 
 **Tamper evidence.** Each line carries `hash = sha256(previous hash + line)`, so
 an edited or removed line breaks the chain from there on (`verify`). It does not
@@ -31,9 +35,11 @@ recovery (`audit_tail_set_aside`), never in the way of the lines after it.
 """
 
 import contextlib
+import gzip
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 import threading
@@ -47,7 +53,7 @@ import duckdb
 import structlog
 
 from app.config import settings
-from app.core.redact import scrub_row_values
+from app.core.redact import log_safe_error, scrub_row_values
 
 _DETAIL_MAX = 2000
 _GENESIS = "0" * 64
@@ -109,19 +115,71 @@ def bind(**fields) -> None:
         if key == "detail":
             value = _bounded_detail(str(value))
         elif key == "error":
-            value = scrub_row_values(str(value))[:_DETAIL_MAX]
+            value = log_safe_error(str(value))[:_DETAIL_MAX]
+        elif key == "connection_error":
+            # A connection failure names hosts and ports, never a row: kept for the
+            # admin who reads the log, as the reply withholds it from others.
+            key, value = "error", scrub_row_values(str(value))[:_DETAIL_MAX]
         ctx[key] = value
+
+
+# The whole text of a long detail is kept compressed; a text that still does not
+# fit keeps this many characters at each end.
+_DETAIL_FILE_MAX = 4 * 1024 * 1024
+_DETAIL_FILE_ENDS = 1024 * 1024
+_DIGEST = re.compile(r"\[[\d,]+ characters, sha256 ([0-9a-f]{64})\]")
 
 
 def _bounded_detail(text: str) -> str:
     """What was asked, within the line's size: its two ends and the hash of the
-    whole, so padding at one end hides nothing and a claimed text can be checked."""
+    whole, which names the file holding the whole text (`full_detail`)."""
     if len(text) <= _DETAIL_MAX:
         return text
     digest = hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()
+    _keep_detail(digest, text)
     middle = f" … [{len(text):,} characters, sha256 {digest}] … "
     room = _DETAIL_MAX - len(middle)
     return text[:room // 2] + middle + text[-(room - room // 2):]
+
+
+def _details_dir() -> Path:
+    d = _dir() / "details"
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def _keep_detail(digest: str, text: str) -> None:
+    try:
+        path = _details_dir() / f"{digest}.txt.gz"
+        if path.exists():
+            os.utime(path)
+            return
+        data = gzip.compress(_readable(text).encode("utf-8"))
+        if len(data) > _DETAIL_FILE_MAX:
+            cut = f"\n… [{len(text) - 2 * _DETAIL_FILE_ENDS:,} characters not kept] …\n"
+            data = gzip.compress(_readable(text[:_DETAIL_FILE_ENDS] + cut + text[-_DETAIL_FILE_ENDS:]).encode("utf-8"))
+        tmp = path.with_name(f".{digest}.{secrets.token_hex(4)}.tmp")
+        with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, path)
+    except OSError:
+        _logger.exception("audit_detail_not_kept")
+
+
+def detail_digest(detail: str | None) -> str | None:
+    """The sha256 a shortened detail names, None for a detail kept whole."""
+    found = _DIGEST.search(detail or "")
+    return found.group(1) if found else None
+
+
+def full_detail(digest: str) -> str | None:
+    """The whole text of a shortened detail, None when unknown or past retention."""
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        return None
+    try:
+        return gzip.decompress((_details_dir() / f"{digest}.txt.gz").read_bytes()).decode("utf-8")
+    except FileNotFoundError:
+        return None
 
 
 def request_id() -> str | None:
@@ -181,7 +239,7 @@ def _line_scope(ctx: dict) -> Iterator[dict]:
     try:
         yield ctx
     except BaseException as exc:
-        ctx.setdefault("error", scrub_row_values(str(exc))[:_DETAIL_MAX])
+        ctx.setdefault("error", log_safe_error(str(exc))[:_DETAIL_MAX])
         ctx.setdefault("status", 499 if isinstance(exc, _cancelled()) else 500)
         raise
     finally:
@@ -238,6 +296,31 @@ class AuditMiddleware:
             _current.reset(token)
             if _worth_logging(ctx):
                 write(ctx)
+
+
+def follow(task) -> None:
+    """Write one more line when `task`, work its request answered before it ended
+    (core/deferred), ends: the request's line went out without what the work
+    binds later, its size, row count or outcome. Same request id, final status."""
+    ctx = _current.get()
+    if ctx is None:
+        return
+    started = time.perf_counter()
+
+    def ended(done) -> None:
+        line = dict(ctx)
+        if done.cancelled():
+            line["status"] = 499
+        elif (exc := done.exception()) is not None:
+            line["status"] = getattr(exc, "status_code", 500)
+            line.setdefault("error", log_safe_error(str(exc))[:_DETAIL_MAX])
+        else:
+            line["status"] = 200
+        line["duration_ms"] = int(ctx.get("duration_ms") or 0) + int((time.perf_counter() - started) * 1000)
+        if _worth_logging(line):
+            write(line)
+
+    task.add_done_callback(ended)
 
 
 def _worth_logging(ctx: dict) -> bool:
@@ -353,7 +436,7 @@ class _Writer:
     def _append(self, root: Path, ctx: dict) -> None:
         seq, prev = self.state
         now = datetime.now(timezone.utc)
-        record = {k: ctx.get(k) for k in COLUMNS}
+        record = {k: _readable(ctx.get(k)) for k in COLUMNS}
         record["seq"] = seq + 1
         record["at"] = now.isoformat(timespec="milliseconds")
         record["hash"] = _line_hash(prev, _canonical(record))
@@ -402,6 +485,14 @@ class _Writer:
             self.missed, self.missed_until = self.missed + 1, at
 
 
+def _readable(value):
+    """A text every reader of the log can parse: a lone surrogate, which JSON
+    escapes but DuckDB refuses, is written as its escape sequence."""
+    if isinstance(value, str):
+        return value.encode("utf-8", "backslashreplace").decode("utf-8")
+    return value
+
+
 def _to_stdout(record: dict, **extra) -> None:
     _logger.info("audit", **{k: v for k, v in record.items() if v is not None}, **extra)
 
@@ -418,7 +509,7 @@ def write(ctx: dict) -> None:
         _logger.exception("audit_write_failed")
         at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         _writer.missed_one(at)
-        _to_stdout({**{k: ctx.get(k) for k in COLUMNS}, "at": at}, local_log="failed")
+        _to_stdout({**{k: _readable(ctx.get(k)) for k in COLUMNS}, "at": at}, local_log="failed")
 
 
 def reset() -> None:
@@ -480,8 +571,23 @@ def compact(today: date | None = None) -> None:
             con.close()
         os.replace(tmp, target)
         for path in days:
+            _set_aside_if_unread(path)
             path.unlink(missing_ok=True)
     _apply_retention(root, today)
+
+
+def _set_aside_if_unread(path: Path) -> None:
+    """Keep a day file whose lines the reader did not all take, so a line it skips
+    is not deleted with the day: `verify` reports the break, the file holds the line."""
+    con = duckdb.connect()
+    try:
+        read = con.execute(f"SELECT count(*) FROM {_json_reader([path])}").fetchone()[0]
+    finally:
+        con.close()
+    with open(path, "rb") as fh:
+        lines = sum(1 for raw in fh if raw.strip())
+    if read < lines:
+        shutil.copyfile(path, path.with_name(f"{path.name}.{time.time_ns()}.quarantine"))
 
 
 def _retention_cutoff(today: date) -> date:
@@ -498,6 +604,11 @@ def _apply_retention(root: Path, today: date) -> None:
         with contextlib.suppress(ValueError):
             if date.fromisoformat(path.name[:10]) < cutoff:
                 path.unlink(missing_ok=True)
+    oldest = datetime.combine(cutoff, datetime.min.time(), timezone.utc).timestamp()
+    for path in (root / "details").glob("*.txt.gz"):
+        with contextlib.suppress(FileNotFoundError):
+            if path.stat().st_mtime < oldest:
+                path.unlink()
     for path in root.glob("*.parquet"):
         try:
             year, month = (int(x) for x in path.stem.split("-"))
@@ -681,34 +792,41 @@ def _head_is_missing(first_seq: int, first_at: str, today: date) -> bool:
     return first_day.replace(day=1) - timedelta(days=1) >= _retention_cutoff(today)
 
 
+_BROKEN_LISTED = 100
+
+
 def verify(today: date | None = None) -> dict:
     """Replay the hash chain over every kept line. A gap at the start is
     expected once retention dropped old months; a break anywhere after is not,
-    nor a gap at the start that retention does not account for."""
+    nor a gap at the start that retention does not account for.
+
+    Goes on past a break, from the hash the broken line holds: one break must
+    not hide an edit made further on. `brokenSeqs` lists the first ones."""
     today = today or datetime.now(timezone.utc).date()
     source = _source_sql(_dir())
     if source is None:
-        return {"ok": True, "checked": 0, "brokenAtSeq": None}
+        return {"ok": True, "checked": 0, "brokenAtSeq": None, "brokenSeqs": []}
     con = duckdb.connect()
     try:
         head = con.execute(f'SELECT seq, "at" FROM ({source}) ORDER BY seq LIMIT 1').fetchone()
         if head is not None and _head_is_missing(int(head[0]), str(head[1]), today):
-            return {"ok": False, "checked": 0, "brokenAtSeq": int(head[0])}
+            return {"ok": False, "checked": 0, "brokenAtSeq": int(head[0]), "brokenSeqs": [int(head[0])]}
         cur = con.execute(f"SELECT * FROM ({source}) ORDER BY seq")
         names = [d[0] for d in cur.description]
         prev: str | None = None
         checked = 0
+        broken: list[int] = []
+        breaks = 0
         while batch := cur.fetchmany(5000):
             for values in batch:
                 record = dict(zip(names, values))
-                if prev is None:
-                    prev = record["hash"]
+                if prev is not None and _line_hash(prev, _canonical(record)) != record["hash"]:
+                    breaks += 1
+                    if len(broken) < _BROKEN_LISTED:
+                        broken.append(int(record["seq"]))
+                else:
                     checked += 1
-                    continue
-                if _line_hash(prev, _canonical(record)) != record["hash"]:
-                    return {"ok": False, "checked": checked, "brokenAtSeq": record["seq"]}
                 prev = record["hash"]
-                checked += 1
     finally:
         con.close()
-    return {"ok": True, "checked": checked, "brokenAtSeq": None}
+    return {"ok": not breaks, "checked": checked, "brokenAtSeq": broken[0] if broken else None, "brokenSeqs": broken}

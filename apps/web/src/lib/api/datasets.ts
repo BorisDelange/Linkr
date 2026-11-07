@@ -539,14 +539,14 @@ export const apiDatasetAnalysisStorage: DatasetAnalysisStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`/dataset-files/analyses/${id}`, {
+    await apiRequest(`/dataset-files/analyses/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(changes),
     })
   },
 
   delete: async (id) => {
-    await apiRequest(`/dataset-files/analyses/${id}`, { method: 'DELETE' })
+    await apiRequest(`/dataset-files/analyses/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   // Analyses are rows, not files on disk: a re-import that wipes the project must

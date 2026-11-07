@@ -39,3 +39,4 @@ class AuditVerifyResult(CamelModel):
     ok: bool
     checked: int
     broken_at_seq: int | None = None
+    broken_seqs: list[int] = []

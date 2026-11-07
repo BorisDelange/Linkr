@@ -5,7 +5,14 @@ import { TerminalSocket, terminalFailureMessage } from '@/lib/api/terminal-ws'
 import type { RuntimeLanguage, RuntimeOutput, RuntimeFigure, RuntimeTable, CodeCompletionItem } from '@/lib/runtimes/types'
 import type { SessionLanguage } from '@/lib/api/execution-sessions'
 import type { Job } from '@/lib/api/environments'
-import { withCodeAcceptance, type CodeReview } from '@/lib/api/code-acceptance'
+import {
+  environmentRefusal,
+  requestEnvironmentAcceptance,
+  withCodeAcceptance,
+  withEnvironmentAcceptance,
+  type CodeReview,
+} from '@/lib/api/code-acceptance'
+import i18n from '@/lib/i18n'
 
 /** The active session for (project, language) — but only R/Python carry sessions;
  *  anything else (sql) always runs in the implicit 'default' namespace.
@@ -114,7 +121,7 @@ export function runFileAsJob(
 ): Promise<Job> {
   const projectUid = opts?.projectUid ?? useAppStore.getState().activeProjectUid ?? null
   if (!projectUid) throw new Error('Cannot run code without an active project')
-  return apiRequest<Job>('/execute/run-as-job', {
+  return withEnvironmentAcceptance(() => apiRequest<Job>('/execute/run-as-job', {
     method: 'POST',
     body: JSON.stringify({
       language,
@@ -124,7 +131,7 @@ export function runFileAsJob(
       label: opts?.label ?? null,
       purpose: 'ide',
     }),
-  })
+  }))
 }
 
 /**
@@ -167,8 +174,15 @@ export function streamOnServer(
       {
         onOpen: () => socket.runCode(code),
         onMessage: (msg) => {
+          const refusal = msg.type === 'error' ? environmentRefusal(msg) : null
           if ((msg.type === 'stdout' || msg.type === 'stderr') && msg.data) {
             opts.onChunk(msg.data, msg.type)
+          } else if (refusal) {
+            finish(() => resolve(requestEnvironmentAcceptance(refusal).then((accepted): Promise<RuntimeOutput> | RuntimeOutput =>
+              accepted
+                ? streamOnServer(language, code, opts)
+                : { stdout: '', stderr: i18n.t('code_acceptance.not_run'), figures: [], table: null, html: null, notAccepted: true },
+            )))
           } else if (msg.type === 'error') {
             finish(() => reject(new Error(msg.message ?? 'Execution failed')))
           } else if (msg.type === 'done') {

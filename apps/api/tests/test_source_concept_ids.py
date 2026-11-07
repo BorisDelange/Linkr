@@ -114,14 +114,65 @@ async def test_an_entry_is_only_written_within_its_own_workspace(client):
 
     r = await client.put(f"{API}/source-concept-id-entries", headers=headers,
                          json={"id": held, "workspaceId": ws_a, **entry, "sourceConceptId": 1})
-    assert r.status_code == 409
+    assert r.status_code == 422
     r = await client.put(f"{API}/source-concept-id-entries/batch", headers=headers, json={"entries": [
         {"id": f"{ws_a}__B__LOC__c2", "workspaceId": ws_a, **entry, "conceptCode": "c2"},
         {"id": held, "workspaceId": ws_a, **entry, "sourceConceptId": 2},
     ]})
-    assert r.status_code == 409
+    assert r.status_code == 422
 
     b = (await client.get(f"{API}/source-concept-id-entries?workspaceId={ws_b}", headers=headers)).json()
     assert [(e["id"], e["sourceConceptId"]) for e in b] == [(held, 7)]
     a = (await client.get(f"{API}/source-concept-id-entries?workspaceId={ws_a}", headers=headers)).json()
     assert a == []
+
+
+async def _editor_of(client, db, admin, ws: str, username: str) -> dict:
+    headers = await _create_user(db, client, username)
+    user_id = (await client.get(f"{API}/auth/me", headers=headers)).json()["id"]
+    r = await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
+                         json={"userId": user_id, "role": "editor"})
+    assert r.status_code == 200, r.text
+    return headers
+
+
+async def test_an_entry_id_names_the_workspace_it_is_written_in(client, db):
+    admin = await _admin_headers(client)
+    ws_a, ws_b = await _workspace(client, admin), await _workspace(client, admin)
+    editor_a = await _editor_of(client, db, admin, ws_a, "editor_a")
+    editor_b = await _editor_of(client, db, admin, ws_b, "editor_b")
+    fields = {"badgeLabel": "b", "vocabularyId": "LOINC", "conceptCode": "1234-5", "sourceConceptId": 77}
+    a_id = f"{ws_a}__b__LOINC__1234-5"
+
+    r = await client.put(f"{API}/source-concept-id-entries", headers=editor_b,
+                         json={"id": a_id, "workspaceId": ws_b, **fields})
+    assert r.status_code == 422, r.text
+    r = await client.put(f"{API}/source-concept-id-entries/batch", headers=editor_b,
+                         json={"entries": [{"id": a_id, "workspaceId": ws_b, **fields}]})
+    assert r.status_code == 422, r.text
+    r = await client.put(f"{API}/source-concept-id-entries", headers=editor_b,
+                         json={"id": f"{ws_b}__b__LOINC__other", "workspaceId": ws_b, **fields})
+    assert r.status_code == 422, r.text
+
+    r = await client.put(f"{API}/source-concept-id-entries/batch", headers=editor_a,
+                         json={"entries": [{"id": a_id, "workspaceId": ws_a, **fields}]})
+    assert r.status_code == 204, r.text
+
+
+async def test_a_row_held_under_another_workspaces_id_does_not_block_that_workspace(client, db):
+    from app.models.source_concept_id import SourceConceptIdEntry
+
+    admin = await _admin_headers(client)
+    ws_a, ws_b = await _workspace(client, admin), await _workspace(client, admin)
+    fields = {"badgeLabel": "b", "vocabularyId": "LOINC", "conceptCode": "1234-5", "sourceConceptId": 77}
+    a_id = f"{ws_a}__b__LOINC__1234-5"
+    db.add(SourceConceptIdEntry(id=a_id, workspace_id=ws_b, badge_label="b", vocabulary_id="LOINC",
+                                concept_code="1234-5", source_concept_id=1))
+    await db.commit()
+
+    r = await client.put(f"{API}/source-concept-id-entries/batch", headers=admin,
+                         json={"entries": [{"id": a_id, "workspaceId": ws_a, **fields}]})
+    assert r.status_code == 204, r.text
+    a = (await client.get(f"{API}/source-concept-id-entries?workspaceId={ws_a}", headers=admin)).json()
+    assert [(e["id"], e["sourceConceptId"]) for e in a] == [(a_id, 77)]
+    assert (await client.get(f"{API}/source-concept-id-entries?workspaceId={ws_b}", headers=admin)).json() == []

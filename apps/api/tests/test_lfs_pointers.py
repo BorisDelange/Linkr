@@ -80,7 +80,7 @@ class TestLfsPullFailureClassification:
             return sp.CompletedProcess(args=[], returncode=rc, stdout="", stderr=stderr)
 
         monkeypatch.setattr(git_service.subprocess, "run", fake_run)
-        return git_service._lfs_pull(Path("/tmp/x"), None, "https://example.org/x.git")
+        return git_service._lfs_pull(Path("/tmp/x"), None, "ssh://git@example.org/x.git")
 
     def test_success_reports_no_failure(self, monkeypatch):
         assert self._run(monkeypatch, 0, "") is None
@@ -103,7 +103,7 @@ class TestLfsPullFailureClassification:
             raise sp.TimeoutExpired(cmd="git lfs pull", timeout=1)
 
         monkeypatch.setattr(git_service.subprocess, "run", fake_run)
-        assert git_service._lfs_pull(Path("/tmp/x"), None, "https://example.org/x.git") == "other"
+        assert git_service._lfs_pull(Path("/tmp/x"), None, "ssh://git@example.org/x.git") == "other"
 
 
 class TestLfsEndpointIsTheRemotes:

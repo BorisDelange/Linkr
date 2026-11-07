@@ -2,7 +2,6 @@ import asyncio
 import contextlib
 import logging
 import re
-import uuid
 
 import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -68,6 +67,7 @@ from app.schemas.data_source import (
 )
 from app.schemas.stats_cache import StatsCacheResponse, StatsCacheSave
 from app.services import (
+    upload_ledger,
     blob_store,
     change_tracking,
     cohort_derive_service,
@@ -276,7 +276,7 @@ async def import_data_source_file(
     db: AsyncSession = Depends(get_db),
 ):
     await _load_source(db, body.data_source_id, user, "databases:write")
-    if not blob_store.exists(body.sha):
+    if not upload_ledger.holds(user.id, body.sha):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "Uploaded file not found — the upload may not have completed.",
@@ -409,14 +409,12 @@ async def query_data_source(
 
     A query still running after `deferred.WAIT_SECONDS` answers 202 and goes on as
     a job of the database's workspace (core/deferred): no gateway timeout cuts it,
-    and the jobs panel can stop it, as `/query/cancel` can."""
+    and the jobs panel can stop it, as `/query/cancel` can. Past
+    `settings.query_timeout_seconds` it is stopped, and answers 422."""
     source = await _load_source(db, source_id, user, "databases:read")
     login = await _login(db, source, user)
 
-    # Tagged even when the client did not ask: a job cancelled from the panel
-    # cancels this coroutine, not the thread running the query, which must be
-    # interrupted or it holds the database's pooled connection until it ends.
-    query_id = _query_id(body.query_id) if body.query_id else uuid.uuid4().hex
+    query_id = _query_id(body.query_id) if body.query_id else None
 
     async def run() -> list[dict]:
         async with deferred.session() as session:
@@ -431,12 +429,11 @@ async def query_data_source(
             )
 
     async def work():
-        tag = query_cancel.current_query.set((query_id, str(user.id)))
         cap = db_connect.row_cap.set(db_connect.MAX_QUERY_ROWS_ALL) if body.all_rows else None
         execution: dict = {}
         recorded = pushdown.execution.set(execution)
         try:
-            rows = await deferred.until_stopped(run(), lambda: query_cancel.cancel(query_id, str(user.id)))
+            rows = await query_cancel.within_limit(run, str(user.id), query_id)
             job_id = deferred.current_job.get()
             if job_id is not None:
                 await jobs.record_query(
@@ -445,6 +442,10 @@ async def query_data_source(
                 )
         except (query_cancel.QueryCancelled, duckdb.InterruptException):
             raise deferred.Stopped() from None
+        except query_cancel.TimedOut as e:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
+        except db_connect.ConnectionFailed as e:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, _connection_error(user, "query", e, source)) from None
         except ValueError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, redact_secrets(str(e)))
         except HTTPException:
@@ -452,7 +453,6 @@ async def query_data_source(
         except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, redact_secrets(str(e)))
         finally:
-            query_cancel.current_query.reset(tag)
             if cap is not None:
                 db_connect.row_cap.reset(cap)
             pushdown.execution.reset(recorded)
@@ -915,22 +915,23 @@ def _reaches_the_network(source) -> bool:
 
 def _connection_error(
     user: User, action: str, error: object, source: DataSource | None = None, workspace_id: str | None = None,
+    message: str = "Connection failed",
 ) -> str:
     """What the caller is told when an external database did not answer.
 
     The driver's text names the hosts and ports that do: returned to anyone, it
     makes the server a scanner of the network it sits in (docs/design/spe-security.md).
-    So only an instance admin reads it in the reply; everyone else gets "Connection
-    failed" and a reference, and the text goes to the access log and the server
-    log, where that reference finds it."""
-    text = redact_secrets(str(error))
+    So only an instance admin reads it in the reply; everyone else gets `message`
+    and a reference, and the text goes to the access log and the server log,
+    where that reference finds it."""
+    text = redact_secrets(db_connect.error_text(error) if isinstance(error, BaseException) else str(error))
     logger.info("%s of %s failed: %s", action, source.id if source else "a new connection", text)
     audit.bind(
-        action=action, error=text,
+        action=action, connection_error=text,
         data_source_id=source.id if source else None,
         workspace_id=source.workspace_id if source else workspace_id,
     )
-    return text if user.role == "admin" else audit.with_reference("Connection failed")
+    return text if user.role == "admin" else audit.with_reference(message)
 
 
 @router.get("/{source_id}/flight", response_model=FlightStatus)
@@ -1151,7 +1152,15 @@ async def assemble_concept_cache(
     await _require_source_access(db, source, user, "databases:write")
     login = await _login(db, source, user)
     try:
-        mtime = await data_source_service.assemble_concept_cache(db, source, login, body.select_sql)
+        mtime = await query_cancel.within_limit(
+            lambda: data_source_service.assemble_concept_cache(db, source, login, body.select_sql), str(user.id),
+        )
+    except query_cancel.TimedOut as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
+    except db_connect.ConnectionFailed as e:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, _connection_error(user, "concept_cache", e, source),
+        ) from None
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, redact_secrets(str(e)))
     except HTTPException:
@@ -1172,7 +1181,9 @@ async def query_concept_cache(
     `concepts`). 404 if the cache has not been built yet."""
     await _load_source(db, source_id, user, "databases:read")
     try:
-        rows = await data_source_service.query_concept_cache(source_id, body.sql)
+        rows = await query_cancel.within_limit(
+            lambda: data_source_service.query_concept_cache(source_id, body.sql), str(user.id),
+        )
     except FileNotFoundError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No concept cache")
     except Exception as e:  # noqa: BLE001
@@ -1419,14 +1430,20 @@ async def save_my_login(
     if not database_credential_service.is_external(source):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "this database takes no login")
     config = {**(source.connection_config or {}), "username": body.username, "password": body.password}
-    if purpose == database_credential_service.WRITE:
-        if not cohort_derive_service.takes_write_login(source):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "this database takes no write login")
-        ok, error = await cohort_derive_service.test_write_login(config, body.password)
-    else:
-        ok, error, _tables = await data_source_service.test_connection(config)
-    if not ok:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, error or "could not connect")
+    if purpose == database_credential_service.WRITE and not cohort_derive_service.takes_write_login(source):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "this database takes no write login")
+    try:
+        if purpose == database_credential_service.WRITE:
+            await cohort_derive_service.probe_write_login(config, body.password)
+        else:
+            await data_source_service.probe_connection(config)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, redact_secrets(str(e))) from None
+    except Exception as e:  # noqa: BLE001 — a wrong login is the usual cause
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            _connection_error(user, "credential_test", e, source, message="Could not connect with this login: check the username and password"),
+        ) from None
     await database_credential_service.save(
         db, source, user.id, body.username, body.password, remember=body.remember, purpose=purpose,
     )

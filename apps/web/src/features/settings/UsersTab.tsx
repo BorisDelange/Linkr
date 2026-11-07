@@ -369,19 +369,23 @@ export function UsersTab() {
                   autoComplete="off"
                 />
               </div>
-              <NewPasswordFields
-                columns
-                password={draft.password}
-                confirm={draft.passwordConfirm}
-                onPasswordChange={(v) => { setField('password', v); setPolicyError(null) }}
-                onConfirmChange={(v) => setField('passwordConfirm', v)}
-                username={draft.username}
-                serverError={policyError}
-                passwordLabel={editing ? t('settings.new_password_optional') : t('settings.temporary_password')}
-                confirmLabel={t('settings.confirm_password')}
-                required={!editing}
-                placeholder={editing ? t('settings.leave_blank_keep') : undefined}
-              />
+              {editing && editing.id === currentUserId ? (
+                <p className="text-xs text-muted-foreground">{t('settings.own_password_from_profile')}</p>
+              ) : (
+                <NewPasswordFields
+                  columns
+                  password={draft.password}
+                  confirm={draft.passwordConfirm}
+                  onPasswordChange={(v) => { setField('password', v); setPolicyError(null) }}
+                  onConfirmChange={(v) => setField('passwordConfirm', v)}
+                  username={draft.username}
+                  serverError={policyError}
+                  passwordLabel={editing ? t('settings.new_password_optional') : t('settings.temporary_password')}
+                  confirmLabel={t('settings.confirm_password')}
+                  required={!editing}
+                  placeholder={editing ? t('settings.leave_blank_keep') : undefined}
+                />
+              )}
               <div className="space-y-2">
                 <Label>{t('settings.user_role')}</Label>
                 <Select value={draft.role} onValueChange={(v) => setField('role', v)}>

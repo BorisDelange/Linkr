@@ -15,7 +15,7 @@ export const apiEtlPipelineStorage: EtlPipelineStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<EtlPipeline>(`${PIPE}/${id}`)
+      return await apiRequest<EtlPipeline>(`${PIPE}/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -26,18 +26,18 @@ export const apiEtlPipelineStorage: EtlPipelineStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${PIPE}/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    await apiRequest(`${PIPE}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
   delete: async (id) => {
-    await apiRequest(`${PIPE}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${PIPE}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }
 
 /** Server-mode ETL file storage (a pipeline's script tree, content inline). */
 export const apiEtlFileStorage: EtlFileStorage = {
   getByPipeline: (pipelineId) =>
-    apiRequest<EtlFile[]>(`${PIPE}/${pipelineId}/files`),
+    apiRequest<EtlFile[]>(`${PIPE}/${encodeURIComponent(pipelineId)}/files`),
 
   getById: async (id) => {
     // No single-file GET endpoint; callers resolve files via getByPipeline.
@@ -50,22 +50,22 @@ export const apiEtlFileStorage: EtlFileStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${FILE}/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    await apiRequest(`${FILE}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
   delete: async (id) => {
-    await apiRequest(`${FILE}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${FILE}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   deleteByPipeline: async (pipelineId) => {
-    await apiRequest(`${PIPE}/${pipelineId}/files`, { method: 'DELETE' })
+    await apiRequest(`${PIPE}/${encodeURIComponent(pipelineId)}/files`, { method: 'DELETE' })
   },
 }
 
 /** Server-mode ETL run history: one row per pipeline run, per-script logs inline. */
 export const apiEtlRunHistoryStorage: EtlRunHistoryStorage = {
   getByPipeline: (pipelineId) =>
-    apiRequest<EtlRunHistoryEntry[]>(`${PIPE}/${pipelineId}/runs`),
+    apiRequest<EtlRunHistoryEntry[]>(`${PIPE}/${encodeURIComponent(pipelineId)}/runs`),
 
   // POST is an upsert server-side (same run id as the run progresses), so there is
   // no separate create/update to choose between here.
@@ -74,10 +74,10 @@ export const apiEtlRunHistoryStorage: EtlRunHistoryStorage = {
   },
 
   delete: async (id) => {
-    await apiRequest(`${RUN}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${RUN}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   deleteByPipeline: async (pipelineId) => {
-    await apiRequest(`${PIPE}/${pipelineId}/runs`, { method: 'DELETE' })
+    await apiRequest(`${PIPE}/${encodeURIComponent(pipelineId)}/runs`, { method: 'DELETE' })
   },
 }

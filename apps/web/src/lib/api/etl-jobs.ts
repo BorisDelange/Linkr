@@ -45,7 +45,7 @@ export async function runEtlJob(
 ): Promise<Record<string, unknown>[]> {
   const { onStatement, onReading, signal } = options
   if (signal?.aborted) throw new EtlJobCancelledError()
-  const job = await apiRequest<Job>(`/data-sources/${targetId}/etl-jobs`, {
+  const job = await apiRequest<Job>(`/data-sources/${encodeURIComponent(targetId)}/etl-jobs`, {
     method: 'POST',
     body: JSON.stringify({ label, sql, roles, mappingData }),
   })

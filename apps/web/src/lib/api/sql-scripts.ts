@@ -14,7 +14,7 @@ export const apiSqlScriptCollectionStorage: SqlScriptCollectionStorage = {
 
   getById: async (id) => {
     try {
-      return await apiRequest<SqlScriptCollection>(`${COLL}/${id}`)
+      return await apiRequest<SqlScriptCollection>(`${COLL}/${encodeURIComponent(id)}`)
     } catch {
       return undefined
     }
@@ -25,18 +25,18 @@ export const apiSqlScriptCollectionStorage: SqlScriptCollectionStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${COLL}/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    await apiRequest(`${COLL}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
   delete: async (id) => {
-    await apiRequest(`${COLL}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${COLL}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }
 
 /** Server-mode SQL script file storage (the collection's script tree). */
 export const apiSqlScriptFileStorage: SqlScriptFileStorage = {
   getByCollection: (collectionId) =>
-    apiRequest<SqlScriptFile[]>(`${COLL}/${collectionId}/files`),
+    apiRequest<SqlScriptFile[]>(`${COLL}/${encodeURIComponent(collectionId)}/files`),
 
   getById: async (id) => {
     // No single-file GET endpoint; callers resolve files via getByCollection.
@@ -49,14 +49,14 @@ export const apiSqlScriptFileStorage: SqlScriptFileStorage = {
   },
 
   update: async (id, changes) => {
-    await apiRequest(`${FILE}/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    await apiRequest(`${FILE}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },
 
   delete: async (id) => {
-    await apiRequest(`${FILE}/${id}`, { method: 'DELETE' })
+    await apiRequest(`${FILE}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 
   deleteByCollection: async (collectionId) => {
-    await apiRequest(`${COLL}/${collectionId}/files`, { method: 'DELETE' })
+    await apiRequest(`${COLL}/${encodeURIComponent(collectionId)}/files`, { method: 'DELETE' })
   },
 }
