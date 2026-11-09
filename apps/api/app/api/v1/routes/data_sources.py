@@ -259,7 +259,7 @@ async def test_connection(
 
     The driver's error is for instance admins only (see _connection_error)."""
     await check_workspace_permission(db, body.workspace_id, user, "databases:write")
-    async with jobs.tracked(user.id, "New database · test the connection", workspace_id=body.workspace_id) as job_id:
+    async with jobs.tracked(user.id, "New database · Test the connection", workspace_id=body.workspace_id) as job_id:
         ok, error, tables = await data_source_service.test_connection(body.connection_config)
         if not ok:
             error = _connection_error(user, "connection_test", error, workspace_id=body.workspace_id)
@@ -566,7 +566,7 @@ async def derive_plan(
     """What deriving a cohort of this database would do with each of its tables."""
     source = await _load_source(db, source_id, user, "databases:read")
     try:
-        async with jobs.tracked(user.id, f"{_named(source)} · plan a cohort derivation", workspace_id=source.workspace_id):
+        async with jobs.tracked(user.id, f"{_named(source)} · Plan a cohort derivation", workspace_id=source.workspace_id):
             return await cohort_derive_service.plan(db, source, body.level, body.scope, user.id)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
@@ -792,7 +792,7 @@ async def create_from_ddl(
     # (browsing the database leaves one): DuckDB would refuse to open it again.
     connection_pool.invalidate(source.id)
     try:
-        async with jobs.tracked(user.id, f"{_named(source)} · create its tables (DDL)", workspace_id=source.workspace_id, input=body.ddl):
+        async with jobs.tracked(user.id, f"{_named(source)} · Create its tables (DDL)", workspace_id=source.workspace_id, input=body.ddl):
             await asyncio.to_thread(managed_db.create_from_ddl, path, body.ddl)
     except Exception as e:  # noqa: BLE001 — a bad DDL is a client error
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, redact_secrets(str(e)))
@@ -914,7 +914,7 @@ async def retest_data_source(
     """
     source = await _load_source(db, source_id, user, "databases:read")
     login = await _login(db, source, user)
-    async with jobs.tracked(user.id, f"{_named(source)} · test the connection", workspace_id=source.workspace_id) as job_id:
+    async with jobs.tracked(user.id, f"{_named(source)} · Test the connection", workspace_id=source.workspace_id) as job_id:
         ok, error, tables = await data_source_service.test_connection_stored(source, login)
         if not ok and _reaches_the_network(source):
             error = _connection_error(user, "retest", error, source)
@@ -963,7 +963,7 @@ async def get_flight_status(
     source = await _load_source(db, source_id, user, "databases:read")
     login = await _login(db, source, user)
     # Tracked outside the conversion: the job keeps the text the caller may read.
-    async with jobs.tracked(user.id, f"{_named(source)} · check Arrow Flight", workspace_id=source.workspace_id):
+    async with jobs.tracked(user.id, f"{_named(source)} · Check Arrow Flight", workspace_id=source.workspace_id):
         try:
             found = await data_source_service.flight_status(source, login)
             if found.get("detail"):
@@ -985,7 +985,7 @@ async def get_data_source_schema(
     mapping / table-discovery UI. Uses the stored (encrypted) credentials."""
     source = await _load_source(db, source_id, user, "databases:read")
     login = await _login(db, source, user)
-    async with jobs.tracked_if_slow(user.id, f"{_named(source)} · list its tables and columns", workspace_id=source.workspace_id) as late:
+    async with jobs.tracked_if_slow(user.id, f"{_named(source)} · List its tables and columns", workspace_id=source.workspace_id) as late:
         tables = await _introspect(db, source, login, user)
         late.note(f"{len(tables)} tables")
         return tables

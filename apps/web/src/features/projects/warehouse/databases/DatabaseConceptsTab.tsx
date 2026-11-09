@@ -287,7 +287,11 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
   const shownSteps = STEPS.filter((s) => progressOf[s].total > 0)
   // The statistics weigh their concepts by records: the busiest come first.
   const fraction = (s: Step) => (s === 'stats' && profiles.share != null ? profiles.share : progressOf[s].done / progressOf[s].total)
-  const percent = shownSteps.length > 0 ? (shownSteps.reduce((sum, s) => sum + fraction(s), 0) / shownSteps.length) * 100 : 0
+  // A server run of several steps says how far it is as its job does: each step a like share.
+  const runSteps = running ? profiles.server?.run?.state.steps : undefined
+  const percent = runSteps?.length
+    ? (runSteps.reduce((sum, s) => sum + s.share, 0) / runSteps.length) * 100
+    : shownSteps.length > 0 ? (shownSteps.reduce((sum, s) => sum + fraction(s), 0) / shownSteps.length) * 100 : 0
   const stale = profiles.stale != null && profiles.stale > 0 && (
     <span className="text-xs text-warning-foreground">{t('concepts.profiles_stale', { count: profiles.stale })}</span>
   )

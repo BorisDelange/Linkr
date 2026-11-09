@@ -462,7 +462,7 @@ async def create_dataset_from_query(
     # A whole result, uncapped: past `deferred.WAIT_SECONDS` it goes on as a job.
     return await deferred.respond(
         user.id, work, deferred.AsJob(
-            f"Dataset {path} · from a query", project_uid=body.project_uid, lane="heavy_query",
+            f"Dataset {path} · From a query", project_uid=body.project_uid, lane="heavy_query",
             input=body.sql, always=True, kind=jobs.QUERY_KIND,
         ),
     )

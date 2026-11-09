@@ -69,8 +69,16 @@ class ExtractionSpec(CamelModel):
     dictionary_keys: list[str]
 
 
+class RunStepName(CamelModel):
+    key: Literal["records", "patients", "stats"]
+    label: str
+
+
 class RunSpec(CamelModel):
     label: str
+    # The steps the job shows under its row, in order, named in the app's
+    # language: the counts' and the statistics' of a run doing several.
+    steps: list[RunStepName] = Field(default_factory=list)
     # The data the profiles describe (`dataFingerprint`), measured at start.
     fingerprint: str
     options: dict

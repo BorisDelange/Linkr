@@ -1,3 +1,4 @@
+import type { JobStep } from '@/lib/api/environments'
 import type { ServerRun } from '@/lib/api/server-runs'
 
 /** Where a concept run is (apps/api services/server_runs/concepts), as its checkpoint says. */
@@ -17,6 +18,8 @@ export interface ConceptRunState {
   current?: { conceptCode: string; conceptName: string }
   failedCount?: number
   failed?: { conceptId: number; error: string }[]
+  /** A run of several steps: each, as its job lists them. */
+  steps?: JobStep[]
 }
 
 export type ConceptRun = ServerRun<ConceptRunState>

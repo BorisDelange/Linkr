@@ -147,17 +147,20 @@ export function groupJobs(jobs: readonly Job[], names: JobNames = PLAIN_NAMES): 
   return rows
 }
 
+const capitalized = (text: string) => text.charAt(0).toLocaleUpperCase() + text.slice(1)
+
 /**
  * A label's "what it is for" and what the job does: the entity the label starts
  * by naming — `Database “test” · ` of `Database “test” · Patient list`, French
  * quotes alike —, else the bare name of the job's entity it starts with (`test · `,
  * as the server labels a database's queries). No head when it names neither.
+ * The action after a head starts with a capital, whoever wrote the label.
  */
 export function splitEntityHead(label: string, entity: JobEntity | null = null): { head: string; action: string } {
   const named = /^([^·“«]*[“«][^”»]*[”»]) · /.exec(label)
-  if (named) return { head: named[0], action: label.slice(named[0].length) }
+  if (named) return { head: named[0], action: capitalized(label.slice(named[0].length)) }
   const bare = entity?.name ? `${entity.name} · ` : null
-  if (bare && label.startsWith(bare)) return { head: bare, action: label.slice(bare.length) }
+  if (bare && label.startsWith(bare)) return { head: bare, action: capitalized(label.slice(bare.length)) }
   return { head: '', action: label }
 }
 

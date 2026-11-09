@@ -142,6 +142,20 @@ export interface Job {
   entityType?: string | null
   entityId?: string | null
   entityName?: string | null
+  /** The steps it goes through, listed under its row; absent on a job of one step. */
+  steps?: JobStep[] | null
+}
+
+/** One step of a job and how far it is. */
+export interface JobStep {
+  key: string
+  label: string
+  status: 'pending' | 'active' | 'done'
+  /** In the step's own units (batches, concepts). */
+  done: number
+  total: number
+  /** 0–1; its units may weigh unequally (a concept by its rows). */
+  share: number
 }
 
 /** What a finished derivation reports, on its job. */

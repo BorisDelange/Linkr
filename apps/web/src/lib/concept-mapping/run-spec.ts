@@ -52,8 +52,15 @@ export interface RunCountSpec {
   finalAssembleSql: string
 }
 
+/** A step of a run doing several, as its job lists it. */
+export interface RunStepName {
+  key: 'records' | 'patients' | 'stats'
+  label: string
+}
+
 export interface RunSpec {
   label: string
+  steps: RunStepName[]
   fingerprint: string
   options: ProfileOptions
   sort: ExtractionSort
@@ -70,6 +77,7 @@ export interface RunSpec {
 
 export interface RunSpecInput {
   label: string
+  steps?: RunStepName[]
   mapping: SchemaMapping
   sources: ProfileSource[]
   options: ProfileOptions
@@ -114,6 +122,7 @@ export async function buildRunSpec(input: RunSpecInput): Promise<RunSpec> {
   }
   return {
     label: input.label,
+    steps: input.steps ?? [],
     fingerprint: input.fingerprint,
     options,
     sort,

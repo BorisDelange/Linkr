@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, Ban, CheckCircle2, ChevronRight, XCircle, Hourglass, Square, Trash2, ExternalLink } from 'lucide-react'
+import { Loader2, Ban, CheckCircle2, ChevronRight, Circle, XCircle, Hourglass, Square, Trash2, ExternalLink, ScrollText } from 'lucide-react'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -18,7 +18,7 @@ import { formatDuration } from '@/lib/format-helpers'
 import { prettySql } from '@/lib/sql-pretty'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { useProjectRouteUid } from '@/hooks/use-project-route'
-import { listJobs, listWorkspaceJobs, listRunningJobs, cancelJob, clearJobs, clearWorkspaceJobs, onJobsChanged, type InstanceJob, type Job } from '@/lib/api/environments'
+import { listJobs, listWorkspaceJobs, listRunningJobs, cancelJob, clearJobs, clearWorkspaceJobs, onJobsChanged, type InstanceJob, type Job, type JobStep } from '@/lib/api/environments'
 import { useAuthStore } from '@/stores/auth-store'
 import { getJob } from '@/lib/api/query-jobs'
 import { openWebAppWindow, webAppFrameUrl } from '@/lib/api/web-apps'
@@ -56,7 +56,8 @@ function sameJobs(a: Job[], b: Job[]): boolean {
       j.summary === o.summary &&
       j.cancellable === o.cancellable &&
       j.stopping === o.stopping &&
-      j.finishedAt === o.finishedAt
+      j.finishedAt === o.finishedAt &&
+      JSON.stringify(j.steps) === JSON.stringify(o.steps)
     )
   })
 }
@@ -239,89 +240,121 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
 
   const hasFinished = listed.some((j) => !ACTIVE.has(j.status))
 
-  const renderJob = (job: Job) => (
-    <li key={job.id} className="flex items-center justify-between gap-2 rounded px-1.5 py-1 hover:bg-muted/50">
-      {/* Click the row to open the full log in a modal. */}
-      <button
-        className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-        onClick={() => { setLogJobId(job.id); setLogTab(job.kind === QUERY_KIND ? 'input' : 'output'); setPopoverOpen(false) }}
-        aria-label={`${job.label} — ${t('jobs.show_log')}`}
-      >
-        <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">
-          {formatJobTime(job.createdAt)}
-        </span>
-        <span className="flex shrink-0"><JobStatusIcon status={job.status} /></span>
-        {/* One line, named by what it is for; on hover, the whole label and
-            what it is for, in full. */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="min-w-0 truncate py-px leading-normal">
-              <JobLabel entity={entityOf(job)} label={job.label} />
+  const openLog = (job: Job) => {
+    setLogJobId(job.id)
+    setLogTab(job.kind === QUERY_KIND ? 'input' : 'output')
+    setPopoverOpen(false)
+  }
+
+  const renderJob = (job: Job) => {
+    // A job of several steps unfolds into them, as a group into its jobs.
+    const steps = job.steps && job.steps.length > 1 ? job.steps : null
+    const stepsKey = `steps:${job.id}`
+    const unfolded = !!steps && openGroups.has(stepsKey)
+    return (
+      <li key={job.id}>
+        <div className="flex items-center justify-between gap-2 rounded px-1.5 py-1 hover:bg-muted/50">
+          {/* Click the row to open the full log in a modal, or a job of steps to unfold them. */}
+          <button
+            className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+            onClick={() => (steps ? toggleGroup(stepsKey) : openLog(job))}
+            {...(steps ? { 'aria-expanded': unfolded } : { 'aria-label': `${job.label} — ${t('jobs.show_log')}` })}
+          >
+            <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">
+              {formatJobTime(job.createdAt)}
             </span>
-          </TooltipTrigger>
-          <TooltipContent side="top" sideOffset={4} className="max-w-96">
-            <JobFacts entity={entityOf(job)} label={job.label} job={job} />
-          </TooltipContent>
-        </Tooltip>
-        {job.kind === QUERY_KIND && job.status === 'done' && (
-          <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.summary}</span>
+            <span className="flex shrink-0"><JobStatusIcon status={job.status} /></span>
+            {steps && (
+              <ChevronRight size={12} className={cn('shrink-0 translate-y-px text-muted-foreground transition-transform', unfolded && 'rotate-90')} />
+            )}
+            {/* One line, named by what it is for; on hover, the whole label and
+                what it is for, in full. */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="min-w-0 truncate py-px leading-normal">
+                  <JobLabel entity={entityOf(job)} label={job.label} />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" sideOffset={4} className="max-w-96">
+                <JobFacts entity={entityOf(job)} label={job.label} job={job} />
+              </TooltipContent>
+            </Tooltip>
+            {job.kind === QUERY_KIND && job.status === 'done' && (
+              <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.summary}</span>
+            )}
+            {job.status === 'running' && job.progress > 0 && (
+              <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.progress}%</span>
+            )}
+            {isStopping(job) && <span className="shrink-0 text-[10px] text-destructive">{t('jobs.stopping')}</span>}
+            <JobDuration job={job} className="ml-auto shrink-0 text-[10px] text-muted-foreground" />
+          </button>
+          {steps && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button className="shrink-0 text-muted-foreground hover:text-foreground" onClick={() => openLog(job)} aria-label={t('jobs.show_log')}>
+                  <ScrollText size={12} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" sideOffset={4}>{t('jobs.show_log')}</TooltipContent>
+            </Tooltip>
+          )}
+          {job.kind === 'app' && ACTIVE.has(job.status) && webAppUrl(job) && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <a
+                  href={webAppFrameUrl(webAppUrl(job)!)}
+                  target="_blank"
+                  rel="noopener"
+                  onClick={(e) => {
+                    const appId = (job.result as { appId?: unknown } | null | undefined)?.appId
+                    if (typeof appId !== 'string') return
+                    e.preventDefault()
+                    setCancelError(null)
+                    void openWebAppWindow({ appId, url: webAppUrl(job)! }).catch((err) => {
+                      setCancelError(t('web_apps.session_failed', { error: err instanceof Error ? err.message : String(err) }))
+                    })
+                  }}
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  aria-label={t('web_apps.open_window')}
+                >
+                  <ExternalLink size={12} />
+                </a>
+              </TooltipTrigger>
+              <TooltipContent side="top" sideOffset={4}>
+                {t('web_apps.open_window')}
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {canStop(job) ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="shrink-0 text-muted-foreground hover:text-destructive disabled:text-destructive"
+                  onClick={() => void onCancel(job.id)}
+                  disabled={isStopping(job)}
+                  aria-label={t(isStopping(job) ? 'jobs.stopping' : 'jobs.cancel')}
+                >
+                  {isStopping(job) ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" sideOffset={4}>
+                {t(isStopping(job) ? 'jobs.stopping' : 'jobs.cancel_tooltip')}
+              </TooltipContent>
+            </Tooltip>
+          ) : (job.kind === QUERY_KIND && job.status === 'done') || ACTIVE.has(job.status) ? null : (
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {t(`jobs.status.${job.status}`)}
+            </span>
+          )}
+        </div>
+        {unfolded && (
+          <ul className="ml-3 flex flex-col gap-1 border-l pl-1">
+            {steps.map((step) => <JobStepRow key={step.key} step={step} jobStatus={job.status} />)}
+          </ul>
         )}
-        {job.status === 'running' && job.progress > 0 && (
-          <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.progress}%</span>
-        )}
-        {isStopping(job) && <span className="shrink-0 text-[10px] text-destructive">{t('jobs.stopping')}</span>}
-        <JobDuration job={job} className="ml-auto shrink-0 text-[10px] text-muted-foreground" />
-      </button>
-      {job.kind === 'app' && ACTIVE.has(job.status) && webAppUrl(job) && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <a
-              href={webAppFrameUrl(webAppUrl(job)!)}
-              target="_blank"
-              rel="noopener"
-              onClick={(e) => {
-                const appId = (job.result as { appId?: unknown } | null | undefined)?.appId
-                if (typeof appId !== 'string') return
-                e.preventDefault()
-                setCancelError(null)
-                void openWebAppWindow({ appId, url: webAppUrl(job)! }).catch((err) => {
-                  setCancelError(t('web_apps.session_failed', { error: err instanceof Error ? err.message : String(err) }))
-                })
-              }}
-              className="shrink-0 text-muted-foreground hover:text-foreground"
-              aria-label={t('web_apps.open_window')}
-            >
-              <ExternalLink size={12} />
-            </a>
-          </TooltipTrigger>
-          <TooltipContent side="top" sideOffset={4}>
-            {t('web_apps.open_window')}
-          </TooltipContent>
-        </Tooltip>
-      )}
-      {canStop(job) ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              className="shrink-0 text-muted-foreground hover:text-destructive disabled:text-destructive"
-              onClick={() => void onCancel(job.id)}
-              disabled={isStopping(job)}
-              aria-label={t(isStopping(job) ? 'jobs.stopping' : 'jobs.cancel')}
-            >
-              {isStopping(job) ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top" sideOffset={4}>
-            {t(isStopping(job) ? 'jobs.stopping' : 'jobs.cancel_tooltip')}
-          </TooltipContent>
-        </Tooltip>
-      ) : (job.kind === QUERY_KIND && job.status === 'done') || ACTIVE.has(job.status) ? null : (
-        <span className="shrink-0 text-[10px] text-muted-foreground">
-          {t(`jobs.status.${job.status}`)}
-        </span>
-      )}
-    </li>
-  )
+      </li>
+    )
+  }
 
   return (
     <>
@@ -736,6 +769,28 @@ function JobDuration({ job, className }: { job: Pick<Job, 'status' | 'startedAt'
     <span className={cn('tabular-nums', className)} title={t(job.finishedAt ? 'jobs.duration_done' : 'jobs.duration_running')}>
       {formatDuration(ms)}
     </span>
+  )
+}
+
+/** A step of a job: how far it is, or that it waits for the ones before it. */
+function JobStepRow({ step, jobStatus }: { step: JobStep; jobStatus: Job['status'] }) {
+  const { t } = useTranslation()
+  // A step the job left mid-way (stopped, failed) reads as the job ended.
+  const icon = step.status === 'done' ? <JobStatusIcon status="done" />
+    : step.status === 'active' ? <JobStatusIcon status={ACTIVE.has(jobStatus) ? 'running' : jobStatus} />
+      : <Circle size={12} className="text-muted-foreground/50" />
+  return (
+    <li className="flex items-center gap-1.5 rounded px-1.5 py-1">
+      <span className="flex shrink-0">{icon}</span>
+      <span className={cn('min-w-0 truncate', step.status === 'pending' && 'text-muted-foreground')}>{step.label}</span>
+      <span className="ml-auto shrink-0 tabular-nums text-[10px] text-muted-foreground">
+        {step.status === 'pending'
+          ? t('jobs.step_pending')
+          : step.status === 'active'
+            ? `${step.total > 0 ? `${step.done}/${step.total} · ` : ''}${Math.floor(step.share * 100)}%`
+            : null}
+      </span>
+    </li>
   )
 }
 
