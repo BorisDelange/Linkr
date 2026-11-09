@@ -10,7 +10,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
-import { ResizeGrip, SortIndicator, nextSorting, type TableSorting } from '@/components/ui/table-primitives'
+import { PageField, ResizeGrip, SortIndicator, nextSorting, type TableSorting } from '@/components/ui/table-primitives'
 import { TypeBadge } from '@/features/projects/lab/datasets/TypeBadge'
 import {
   ColumnFilterInput,
@@ -357,9 +357,7 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
               </Select>
             </>
           )}
-          <span className="text-xs text-muted-foreground">
-            {t('files.table_page', { page: page + 1, total: totalPages })}
-          </span>
+          <PageField page={page} pageCount={totalPages} onPageChange={setPage} dense={compact} />
           <Button
             variant="outline"
             size="icon"
