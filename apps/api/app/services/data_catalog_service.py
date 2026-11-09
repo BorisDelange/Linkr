@@ -33,6 +33,7 @@ async def create(db: AsyncSession, data: DataCatalogCreate) -> DataCatalog:
     await db.refresh(catalog)
     # Keyed by an id the client may choose, with no row to cascade from.
     await stats_cache_service.delete(db, "catalog", catalog.id)
+    await stats_cache_service.delete(db, "catalog-estimate", catalog.id)
     return catalog
 
 
@@ -48,15 +49,22 @@ async def update(
     return catalog
 
 
+# A catalog's server runs: its computation's checkpoint, its size estimate, and its audit's, with what it publishes.
+_RUN_KINDS = ("catalog", "catalog_estimate", "catalog_audit")
+
+
 async def delete(db: AsyncSession, catalog: DataCatalog) -> None:
     from app.services import git_service
+    from app.services.server_runs import runs
 
     catalog_id = catalog.id
+    await runs.forget(db, _RUN_KINDS, [catalog_id])
     await db.delete(catalog)
     await db.commit()
     # The README attachments' owner is polymorphic (no FK), so clean them here.
     await attachment_service.delete_readme_for_owner(db, "data-catalog", catalog_id)
     await attachment_service.delete_readme_for_owner(db, "data-catalog-site", catalog_id)
     await stats_cache_service.delete(db, "catalog", catalog_id)
+    await stats_cache_service.delete(db, "catalog-estimate", catalog_id)
     # Remove the on-disk versioning working tree so it doesn't linger as an orphan.
     git_service.remove_repo("data-catalogs", catalog_id)

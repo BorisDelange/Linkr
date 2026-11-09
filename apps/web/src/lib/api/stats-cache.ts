@@ -5,6 +5,7 @@ import type {
   EtlQualityCacheStorage,
 } from '@/lib/storage'
 import type { CatalogResultCache, DatabaseStatsCache, EtlQualityCache } from '@/types'
+import type { CrossingEstimate } from '@/lib/duckdb/catalog-compute'
 
 /** Server-side shared cache wire shape (see StatsCacheResponse). */
 interface StatsCacheWire {
@@ -33,6 +34,12 @@ export const apiDatabaseStatsCacheStorage: DatabaseStatsCacheStorage = {
   async delete(dataSourceId) {
     await apiRequest(`/data-sources/${encodeURIComponent(dataSourceId)}/stats-cache`, { method: 'DELETE' })
   },
+}
+
+/** The crossings' size estimates the server made for a catalog (kind
+ *  `catalog_estimate`), by `estimateKey`. */
+export function getCatalogEstimates(catalogId: string): Promise<Record<string, CrossingEstimate>> {
+  return apiRequest<Record<string, CrossingEstimate>>(`/data-catalogs/${encodeURIComponent(catalogId)}/estimates`)
 }
 
 /** Shared catalog-results cache, same pattern keyed by catalog id. */

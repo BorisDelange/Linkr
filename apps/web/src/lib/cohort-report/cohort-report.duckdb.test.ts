@@ -7,7 +7,8 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import type { Cohort, CriteriaTreeNode } from '@/types'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
-import { buildCohortReportModel, computeCohortReportData, shapeCohortReportModel, withReportFlow } from './model'
+import type { PlanResults } from '@/lib/server-runs/query-plan'
+import { buildCohortReportModel, cohortFiguresQueries, computeCohortReportData, shapeCohortReportModel, withReportFlow } from './model'
 
 // The report in one query, the members computed once, must say exactly what it
 // says section by section — run here on a real DuckDB.
@@ -140,5 +141,28 @@ describe('the report in one query', () => {
     // Completed once: asked again, nothing is read.
     expect(await withReportFlow(completed, { cohort: cohort('visit'), mapping: MAPPING, run: completion.run })).toBe(completed)
     expect(completion.sent).toHaveLength(1)
+  })
+
+  it('says the same as a plan of independent queries, what a server run runs', async () => {
+    const results = async (items: { key: string; sql: string }[]): Promise<PlanResults> => {
+      const { run } = runner()
+      return new Map(await Promise.all(items.map(async (i) => [i.key, await run(i.sql)] as const)))
+    }
+    const args = { cohort: cohort('visit'), mapping: MAPPING }
+    const whole = cohortFiguresQueries({ ...args, withFlow: true })
+    expect(whole.items.map((i) => i.key)).toEqual(['sections', 'step_1'])
+    const data = whole.assemble(await results(whole.items), NOW.toISOString())
+    expect(shapeCohortReportModel(data, { ...SHAPE, ...args })).toEqual((await report('visit', true)).model)
+
+    // The Statistics tab's figures, completed for the report by the steps alone.
+    const stats = cohortFiguresQueries({ ...args, withFlow: false })
+    const base = stats.assemble(await results(stats.items), NOW.toISOString())
+    const completion = cohortFiguresQueries({ ...args, withFlow: true, base })
+    expect(completion.items.map((i) => i.key)).toEqual(['step_1'])
+    expect(completion.assemble(await results(completion.items), 'later')).toEqual(data)
+
+    // A step that failed fails the figures rather than count it as nobody.
+    const failed: PlanResults = new Map<string, Record<string, unknown>[] | Error>([['sections', []], ['step_1', new Error('cut')]])
+    expect(() => whole.assemble(failed, 'x')).toThrow('cut')
   })
 })

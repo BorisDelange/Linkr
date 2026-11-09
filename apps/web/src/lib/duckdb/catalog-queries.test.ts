@@ -14,6 +14,7 @@ import {
   periodExpr,
   serviceGroupingExpr,
 } from './catalog-queries'
+import { fillCatalogSql } from './catalog-sql-fill'
 
 const v1 = {
   patientTable: { table: 'person', idColumn: 'person_id', birthDateColumn: 'birth_datetime', birthYearColumn: 'year_of_birth', genderColumn: 'gender_concept_id' },
@@ -51,18 +52,20 @@ describe('variable expressions', () => {
   })
 
   it('keeps the top services and folds the rest into Other', () => {
-    const sql = serviceGroupingExpr('s', service({ grouping: 'top' }), ['ICU', "O'Neil ward"])
-    expect(sql).toContain("IN ('ICU', 'O''Neil ward') THEN s ELSE '__other__'")
+    const sql = serviceGroupingExpr('s', service({ grouping: 'top' }))
+    expect(fillCatalogSql(sql, { topServices: ['ICU', "O'Neil ward"] })).toContain("IN ('ICU', 'O''Neil ward') THEN s ELSE '__other__'")
+    // No service ranked: every one is Other.
+    expect(fillCatalogSql(sql)).toContain("WHEN s IN (NULL) THEN s ELSE '__other__'")
   })
 
   it('maps services to named groups, the rest to Other or to itself', () => {
     const groups = { 'MICU': 'ICU', 'SICU': 'ICU', 'Cardio': 'Cardiology', 'Ignored': '  ' }
-    const other = serviceGroupingExpr('s', service({ grouping: 'manual', groups }), [])
+    const other = serviceGroupingExpr('s', service({ grouping: 'manual', groups }))
     expect(other).toContain("WHEN s IN ('MICU', 'SICU') THEN 'ICU'")
     expect(other).toContain("WHEN s IN ('Cardio') THEN 'Cardiology'")
     expect(other).not.toContain('Ignored')
     expect(other).toMatch(/ELSE '__other__' END$/)
-    expect(serviceGroupingExpr('s', service({ grouping: 'manual', groups, unassigned: 'keep' }), [])).toMatch(/ELSE s END$/)
+    expect(serviceGroupingExpr('s', service({ grouping: 'manual', groups, unassigned: 'keep' }))).toMatch(/ELSE s END$/)
   })
 })
 
@@ -120,9 +123,12 @@ describe('buildCrossingQuery', () => {
     const sql = buildCrossingQuery({
       mapping,
       variables: { ...variables, concept: { enabled: true, level: 'concept', scope: 'all', topN: 10 } },
-      conceptFilter: [{ dictKey: 'concept', ids: ['3000963', '3023314'] }],
     }, ['concept', 'period'])!
-    expect(sql).toContain("IN ('3000963', '3023314')")
+    const chunk = (ids: string[]) => fillCatalogSql(sql, { conceptFilter: [{ dictKey: 'concept', ids }], dictKeys: ['concept'] })
+    expect(chunk(['3000963', '3023314'])).toContain("e.concept_id IN ('3000963', '3023314')")
+    // A dictionary with nothing in the chunk counts nothing, its parts kept.
+    expect(chunk([])).toContain('AND FALSE')
+    expect(fillCatalogSql(sql)).not.toContain(' IN (')
   })
 
   it('gives up when a variable cannot be expressed on this mapping', () => {
@@ -153,9 +159,9 @@ describe('cell keys', () => {
   })
 
   it('keys the concept list and the totals the same way', () => {
-    const [q] = buildConceptCountQueries(mapping, 'domain_id', undefined, null, true, 'db')!
+    const [q] = buildConceptCountQueries(mapping, 'domain_id', undefined, true, 'db')!
     expect(q.sql).toContain('AS patient_key')
-    expect(buildTotalsQuery(mapping, null, undefined, 'db')).toContain('SELECT DISTINCT patient_id AS pid FROM linkr_visit')
+    expect(buildTotalsQuery(mapping, undefined, 'db')).toContain('SELECT DISTINCT patient_id AS pid FROM linkr_visit')
   })
 })
 
@@ -169,14 +175,14 @@ describe('buildConceptCountQueries', () => {
   })
 
   it('leaves the visits out when the catalog does not count them', () => {
-    const [q] = buildConceptCountQueries(mapping, 'domain_id', undefined, null, false)!
+    const [q] = buildConceptCountQueries(mapping, 'domain_id', undefined, false)!
     expect(q.sql).not.toContain('per_visit')
     expect(q.sql).not.toContain('visit_count')
   })
 
   it('counts one slice of the patients', () => {
-    const [q] = buildConceptCountQueries(mapping, undefined, undefined, { lo: 10, hi: "O'1" })!
-    expect(q.sql).toContain("e.patient_id >= 10 AND e.patient_id < 'O''1'")
+    const [q] = buildConceptCountQueries(mapping)!
+    expect(fillCatalogSql(q.sql, { range: { lo: 10, hi: "O'1" } })).toContain("e.patient_id >= 10 AND e.patient_id < 'O''1'")
   })
 })
 
@@ -196,16 +202,16 @@ describe('patient slices', () => {
 
   it('restricts a crossing to the slice, visits and events alike', () => {
     const variables: CatalogVariables = { ...defaultCatalogVariables(), concept: { enabled: true, level: 'concept', scope: 'all', topN: 10 } }
-    expect(buildCrossingQuery({ mapping, variables, range: { lo: 1, hi: 9 } }, ['period'])).toContain('AND v.patient_id >= 1 AND v.patient_id < 9')
-    expect(buildCrossingQuery({ mapping, variables, range: { lo: 1 } }, ['concept', 'period'])).toContain('AND e.patient_id >= 1')
+    expect(fillCatalogSql(buildCrossingQuery({ mapping, variables }, ['period'])!, { range: { lo: 1, hi: 9 } })).toContain('AND v.patient_id >= 1 AND v.patient_id < 9')
+    expect(fillCatalogSql(buildCrossingQuery({ mapping, variables }, ['concept', 'period'])!, { range: { lo: 1 } })).toContain('AND e.patient_id >= 1')
   })
 
   it('cuts the patients at the ranks ⌈n·k/slices⌉', () => {
-    const sql = buildPatientBoundsQuery(mapping, 4)!
+    const sql = fillCatalogSql(buildPatientBoundsQuery(mapping)!, { slices: 4 })
     expect(sql).toContain('ROW_NUMBER() OVER (ORDER BY patient_id) AS rn, COUNT(*) OVER () AS n')
     expect(sql).toContain('((rn - 1) * 4 < n * 1 AND rn * 4 >= n * 1)')
     expect(sql).toContain('((rn - 1) * 4 < n * 3 AND rn * 4 >= n * 3)')
-    expect(buildPatientBoundsQuery(mapping, 1)).toBeNull()
+    expect(() => fillCatalogSql(buildPatientBoundsQuery(mapping)!, { slices: 1 })).toThrow()
   })
 })
 
@@ -233,5 +239,20 @@ describe('size of a (terminology, code) thesaurus', () => {
     const sql = buildSizeQuery(thesaurus, ['persons', 'thesaurus'])!
     expect(sql).not.toMatch(/\bfacts\b/)
     expect(sql).toContain('WHERE false')
+  })
+})
+
+describe('fillCatalogSql', () => {
+  it('fills only the tokens that are comments of the query, not text in a literal or a line comment', () => {
+    const sql = `SELECT '/*LINKR_SERVICE_TOP*/', "/*LINKR_RANGE:AND:x*/" -- /*LINKR_RANGE:AND:y*/\nFROM t WHERE s IN (/*LINKR_SERVICE_TOP*/)/*LINKR_RANGE:AND:t.p*/ /*LINKR_OTHER*/`
+    expect(fillCatalogSql(sql, { topServices: ["it's"], range: { hi: 3 } })).toBe(
+      `SELECT '/*LINKR_SERVICE_TOP*/', "/*LINKR_RANGE:AND:x*/" -- /*LINKR_RANGE:AND:y*/\nFROM t WHERE s IN ('it''s') AND t.p < 3 /*LINKR_OTHER*/`,
+    )
+  })
+
+  it('keeps every concept without a filter, and filters each dictionary by its index', () => {
+    const sql = 'x/*LINKR_CONCEPT_IN:0:e.a*/ y/*LINKR_CONCEPT_IN:1:e.b*/'
+    expect(fillCatalogSql(sql)).toBe('x y')
+    expect(fillCatalogSql(sql, { conceptFilter: [{ dictKey: 'd2', ids: ['7'] }], dictKeys: ['d1', 'd2'] })).toBe("x AND FALSE y AND e.b IN ('7')")
   })
 })

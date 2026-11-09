@@ -15,12 +15,12 @@ interrupts the query in flight, not only the task waiting on it. While one runs,
 the job reports how much of its data it has read (`query_cancel.progress`).
 
 Results live under `data_dir/job-results/<job id>/<key>.json`, the same body
-`/query` answers. They go when the job is cleared from the panel, or after
+`/query` answers, beside the job's keys (`keys.list`): a page reloaded while
+the job runs reads them to follow it rather than start another. They go when the job is cleared from the panel, or after
 `RESULTS_TTL_SECONDS` (swept at startup and by storage_gc's loop).
 """
 
 import asyncio
-import contextlib
 import json
 import re
 import shutil
@@ -103,26 +103,6 @@ def read_rows(login: Login | None, pushdown: bool) -> Runner:
     return run
 
 
-# A concept job's query whose key starts so writes the list from the units done
-# so far, rather than count a unit.
-ASSEMBLE_KEY_PREFIX = "assemble-"
-
-
-def write_concept_units(login: Login | None, run_id: str) -> Runner:
-    """Each query is a counting unit of run `run_id`, kept as its unit's file
-    (data_source_service.write_concept_unit), or an assembly of the concept list
-    from the units done so far: nothing for the client to fetch. Assembling in
-    the job, between two units, keeps it from running beside a heavy one."""
-
-    async def run(db: AsyncSession, source: DataSource, q: JobQuery) -> None:
-        if q.key.startswith(ASSEMBLE_KEY_PREFIX):
-            await data_source_service.assemble_concept_cache(db, source, login, q.sql)
-        else:
-            await data_source_service.write_concept_unit(db, source, login, q.key, q.sql, run_id)
-
-    return run
-
-
 async def start(
     db,
     source_id: str,
@@ -132,19 +112,17 @@ async def start(
     queries: list[JobQuery],
     runner: Runner,
     keep_going: bool = False,
-    share_lane: bool = False,
+    group_key: str | None = None,
+    group_label: str | None = None,
 ):
     """Create the job and launch it; returns the queued Job row.
 
     A failing query ends the job, unless `keep_going`: its error is then kept by
-    its key and the next one runs (a rule set's checks, each judged alone).
-
-    `share_lane`: the job takes the heavy-query lane for each query, not for its
-    whole run — a long run (a database's concept profiles, for hours) lets the
-    heavy queries asked meanwhile through between two of its own."""
+    its key and the next one runs (a rule set's checks, each judged alone)."""
     job = await jobs.create(
         db, None, user_id, kind="query", label=label, workspace_id=workspace_id,
         input="\n\n".join(f"-- {q.key}\n{q.sql.strip()};" for q in queries),
+        group_key=group_key, group_label=group_label,
     )
     job_id = job.id
     # Tags the query in flight so a cancel can interrupt it (query_cancel).
@@ -169,30 +147,25 @@ async def start(
                 await handle.set_result(progress(current=key, reading=int(pct)))
                 await handle.progress(int(100 * (i + pct / 100) / len(queries)))
 
-            async with jobs.lane_slot("heavy_query") if share_lane else contextlib.nullcontext():
-                # Queued while it waits for its first slot, not running.
-                if share_lane and i == 0:
-                    await jobs.mark_running(job_id)
-                # From its slot: the wait for it is not the query's time.
-                started = time.monotonic()
-                run = asyncio.create_task(_run_one(job_id, source_id, runner, q, tag, launched_by))
-                watch = asyncio.create_task(_watch_progress(tag, reading))
-                rows = None
+            started = time.monotonic()
+            run = asyncio.create_task(_run_one(job_id, source_id, runner, q, tag, launched_by))
+            watch = asyncio.create_task(watch_progress(tag, reading))
+            rows = None
+            try:
                 try:
-                    try:
-                        rows = await run
-                    finally:
-                        # Waited for, so a late report cannot land over what follows,
-                        # the error included.
-                        watch.cancel()
-                        await asyncio.gather(watch, return_exceptions=True)
-                except Exception as e:
-                    # The log keeps it too, but a DuckDB error spans lines: the client
-                    # shows this one whole.
-                    if not keep_going:
-                        await handle.set_result(progress(error=str(e)))
-                        raise
-                    errors[key] = str(e)
+                    rows = await run
+                finally:
+                    # Waited for, so a late report cannot land over what follows,
+                    # the error included.
+                    watch.cancel()
+                    await asyncio.gather(watch, return_exceptions=True)
+            except Exception as e:
+                # The log keeps it too, but a DuckDB error spans lines: the client
+                # shows this one whole.
+                if not keep_going:
+                    await handle.set_result(progress(error=str(e)))
+                    raise
+                errors[key] = str(e)
             elapsed = time.monotonic() - started
             if rows is not None:
                 await asyncio.to_thread(write_result, result_path(job_id, key), rows)
@@ -204,11 +177,11 @@ async def start(
             outcome = "failed" if key in errors else "" if rows is None else f"{len(rows)} rows"
             await handle.log(f"{i + 1}/{len(queries)} {key}{': ' + outcome if outcome else ''} in {elapsed:.1f} s")
 
-    jobs.launch(job_id, body, lane=None if share_lane else "heavy_query", running=not share_lane)
+    jobs.launch(job_id, body, lane="heavy_query")
     return job
 
 
-async def _watch_progress(tag: tuple[str, str], report) -> None:
+async def watch_progress(tag: tuple[str, str], report) -> None:
     """Report how much of its data the query in flight has read, whenever that
     moves by a whole percent — until cancelled. A query DuckDB cannot follow
     (pushed down to an external database) reports nothing."""

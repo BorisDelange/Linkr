@@ -9,11 +9,11 @@ import { deleteCohortBoard } from '@/lib/cohort-board-storage'
 import { stampAuthored } from '@/stores/app-store'
 import { copyName } from '@/lib/copy-name'
 import { localized, toLocalized } from '@/lib/localized'
-import { buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql, buildCustomSqlOutputSql, cohortIdColumn, cohortRunError } from '@/lib/duckdb/cohort-query'
-import { cohortRelationNarrowing } from '@/features/projects/warehouse/cohorts/relation-narrowing'
-import { relationsCountedAt } from '@/features/projects/warehouse/patient-data/timeline-relations'
+import { buildCohortMembershipSql, cohortRunError } from '@/lib/duckdb/cohort-query'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import * as engine from '@/lib/duckdb/engine'
+import { followServerPlan, preparePlan, type PlanResults } from '@/lib/server-runs/query-plan'
+import { compileCohortRun, OUTPUT_KEY, outputOf } from '@/lib/cohort-run-plan'
 import type {
   Cohort,
   CohortLevel,
@@ -21,7 +21,6 @@ import type {
   CohortExecutionResult,
   CustomSqlOutput,
   CohortMaterialization,
-  AttritionStep,
   SchemaMapping,
   DataSourceRef,
   LocalizedString,
@@ -33,11 +32,6 @@ import { cohortOrigin } from '@/lib/duckdb/query-log'
 // ---------------------------------------------------------------------------
 
 const CURRENT_SCHEMA_VERSION = 5
-
-/** Result rows loaded per run. Matches the server's MAX_QUERY_ROWS (see
- *  `database.py`), which silently truncates anything larger — asking for more
- *  would report a page as complete when it isn't. */
-const MAX_RESULT_ROWS = 10_000
 
 function migrateCohortIfNeeded(raw: Record<string, unknown>): Cohort {
   // Already at latest version
@@ -230,7 +224,13 @@ interface CohortState {
     /** Run this SQL in place of the saved one (an unsaved edit; null = the
      *  criteria). Its count is shown, not stored on the cohort. */
     customSqlDraft?: string | null,
+    /** `rejoin`: only take up the server's run of the saved definition, going on
+     *  or finished unseen — a page coming back after a reload or a closed tab. */
+    options?: { rejoin?: boolean },
   ) => Promise<number>
+  /** Server mode: show — and store — the saved definition's run the server went
+   *  on with while no page followed it. Nothing when this page runs or ran one. */
+  rejoinCohortRun: (id: string, dataSourceId: string, schemaMapping?: SchemaMapping) => Promise<void>
   /** Interrupt the cohort's run in progress: it ends with `CANCELLED`. */
   cancelExecution: (id: string) => void
   /** Settle a result run from an unsaved draft once the draft is gone: kept (and
@@ -416,7 +416,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     }))
   },
 
-  executeCohort: async (id, dataSourceId, schemaMapping, customSqlDraft) => {
+  executeCohort: async (id, dataSourceId, schemaMapping, customSqlDraft, { rejoin = false } = {}) => {
     const saved = get().cohorts.find((c) => c.id === id)
     if (!saved || !schemaMapping) return 0
     const draft = customSqlDraft !== undefined && customSqlDraft !== (saved.customSql ?? null)
@@ -427,9 +427,6 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     get().executionAborts.get(id)?.abort()
     const controller = new AbortController()
     const { signal } = controller
-    const named = cohortOrigin(localized(cohort.name, 'en'))
-    const query = (sql: string, what: string) =>
-      engine.queryDataSource(dataSourceId, sql, { signal, heavy: true, origin: named(what) })
     const isCurrent = () => get().executionAborts.get(id) === controller
     const setIfCurrent = (fn: (s: CohortState) => Partial<CohortState>) =>
       set((s) => (s.executionAborts.get(id) === controller ? fn(s) : {}))
@@ -450,76 +447,51 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     const startTime = Date.now()
 
     try {
-      // The query as written runs on its own, so its rows show even when they
-      // list no member — and its failure never hides the cohort's own error.
-      const outputSql = buildCustomSqlOutputSql(cohort, MAX_RESULT_ROWS)
-      if (outputSql) {
-        const start = Date.now()
-        let output: CustomSqlOutput
-        try {
-          const rows = await query(outputSql, 'its SQL as written, for SQL output')
-          output = { rows, truncated: rows.length >= MAX_RESULT_ROWS, durationMs: Date.now() - start }
-        } catch (err) {
-          if (signal.aborted) throw err
-          output = { rows: [], truncated: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
-        }
-        setIfCurrent((s) => ({ customSqlOutputs: new Map(s.customSqlOutputs).set(id, output) }))
-      }
-
-      // A hand-written query stands in for the criteria inside every builder.
-      const narrowing = await cohortRelationNarrowing(dataSourceId, schemaMapping, cohort)
-      // Fetch up to the server's own cap rather than a token 50: the results
-      // table paginates client-side, so a 50-row fetch showed "50 / 50" on a
-      // cohort of 1500. The same query counts the cohort.
-      const resultsSql = buildCohortResultsSql(cohort, schemaMapping, MAX_RESULT_ROWS, narrowing)
-      const narrowed = !!narrowing && resultsSql !== buildCohortResultsSql(cohort, schemaMapping, MAX_RESULT_ROWS)
-      const narrowedBy = narrowed ? { countedAt: await relationsCountedAt(dataSourceId).catch(() => null) } : undefined
+      const compiled = await compileCohortRun(cohort, dataSourceId, schemaMapping, draft)
       // No SQL means the criteria tree produced nothing runnable (an empty group,
       // a criterion missing its concepts). Returning silently here left the panel
       // spinning, then back on "run the query" as if nothing had happened.
-      if (!resultsSql) throw new Error('EMPTY_QUERY')
-      const resultsStart = Date.now()
-      const rows = await query(resultsSql, 'members and count')
-      const totalCount = Number(rows[0]?.cohort_total ?? 0)
-      for (const row of rows) delete row.cohort_total
-      // The generated query's output is the members' ids, just read: running it
-      // again would evaluate the criteria a second time.
-      if (!outputSql && cohort.level !== 'event') {
-        const column = cohortIdColumn(cohort.level)
-        const output: CustomSqlOutput = {
-          rows: rows.map((row) => ({ [column]: row[column] })),
-          truncated: totalCount > rows.length,
-          durationMs: Date.now() - resultsStart,
+      if (!compiled) throw new Error('EMPTY_QUERY')
+      const results: PlanResults = new Map()
+      // The query as written runs on its own, so its rows show even when they
+      // list no member — and its failure never hides the cohort's own error.
+      const onRows = (key: string, rows: Record<string, unknown>[] | null, error?: string) => {
+        results.set(key, error != null || !rows ? new Error(error ?? 'no rows') : rows)
+        if (key === OUTPUT_KEY) setIfCurrent((s) => ({ customSqlOutputs: new Map(s.customSqlOutputs).set(id, outputOf(results, startTime)) }))
+      }
+      if (isServerMode()) {
+        // A run of the server's: a reload, a closed tab or a restart leaves it
+        // going on, and the page that comes back finds it (`rejoinCohortRun`).
+        const plan = await preparePlan(dataSourceId, compiled.plan)
+        const run = await followServerPlan('cohort_run', id, plan,
+          (i, rows, error) => onRows(plan.items[i].key, rows, error), { signal, resumeOnly: rejoin, finished: rejoin })
+        if (!run) {
+          setIfCurrent((s) => ({ executionLoading: new Map(s.executionLoading).set(id, false) }))
+          return 0
         }
-        setIfCurrent((s) => ({ customSqlOutputs: new Map(s.customSqlOutputs).set(id, output) }))
+        if (run.status === 'cancelled' || run.status === 'paused') throw new DOMException('cancelled', 'AbortError')
+        if (run.status !== 'done') throw new Error(run.error ?? `the cohort run ended ${run.status}`)
+      } else {
+        const named = cohortOrigin(localized(cohort.name, 'en'))
+        for (const item of compiled.plan.items) {
+          try {
+            onRows(item.key, await engine.queryDataSource(dataSourceId, item.sql, { signal, heavy: true, origin: named(item.what ?? item.key) }))
+          } catch (err) {
+            if (signal.aborted) throw err
+            onRows(item.key, null, err instanceof Error ? err.message : String(err))
+          }
+        }
       }
 
-      const attrition: AttritionStep[] = []
-      let prevCount = 0
-      const steps = buildAttritionQueries(cohort, schemaMapping, { narrowing })
-      for (const [i, aq] of steps.entries()) {
-        // The last step keeps every criterion: the cohort itself, counted above.
-        const count = i === steps.length - 1 ? totalCount : Number((await query(aq.sql, `attrition step ${i + 1}/${steps.length}: ${aq.label}`))[0]?.cnt ?? 0)
-        attrition.push({
-          nodeId: aq.nodeId,
-          label: aq.label,
-          count,
-          excluded: aq.nodeId === '__total__' ? 0 : prevCount - count,
-        })
-        prevCount = count
-      }
-
-      const durationMs = Date.now() - startTime
       const result: CohortExecutionResult = {
-        totalCount,
-        attrition,
-        rows,
-        sql: resultsSql,
+        ...compiled.assemble(results),
         executedAt: new Date().toISOString(),
-        durationMs,
+        durationMs: Date.now() - startTime,
         ...(draft ? { fromDraft: { customSql: customSqlDraft ?? null } } : {}),
-        ...(narrowedBy ? { narrowedBy } : {}),
       }
+      const output = compiled.ownOutput(result)
+      if (output) setIfCurrent((s) => ({ customSqlOutputs: new Map(s.customSqlOutputs).set(id, { ...output, durationMs: result.durationMs }) }))
+      const { totalCount, attrition } = result
 
       if (!isCurrent()) return totalCount
       // Persist and publish in the same tick: awaiting storage first let a newer
@@ -538,6 +510,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       return totalCount
     } catch (err) {
       if (!isCurrent()) return 0
+      const cancelled = signal.aborted || (err instanceof DOMException && err.name === 'AbortError')
       set((s) => {
         // Drop the previous run's result. The panel only shows the error when
         // there is no result to show, so keeping a stale one made a failed
@@ -549,11 +522,11 @@ export const useCohortStore = create<CohortState>((set, get) => ({
           executionLoading: new Map(s.executionLoading).set(id, false),
           executionErrors: new Map(s.executionErrors).set(
             id,
-            signal.aborted ? 'CANCELLED' : cohortRunError(cohort, err instanceof Error ? err.message : String(err)),
+            cancelled ? 'CANCELLED' : cohortRunError(cohort, err instanceof Error ? err.message : String(err)),
           ),
         }
       })
-      if (!signal.aborted) throw err
+      if (!cancelled) throw err
       return 0
     } finally {
       set((s) => {
@@ -563,6 +536,11 @@ export const useCohortStore = create<CohortState>((set, get) => ({
         return { executionAborts: aborts }
       })
     }
+  },
+
+  rejoinCohortRun: async (id, dataSourceId, schemaMapping) => {
+    if (!isServerMode() || get().executionAborts.has(id) || get().executionResults.has(id)) return
+    await get().executeCohort(id, dataSourceId, schemaMapping, undefined, { rejoin: true }).catch(() => {})
   },
 
   cancelExecution: (id) => {

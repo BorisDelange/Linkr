@@ -37,6 +37,7 @@ Built, and beyond what the automated journeys can check.
 |------|------|--------|
 | Scale, on a ~1B-row database: Concepts tab counts with pause and resume ([scale-plan.md](scale-plan.md) §5), Timeline + Notes on a selected stay, Data overview zoom levels, the unsorted-Parquet warning | both | S |
 | Concept profiles: percentages, SQL dialog, store, concept panel, mapping extraction; a job paused then reopened ([concept-profiles-plan.md](concept-profiles-plan.md) §7) | both | S |
+| Server-owned concept runs on a real warehouse: Concepts tab counts + statistics and a mapping extraction, reloaded, paused, resumed, the server restarted mid-run, a hung query stopped within its deadline ([server-runs-plan.md](server-runs-plan.md) §8) | server | S |
 | SQL Server and Oracle added through the dialog against the SPE datamarts | server | S |
 | Doris against the local Doris ([doris-plan.md](doris-plan.md) §3.1), then the syntax probe: `apps/api/.venv/bin/python scripts/doris-syntax-probe.py`; any FAIL → that rule becomes `NotPortable` in `remote_sql.py` | server | S |
 | Heavy jobs with a datamart slow enough to pass the gateway timeout: counts, DQ, stats, `deferred` routes, ETL as a job, Jobs panel progress ([heavy-jobs-plan.md](heavy-jobs-plan.md)) | server | M |
@@ -61,6 +62,7 @@ Built, and beyond what the automated journeys can check.
 
 | Item | Effort |
 |------|--------|
+| Server-owned runs for every long computation: ETL pipeline, data catalog (Python twin), ETL Quality, catalog estimate, cohorts, disclosure audit ([server-runs-2-plan.md](server-runs-2-plan.md)) | L |
 | Oracle, user SQL (editors, notebooks, ETL): fetch each table through `oracle_client` with its columns and simple filters, rather than whole through the extension ([duckdb-2-plan.md](duckdb-2-plan.md)) | M |
 | Doris: `remote_query()` for R and Python; cohort derive reads source tables whole (`cohort_derive.py`); the validator refuses `connectionConfig`, which `entity-io` exports | M |
 | Retire `concept_stats_caches` for the profile store ([concept-profiles-plan.md](concept-profiles-plan.md) step 4) | S |

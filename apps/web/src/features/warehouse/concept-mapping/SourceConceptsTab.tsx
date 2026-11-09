@@ -9,7 +9,6 @@ import { Progress } from '@/components/ui/progress'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Switch } from '@/components/ui/switch'
 import { MULTI_SELECT_FORM_TRIGGER, MultiSelectFilter } from '@/components/ui/multi-select-filter'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -40,9 +39,7 @@ import {
   extractionColumnMapping,
   extractionCsvHeader,
   extractedConceptIds,
-  sortNeedsCounts,
   type ExtractionSort,
-  type ExtractionSortKey,
 } from '@/lib/concept-mapping/source-extraction'
 import {
   clearRunError,
@@ -50,30 +47,28 @@ import {
   pauseRun,
   startRun,
   watchRun,
+  workDone,
   type RunSnapshot,
 } from '@/lib/concept-mapping/extraction-runner'
 import type { DataSource, MappingProject, SourceExtraction } from '@/types'
 import { countedRecordsOf } from '@/features/projects/warehouse/concepts/counted-records'
-import { serverProfileJobs } from '@/lib/concept-mapping/server-profile-jobs'
 import { localized } from '@/lib/localized'
+import { isServerMode } from '@/lib/api-client'
+import { prepareQuerySql } from '@/lib/duckdb/engine'
+import { runShare, type ConceptRunState } from '@/lib/api/concept-runs'
+import { buildRunSpec } from '@/lib/concept-mapping/run-spec'
+import { useServerRun } from '@/hooks/use-server-run'
 
 interface SourceConceptsTabProps {
   project: MappingProject
   dataSource?: DataSource
 }
 
-/**
- * The orders a dictionary can be walked in, busiest first.
- *
- * `records` leads because it is the answer most of the time: an extraction runs
- * for hours, and the concepts a mapping project lives on are the ones the
- * warehouse actually holds data for. The dictionary orders itself by the last
- * three at no cost; the first two need the counting pass.
- */
-/** The walk of a run that profiles nothing: the dictionary's own order. */
+/** The walk of a run that profiles nothing: the dictionary's own order. A run
+ *  that does walks the busiest concepts first (DEFAULT_EXTRACTION_SORT): it runs
+ *  for hours, and those are what a mapping project lives on. */
 const DICTIONARY_ORDER: ExtractionSort = { key: 'code', direction: 'asc' }
-
-const SORT_KEYS: ExtractionSortKey[] = ['records', 'patients', 'name', 'code', 'id']
+const sortFor = (metadata: boolean) => (metadata ? DEFAULT_EXTRACTION_SORT : DICTIONARY_ORDER)
 
 /**
  * The client-only build's growing CSV, per project.
@@ -130,12 +125,11 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     saved?.dictionaryKeys ?? dictionaries.map((d) => d.key),
   )
   const [options, setOptions] = useState<ProfileOptions>(() => normalizeProfileOptions(saved?.options))
-  const [sort, setSort] = useState<ExtractionSort>(saved?.sort ?? DEFAULT_EXTRACTION_SORT)
   // On by default: a dictionary is often far larger than what the warehouse
   // uses (OMOP's is the whole vocabulary), and a concept no record names has
-  // nothing to map. It follows the metadata switch, since it costs the scan of
-  // the clinical tables that metadata off promises to skip. A stored run that
-  // predates the option walked everything.
+  // nothing to map. Independent of the metadata: the records come from the
+  // database's concept counts when it has them. A stored run that predates the
+  // option walked everything.
   const [onlyWithRecords, setOnlyWithRecords] = useState(saved ? !!saved.onlyWithRecords : true)
 
   // Re-adopt the stored settings whenever a different run turns up: the state
@@ -152,7 +146,6 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     adoptedRef.current = runKey
     setDictionaryKeys(saved.dictionaryKeys)
     setOptions(saved.options)
-    setSort(saved.sort ?? DEFAULT_EXTRACTION_SORT)
     setOnlyWithRecords(!!saved.onlyWithRecords)
   }, [saved])
 
@@ -170,24 +163,41 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   // must not stop an extraction that takes hours. This only mirrors what the run
   // reports — including a run this component never started.
   const [snapshot, setSnapshot] = useState<RunSnapshot>(() => getRunSnapshot(project.id))
+  // Server mode: the run is the server's (services/concept_runs); this only reads it.
+  const onServer = isServerMode()
+  const serverRun = useServerRun<ConceptRunState>('extraction', project.id, onServer && !!dataSource)
+  const [startingOnServer, setStartingOnServer] = useState(false)
+  const [startError, setStartError] = useState<string | null>(null)
   const [confirmRestart, setConfirmRestart] = useState(false)
-  // When the database's profiles last changed: newer than this extraction, its
-  // copy can be refreshed from them (lib/concept-profiles).
-  const [profilesAt, setProfilesAt] = useState<string | null>(null)
+  // The database's profiles, shared with its Concepts tab and every project on
+  // it: how many there are (read, not computed again), and when they last
+  // changed — newer than this extraction, its copy can be refreshed from them.
+  // `total`: the concepts with records its last statistics run walked, when one did.
+  const [profiles, setProfiles] = useState<{ count: number; total: number; at: string | null } | null>(null)
+  const profilesAt = profiles?.at ?? null
   useEffect(() => {
     if (!dataSource) return
     let cancelled = false
     profileStore().summary(dataSource.id)
-      .then((s) => { if (!cancelled) setProfilesAt(s.lastComputedAt) }, () => {})
+      .then((s) => { if (!cancelled) setProfiles({ count: s.count, total: s.run?.total ?? 0, at: s.lastComputedAt }) }, () => {})
     return () => { cancelled = true }
-  }, [dataSource, snapshot.running])
+  }, [dataSource, snapshot.running, serverRun.active])
   // Client-only mode has no blob store to append to, so the growing CSV lives
   // in the browser. Server mode never fills it — the bytes stay on the server.
   const localCsv = localCsvFor(project.id)
-  const { running, error, phase, pausing } = snapshot
+  const served = serverRun.run
+  const servedState = served?.state
+  const running = onServer ? serverRun.active || startingOnServer : snapshot.running
+  const error = onServer
+    ? (served && ['failed', 'interrupted'].includes(served.status) ? served.error : null) ?? serverRun.error ?? startError
+    : snapshot.error
+  const phase: RunSnapshot['phase'] = onServer
+    ? (startingOnServer || servedState?.stage === 'ranking' ? 'ranking' : running ? 'extracting' : null)
+    : snapshot.phase
+  const pausing: RunSnapshot['pausing'] = onServer ? (served?.status === 'pausing' ? 'stopping' : null) : snapshot.pausing
   // Live position during a run. The persisted `extracted` only moves between
   // save points, so without this the bar would sit still for hundreds of concepts.
-  const liveExtracted = snapshot.extracted
+  const liveExtracted = onServer ? (serverRun.active ? servedState?.done ?? 0 : null) : snapshot.extracted
   const counting = phase === 'counting'
   const ranking = phase === 'ranking'
   // Neither phase has an offset to show: both precede the first concept.
@@ -231,9 +241,15 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   // A run in flight is the authority on its own total: the persisted one still
   // describes the previous run until the first save point, which is what left a
   // restart showing the old "1,066 of 5,636" while it re-counted.
-  const total = (running ? snapshot.total : null) ?? saved?.total ?? 0
+  const total = (running ? (onServer ? servedState?.total : snapshot.total) : null) ?? saved?.total ?? 0
   const done = !running && total > 0 && extracted >= total
-  const percent = total > 0 ? Math.min(100, Math.round((extracted / total) * 100)) : 0
+  // Weighed by records while it runs: the busiest concepts come first, and
+  // their count would sit near zero for long.
+  const percent = onServer && running && served
+    ? Math.round(runShare(served) * 100)
+    : running && snapshot.work
+    ? Math.round(workDone(snapshot.work, extracted) * 100)
+    : total > 0 ? Math.min(100, Math.round((extracted / total) * 100)) : 0
 
   /**
    * Persist progress after each batch, so a reload resumes rather than restarts.
@@ -298,6 +314,41 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       return
     }
 
+    const name = localized(project.name, i18n.language)
+    const label = t('concept_mapping.extract_job_label', { name })
+    if (onServer) {
+      if (!restart && serverRun.resumable) {
+        await serverRun.resume().catch(() => {})
+        return
+      }
+      setStartingOnServer(true)
+      setStartError(null)
+      try {
+        const metadata = computesMetadata(options)
+        const fingerprint = metadata
+          ? await dataFingerprint(mapping, (sql) => queryDataSource(dataSource.id, sql, { heavy: true, origin: 'Source concepts · data fingerprint' }))
+          : ''
+        await serverRun.start(await buildRunSpec({
+          label, mapping, sources, options, sort: sortFor(metadata), onlyWithRecords, fingerprint,
+          prepare: (sql) => prepareQuerySql(dataSource.id, sql),
+          extraction: {
+            fileSourceData: {
+              fileName: 'source-concepts.csv',
+              rows: [],
+              columns: [...EXTRACTION_COLUMNS],
+              columnMapping: extractionColumnMapping(options),
+            },
+            dictionaryKeys: sources.map((s) => s.dictionary.key),
+          },
+        }))
+      } catch (err) {
+        setStartError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setStartingOnServer(false)
+      }
+      return
+    }
+
     // Server mode appends to the stored blob, so a resume needs nothing read
     // back. The client-only build has no blob store and grows the CSV in memory,
     // so THAT path still has to recover it — and must refuse rather than append
@@ -327,7 +378,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
           extracted: 0,
           total: 0,
           options,
-          sort: computesMetadata(options) ? sort : DICTIONARY_ORDER,
+          sort: sortFor(computesMetadata(options)),
           onlyWithRecords,
           updatedAt: new Date().toISOString(),
         },
@@ -335,33 +386,34 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       )
     }
 
+    // One row of the jobs panel for the run, its queries and its jobs.
+    const group = { key: `extraction:${project.id}`, label: t('concept_mapping.extract_job_group', { name }) }
     startRun({
       projectId: project.id,
       mapping,
       sources,
       options,
-      // A resume must walk the order its run was started in, not whatever the
-      // dropdown shows now: the offset is an index into that order. A restart —
-      // or a first run — takes the current choice.
-      // Without metadata there is nothing to rank by volume, and the run is
-      // quick enough that what comes first no longer matters.
+      // A resume walks the order its run was started in: the offset is an
+      // index into it. Without metadata there is nothing to rank by volume, and
+      // the run is quick enough that what comes first no longer matters.
       sort: !restart && saved
         ? (saved.sort ?? DEFAULT_EXTRACTION_SORT)
-        : computesMetadata(options) ? sort : DICTIONARY_ORDER,
+        : sortFor(computesMetadata(options)),
       onlyWithRecords: !restart && saved ? !!saved.onlyWithRecords : onlyWithRecords,
       // A restart re-counts: the dictionaries may have grown since the last run,
       // and resuming against a stale total would stop short of the new rows.
       resumeFrom: restart
         ? null
         : { extracted: saved?.extracted ?? 0, total: saved?.total ?? 0, sizes: saved?.sizes, walked: saved?.walked },
-      query: (sql, signal) => queryDataSource(dataSource.id, sql, { signal, origin: 'Source concepts · build list' }),
-      queryAll: (sql, signal) => queryDataSourceAll(dataSource.id, sql, { signal, origin: 'Source concepts · build list' }),
-      queryAggregate: (sql, signal) => queryDataSource(dataSource.id, sql, { signal, allRows: true, heavy: true, origin: 'Source concepts · count records' }),
+      query: (sql, signal) => queryDataSource(dataSource.id, sql, { signal, origin: 'Source concepts · build list', group }),
+      queryAll: (sql, signal) => queryDataSourceAll(dataSource.id, sql, { signal, origin: 'Source concepts · build list', group }),
+      queryAggregate: (sql, signal) => queryDataSource(dataSource.id, sql, { signal, allRows: true, heavy: true, origin: 'Source concepts · count records', group }),
       persist,
-      persistError: async (message) => {
-        if (!saved) return
+      persistError: async (message, last) => {
+        const stored = last ?? saved
+        if (!stored) return
         await updateMappingProject(project.id, {
-          sourceExtraction: { ...saved, error: message, updatedAt: new Date().toISOString() },
+          sourceExtraction: { ...stored, error: message, updatedAt: new Date().toISOString() },
         })
       },
       readWritten: async () => {
@@ -371,13 +423,9 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       // The database's profiles: what its Concepts tab, or another project,
       // already computed is read, not computed again (lib/concept-profiles).
       countedRecords: countedRecordsOf(dataSource.id, mapping),
-      jobs: (await import('@/lib/api-client')).isServerMode()
-        ? serverProfileJobs(dataSource.id, t('concept_mapping.extract_job_label', { name: localized(project.name, i18n.language) }))
-        : undefined,
-      previousJobIds: saved?.jobIds,
       store: async () => {
         try {
-          const fingerprint = await dataFingerprint(mapping, (sql) => queryDataSource(dataSource.id, sql, { heavy: true, origin: 'Source concepts · data fingerprint' }))
+          const fingerprint = await dataFingerprint(mapping, (sql) => queryDataSource(dataSource.id, sql, { heavy: true, origin: 'Source concepts · data fingerprint', group }))
           return batchProfileStore(dataSource.id, fingerprint)
         } catch {
           return undefined
@@ -386,10 +434,22 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     })
   }, [
     mapping, sources, dataSource, ensureMounted, saved, project, options,
-    persist, updateMappingProject, sort, onlyWithRecords, t, i18n.language,
+    persist, updateMappingProject, onlyWithRecords, t, i18n.language, onServer, serverRun,
   ])
 
-  const stop = useCallback(() => pauseRun(project.id), [project.id])
+  const stop = useCallback(() => {
+    if (onServer) void serverRun.pause().catch(() => {})
+    else pauseRun(project.id)
+  }, [onServer, serverRun, project.id])
+
+  // The server wrote the project's CSV and its extraction state: read them once
+  // its run has stopped.
+  const loadMappingProjects = useConceptMappingStore((s) => s.loadMappingProjects)
+  const wasActive = useRef(false)
+  useEffect(() => {
+    if (wasActive.current && !serverRun.active) void loadMappingProjects()
+    wasActive.current = serverRun.active
+  }, [serverRun.active, loadMappingProjects])
 
   if (!dataSource) {
     return <EmptyState message={t('concept_mapping.extract_no_database')} />
@@ -435,13 +495,12 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     saved.dictionaryKeys.join() !== sources.map((s) => s.dictionary.key).join()
     || computesMetadata(saved.options) !== computesMetadata(options)
     || !!saved.onlyWithRecords !== onlyWithRecords
-    || (computesMetadata(options) && (saved.sort ?? DEFAULT_EXTRACTION_SORT).key !== sort.key)
-    || (computesMetadata(options) && (saved.sort ?? DEFAULT_EXTRACTION_SORT).direction !== sort.direction)
   )
   const metadata = computesMetadata(options)
-  // "Largest first" reads better than "descending" for a count; "A to Z" better
-  // than "ascending" for a name. Same control, named for what it orders.
-  const sortIsNumeric = sort.key === 'records' || sort.key === 'patients' || sort.key === 'id'
+  // Begun — saved once, or its jobs under way — even before the first save point.
+  const started = onServer
+    ? serverRun.resumable
+    : !!saved && (extracted > 0 || saved.total > 0)
 
   return (
     // These delays govern the OPTION ROWS. Their tooltips explain the options
@@ -504,31 +563,6 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
           <label className={cn('flex items-center gap-2', locked && 'pointer-events-none opacity-50')}>
             <Switch
               size="sm"
-              checked={metadata}
-              disabled={locked}
-              onCheckedChange={(on) => {
-                setOptions((o) => ({ ...o, metadata: on }))
-                setOnlyWithRecords(on)
-              }}
-            />
-            <span className="text-xs">{t('concept_mapping.extract_metadata')}</span>
-          </label>
-          <Tooltip delayDuration={0}>
-            <TooltipTrigger asChild>
-              <button type="button" className="ml-1.5 text-muted-foreground hover:text-foreground" aria-label={t('concept_mapping.extract_info_aria')}>
-                <Info size={12} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right" className="max-w-xs text-xs">
-              {t('concept_mapping.extract_metadata_hint')}
-            </TooltipContent>
-          </Tooltip>
-        </div>
-
-        <div className="flex items-center">
-          <label className={cn('flex items-center gap-2', locked && 'pointer-events-none opacity-50')}>
-            <Switch
-              size="sm"
               checked={onlyWithRecords}
               disabled={locked}
               onCheckedChange={setOnlyWithRecords}
@@ -546,6 +580,42 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
             </TooltipContent>
           </Tooltip>
         </div>
+
+        <div className="flex items-center">
+          <label className={cn('flex items-center gap-2', locked && 'pointer-events-none opacity-50')}>
+            <Switch
+              size="sm"
+              checked={metadata}
+              disabled={locked}
+              onCheckedChange={(on) => setOptions((o) => ({ ...o, metadata: on }))}
+            />
+            <span className="text-xs">{t('concept_mapping.extract_metadata')}</span>
+          </label>
+          <Tooltip delayDuration={0}>
+            <TooltipTrigger asChild>
+              <button type="button" className="ml-1.5 text-muted-foreground hover:text-foreground" aria-label={t('concept_mapping.extract_info_aria')}>
+                <Info size={12} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="max-w-xs text-xs">
+              {t('concept_mapping.extract_metadata_hint')}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+
+        {metadata && profiles && (
+          <p className="-mt-2 text-[10px] text-muted-foreground">
+            {profiles.count === 0
+              ? t('concept_mapping.extract_profiles_none')
+              : profiles.total > 0
+                ? t('concept_mapping.extract_profiles_covered', {
+                  percent: Math.min(100, Math.floor((profiles.count / profiles.total) * 100)),
+                  known: profiles.count.toLocaleString(i18n.language),
+                  total: profiles.total.toLocaleString(i18n.language),
+                })
+                : t('concept_mapping.extract_profiles_known', { count: profiles.count, formatted: profiles.count.toLocaleString(i18n.language) })}
+          </p>
+        )}
 
         {metadata && (
         <div className="grid grid-cols-2 gap-4">
@@ -580,65 +650,6 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
             />
           </div>
         </div>
-        )}
-
-        {/* What to screen first, and from which end */}
-        {metadata && (
-        <div className="grid grid-cols-2 gap-4">
-          <div className="grid gap-1.5">
-            <LabelWithHint
-              htmlFor="extract-sort"
-              label={t('concept_mapping.extract_sort')}
-              hint={t('concept_mapping.extract_sort_hint')}
-            />
-            <Select
-              value={sort.key}
-              disabled={locked}
-              onValueChange={(key) => setSort((s) => ({ ...s, key: key as ExtractionSortKey }))}
-            >
-              <SelectTrigger id="extract-sort" className="text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SORT_KEYS.map((key) => (
-                  <SelectItem key={key} value={key} className="text-xs">
-                    {t(`concept_mapping.extract_sort_${key}`)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="extract-sort-direction">{t('concept_mapping.extract_sort_direction')}</Label>
-            <Select
-              value={sort.direction}
-              disabled={locked}
-              onValueChange={(d) => setSort((s) => ({ ...s, direction: d as 'asc' | 'desc' }))}
-            >
-              <SelectTrigger id="extract-sort-direction" className="text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {/* Named for what they mean per key — "largest first" reads
-                    better than "descending" for a record count, and the same
-                    control also orders names. */}
-                <SelectItem value="desc" className="text-xs">
-                  {t(`concept_mapping.extract_sort_desc_${sortIsNumeric ? 'numeric' : 'text'}`)}
-                </SelectItem>
-                <SelectItem value="asc" className="text-xs">
-                  {t(`concept_mapping.extract_sort_asc_${sortIsNumeric ? 'numeric' : 'text'}`)}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        )}
-
-        {metadata && sortNeedsCounts(sort) && !locked && (
-          <p className="-mt-2 text-[10px] text-muted-foreground">
-            {t('concept_mapping.extract_sort_counts_warning')}
-          </p>
         )}
 
         {/* The two confidentiality thresholds */}
@@ -689,14 +700,16 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
                 ? t('concept_mapping.extract_counting')
                 : ranking
                 ? t('concept_mapping.extract_ranking')
-                : saved?.updatedAt && !running
+                : running
+                ? t(metadata ? 'concept_mapping.extract_profiling' : 'concept_mapping.extract_listing')
+                : saved?.updatedAt
                   ? (done
                     ? t('concept_mapping.extract_complete', { date: new Date(saved.updatedAt).toLocaleString(i18n.language) })
                     : t('concept_mapping.extract_paused', { date: new Date(saved.updatedAt).toLocaleString(i18n.language) }))
                   : t('concept_mapping.extract_progress')}
             </span>
             {total > 0 && !preparing && (
-              <CurrentConceptTooltip concept={running ? snapshot.current : null}>
+              <CurrentConceptTooltip concept={running ? (onServer ? servedState?.current ?? null : snapshot.current) : null}>
                 <span className="text-xs tabular-nums text-muted-foreground">
                   {t('concept_mapping.extract_progress_count', {
                     extracted: extracted.toLocaleString(i18n.language),
@@ -716,7 +729,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
             </div>
           )}
 
-          <div className="flex items-center gap-2">
+          <div className="mt-2 flex items-center gap-2">
             {running ? (
               <Button variant="outline" size="sm" className="gap-1.5" onClick={stop} disabled={!!pausing}>
                 {pausing ? <Loader2 size={14} className="animate-spin" /> : <Pause size={14} />}
@@ -730,23 +743,19 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
                 disabled={sources.length === 0 || done || walkChanged}
               >
                 <Play size={14} />
-                {saved && extracted > 0
+                {started
                   ? t('concept_mapping.extract_resume')
                   : t('concept_mapping.extract_start')}
               </Button>
             )}
             {!!saved && !running && (
-              <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setConfirmRestart(true)}>
+              <Button variant="destructive" size="sm" className="gap-1.5" onClick={() => setConfirmRestart(true)}>
                 <RotateCcw size={14} />
                 {t('concept_mapping.extract_restart')}
               </Button>
             )}
             {running && !pausing && <Loader2 size={16} className="animate-spin text-muted-foreground" />}
           </div>
-
-          {!running && !done && (saved?.jobIds?.length ?? 0) > 0 && (
-            <p className="text-[10px] text-muted-foreground">{t('concept_mapping.extract_on_server')}</p>
-          )}
 
           {walkChanged && !running && (
             <p className="text-[10px] text-muted-foreground">{t('concept_mapping.extract_settings_changed')}</p>
@@ -774,7 +783,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { setConfirmRestart(false); void run(true) }}>
+            <AlertDialogAction variant="destructive" onClick={() => { setConfirmRestart(false); void run(true) }}>
               {t('concept_mapping.extract_restart')}
             </AlertDialogAction>
           </AlertDialogFooter>

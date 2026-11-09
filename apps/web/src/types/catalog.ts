@@ -365,7 +365,5 @@ export interface CatalogResultCache {
     slices: { lo?: string | number; hi?: string | number }[]
     services: [string, number][]
     concepts: [string, number, number][]
-    /** The server job computing the current phase, for a resume to follow it. */
-    job?: { id: string; phase: 'base' | 'crossings' }
   }
 }

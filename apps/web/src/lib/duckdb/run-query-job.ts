@@ -1,8 +1,7 @@
 /**
  * App queries run as one server query job (`lib/api/query-jobs.ts`), each
  * result handed over in order — for work too long for one request through a
- * gateway: a rule set's checks, a database's statistics. The catalog, which
- * resumes phase by phase, has its own executor (`catalog-job-executor.ts`).
+ * gateway: a rule set's checks, a database's statistics.
  *
  * A job can be remembered in this browser under a name: a page opened again
  * after its tab was closed then follows the job rather than lose the run.

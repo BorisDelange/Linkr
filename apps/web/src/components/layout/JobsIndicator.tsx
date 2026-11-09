@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, Ban, CheckCircle2, ChevronRight, XCircle, Hourglass, Square, Trash2, ExternalLink } from 'lucide-react'
 import {
@@ -15,6 +15,7 @@ import { CodeViewer } from '@/components/editor/CodeViewer'
 import { stripAnsi } from '@/lib/ansi'
 import { cn } from '@/lib/utils'
 import { formatDuration } from '@/lib/format-helpers'
+import { prettySql } from '@/lib/sql-pretty'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { useProjectRouteUid } from '@/hooks/use-project-route'
 import { listJobs, listWorkspaceJobs, listRunningJobs, cancelJob, clearJobs, clearWorkspaceJobs, onJobsChanged, type InstanceJob, type Job } from '@/lib/api/environments'
@@ -25,9 +26,14 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { clearLoggedQueries, stopLoggedQuery } from '@/lib/duckdb/query-log'
 import { QUERY_KIND, useLocalQueries } from './use-query-log'
-import { groupJobs, type JobGroupRow } from './job-groups'
+import { entityOf, groupJobs, type JobEntity, type JobGroupRow, type JobNames } from './job-groups'
+import type { TFunction } from 'i18next'
 
 const ACTIVE = new Set(['queued', 'running'])
+// One height whatever the count — about 13 rows, then a scroll — so the
+// popover does not jump as jobs come and go.
+const JOB_LIST_CLASS = 'flex h-96 max-h-[60vh] flex-col gap-1 overflow-y-auto'
+const EMPTY_CLASS = 'm-auto px-1.5 text-center text-xs text-muted-foreground'
 
 /** What a job's end changes elsewhere in the app, per kind. */
 function jobFinished(job: Job): void {
@@ -49,6 +55,7 @@ function sameJobs(a: Job[], b: Job[]): boolean {
       j.label === o.label &&
       j.summary === o.summary &&
       j.cancellable === o.cancellable &&
+      j.stopping === o.stopping &&
       j.finishedAt === o.finishedAt
     )
   })
@@ -131,7 +138,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
   }, [showAll, popoverOpen, reloadTick])
 
   // The input and the log travel only with the single job: fetched once the
-  // modal opens, the log again while the job runs.
+  // modal opens, again while the job runs — a run's input is its query in flight.
   const [detail, setDetail] = useState<{ jobId: string; input: string | null; logTail: string } | null>(null)
   const [logTab, setLogTab] = useState<'output' | 'input'>('output')
   const openStatus = jobs.find((j) => j.id === logJobId)?.status
@@ -148,7 +155,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
           input: withInput ? j.input ?? null : prev?.jobId === logJobId ? prev.input : null,
           logTail: j.logTail,
         }))
-        if (openActive && ACTIVE.has(j.status)) timer = setTimeout(() => void read(false), 2000)
+        if (openActive && ACTIVE.has(j.status)) timer = setTimeout(() => void read(true), 2000)
       })
       .catch((err) => {
         console.warn('[jobs] reading the job failed', err)
@@ -160,7 +167,11 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
   }, [logJobId, server, openActive])
 
   const listed = server ? jobs : localQueries
-  const rows = useMemo(() => groupJobs(listed), [listed])
+  const names = useMemo<JobNames>(() => ({
+    entity: (entity) => entityLabel(t, entity),
+    mixed: (count) => t('jobs.burst', { count }),
+  }), [t])
+  const rows = useMemo(() => groupJobs(listed, names), [listed, names])
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set())
   const toggleGroup = (key: string) => setOpenGroups((prev) => {
     const next = new Set(prev)
@@ -171,11 +182,21 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
   // Stops asked for and not yet seen through: a cancel only lands once the
   // unit in flight is interrupted, so the button says it was heard meanwhile.
   const [stopping, setStopping] = useState<ReadonlySet<string>>(new Set())
-  const isStopping = (job: Job) => stopping.has(job.id) && ACTIVE.has(job.status)
+  // Asked here, or anywhere else (a pause of the run it serves): the server says.
+  const isStopping = (job: Job) => (stopping.has(job.id) || !!job.stopping) && ACTIVE.has(job.status)
   // A job seen but out of the panel's reach (a connection test) shows no Stop.
   const canStop = (job: Job) => ACTIVE.has(job.status) && job.cancellable !== false
   const [confirmStopAll, setConfirmStopAll] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
+
+  const logJob = listed.find((j) => j.id === logJobId) ?? null
+  // A front-only query carries its SQL; a server job's is fetched once opened.
+  const opened = detail && detail.jobId === logJobId ? detail : null
+  const jobInput = !server ? (logJob?.input ?? null) : opened?.input ?? null
+  const jobLog = !server ? (logJob?.logTail ?? '') : opened?.logTail ?? ''
+  const showInput = logTab === 'input' && !!jobInput
+  const inputLanguage = logJob?.kind === 'run' ? 'plaintext' : 'sql'
+  const shownInput = usePrettySql(jobInput, showInput && inputLanguage === 'sql')
 
   if (!enabled) return null
 
@@ -216,15 +237,10 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
     setReloadTick((n) => n + 1)
   }
 
-  const logJob = listed.find((j) => j.id === logJobId) ?? null
-  // A front-only query carries its SQL; a server job's is fetched once opened.
-  const opened = detail && detail.jobId === logJobId ? detail : null
-  const jobInput = !server ? (logJob?.input ?? null) : opened?.input ?? null
-  const jobLog = !server ? (logJob?.logTail ?? '') : opened?.logTail ?? ''
-  const showInput = logTab === 'input' && !!jobInput
   const hasFinished = listed.some((j) => !ACTIVE.has(j.status))
 
-  const renderJob = (job: Job) => (
+  // `named`: the group row above already names its entity.
+  const renderJob = (job: Job, named = false) => (
     <li key={job.id} className="flex items-center justify-between gap-2 rounded px-1.5 py-1 hover:bg-muted/50">
       {/* Click the row to open the full log in a modal. */}
       <button
@@ -233,16 +249,20 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         aria-label={`${job.label} — ${t('jobs.show_log')}`}
       >
         <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">
-          {formatJobTime(job.createdAt, job.kind === QUERY_KIND)}
+          {formatJobTime(job.createdAt)}
         </span>
         <span className="flex shrink-0"><JobStatusIcon status={job.status} /></span>
-        {/* One line, the whole label on hover: a query's says what it read. */}
+        {/* One line, named by what it is for; on hover, the whole label and
+            what it is for, in full. */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="min-w-0 truncate py-px leading-normal">{job.label}</span>
+            <span className="min-w-0 truncate py-px leading-normal">
+              {!named && <EntityPrefix entity={entityOf(job)} label={job.label} />}
+              {job.label}
+            </span>
           </TooltipTrigger>
-          <TooltipContent side="top" sideOffset={4} className="max-w-96 break-words">
-            {job.label}
+          <TooltipContent side="top" sideOffset={4} className="max-w-96">
+            <JobFacts entity={entityOf(job)} action={job.label} status={job.status} createdAt={job.createdAt} />
           </TooltipContent>
         </Tooltip>
         {job.kind === QUERY_KIND && job.status === 'done' && (
@@ -251,6 +271,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         {job.status === 'running' && job.progress > 0 && (
           <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.progress}%</span>
         )}
+        {isStopping(job) && <span className="shrink-0 text-[10px] text-destructive">{t('jobs.stopping')}</span>}
         <JobDuration job={job} className="ml-auto shrink-0 text-[10px] text-muted-foreground" />
       </button>
       {job.kind === 'app' && ACTIVE.has(job.status) && webAppUrl(job) && (
@@ -328,8 +349,8 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
           {isAdmin ? (
             <Tabs value={scope} onValueChange={(v) => setScope(v as 'mine' | 'all')}>
               <TabsList variant="line">
-                <TabsTrigger value="mine">{t('jobs.recent')}</TabsTrigger>
-                <TabsTrigger value="all">{t('jobs.all_users')}</TabsTrigger>
+                <TabsTrigger value="mine" className="text-xs">{t('jobs.recent')}</TabsTrigger>
+                <TabsTrigger value="all" className="text-xs">{t('jobs.all_users')}</TabsTrigger>
               </TabsList>
             </Tabs>
           ) : (
@@ -338,7 +359,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
           {!showAll && <div className="flex items-center gap-3">
             {listed.some(canStop) && (
               <button
-                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-destructive"
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive"
                 onClick={() => setConfirmStopAll(true)}
               >
                 <Square size={11} />
@@ -347,7 +368,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
             )}
             {hasFinished && (
               <button
-                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                 onClick={() => void onClearAll()}
               >
                 <Trash2 size={11} />
@@ -363,13 +384,11 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
           <InstanceJobList jobs={instanceJobs} onCancel={onCancel} stopping={stopping} />
         ) : (<>
         <p className="mb-1.5 px-1.5 text-[10px] text-muted-foreground">{t(server ? 'jobs.queries_hint' : 'jobs.queries_hint_local')}</p>
-        {listed.length === 0 && (
-          <p className="px-1.5 py-3 text-center text-[10px] text-muted-foreground">{t('jobs.empty')}</p>
-        )}
         {/* A delay, so someone who knows these icons is not shown the tooltip
             at each pass; moving from one icon to the next shows it at once. */}
         <TooltipProvider delayDuration={600}>
-          <ul className="flex max-h-[60vh] flex-col gap-1 overflow-y-auto">
+          <ul className={JOB_LIST_CLASS}>
+            {listed.length === 0 && <li className={EMPTY_CLASS}>{t('jobs.empty')}</li>}
             {rows.map((row) => 'job' in row ? renderJob(row.job) : (
               <li key={row.group.key}>
                 <div className="flex items-center justify-between gap-2 rounded px-1.5 py-1 hover:bg-muted/50">
@@ -380,14 +399,31 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
                     aria-label={`${row.group.label} · ${t('jobs.group_count', { count: row.group.jobs.length })}`}
                   >
                     <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">
-                      {formatJobTime(row.group.createdAt, true)}
+                      {formatJobTime(row.group.createdAt)}
                     </span>
                     <span className="flex shrink-0"><JobStatusIcon status={row.group.status} /></span>
+                    {/* A pixel down: centred on the label's lowercase, which reads lower than its box's middle. */}
                     <ChevronRight
                       size={12}
-                      className={cn('shrink-0 text-muted-foreground transition-transform', openGroups.has(row.group.key) && 'rotate-90')}
+                      className={cn('shrink-0 translate-y-px text-muted-foreground transition-transform', openGroups.has(row.group.key) && 'rotate-90')}
                     />
-                    <span className="min-w-0 truncate py-px font-medium leading-normal">{row.group.label}</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="min-w-0 truncate py-px font-medium leading-normal">
+                          <EntityPrefix entity={row.group.entity} label={row.group.label} />
+                          {row.group.label}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" sideOffset={4} className="max-w-96">
+                        <JobFacts
+                          entity={row.group.entity}
+                          action={row.group.label}
+                          status={row.group.status}
+                          createdAt={row.group.createdAt}
+                          jobs={row.group.jobs.length}
+                        />
+                      </TooltipContent>
+                    </Tooltip>
                     <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
                       {t('jobs.group_count', { count: row.group.jobs.length })}
                     </span>
@@ -417,7 +453,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
                 </div>
                 {openGroups.has(row.group.key) && (
                   <ul className="ml-3 flex flex-col gap-1 border-l pl-1">
-                    {row.group.jobs.map(renderJob)}
+                    {row.group.jobs.map((job) => renderJob(job, !!row.group.entity))}
                   </ul>
                 )}
               </li>
@@ -451,6 +487,9 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
               </Button>
             )}
             <JobDuration job={logJob} className="text-xs text-muted-foreground" />
+            {logJob.status === 'running' && logJob.progress > 0 && (
+              <span className="text-xs tabular-nums text-muted-foreground">{logJob.progress}%</span>
+            )}
             {cancelError && <span role="alert" className="text-xs text-destructive">{cancelError}</span>}
             {jobInput && (
               <Tabs value={logTab} onValueChange={(v) => setLogTab(v as 'output' | 'input')} className="ml-auto">
@@ -465,7 +504,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         {showInput && logJob ? (
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 flex-1 overflow-hidden rounded border">
-              <CodeViewer value={jobInput} language={logJob.kind === 'run' ? 'plaintext' : 'sql'} height="100%" />
+              <CodeViewer value={shownInput ?? jobInput} language={inputLanguage} height="100%" />
             </div>
           </div>
         ) : logJob?.result && logJob.kind !== 'app' ? (
@@ -510,14 +549,12 @@ function InstanceJobList({ jobs, onCancel, stopping }: {
   return (
     <>
       <p className="mb-1.5 px-1.5 text-[10px] text-muted-foreground">{t('jobs.all_users_hint')}</p>
-      {jobs.length === 0 && (
-        <p className="px-1.5 py-3 text-center text-[10px] text-muted-foreground">{t('jobs.all_users_empty')}</p>
-      )}
-      <ul className="flex max-h-[60vh] flex-col gap-1 overflow-y-auto">
+      <ul className={JOB_LIST_CLASS}>
+        {jobs.length === 0 && <li className={EMPTY_CLASS}>{t('jobs.all_users_empty')}</li>}
         {jobs.map((job) => (
           <li key={job.id} className="flex items-center gap-1.5 rounded px-1.5 py-1 hover:bg-muted/50">
             <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">
-              {formatJobTime(job.createdAt, job.kind === QUERY_KIND)}
+              {formatJobTime(job.createdAt)}
             </span>
             <span className="flex shrink-0"><JobStatusIcon status={job.status} /></span>
             <span className="min-w-0 flex-1 truncate py-px leading-normal" title={job.label}>{job.label}</span>
@@ -541,6 +578,50 @@ function InstanceJobList({ jobs, onCancel, stopping }: {
   )
 }
 
+/** "Database “test”": what a job is for, as the panel names it. */
+function entityLabel(t: TFunction, entity: JobEntity): string {
+  const type = t(`jobs.entity_types.${entity.type}`, { defaultValue: entity.type })
+  return entity.name ? t('jobs.entity_label', { type, name: entity.name }) : type
+}
+
+/** What the entity is, before a label that does not say it ("Database “test” · "
+ *  before "Concepts · count records of 5"): every row says what it is for. */
+function EntityPrefix({ entity, label }: { entity: JobEntity | null; label: string }) {
+  const { t } = useTranslation()
+  if (!entity) return null
+  if (entity.name && label.includes(entity.name)) return null
+  return <span className="text-muted-foreground">{entityLabel(t, entity)} · </span>
+}
+
+/** A row on hover: what it is for, what it does, how it stands, since when. */
+function JobFacts({ entity, action, status, createdAt, jobs }: {
+  entity: JobEntity | null
+  action: string
+  status: Job['status']
+  createdAt: string
+  jobs?: number
+}) {
+  const { t, i18n } = useTranslation()
+  const facts: [string, string][] = [
+    ...(entity ? [[t('jobs.fact_type'), t(`jobs.entity_types.${entity.type}`, { defaultValue: entity.type })] as [string, string]] : []),
+    ...(entity?.name ? [[t('jobs.fact_name'), entity.name] as [string, string]] : []),
+    [t('jobs.fact_action'), action],
+    ...(jobs ? [[t('jobs.fact_jobs'), String(jobs)] as [string, string]] : []),
+    [t('jobs.fact_status'), t(`jobs.status.${status}`)],
+    [t('jobs.fact_started'), new Date(createdAt).toLocaleString(i18n.language)],
+  ]
+  return (
+    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+      {facts.map(([term, value]) => (
+        <Fragment key={term}>
+          <dt className="opacity-70">{term}</dt>
+          <dd className="break-words">{value}</dd>
+        </Fragment>
+      ))}
+    </dl>
+  )
+}
+
 /** A web app's public path, which its job carries. */
 function webAppUrl(job: Job): string | null {
   const url = (job.result as { url?: unknown } | null | undefined)?.url
@@ -559,7 +640,7 @@ function JobLogView({ text, height }: { text: string; height: string | number })
   const plain = useMemo(() => stripAnsi(text), [text])
   return (
     <div className={cn('overflow-hidden rounded border', height === '100%' && 'min-h-0 flex-1')}>
-      <CodeViewer value={plain} language="shell" height={height} />
+      <CodeViewer value={plain} language="shell" height={height} followEnd />
     </div>
   )
 }
@@ -627,13 +708,13 @@ function JobArtifacts({ result }: { result: NonNullable<Job['result']> }) {
   )
 }
 
-/** Short local date+time for a job row, e.g. "07/31 14:22" — with the seconds
- *  for a query, a page sends several a minute. Falsy/bad input → ''. */
-function formatJobTime(iso: string, seconds = false): string {
+/** Short local date+time for a job row, e.g. "07/31 14:22:05" — the seconds
+ *  because a page sends several queries a minute. Falsy/bad input → ''. */
+function formatJobTime(iso: string): string {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return ''
   const p = (n: number) => String(n).padStart(2, '0')
-  return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}${seconds ? `:${p(d.getSeconds())}` : ''}`
+  return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
 /** How long a job ran, or has been running (ticking). Nothing while queued. */
@@ -663,4 +744,19 @@ function JobStatusIcon({ status }: { status: Job['status'] }) {
   if (status === 'done') return <CheckCircle2 size={12} className="text-emerald-500" />
   if (status === 'cancelled') return <Ban size={12} className="text-muted-foreground" />
   return <XCircle size={12} className="text-destructive" />
+}
+
+// Past this, the layout would cost more than it helps: shown as it came.
+const PRETTY_MAX = 100_000
+
+/** `sql` laid out for reading once `on`; the text as it came meanwhile. */
+function usePrettySql(sql: string | null, on: boolean): string | null {
+  const [pretty, setPretty] = useState<{ from: string; text: string } | null>(null)
+  useEffect(() => {
+    if (!on || !sql || sql.length > PRETTY_MAX) return
+    let live = true
+    void prettySql(sql).then((text) => { if (live) setPretty({ from: sql, text }) })
+    return () => { live = false }
+  }, [sql, on])
+  return sql && pretty?.from === sql ? pretty.text : sql
 }

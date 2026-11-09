@@ -14,11 +14,18 @@ from app.schemas.data_catalog import (
     DataCatalogUpdate,
 )
 from app.schemas.stats_cache import StatsCacheResponse, StatsCacheSave
-from app.services import change_tracking, data_catalog_service, database_binding, notification_service, stats_cache_service
+from app.services import (
+    change_tracking,
+    data_catalog_service,
+    database_binding,
+    notification_service,
+    stats_cache_service,
+)
 
 router = APIRouter(prefix="/data-catalogs", tags=["data-catalogs"])
 
 _CATALOG_SCOPE = "catalog"
+_ESTIMATE_SCOPE = "catalog-estimate"
 
 # --- Notifications (writes by an external client, e.g. an agent over MCP) ---
 
@@ -160,6 +167,19 @@ async def save_catalog_results_cache(
     await database_binding.require_stored_local(db, catalog.workspace_id, catalog.data_source_id)
     await stats_cache_service.save(db, _CATALOG_SCOPE, catalog_id, body.computed_at, body.payload)
     await _notify(db, request, user, "updated", catalog, notify=False)
+
+
+@router.get("/{catalog_id}/estimates")
+async def get_catalog_estimates(
+    catalog_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """The crossings' size estimates made for this catalog (server_runs/catalog,
+    kind `catalog_estimate`), by key (`estimateKey`): {} when none was made."""
+    await _load(db, catalog_id, user, "catalog:read")
+    row = await stats_cache_service.get(db, _ESTIMATE_SCOPE, catalog_id)
+    return dict((row.payload or {}).get("estimates") or {}) if row else {}
 
 
 @router.delete("/{catalog_id}/results-cache", status_code=status.HTTP_204_NO_CONTENT)

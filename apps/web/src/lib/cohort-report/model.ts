@@ -8,6 +8,7 @@ import type { TFunction } from 'i18next'
 import { localized } from '@/lib/localized'
 import { buildAttritionQueries, buildCohortMembershipSql, conceptCriterionRelations, CUSTOM_SQL_STEP_ID, type RelationNarrowing } from '@/lib/duckdb/cohort-query'
 import { indent, subquerySql } from '@/lib/duckdb/sql-layout'
+import type { PlanResults, QueryPlanItem } from '@/lib/server-runs/query-plan'
 import type { Cohort, CohortLevel, ConceptCriteriaConfig, CriteriaTreeNode, SchemaMapping } from '@/types'
 import type { ChartItem } from './charts'
 import { describeCriteria, describeCriterion, type DescribedCriterion } from './describe'
@@ -178,14 +179,13 @@ function membershipOf(cohort: Cohort, mapping: SchemaMapping, narrowing?: Relati
   return membership
 }
 
-/** Every section's rows, without the attrition steps (`withReportFlow` adds them). */
-export async function computeCohortReportData(args: DataArgs): Promise<CohortReportData> {
-  const { cohort, mapping, run, narrowing, combine = false } = args
+/** The report's sections over the members, and the membership they read. */
+function reportSections(args: Pick<DataArgs, 'cohort' | 'mapping' | 'narrowing' | 'combine'>): { membership: string; sections: Section[] } {
+  const { cohort, mapping, narrowing, combine = false } = args
   const membership = membershipOf(cohort, mapping, narrowing)
   const members = combine ? `SELECT * FROM ${MEMBERS}` : membership
   const attrition = buildAttritionQueries(cohort, mapping, { withPatients: true, narrowing })
   const indexSql = buildIndexSql(members, cohort.level, mapping)
-
   const sections: Section[] = [
     { block: 'counts', sql: buildCountsSql(members), columns: ['patients', 'units'] },
     { block: 'visits', sql: buildVisitCountSql(members, cohort.level, mapping), columns: ['visits'] },
@@ -201,15 +201,39 @@ export async function computeCohortReportData(args: DataArgs): Promise<CohortRep
     { block: 'database', sql: buildDatabasePatientsSql(mapping), columns: ['n'] },
     { block: 'units', sql: buildCareUnitSql(members, cohort.level, mapping), columns: ['unit', 'n'] },
   ]
-  const blocks: CohortReportData['blocks'] = {}
-  for (const section of sections) if (section.sql) blocks[section.block] = []
+  return { membership, sections }
+}
+
+/** A block for each section that has a query; a block absent never ran. */
+function emptyBlocks(sections: readonly Section[]): CohortReportData['blocks'] {
+  return Object.fromEntries(sections.filter((s) => s.sql).map((s) => [s.block, []]))
+}
+
+const sectionsWhat = (sections: readonly Section[]) => `all figures: ${sections.filter((s) => s.sql).map((s) => s.block).join(', ')}`
+
+/** Every section's rows, without the attrition steps (`withReportFlow` adds them). */
+export async function computeCohortReportData(args: DataArgs): Promise<CohortReportData> {
+  const { run, combine = false } = args
+  const { membership, sections } = reportSections(args)
+  const blocks = emptyBlocks(sections)
   if (combine) {
-    const read = sections.filter((x) => x.sql).map((x) => x.block).join(', ')
-    for (const row of await run(buildReportSectionsSql(membership, sections), `all figures: ${read}`)) blocks[String(row.block)]?.push(row)
+    for (const row of await run(buildReportSectionsSql(membership, sections), sectionsWhat(sections))) blocks[String(row.block)]?.push(row)
   } else {
     for (const section of sections) if (section.sql) blocks[section.block] = await run(section.sql, `figure: ${section.block}`)
   }
   return { blocks, membership, computedAt: (args.now ?? new Date()).toISOString() }
+}
+
+const stepWhat = (i: number, total: number, label: string) => `attrition step ${i + 1}/${total}: ${label}`
+/** The steps that run their own query: the first is the whole table, the last the cohort itself. */
+const ownStep = (i: number, total: number) => i > 0 && i < total - 1
+
+/** The attrition steps' rows, those between the first and the last read by `stepRow`. */
+function flowOf(data: CohortReportData, attrition: readonly unknown[], stepRow: (i: number) => Record<string, unknown> | undefined): CohortReportData['flow'] {
+  const [counts] = data.blocks.counts ?? []
+  return attrition.map((_, i) => i === 0 ? data.blocks.total?.[0]
+    : i === attrition.length - 1 ? { cnt: counts?.units, patients: counts?.patients }
+      : stepRow(i))
 }
 
 /**
@@ -220,14 +244,50 @@ export async function computeCohortReportData(args: DataArgs): Promise<CohortRep
 export async function withReportFlow(data: CohortReportData, args: Omit<DataArgs, 'combine' | 'now'>): Promise<CohortReportData> {
   if (data.flow) return data
   const attrition = buildAttritionQueries(args.cohort, args.mapping, { withPatients: true, narrowing: args.narrowing })
-  const [counts] = data.blocks.counts ?? []
-  const flow: CohortReportData['flow'] = []
+  const rows = new Map<number, Record<string, unknown> | undefined>()
   for (const [i, q] of attrition.entries()) {
-    flow.push(i === 0 ? data.blocks.total?.[0]
-      : i === attrition.length - 1 ? { cnt: counts?.units, patients: counts?.patients }
-        : (await args.run(q.sql, `attrition step ${i + 1}/${attrition.length}: ${q.label}`))[0])
+    if (ownStep(i, attrition.length)) rows.set(i, (await args.run(q.sql, stepWhat(i, attrition.length, q.label)))[0])
   }
-  return { ...data, flow }
+  return { ...data, flow: flowOf(data, attrition, (i) => rows.get(i)) }
+}
+
+/** The plan's query returning every section; the attrition steps are `step_<i>`. */
+export const SECTIONS_KEY = 'sections'
+
+/**
+ * The figures as queries independent of one another — what a `cohort_figures`
+ * server run runs: every section in one query, then, `withFlow`, the attrition
+ * steps of their own. `base`: the sections already read, only completed.
+ * `assemble` makes the data from what they returned; a query that failed fails it.
+ */
+export function cohortFiguresQueries(args: Pick<DataArgs, 'cohort' | 'mapping' | 'narrowing'> & { withFlow: boolean; base?: CohortReportData }): {
+  items: QueryPlanItem[]
+  assemble: (results: PlanResults, computedAt: string) => CohortReportData
+} {
+  const { cohort, mapping, narrowing, withFlow, base } = args
+  const { membership, sections } = reportSections({ cohort, mapping, narrowing, combine: true })
+  const attrition = withFlow && !base?.flow ? buildAttritionQueries(cohort, mapping, { withPatients: true, narrowing }) : []
+  const items: QueryPlanItem[] = base ? [] : [{ key: SECTIONS_KEY, sql: buildReportSectionsSql(membership, sections), what: sectionsWhat(sections) }]
+  for (const [i, q] of attrition.entries()) {
+    if (ownStep(i, attrition.length)) items.push({ key: `step_${i}`, sql: q.sql, what: stepWhat(i, attrition.length, q.label) })
+  }
+  const rowsOf = (results: PlanResults, key: string) => {
+    const got = results.get(key)
+    if (got instanceof Error) throw got
+    return got ?? []
+  }
+  return {
+    items,
+    assemble: (results, computedAt) => {
+      let data = base
+      if (!data) {
+        const blocks = emptyBlocks(sections)
+        for (const row of rowsOf(results, SECTIONS_KEY)) blocks[String(row.block)]?.push(row)
+        data = { blocks, membership, computedAt }
+      }
+      return attrition.length > 0 ? { ...data, flow: flowOf(data, attrition, (i) => rowsOf(results, `step_${i}`)[0]) } : data
+    },
+  }
 }
 
 export interface ShapeArgs {

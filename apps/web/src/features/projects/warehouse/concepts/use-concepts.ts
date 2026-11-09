@@ -232,7 +232,9 @@ export function fetchConceptStats(
 
     const countSql = buildDomainCountQuery(schemaMapping, dictKey, conceptId)
     if (!countSql) return null
-    const countResult = await queryDataSource(dataSourceId, countSql, { origin: `Concepts · count records of ${conceptId}` })
+    // One row of the jobs panel for the concept's queries.
+    const group = { key: `concept-stats:${crypto.randomUUID()}`, label: `Concepts · statistics of ${conceptId}` }
+    const countResult = await queryDataSource(dataSourceId, countSql, { origin: `Concepts · count records of ${conceptId}`, group })
     const rowCount = Number(countResult[0]?.cnt ?? 0)
 
     let distribution: MeasurementDistribution | undefined
@@ -243,8 +245,8 @@ export function fetchConceptStats(
         const histSql = buildValueHistogramQuery(schemaMapping, dictKey, conceptId, 20, excludeOutliers)
         if (distSql && histSql) {
           const [distRows, histRows] = await Promise.all([
-            queryDataSource(dataSourceId, distSql, { origin: `Concepts · value distribution of ${conceptId}` }),
-            queryDataSource(dataSourceId, histSql, { origin: `Concepts · value histogram of ${conceptId}` }),
+            queryDataSource(dataSourceId, distSql, { origin: `Concepts · value distribution of ${conceptId}`, group }),
+            queryDataSource(dataSourceId, histSql, { origin: `Concepts · value histogram of ${conceptId}`, group }),
           ])
           if (distRows.length > 0) distribution = distRows[0] as unknown as MeasurementDistribution
           histogram = histRows as unknown as HistogramBin[]

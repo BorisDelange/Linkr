@@ -244,3 +244,53 @@ def test_expired_early_cancels_are_dropped(monkeypatch):
     monkeypatch.setattr(query_cancel.time, "monotonic", lambda: later)
     query_cancel.cancel("new", "7")
     assert list(query_cancel._cancelled_early) == ["new"]
+
+
+def test_a_query_stuck_past_its_interrupt_frees_its_database(monkeypatch, tmp_path):
+    """A query that ignores its interrupt: its connection leaves the pool, the
+    query waiting behind it runs on a fresh one, and the threads are dumped."""
+    from app.core import diagnostics
+    from app.services.data import connection_pool
+
+    monkeypatch.setattr(query_cancel, "STUCK_AFTER_S", 0.1)
+    monkeypatch.setattr(diagnostics, "dump_path", lambda: tmp_path / "threads.log")
+    monkeypatch.setattr(diagnostics, "_file", None)
+
+    class Deaf:
+        """A connection whose query does not hear its interrupt."""
+
+        def __init__(self):
+            self.real = duckdb.connect()
+
+        def interrupt(self):
+            pass
+
+        def execute(self, *args):
+            return self.real.execute(*args)
+
+    stuck_con = Deaf()
+    release = threading.Event()
+    connection_pool.clear()
+
+    def stuck_use(con):
+        query_cancel.current_query.set(("q-stuck", "7"))
+        with query_cancel.tracking(con):
+            release.wait(10)
+        return []
+
+    holder = threading.Thread(target=contextvars.copy_context().run,
+                              args=(connection_pool.run_pooled, "stuck-db", lambda: stuck_con, stuck_use))
+    holder.start()
+    deadline = time.monotonic() + 5
+    while "q-stuck" not in query_cancel._running and time.monotonic() < deadline:
+        time.sleep(0.01)
+    try:
+        assert query_cancel.cancel("q-stuck", "7") is True
+        fresh = duckdb.connect()
+        rows = connection_pool.run_pooled("stuck-db", lambda: fresh, lambda con: con.execute("SELECT 1").fetchall())
+        assert rows == [(1,)]
+        assert "still running" in (tmp_path / "threads.log").read_text()
+    finally:
+        release.set()
+        holder.join(5)
+        connection_pool.clear()

@@ -7,6 +7,7 @@ vi.mock('@/lib/api/data-sources', () => ({
   fetchDataSourceSchema: (id: string) => fetchDataSourceSchema(id),
   queryDataSourceOnServer: (id: string, sql: string) => queryDataSourceOnServer(id, sql),
   planQueryOnServer: vi.fn(),
+  forgetDataSourceSchema: vi.fn(),
 }))
 // The relations pruned against the table list: the SQL names the tables it was given.
 vi.mock('@/lib/schema-classes/inject', () => ({

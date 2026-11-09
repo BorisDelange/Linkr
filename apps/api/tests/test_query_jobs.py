@@ -99,6 +99,19 @@ async def test_a_result_is_served_only_to_its_owner_and_source(client, db):
     assert (await client.get(f"{url}/u0", headers=other)).status_code == 404
 
 
+async def test_a_job_joins_the_group_it_is_given(client):
+    headers = await _admin(client)
+    ws, ds = await _source(client, headers)
+    r = await client.post(f"{API}/data-sources/{ds}/query-jobs", headers=headers, json={
+        "label": "Part", "queries": [{"key": "u0", "sql": "SELECT 1 AS one"}],
+        "groupKey": "concepts:db", "groupLabel": "Concepts of db",
+    })
+    assert r.status_code == 202, r.text
+    await _settle(r.json()["id"])
+    job = await _job(client, headers, ws, r.json()["id"])
+    assert job["groupKey"] == "concepts:db" and job["groupLabel"] == "Concepts of db"
+
+
 async def test_keys_must_be_safe_and_unique(client):
     headers = await _admin(client)
     _, ds = await _source(client, headers)
@@ -156,6 +169,31 @@ async def test_each_query_has_its_own_access_log_line(client, monkeypatch):
     assert all(ln["username"] == "admin" and ln["data_source_id"] == ds for ln in queries)
 
 
+async def test_a_job_stopped_says_so_until_its_query_has_stopped(client, monkeypatch):
+    # A query the database cannot interrupt at once: the cancel leaves it running.
+    monkeypatch.setattr(query_cancel, "cancel", lambda query_id, owner: False)
+    headers = await _admin(client)
+    ws, ds = await _source(client, headers)
+    gate = asyncio.Event()
+
+    async def slow_runner(db, source, q):
+        await asyncio.to_thread(lambda: None)
+        await gate.wait()
+        return []
+
+    from app.core.database import async_session
+    async with async_session() as db:
+        job = await query_jobs.start(db, ds, ws, 1, "Slow", [query_jobs.JobQuery("u0", "SELECT 1")], slow_runner)
+    await asyncio.sleep(0.05)
+    assert (await _job(client, headers, ws, job.id))["stopping"] is False
+    assert (await client.post(f"{API}/jobs/{job.id}/cancel", headers=headers)).status_code == 204
+    assert (await _job(client, headers, ws, job.id))["stopping"] is True
+    gate.set()
+    await _settle(job.id)
+    stopped = await _job(client, headers, ws, job.id)
+    assert stopped["status"] == "cancelled" and stopped["stopping"] is False
+
+
 async def test_a_failing_query_stops_the_job_and_keeps_its_whole_error(client):
     headers = await _admin(client)
     ws, ds = await _source(client, headers)
@@ -209,60 +247,26 @@ async def test_the_query_in_flight_reports_how_far_it_has_read(client, monkeypat
     assert result["reading"] == 42 and result["done"] == ["u0"] and pct == 71
 
 
-async def _concept_run(client, headers, ds, run_id: str) -> None:
-    r = await client.put(f"{API}/data-sources/{ds}/concept-cache/run", headers=headers, json={
-        "manifest": {"runId": run_id, "units": []}, "reset": True,
-    })
-    assert r.status_code == 204, r.text
+async def test_a_single_query_reports_how_far_it_has_read_on_its_job(client, monkeypatch):
+    monkeypatch.setattr(query_jobs, "PROGRESS_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(query_cancel, "progress", lambda query_id, owner: 42.0)
+    reported = asyncio.Event()
+    real_progress = jobs.JobHandle.progress
 
+    async def progress(self, pct):
+        if pct == 42:
+            reported.set()
+        await real_progress(self, pct)
 
-async def test_concept_units_run_as_a_job_and_are_kept_as_the_run_units(client):
+    monkeypatch.setattr(jobs.JobHandle, "progress", progress)
     headers = await _admin(client)
     ws, ds = await _source(client, headers)
-    await _concept_run(client, headers, ds, "run-a")
-    r = await client.post(f"{API}/data-sources/{ds}/concept-cache/units-job", headers=headers, json={
-        "label": "Concepts", "runId": "run-a",
-        "units": [{"key": "records-0", "sql": "SELECT x AS concept_id, 1 AS n FROM t"}],
-    })
-    assert r.status_code == 202, r.text
-    await _settle(r.json()["id"])
-
-    done = await _job(client, headers, ws, r.json()["id"])
-    assert done["status"] == "done" and done["result"]["done"] == ["records-0"]
-    # Kept in the concept cache, not as a result for the client to fetch.
-    assert done["result"]["rows"] == {}
-    status = (await client.get(f"{API}/data-sources/{ds}/concept-cache", headers=headers)).json()
-    assert status["run"]["doneUnits"] == ["records-0"] and not status["exists"]
-
-
-async def test_a_concept_job_assembles_the_list_between_its_units(client):
-    headers = await _admin(client)
-    ws, ds = await _source(client, headers)
-    await _concept_run(client, headers, ds, "run-a")
-    r = await client.post(f"{API}/data-sources/{ds}/concept-cache/units-job", headers=headers, json={
-        "label": "Concepts", "runId": "run-a", "units": [
-            {"key": "records-0", "sql": "SELECT x AS concept_id, 1 AS n FROM t"},
-            {"key": "assemble-0", "sql": "SELECT concept_id, sum(n) AS n FROM memory.main._concept_counts GROUP BY 1"},
-        ],
-    })
-    await _settle(r.json()["id"])
-    assert (await _job(client, headers, ws, r.json()["id"]))["status"] == "done"
-    status = (await client.get(f"{API}/data-sources/{ds}/concept-cache", headers=headers)).json()
-    assert status["exists"] and status["run"]["doneUnits"] == ["records-0"]
-    page = await client.post(f"{API}/data-sources/{ds}/concept-cache/query", headers=headers, json={
-        "sql": "SELECT count(*) AS c FROM concepts"})
-    assert page.json()["rows"] == [{"c": 10}]
-
-
-async def test_concept_units_of_a_replaced_run_are_refused(client):
-    headers = await _admin(client)
-    _, ds = await _source(client, headers)
-    await _concept_run(client, headers, ds, "run-a")
-    await _concept_run(client, headers, ds, "run-b")
-    r = await client.post(f"{API}/data-sources/{ds}/concept-cache/units-job", headers=headers, json={
-        "label": "Concepts", "runId": "run-a", "units": [{"key": "records-0", "sql": "SELECT 1 AS concept_id"}],
-    })
-    assert r.status_code == 409
+    sent = asyncio.create_task(client.post(f"{API}/data-sources/{ds}/query", headers=headers, json={"sql": SLOW, "origin": "Slow"}))
+    await asyncio.wait_for(reported.wait(), 10)
+    job = next(j for j in (await client.get(f"{API}/workspaces/{ws}/jobs", headers=headers)).json() if j["label"] == "Slow")
+    assert job["status"] == "running" and job["progress"] == 42
+    await client.post(f"{API}/jobs/{job['id']}/cancel", headers=headers)
+    await sent
 
 
 async def test_keep_going_records_a_failing_query_and_runs_the_next(client):
@@ -293,68 +297,3 @@ async def test_a_job_polled_by_id_carries_its_input_only_when_asked(client):
     assert polled["input"] is None and polled["status"] == "done"
     full = (await client.get(f"{API}/jobs/{job['id']}?withInput=true", headers=headers)).json()
     assert "SELECT 1 AS one" in full["input"]
-
-
-async def test_a_job_sharing_the_lane_lets_a_heavy_query_through_between_two_of_its_own(client, monkeypatch):
-    monkeypatch.setattr(settings, "max_heavy_queries", 1)
-    headers = await _admin(client)
-    ws, ds = await _source(client, headers)
-    gates = {"u0": asyncio.Event(), "u1": asyncio.Event()}
-    original = query_jobs._run_one
-
-    async def gated(job_id, source_id, runner, q, tag, launched_by):
-        if q.key in gates and job_id == shared["id"]:
-            await gates[q.key].wait()
-        return await original(job_id, source_id, runner, q, tag, launched_by)
-
-    monkeypatch.setattr(query_jobs, "_run_one", gated)
-    r = await client.post(f"{API}/data-sources/{ds}/query-jobs", headers=headers, json={
-        "label": "Profiles", "shareLane": True,
-        "queries": [{"key": "u0", "sql": "SELECT 1 AS one"}, {"key": "u1", "sql": "SELECT 2 AS two"}],
-    })
-    assert r.status_code == 202, r.text
-    shared = r.json()
-    await asyncio.sleep(0.1)
-    other = await _start(client, headers, ds, [("u0", "SELECT 3 AS three")], label="Cohort")
-    await asyncio.sleep(0.2)
-    # Its first query holds the lane.
-    assert (await _job(client, headers, ws, other["id"]))["status"] == "queued"
-
-    gates["u0"].set()
-    await _settle(other["id"])
-    assert (await _job(client, headers, ws, other["id"]))["status"] == "done"
-    # The cohort ran between the two: the profiles' second query had not.
-    assert (await _job(client, headers, ws, shared["id"]))["result"]["done"] == ["u0"]
-
-    gates["u1"].set()
-    await _settle(shared["id"])
-    assert (await _job(client, headers, ws, shared["id"]))["result"]["done"] == ["u0", "u1"]
-
-
-async def test_a_job_sharing_the_lane_is_queued_until_its_first_query_has_a_slot(client, monkeypatch):
-    monkeypatch.setattr(settings, "max_heavy_queries", 1)
-    headers = await _admin(client)
-    ws, ds = await _source(client, headers)
-    gate = asyncio.Event()
-    original = query_jobs._run_one
-
-    async def gated(job_id, source_id, runner, q, tag, launched_by):
-        if job_id == holder["id"]:
-            await gate.wait()
-        return await original(job_id, source_id, runner, q, tag, launched_by)
-
-    monkeypatch.setattr(query_jobs, "_run_one", gated)
-    holder = await _start(client, headers, ds, [("h", "SELECT 1 AS one")], label="Cohort")
-    await asyncio.sleep(0.1)
-    r = await client.post(f"{API}/data-sources/{ds}/query-jobs", headers=headers, json={
-        "label": "Profiles", "shareLane": True, "queries": [{"key": "u0", "sql": "SELECT 2 AS two"}],
-    })
-    assert r.status_code == 202, r.text
-    shared = r.json()
-    await asyncio.sleep(0.2)
-    assert (await _job(client, headers, ws, shared["id"]))["status"] == "queued"
-
-    gate.set()
-    await _settle(holder["id"])
-    await _settle(shared["id"])
-    assert (await _job(client, headers, ws, shared["id"]))["status"] == "done"

@@ -95,7 +95,26 @@ test's data folder links to: the first run needs the network, the next ones do n
   request, merged on the forge by another user, then pulled. Both need an
   instance holding the demo workspace (`E2E_DEMO=1`) and rewire its git links:
   run them on a disposable one.
-  `npm run test:versioning` (`scripts/test-versioning.mjs`) runs these three on
+  `long-runs.spec.ts` follows the server-owned concept runs through reloads: a
+  database's counts and statistics (an OMOP SQLite of 60,000 concepts and 6
+  million measurements, written by the journey, its DDL the demo's OMOP CDM 5.4)
+  reloaded while counting and again mid-statistics show the one run and its one
+  job, paused (the job gone within its deadline), reloaded paused, resumed where
+  it stopped and reloaded again; a mapping project's extraction alike. The run's
+  status and jobs are read from the API, the page from its buttons. Needs the
+  demo (`E2E_DEMO=1`): `npm run test:versioning -- long-runs`.
+  `demo-concept-runs.spec.ts` runs them to the end on the demo's real
+  warehouses — MIMIC-IV in its native schema and in OMOP, and a mapping
+  project's extraction on the native one — and wants every concept profiled,
+  none failed: `npm run test:versioning -- demo-runs`.
+  `etl-runs.spec.ts` runs a pipeline on a managed target on the server: reloaded
+  inside a script, the same run going on; paused there, resumed — the cut script
+  again from its start — to the end, with one history entry; its Quality check's
+  concept comparison, reloaded mid-run, joined and shown:
+  `npm run test:versioning -- etl-runs`.
+  `cohort-runs.spec.ts` runs a cohort on the server, reloaded mid-run: the same
+  run, then its count: `npm run test:versioning -- cohort-runs`.
+  `npm run test:versioning` (`scripts/test-versioning.mjs`) runs these on
   a stack of its own (free ports, data in `.cache/versioning-e2e/`): the first
   run installs the demo from the public catalog once and keeps a snapshot, each
   journey starts from a fresh copy of it; `--forge` adds the merge requests

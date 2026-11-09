@@ -92,12 +92,17 @@ async def test_a_failed_query_is_an_error_job(client):
     assert job["status"] == "error" and "nope" in full["logTail"]
 
 
-async def test_reading_the_tables_and_writing_them_are_jobs_too(client):
+async def test_writing_the_tables_is_a_job_and_reading_them_one_only_when_slow(client, monkeypatch):
     headers = await _admin(client)
     ws, ds = await _database(client, headers)
     await client.get(f"{API}/data-sources/{ds}/schema", headers=headers)
     labels = {j["label"]: j for j in await _queries(client, headers, ws)}
     assert labels["Demo · create its tables (DDL)"]["status"] == "done"
+    assert "Demo · list its tables and columns" not in labels
+
+    monkeypatch.setattr(jobs, "SLOW_SECONDS", 0)
+    await client.get(f"{API}/data-sources/{ds}/schema", headers=headers)
+    labels = {j["label"]: j for j in await _queries(client, headers, ws)}
     assert labels["Demo · list its tables and columns"]["summary"] == "1 tables"
 
 
@@ -145,3 +150,11 @@ async def test_a_long_label_is_cut_not_refused(client):
     assert r.status_code == 200, r.text
     [job] = [j for j in await _queries(client, headers, ws) if j["groupKey"] == "g"]
     assert job["label"] == label[:255] and job["groupLabel"] == label[:255]
+
+
+async def test_a_query_is_a_job_of_its_database_by_name(client):
+    headers = await _admin(client)
+    ws, ds = await _database(client, headers)
+    await client.post(f"{API}/data-sources/{ds}/query", headers=headers, json={"sql": "SELECT 1 AS one", "origin": "Named"})
+    [job] = [j for j in await _queries(client, headers, ws) if j["label"] == "Named"]
+    assert (job["entityType"], job["entityId"], job["entityName"]) == ("database", ds, "Demo")

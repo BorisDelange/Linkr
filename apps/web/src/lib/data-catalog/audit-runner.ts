@@ -3,10 +3,17 @@
  * the same contract as the computation's runner (lib/duckdb/catalog-runner.ts):
  * the run belongs to the catalog, the tab watches it and re-attaches on
  * return, and only a stop, the end, or an error ends it.
+ *
+ * In server mode the audit is a run of the server's (`catalog_audit`, apps/api
+ * services/server_runs/catalog_audit): the page builds what would be published
+ * (`compileAuditRun`), the server solves it, and the page keeps a finished run's
+ * audit with the results it audited (`auditRunApplies`) — a reload or a closed
+ * tab loses nothing.
  */
 
+import type { ServerRun } from '@/lib/api/server-runs'
 import type { AnonymizationAudit, CatalogResultCache, DataCatalog } from '@/types'
-import { auditCatalog } from './audit'
+import { auditCatalog, auditInputOf, type AuditInput, type AuditStamp } from './audit'
 
 export interface AuditRunSnapshot {
   running: boolean
@@ -82,4 +89,48 @@ export function startAudit({ catalog, cache, persist }: StartAuditInput): void {
       emit(catalog.id, { running: false }, true)
     }
   })()
+}
+
+/** A `catalog_audit` run's checkpoint, as the page reads it. */
+export interface AuditRunState {
+  /** Systems solved, out of `total`. */
+  next?: number
+  total?: number
+  /** What its audit will be stamped with. */
+  meta?: AuditStamp
+  /** Set once done: its audit's `computedAt`. */
+  computedAt?: string
+}
+
+/** The run's result file (`results/audit.json`). */
+export const AUDIT_RUN_RESULT = 'audit'
+
+export interface AuditRunSpec {
+  label: string
+  input: AuditInput
+  meta: AuditStamp
+}
+
+export function compileAuditRun(catalog: DataCatalog, cache: CatalogResultCache, label: string): AuditRunSpec {
+  const { input, stamp } = auditInputOf(catalog, cache)
+  return { label, input, meta: stamp }
+}
+
+/** Whether a run audits these results under these settings. */
+export function auditRunMatches(run: ServerRun<AuditRunState>, catalog: Pick<DataCatalog, 'anonymization'>, cache: CatalogResultCache): boolean {
+  const meta = run.state.meta
+  const { threshold, mode = 'replace', noise = 0 } = catalog.anonymization
+  return !!meta && meta.threshold === threshold && meta.mode === mode && meta.noise === noise && meta.resultsComputedAt === cache.computedAt
+}
+
+/**
+ * Whether a run's audit is still to keep: done, of these results and settings,
+ * and newer than the audit kept — which a page that already kept it, before a
+ * reload or in another tab, has stamped with the same `computedAt`.
+ */
+export function auditRunApplies(run: ServerRun<AuditRunState>, catalog: Pick<DataCatalog, 'anonymization'>, cache: CatalogResultCache): boolean {
+  const at = run.state.computedAt
+  if (run.status !== 'done' || !at || !auditRunMatches(run, catalog, cache)) return false
+  const kept = cache.anonymizationAudit?.computedAt
+  return !kept || kept < at
 }

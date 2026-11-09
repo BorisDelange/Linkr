@@ -5,11 +5,11 @@ import asyncio
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.security import hash_password
 from app.models.job import Job
 from app.models.project import Project
-from app.models.workspace import Workspace
 from app.models.user import User
-from app.core.security import hash_password
+from app.models.workspace import Workspace
 from app.services.execution import jobs
 
 
@@ -297,3 +297,20 @@ async def test_a_job_stopped_by_its_client_ends_cancelled(db):
     await asyncio.gather(*list(jobs._status_writes), return_exceptions=True)
     await db.refresh(job)
     assert job.status == "cancelled"
+
+
+async def test_a_project_job_is_its_projects_by_name(db):
+    project = await db.get(Project, "proj-1")
+    project.name = {"fr": "Projet", "en": "Project one"}
+    await db.commit()
+    job = await jobs.create(db, "proj-1", 1, kind="build", label="Build")
+    assert (job.entity_type, job.entity_id, job.entity_name) == ("project", "proj-1", "Project one")
+
+
+async def test_a_job_is_the_entity_its_request_works_on(db):
+    token = jobs.current_entity.set(jobs.Entity("database", "db-1", "MIMIC"))
+    try:
+        job = await jobs.create(db, None, 1, kind="query", label="Q", workspace_id="ws1")
+    finally:
+        jobs.current_entity.reset(token)
+    assert (job.entity_type, job.entity_id, job.entity_name) == ("database", "db-1", "MIMIC")

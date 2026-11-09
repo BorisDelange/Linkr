@@ -347,13 +347,6 @@ export interface SourceExtraction {
    * it existed, whose ranking scheme differed: a ranked one of those restarts.
    */
   walked?: string
-  /**
-   * The server jobs running this run's profile queries (server mode): a resume
-   * takes the results they finished, and a pause or a restart cancels them.
-   * Absent once the run is done, and meaningless on another instance (gone
-   * there, so ignored).
-   */
-  jobIds?: string[]
   /** ISO 8601, when the last batch finished. */
   updatedAt: string
   /** Set when the last batch failed, so the UI can say why it stopped. */

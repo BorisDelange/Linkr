@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, Play, ScanSearch, ShieldAlert, ShieldCheck, Square } from 'lucide-react'
 import { Card } from '@/components/ui/card'
@@ -7,12 +7,10 @@ import { Progress } from '@/components/ui/progress'
 import { SectionLabel } from '@/components/ui/section-label'
 import { FieldInfo } from '@/components/ui/field-info'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
-import { getAuditSnapshot, startAudit, stopAudit, watchAudit, type AuditRunSnapshot } from '@/lib/data-catalog/audit-runner'
-import { getStorage } from '@/lib/storage'
-import { useCatalogStore } from '@/stores/catalog-store'
 import { formatDuration } from '@/lib/format-helpers'
 import { cn } from '@/lib/utils'
-import type { AnonymizationAudit, CatalogResultCache, DataCatalog } from '@/types'
+import { useCatalogAudit } from './use-catalog-audit'
+import type { CatalogResultCache, DataCatalog } from '@/types'
 
 interface Props {
   catalog: DataCatalog
@@ -32,31 +30,16 @@ interface ExampleRow {
 /**
  * The disclosure audit: tries, from the published files alone, what an
  * outsider would to narrow masked cells down (lib/data-catalog/audit.ts).
- * It runs in the background like the computation, and its result is kept
- * with the results it audited.
+ * It runs in the background like the computation — on the server in server
+ * mode (`useCatalogAudit`) — and its result is kept with the results it audited.
  */
 export function CatalogAuditCard({ catalog, cache, canWrite }: Props) {
   const { t, i18n } = useTranslation()
-  const { setResultCache } = useCatalogStore()
-  const [run, setRun] = useState<AuditRunSnapshot>(() => getAuditSnapshot(catalog.id))
-  useEffect(() => watchAudit(catalog.id, setRun), [catalog.id])
+  const run = useCatalogAudit(catalog, cache, canWrite)
 
   const audit = cache.anonymizationAudit
   const { threshold, mode = 'replace', noise = 0 } = catalog.anonymization
   const stale = !!audit && (audit.threshold !== threshold || audit.mode !== mode || audit.noise !== noise || audit.resultsComputedAt !== cache.computedAt)
-
-  const start = () => startAudit({
-    catalog,
-    cache,
-    persist: async (result: AnonymizationAudit) => {
-      // The latest results, not the ones the audit started from: the tab may have saved the impact meanwhile.
-      const store = useCatalogStore.getState()
-      const current = (store.resultCacheLoadedFor === catalog.id ? store.activeResultCache : null) ?? cache
-      const next = { ...current, anonymizationAudit: result }
-      setResultCache(catalog.id, next)
-      if (canWrite) await getStorage().catalogResults.save(next)
-    },
-  })
 
   const patients = audit?.findings.filter((f) => f.measure === 'patients') ?? []
   const exposed = patients.reduce((n, f) => n + f.count, 0)
@@ -88,29 +71,31 @@ export function CatalogAuditCard({ catalog, cache, canWrite }: Props) {
         <FieldInfo text={t('data_catalog.audit_hint')} />
         <span className="flex-1" />
         {run.running ? (
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => stopAudit(catalog.id)}>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={run.stop}>
             <Square size={14} />
             {t('data_catalog.audit_stop')}
           </Button>
         ) : (
-          <Button size="sm" className="gap-1.5" onClick={start}>
+          <Button size="sm" className="gap-1.5" onClick={run.start}>
             <Play size={14} />
-            {t(audit ? 'data_catalog.audit_run_again' : 'data_catalog.audit_run')}
+            {t(run.paused ? 'data_catalog.audit_resume' : audit ? 'data_catalog.audit_run_again' : 'data_catalog.audit_run')}
           </Button>
         )}
       </div>
 
-      {run.running && (
+      {(run.running || run.paused) && (
         <div className="flex flex-col gap-1">
           <Progress value={percent} />
           <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <Loader2 size={12} className="animate-spin" />
-            {run.total ? t('data_catalog.audit_progress', { done: run.done.toLocaleString(i18n.language), total: run.total.toLocaleString(i18n.language) }) : t('data_catalog.audit_preparing')}
+            {run.running && <Loader2 size={12} className="animate-spin" />}
+            {run.total
+              ? t(run.running ? 'data_catalog.audit_progress' : 'data_catalog.audit_paused', { done: run.done.toLocaleString(i18n.language), total: run.total.toLocaleString(i18n.language) })
+              : t('data_catalog.audit_preparing')}
           </span>
         </div>
       )}
       {run.error && <p className="text-xs text-destructive">{run.error}</p>}
-      {!audit && !run.running && <p className="text-xs text-muted-foreground">{t('data_catalog.audit_not_run')}</p>}
+      {!audit && !run.running && !run.paused && <p className="text-xs text-muted-foreground">{t('data_catalog.audit_not_run')}</p>}
 
       {audit && (
         <div className={cn('flex flex-col gap-3 transition-opacity', (stale || run.running) && 'opacity-60')}>

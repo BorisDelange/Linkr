@@ -24,6 +24,7 @@ import { paths } from '@/lib/paths'
 import { Button } from '@/components/ui/button'
 import { useEtlStore } from '@/stores/etl-store'
 import { useEtlActions } from './use-etl-actions'
+import { useEtlServerRunMirror } from './use-pipeline-runner'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
 import { EtlScriptsTab } from './EtlScriptsTab'
 import { EtlPipelineTab } from './EtlPipelineTab'
@@ -96,6 +97,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
   // pipelineId may be a short prefix from the URL; resolve to the full id before any store call.
   const pipeline = resolveByIdPrefix(etlPipelines, pipelineId, (p) => p.id)
   const fullPipelineId = pipeline?.id
+  useEtlServerRunMirror(pipeline)
 
   useEffect(() => {
     if (fullPipelineId) loadPipelineFiles(fullPipelineId)

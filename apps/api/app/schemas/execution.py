@@ -184,6 +184,9 @@ class JobResponse(CamelModel):
     # Whether the panel's Stop reaches it: a job seen but not stoppable (a
     # connection test, a job left by a restart) is not.
     cancellable: bool = False
+    # Stopped, and not ended yet: its query in flight is interrupted, which a
+    # database honours only between two steps of its work — a minute, at worst.
+    stopping: bool = False
     # Only on `GET /jobs/{id}`: the lists the panel polls leave it out.
     input: str | None = None
     # A 'run' job's collected artifacts: {"figures": [...], "table": {...}, "html"}.
@@ -194,6 +197,9 @@ class JobResponse(CamelModel):
     finished_at: datetime | None = None
     group_key: str | None = None
     group_label: str | None = None
+    entity_type: str | None = None
+    entity_id: str | None = None
+    entity_name: str | None = None
 
 
 class AdminJobResponse(JobResponse):

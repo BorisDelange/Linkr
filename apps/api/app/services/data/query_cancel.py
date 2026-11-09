@@ -20,11 +20,17 @@ query registers a hook (`on_cancel`) that stops it on the database's side.
 
 A query a user waits for (`within_limit`) is also interrupted once it has run
 `settings.query_timeout_seconds`, through the same cancel.
+
+A query can ignore its interrupt, in some phases of DuckDB's work, for good:
+still running `STUCK_AFTER_S` after it, its connection is taken out of the pool
+(`on_stuck` hooks: connection_pool.retire), so the database answers again on a
+fresh one, and the threads' stacks are dumped (core/diagnostics).
 """
 
 import asyncio
 import contextlib
 import contextvars
+import logging
 import threading
 import time
 import uuid
@@ -35,6 +41,7 @@ import duckdb
 from fastapi import HTTPException, status
 
 from app.config import settings
+from app.core import diagnostics
 from app.core.deferred import until_stopped
 
 # (query id, owner) of the query the current request runs, or None.
@@ -49,6 +56,8 @@ _EARLY_CANCEL_MAX = 10_000
 
 # Runs when the query is cancelled, after the interrupt; must not block.
 _cancel_hook: contextvars.ContextVar[Callable[[], None] | None] = contextvars.ContextVar("cancel_hook", default=None)
+
+logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 _running: dict[str, tuple[str, duckdb.DuckDBPyConnection, Callable[[], None] | None]] = {}
@@ -109,6 +118,28 @@ def tracking(con: duckdb.DuckDBPyConnection) -> Iterator[None]:
             _interrupted.discard(query_id)
 
 
+# Still running this long after its interrupt, a query is taken as stuck.
+STUCK_AFTER_S = 60.0
+_stuck_hooks: list[Callable[[duckdb.DuckDBPyConnection], object]] = []
+
+
+def on_stuck(hook: Callable[[duckdb.DuckDBPyConnection], object]) -> None:
+    """Call `hook(con)` with the connection of a query stuck past its interrupt."""
+    _stuck_hooks.append(hook)
+
+
+def _check_stuck(query_id: str, con: duckdb.DuckDBPyConnection) -> None:
+    with _lock:
+        entry = _running.get(query_id)
+        stuck = entry is not None and entry[1] is con
+    if not stuck:
+        return
+    logger.warning("query %s ignores its interrupt after %.0f s: its connection is retired", query_id, STUCK_AFTER_S)
+    diagnostics.dump(f"query {query_id} still running {STUCK_AFTER_S:.0f} s after its interrupt")
+    for hook in _stuck_hooks:
+        hook(con)
+
+
 def raise_if_cancelled() -> None:
     """Raise QueryCancelled when the current request's query was cancelled before
     it started — for a wait (the pooled connection's lock) to end at once rather
@@ -157,6 +188,10 @@ def cancel(query_id: str, owner: str) -> bool:
             return False
         _interrupted.add(query_id)
         hook = entry[2]
+        con = entry[1]
+    stuck = threading.Timer(STUCK_AFTER_S, _check_stuck, (query_id, con))
+    stuck.daemon = True
+    stuck.start()
     # Outside it: the hook reaches another database, and must not hold up every
     # query starting or stopping meanwhile.
     if hook is not None:

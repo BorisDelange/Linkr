@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { AlertCircle, AlertTriangle, BarChart3, ChevronDown, ChevronUp, Pause, Play, RefreshCw, RotateCcw, Rows3, Users, X } from 'lucide-react'
+import { AlertCircle, AlertTriangle, BarChart3, ChevronDown, ChevronUp, Loader2, Pause, Play, RefreshCw, RotateCcw, Rows3, Users, X } from 'lucide-react'
 import { useSessionDismissal } from '@/hooks/use-session-dismissal'
 import type { VisibilityState } from '@tanstack/react-table'
 import type { SchemaMapping } from '@/types/schema-mapping'
@@ -28,7 +28,7 @@ import { useStoredProfile } from '../concepts/use-stored-profile'
 import { useConceptProfiles } from './use-concept-profiles'
 import { SECTION_GROUPS, type SectionKey } from '@/lib/concept-profiles/profile-store'
 import { DEFAULT_HIDDEN_COLUMNS } from '../concepts/concept-queries'
-import { clearConceptCountError } from '../concepts/concept-count-runner'
+import { prepareCountSpec } from '../concepts/concept-count-runner'
 import type { ConceptCountStep, ConceptCountStepProgress } from '../concepts/concept-count-plan'
 
 /** The count's steps, and the statistics: the concept profiles (useConceptProfiles). */
@@ -53,6 +53,9 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
   const profiles = useConceptProfiles(dataSourceId, schemaMapping)
   const { count } = concepts
   const [confirmRestart, setConfirmRestart] = useState(false)
+  // Started over with the statistics: those stored are dropped once the counts
+  // are done, so meanwhile their step reads as not started.
+  const [statsReset, setStatsReset] = useState(false)
   // What the user ticked, for this database; untouched, every step. None loads
   // the concepts alone — searchable, not sortable by use.
   const [ticked, setTicked] = useState<{ dataSourceId: string; steps: ReadonlySet<Step> } | null>(null)
@@ -81,10 +84,14 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
   const listed = !count.enabled || count.exists
   const picked: ReadonlySet<Step> = ticked?.dataSourceId === dataSourceId ? ticked.steps : new Set(STEPS)
   const counting = live.running
-  const running = counting || profiles.running
+  const running = counting || profiles.running || profiles.starting
+  // Shown from the click on: the run stops only once its query in flight does.
+  const [pauseAsked, setPauseAsked] = useState(false)
+  if (pauseAsked && !running) setPauseAsked(false)
+  const pausing = running && (pauseAsked || profiles.pausing)
   const records = counting ? live.records : progress.records
   const patients = counting ? live.patients : progress.patients
-  const stats: ConceptCountStepProgress = { done: profiles.done, total: profiles.total }
+  const stats: ConceptCountStepProgress = { done: statsReset && counting ? 0 : profiles.done, total: profiles.total }
   const isDone = (step: ConceptCountStepProgress) => step.total > 0 && step.done === step.total
   const recordsDone = isDone(records)
   const complete = !counting && progress.state === 'complete'
@@ -120,6 +127,9 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
     status: stepStatus(progressOf[s], s === 'stats' ? profiles.running : counting && live.phase === s),
     progress: progressOf[s],
     ...(s === 'stats' && profiles.preparing ? { detail: t('concepts.profiles_preparing') } : {}),
+    ...(s === 'stats' && profiles.share != null
+      ? { share: profiles.share, eta: profiles.eta, shareHint: [t('concepts.profiles_share_hint'), profiles.eta != null ? t('concepts.profiles_eta_hint') : null].filter(Boolean).join(' ') }
+      : {}),
     ...(counting && live.phase === s ? { startedAt: live.phaseStartedAt, reading: live.reading } : {}),
   }))
   const counted = records.done + patients.done > 0
@@ -137,20 +147,12 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
     steps.push({ id: live.phase, label: t('concepts.count_phase_assembling'), status: 'active' })
   }
 
-  // The statistics wait for the counts: they rank the concepts by their rows, and
-  // two runs at once would compete for the database. A pause drops the wait.
-  const statsQueued = useRef<{ fresh: boolean } | null>(null)
-  useEffect(() => {
-    const queued = statsQueued.current
-    if (!queued || counting) return
-    statsQueued.current = null
-    if (!live.error) void profiles.start({ resume: !queued.fresh && profiles.resumable, fresh: queued.fresh })
-  }, [counting, live.error, profiles])
-
   const date = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }) : '')
-  const statusText = counting
+  const statusText = pausing
+    ? t('concepts.count_pausing_detail')
+    : counting
     ? t('concepts.count_running')
-    : profiles.running
+    : profiles.running || profiles.starting
       ? t('concepts.profiles_running')
       // Paused before anything was assembled counts as never loaded.
       : !listed
@@ -162,25 +164,42 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
             : recordsDone && patients.done === 0 ? t('concepts.count_records_done') : t('concepts.count_paused')
 
   const start = (restart: boolean) => {
-    clearConceptCountError(dataSourceId)
     const countSteps = chosen.filter((s): s is ConceptCountStep => s !== 'stats')
     const withStats = chosen.includes('stats') && (restart || stepPending('stats'))
-    // The list first when it is not there: the statistics walk what it counted.
-    if (count.enabled && (restart || !count.exists || countSteps.some(stepPending))) {
-      count.start(restart, countSteps)
-      statsQueued.current = withStats ? { fresh: restart } : null
-    } else if (withStats) {
-      void profiles.start({ resume: !restart && profiles.resumable, fresh: restart })
+    if (!count.enabled) {
+      if (withStats) void profiles.start({ resume: !restart && profiles.resumable, fresh: restart })
+      return
     }
+    // Server mode: one run on the server, the counts first — the statistics
+    // rank the concepts by what they counted — then the statistics.
+    if (!restart && profiles.server?.resumable) {
+      void profiles.server.resume().catch(() => {})
+      return
+    }
+    const withCounts = restart || !count.exists || countSteps.some(stepPending)
+    setStatsReset(restart && withStats)
+    void profiles.startOnServer({
+      fresh: restart,
+      stats: withStats,
+      counts: withCounts
+        ? () => prepareCountSpec(
+          { dataSourceId, mapping: schemaMapping, restart, steps: countSteps, stats: withStats ? { fresh: restart } : null },
+          new AbortController().signal,
+        )
+        : null,
+    })
   }
   const pause = () => {
-    statsQueued.current = null
-    if (counting) count.pause()
-    if (profiles.running) profiles.pause()
+    if (!count.enabled && !profiles.running) return
+    setPauseAsked(true)
+    profiles.pause().catch(() => setPauseAsked(false))
   }
+  // Begun and stopped short: resumed from the card's line itself, not only
+  // from its options.
+  const resumable = pending.some((s) => (s === 'stats' ? profiles.resumable : progressOf[s].done > 0))
   const startLabel = !listed ? t('concepts.count_start')
     : pending.length === 0 ? t('concepts.count_again')
-      : pending.some((s) => progressOf[s].done > 0) ? t('concepts.count_resume') : t('concepts.count_continue')
+      : resumable ? t('concepts.count_resume') : t('concepts.count_continue')
   const stepCard = (step: Step) => {
     const Icon = STEP_ICONS[step]
     const on = held(step) || picked.has(step)
@@ -253,7 +272,7 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
           {startLabel}
         </Button>
         {((partial && counted) || (profiles.summary?.count ?? 0) > 0) && (
-          <Button variant="ghost" className="gap-1.5" onClick={() => setConfirmRestart(true)}>
+          <Button variant="destructive" className="gap-1.5" onClick={() => setConfirmRestart(true)}>
             <RotateCcw size={14} />
             {t('concepts.count_restart')}
           </Button>
@@ -266,7 +285,8 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
   // to a reader, so the line says how far each step is and the hover says in
   // what units.
   const shownSteps = STEPS.filter((s) => progressOf[s].total > 0)
-  const fraction = (s: Step) => progressOf[s].done / progressOf[s].total
+  // The statistics weigh their concepts by records: the busiest come first.
+  const fraction = (s: Step) => (s === 'stats' && profiles.share != null ? profiles.share : progressOf[s].done / progressOf[s].total)
   const percent = shownSteps.length > 0 ? (shownSteps.reduce((sum, s) => sum + fraction(s), 0) / shownSteps.length) * 100 : 0
   const stale = profiles.stale != null && profiles.stale > 0 && (
     <span className="text-xs text-warning-foreground">{t('concepts.profiles_stale', { count: profiles.stale })}</span>
@@ -294,9 +314,6 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
         </Tooltip>
       )}
       {stale}
-      {profiles.onServer && !running && (
-        <span className="text-xs text-muted-foreground">{t('concepts.profiles_on_server')}</span>
-      )}
       {!running && (profiles.summary?.count ?? 0) > 0 && (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -363,9 +380,9 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
           <div className="flex items-center gap-3">
             <Progress value={percent} className="flex-1" />
             {!readOnly && (
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={pause}>
-                <Pause size={14} />
-                {t('concepts.count_pause')}
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={pause} disabled={pausing}>
+                {pausing ? <Loader2 size={14} className="animate-spin" /> : <Pause size={14} />}
+                {t(pausing ? 'concepts.count_pausing' : 'concepts.count_pause')}
               </Button>
             )}
           </div>
@@ -381,6 +398,12 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
             <span className="text-xs text-muted-foreground">{statusText}</span>
             <div className="flex items-center gap-2">
               {stepCounts}
+              {!readOnly && resumable && !expanded && (
+                <Button size="sm" className="gap-1.5" onClick={() => start(false)} disabled={!count.checked || (picked.has('stats') && profiles.sections.length === 0)}>
+                  <Play size={14} />
+                  {startLabel}
+                </Button>
+              )}
               {!readOnly && (
                 <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setExpanded((v) => !v)}>
                   {t('concepts.count_options')}
@@ -469,7 +492,7 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { setConfirmRestart(false); start(true) }}>
+            <AlertDialogAction variant="destructive" onClick={() => { setConfirmRestart(false); start(true) }}>
               {t('concepts.count_restart')}
             </AlertDialogAction>
           </AlertDialogFooter>

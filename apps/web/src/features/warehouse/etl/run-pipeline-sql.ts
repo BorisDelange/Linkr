@@ -7,6 +7,7 @@ import type { DatabaseConnectionConfig, DataSource, EtlPipeline } from '@/types'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { MAPPING_REF_PREFIX, usedMappingRefs } from '@/lib/duckdb/mapping-source'
+import type { EtlRunSpec, EtlRunStep } from '@/lib/api/etl-runs'
 import { vocabularyDataSourceIdFor } from '@/lib/vocabulary-library/resolve'
 
 function isManaged(ds: DataSource | undefined): boolean {
@@ -163,9 +164,10 @@ async function runStatements(
 /**
  * The managed target a script should stream against, or undefined when this run
  * does not go through the ETL endpoint (front-only, or no managed target — a
- * plain read-only query then serves).
+ * plain read-only query then serves). A whole pipeline run on such a target is a
+ * server run (`compileEtlRunSpec`).
  */
-function serverStreamTarget(pipeline: EtlPipeline | undefined): string | undefined {
+export function serverStreamTarget(pipeline: EtlPipeline | undefined): string | undefined {
   if (!isServerMode()) return undefined
   const targetId = pipeline?.targetDataSourceId
   if (!targetId) return undefined
@@ -189,6 +191,27 @@ async function serverRoles(
   const vocabId = await vocabDataSourceId(pipeline)
   if (vocabId && vocabId !== targetId) roles.vocab = vocabId
   return roles
+}
+
+/**
+ * What the server is given to run a pipeline on its managed target
+ * (apps/api services/server_runs/etl.py): the scripts as they run, in order,
+ * the role databases and the mapping exports — compiled once, so the run goes
+ * on whatever becomes of this page.
+ */
+export async function compileEtlRunSpec(
+  pipeline: EtlPipeline,
+  targetId: string,
+  steps: EtlRunStep[],
+  mappingData: Record<string, string>,
+): Promise<EtlRunSpec> {
+  return {
+    label: i18n.t('etl.run_job', { name: localized(pipeline.name, i18n.language) }),
+    pipelineId: pipeline.id,
+    roles: await serverRoles(pipeline, targetId),
+    steps,
+    mappingData,
+  }
 }
 
 /**

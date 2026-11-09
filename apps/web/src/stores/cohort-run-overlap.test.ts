@@ -26,6 +26,9 @@ vi.mock('@/lib/duckdb/cohort-query', () => ({
   cohortRunError: (_c: Cohort, message: string) => message,
 }))
 
+// The page's own run; a server's run is followed instead (query-plan.test.ts).
+vi.mock('@/lib/api-client', async (original) => ({ ...(await original<object>()), isServerMode: () => false }))
+
 const update = vi.fn(async () => {})
 vi.mock('@/lib/storage', () => ({ getStorage: () => ({ cohorts: { update } }) }))
 

@@ -1,7 +1,10 @@
 import { useEffect, useRef } from 'react'
+import i18n from '@/lib/i18n'
+import { isServerMode } from '@/lib/api-client'
 import * as engine from '@/lib/duckdb/engine'
-import { computeCohortReportData, withReportFlow, type CohortReportData } from '@/lib/cohort-report/model'
-import type { Cohort, DataSource } from '@/types'
+import { cohortFiguresQueries, computeCohortReportData, withReportFlow, type CohortReportData } from '@/lib/cohort-report/model'
+import { followServerPlan, preparePlan, signatureOf, type PlanResults, type QueryPlan } from '@/lib/server-runs/query-plan'
+import type { Cohort, DataSource, SchemaMapping } from '@/types'
 import { reportDataKey, reportRunOf, startReportRun, stopReportRun, useReportRun, type ReportRunState } from './report-runs'
 import { cohortOrigin } from '@/lib/duckdb/query-log'
 import { localized } from '@/lib/localized'
@@ -31,11 +34,43 @@ export function startCohortFigures(cohort: Cohort, source: DataSource, opts: Fig
   const base = !opts.fresh && prior?.key === key && prior.state.status === 'done' ? prior.state.data : undefined
   if (opts.runAt !== undefined) computedFor.set(cohort.id, opts.runAt)
   startReportRun(cohort.id, key, async (signal) => {
+    if (isServerMode()) return figuresOnServer(cohort, source.id, mapping, { withFlow: opts.withFlow, base, fresh: !!opts.fresh, signal })
     const named = cohortOrigin(localized(cohort.name, 'en'), opts.withFlow ? 'Cohort report' : 'Cohort statistics')
     const run = (sql: string, what = 'figures') => engine.queryDataSource(source.id, sql, { heavy: true, signal, origin: named(what) })
     const data = base ?? await computeCohortReportData({ cohort, mapping, run, combine: true })
     return opts.withFlow ? withReportFlow(data, { cohort, mapping, run }) : data
   }, base)
+}
+
+/**
+ * Server mode: the figures as a `cohort_figures` run, which a reload or a
+ * closed report leaves going on. The run of this definition going on is
+ * joined, and — unless asked `fresh` — one that ended meanwhile is read rather
+ * than computed again.
+ */
+async function figuresOnServer(
+  cohort: Cohort,
+  sourceId: string,
+  mapping: SchemaMapping,
+  { withFlow, base, fresh, signal }: { withFlow: boolean; base?: CohortReportData; fresh: boolean; signal: AbortSignal },
+): Promise<CohortReportData> {
+  const { items, assemble } = cohortFiguresQueries({ cohort, mapping, withFlow, base })
+  if (items.length === 0) return assemble(new Map(), new Date().toISOString())
+  const name = localized(cohort.name, i18n.language)
+  const plan: QueryPlan = await preparePlan(sourceId, {
+    label: i18n.t(withFlow ? 'cohorts.report_job' : 'cohorts.figures_job', { name }),
+    items,
+    meta: { signature: signatureOf([sourceId, ...items.map((i) => i.sql)]), dataSourceId: sourceId },
+  })
+  const results: PlanResults = new Map()
+  const onRows = (i: number, rows: Record<string, unknown>[] | null, error?: string) =>
+    results.set(plan.items[i].key, error !== undefined || !rows ? new Error(error ?? 'no rows') : rows)
+  const run = (!fresh && await followServerPlan('cohort_figures', cohort.id, plan, onRows, { signal, resumeOnly: true, finished: true }))
+    || await followServerPlan('cohort_figures', cohort.id, plan, onRows, { signal })
+  if (!run) throw new Error('the cohort figures did not start')
+  if (run.status === 'cancelled' || run.status === 'paused') throw new DOMException('cancelled', 'AbortError')
+  if (run.status !== 'done') throw new Error(run.error ?? `the cohort figures ended ${run.status}`)
+  return assemble(results, run.finishedAt ?? new Date().toISOString())
 }
 
 export interface CohortFigures {

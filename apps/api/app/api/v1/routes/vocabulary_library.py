@@ -184,6 +184,7 @@ async def start_import(
         async with deferred.session() as session:
             job = await jobs.create(
                 session, None, user.id, "vocab-import", f"Import {', '.join(chosen)[:200]}", workspace_id=workspace_id,
+                entity=jobs.Entity("vocabularies", workspace_id, ""),
             )
         await jobs.adopt(job.id, state.task)
         return state.as_dict()

@@ -37,13 +37,13 @@ function eventsOf(mapping: SchemaMapping, dict: ClassRelation): ClassRelation[] 
 const eventDate = (alias: string) => `CAST(${alias}.start_datetime AS TIMESTAMP)`
 
 /** Event rows as (concept, patient, date), a repeated source concept dropped. */
-function eventParts(mapping: SchemaMapping, dict: ClassRelation, range?: PatientRange | null): string[] {
+function eventParts(mapping: SchemaMapping, dict: ClassRelation): string[] {
   const parts: string[] = []
   for (const event of eventsOf(mapping, dict)) {
-    parts.push(`SELECT e.concept_id AS cid, e.patient_id AS pid, ${eventDate('e')} AS edate FROM ${event.name} e${whereRange('e.patient_id', range)}`)
+    parts.push(`SELECT e.concept_id AS cid, e.patient_id AS pid, ${eventDate('e')} AS edate FROM ${event.name} e${whereRange('e.patient_id')}`)
     // A source column repeating the standard one would count the row twice for that concept.
     if (has(event, 'source_concept_id')) {
-      parts.push(`SELECT e.source_concept_id AS cid, e.patient_id AS pid, ${eventDate('e')} AS edate FROM ${event.name} e WHERE e.source_concept_id IS DISTINCT FROM e.concept_id${andRange('e.patient_id', range)}`)
+      parts.push(`SELECT e.source_concept_id AS cid, e.patient_id AS pid, ${eventDate('e')} AS edate FROM ${event.name} e WHERE e.source_concept_id IS DISTINCT FROM e.concept_id${andRange('e.patient_id')}`)
     }
   }
   return parts
@@ -89,14 +89,16 @@ export function rangeCondition(column: string, range?: PatientRange | null): str
   return parts.join(' AND ')
 }
 
-const andRange = (column: string, range?: PatientRange | null) => {
-  const c = rangeCondition(column, range)
-  return c ? ` AND ${c}` : ''
-}
-const whereRange = (column: string, range?: PatientRange | null) => {
-  const c = rangeCondition(column, range)
-  return c ? ` WHERE ${c}` : ''
-}
+/*
+ * The catalog's queries are templates: the values that depend on earlier
+ * results — the patient slice, the bound picks, the top services, the concept
+ * chunk — are comment tokens that `fillCatalogSql` (catalog-sql-fill.ts) fills,
+ * in the browser and on the server alike (services/server_runs/catalog). A
+ * comment survives the class-relation injection; unfilled, a range token reads
+ * the whole warehouse.
+ */
+const andRange = (column: string) => `/*LINKR_RANGE:AND:${column}*/`
+const whereRange = (column: string) => `/*LINKR_RANGE:WHERE:${column}*/`
 
 /** Event rows and patients: whether the warehouse is large enough to be counted
  *  in slices. `tables`: what the database has, so an event on a missing table
@@ -114,28 +116,35 @@ export function buildSizeQuery(mapping: SchemaMapping, tables?: readonly string[
 }
 
 /**
- * The patient ids cutting the patients into `slices` slices of equal size, in
- * order: the k-th bound is the patient of rank ⌈n·k/slices⌉. Ranks and integer
- * arithmetic rather than `quantile_disc`, so that an external database can
- * compute the same bounds itself (apps/api/app/services/data/remote_sql.py).
+ * The patient ids cutting the patients into slices of equal size, in order: the
+ * k-th bound is the patient of rank ⌈n·k/slices⌉ (`boundPicks`, the slice count
+ * filled in). Ranks and integer arithmetic rather than `quantile_disc`, so that
+ * an external database can compute the same bounds itself
+ * (apps/api/app/services/data/remote_sql.py).
  */
-export function buildPatientBoundsQuery(mapping: SchemaMapping, slices: number): string | null {
+export function buildPatientBoundsQuery(mapping: SchemaMapping): string | null {
   const patient = classRelation(mapping, 'patient')
-  if (!patient || slices < 2) return null
-  const picks = Array.from({ length: slices - 1 }, (_, i) => `((rn - 1) * ${slices} < n * ${i + 1} AND rn * ${slices} >= n * ${i + 1})`)
+  if (!patient) return null
   return `SELECT DISTINCT b FROM (
   SELECT patient_id AS b, ROW_NUMBER() OVER (ORDER BY patient_id) AS rn, COUNT(*) OVER () AS n
   FROM ${patient.name} WHERE patient_id IS NOT NULL
 ) _q
-WHERE ${picks.join('\n   OR ')}
+WHERE /*LINKR_BOUND_PICKS*/
 ORDER BY b`
+}
+
+/** The rows of `buildPatientBoundsQuery` that are bounds, for `slices` slices. */
+export function boundPicks(slices: number): string {
+  const n = Math.floor(slices)
+  if (!(n >= 2)) throw new Error('Patient bounds need at least two slices')
+  return Array.from({ length: n - 1 }, (_, i) => `((rn - 1) * ${n} < n * ${i + 1} AND rn * ${n} >= n * ${i + 1})`).join('\n   OR ')
 }
 
 // ---------------------------------------------------------------------------
 // Concept list (per-concept counts, the Concepts tab)
 // ---------------------------------------------------------------------------
 
-/** One dictionary's per-concept counts, for a slice of the patients. */
+/** One dictionary's per-concept counts. */
 export interface ConceptCountQuery {
   dictKey: string
   sql: string
@@ -152,7 +161,6 @@ export function buildConceptCountQueries(
   mapping: SchemaMapping,
   categoryColumn?: string,
   subcategoryColumn?: string,
-  range?: PatientRange | null,
   withVisits = true,
   keySalt?: string,
 ): ConceptCountQuery[] | null {
@@ -161,7 +169,7 @@ export function buildConceptCountQueries(
 
   const queries: ConceptCountQuery[] = []
   for (const dict of conceptRelations(mapping)) {
-    const parts = eventParts(mapping, dict, range)
+    const parts = eventParts(mapping, dict)
     if (parts.length === 0) continue
     const dictKey = dict.key ?? ''
     const catCol = categoryColumn ? resolveDictColumn(mapping, dict, categoryColumn) : undefined
@@ -211,32 +219,32 @@ JOIN ${dict.name} d ON d.concept_id = pc.cid${withVisits ? '\nLEFT JOIN per_visi
  * Patients with a visit, visits, and event rows: the catalog's headline
  * figures — and unit stays when counted and mapped.
  */
-export function buildTotalsQuery(mapping: SchemaMapping, range?: PatientRange | null, counts: CatalogCounts = DEFAULT_CATALOG_COUNTS, keySalt?: string): string | null {
+export function buildTotalsQuery(mapping: SchemaMapping, counts: CatalogCounts = DEFAULT_CATALOG_COUNTS, keySalt?: string): string | null {
   const visit = classRelation(mapping, 'visit')
   if (!visit) return null
-  const events = eventUnion(mapping, { level: 'concept' }, null, false, range)
+  const events = eventUnion(mapping, { level: 'concept' }, false, false)
   const records = events ? `(SELECT COUNT(*) FROM (\n  ${events}\n) _ev)::BIGINT` : '0::BIGINT'
   const vd = counts.unitStays ? classRelation(mapping, 'visit_detail') : undefined
-  const unitStays = vd ? `,\n  (SELECT COUNT(*) FROM ${vd.name} vd${whereRange('vd.patient_id', range)})::BIGINT AS total_unit_stays` : ''
+  const unitStays = vd ? `,\n  (SELECT COUNT(*) FROM ${vd.name} vd${whereRange('vd.patient_id')})::BIGINT AS total_unit_stays` : ''
   const key = keySalt
-    ? `,\n  (SELECT (SUM(${patientKeySql('pid', keySalt)}) % ${KEY_SPACE})::BIGINT FROM (SELECT DISTINCT patient_id AS pid FROM ${visit.name}${whereRange('patient_id', range)}) _p) AS total_key`
+    ? `,\n  (SELECT (SUM(${patientKeySql('pid', keySalt)}) % ${KEY_SPACE})::BIGINT FROM (SELECT DISTINCT patient_id AS pid FROM ${visit.name}${whereRange('patient_id')}) _p) AS total_key`
     : ''
   return `SELECT
   COUNT(DISTINCT v.patient_id)::BIGINT AS total_patients,
   COUNT(*)::BIGINT AS total_visits,
   ${records} AS total_records${unitStays}${key}
-FROM ${visit.name} v${whereRange('v.patient_id', range)}`
+FROM ${visit.name} v${whereRange('v.patient_id')}`
 }
 
 /** Every service of the level, with its patients, largest first. */
-export function buildServiceListQuery(mapping: SchemaMapping, level: ServiceVariableConfig['level'], range?: PatientRange | null): string | null {
+export function buildServiceListQuery(mapping: SchemaMapping, level: ServiceVariableConfig['level']): string | null {
   const svc = serviceSource(mapping, level)
   const visit = classRelation(mapping, 'visit')
   if (!svc || !visit) return null
   return `SELECT svc, COUNT(DISTINCT pid)::BIGINT AS patients FROM (
   SELECT ${svc.rawExpr} AS svc, v.patient_id AS pid
   FROM ${visit.name} v
-  ${svc.visitJoin}${whereRange('v.patient_id', range)}
+  ${svc.visitJoin}${whereRange('v.patient_id')}
 ) _s
 WHERE svc IS NOT NULL
 GROUP BY svc
@@ -337,14 +345,13 @@ function serviceSource(mapping: SchemaMapping, level: ServiceVariableConfig['lev
 }
 
 /**
- * The service modality after grouping: as is, the top N kept and the rest
- * "Other", or the user's named groups.
+ * The service modality after grouping: as is, the top N kept (the list a
+ * ranking gives, filled in) and the rest "Other", or the user's named groups.
  */
-export function serviceGroupingExpr(rawExpr: string, cfg: ServiceVariableConfig, topServices: readonly string[]): string {
+export function serviceGroupingExpr(rawExpr: string, cfg: ServiceVariableConfig): string {
   const other = lit(OTHER_MODALITY)
   if (cfg.grouping === 'top') {
-    if (topServices.length === 0) return `CASE WHEN ${rawExpr} IS NULL THEN NULL ELSE ${other} END`
-    return `CASE WHEN ${rawExpr} IS NULL THEN NULL WHEN ${rawExpr} IN (${topServices.map(lit).join(', ')}) THEN ${rawExpr} ELSE ${other} END`
+    return `CASE WHEN ${rawExpr} IS NULL THEN NULL WHEN ${rawExpr} IN (/*LINKR_SERVICE_TOP*/) THEN ${rawExpr} ELSE ${other} END`
   }
   if (cfg.grouping === 'manual') {
     const byGroup = new Map<string, string[]>()
@@ -373,34 +380,32 @@ export type ConceptFilter = Array<{ dictKey: string; ids: (string | number)[] }>
  * The modality is the concept id — prefixed with its dictionary key when there
  * are several, since ids collide across dictionaries — or its category. An
  * event's source concept adds a row too, unless it repeats the standard one
- * (counting that row twice).
+ * (counting that row twice). `filtered`: each part takes the concept filter of
+ * its dictionary (by its index), filled in.
  */
 function eventUnion(
   mapping: SchemaMapping,
   concept: Pick<ConceptVariableConfig, 'level' | 'categoryColumn' | 'subcategoryColumn'>,
-  filter: ConceptFilter | null,
+  filtered: boolean,
   withDate: boolean,
-  range?: PatientRange | null,
 ): string | null {
   if (!classRelation(mapping, 'patient')) return null
   const dicts = conceptRelations(mapping)
   const multi = dicts.length > 1
   const parts: string[] = []
 
-  for (const dict of dicts) {
+  dicts.forEach((dict, dictIndex) => {
     const dictKey = dict.key ?? ''
     const byLevel = concept.level === 'category' ? concept.categoryColumn : concept.level === 'subcategory' ? concept.subcategoryColumn : undefined
     const catCol = byLevel ? resolveDictColumn(mapping, dict, byLevel) : undefined
-    if (concept.level !== 'concept' && !catCol) continue
-    const ids = filter?.find((f) => f.dictKey === dictKey)?.ids
-    if (filter && !ids?.length) continue
+    if (concept.level !== 'concept' && !catCol) return
 
     for (const event of eventsOf(mapping, dict)) {
       const date = withDate ? `, ${eventDate('e')} AS edate` : ''
       const columns = ['concept_id', ...(has(event, 'source_concept_id') ? ['source_concept_id'] : [])]
       columns.forEach((col, i) => {
         const skipDuplicate = i > 0 ? ` AND e.${col} IS DISTINCT FROM e.concept_id` : ''
-        const idFilter = (ids ? ` AND e.${col} IN (${ids.map(lit).join(', ')})` : '') + andRange('e.patient_id', range)
+        const idFilter = (filtered ? `/*LINKR_CONCEPT_IN:${dictIndex}:e.${col}*/` : '') + andRange('e.patient_id')
         if (concept.level === 'concept') {
           const idExpr = `CAST(e.${col} AS VARCHAR)`
           const modality = multi ? `(${lit(`${dictKey}:`)} || ${idExpr})` : idExpr
@@ -410,7 +415,7 @@ function eventUnion(
         }
       })
     }
-  }
+  })
   return parts.length ? parts.join('\n  UNION ALL\n  ') : null
 }
 
@@ -418,8 +423,8 @@ function eventUnion(
  * Every concept modality with its patients and records, largest first: the
  * concept variable's 1-way marginal, and where its top N comes from.
  */
-export function buildConceptRankQuery(mapping: SchemaMapping, concept: ConceptVariableConfig, range?: PatientRange | null): string | null {
-  const events = eventUnion(mapping, concept, null, false, range)
+export function buildConceptRankQuery(mapping: SchemaMapping, concept: ConceptVariableConfig): string | null {
+  const events = eventUnion(mapping, concept, false, false)
   if (!events) return null
   return `SELECT concept, COUNT(DISTINCT pid)::BIGINT AS patients, COUNT(*)::BIGINT AS records FROM (
   ${events}
@@ -435,12 +440,6 @@ ORDER BY patients DESC, concept`
 export interface CrossingQueryContext {
   mapping: SchemaMapping
   variables: CatalogVariables
-  /** Services kept by a top-N grouping, from `buildServiceListQuery`. */
-  topServices?: readonly string[]
-  /** Concept modalities to restrict to (top N, or one chunk). */
-  conceptFilter?: ConceptFilter | null
-  /** The slice of patients to count; absent for all of them. */
-  range?: PatientRange | null
   /** What a cell over visits counts beside patients; absent = stays only. */
   counts?: CatalogCounts
   /** Salt of the patient keys (the database id): each cell then carries its key. Absent: no keys. */
@@ -493,7 +492,7 @@ export function buildCrossingQuery(ctx: CrossingQueryContext, vars: readonly Cat
       const src = cfg ? serviceSource(mapping, cfg.level) : null
       if (cfg && src) {
         joins.push(withConcept ? src.eventJoin : src.visitJoin)
-        expr = serviceGroupingExpr(src.rawExpr, cfg, ctx.topServices ?? [])
+        expr = serviceGroupingExpr(src.rawExpr, cfg)
       }
     }
     if (!expr) return null
@@ -506,7 +505,7 @@ export function buildCrossingQuery(ctx: CrossingQueryContext, vars: readonly Cat
 
   if (withConcept) {
     const concept = variables.concept ?? { level: 'concept' as const }
-    const events = eventUnion(mapping, concept, ctx.conceptFilter ?? null, true, ctx.range)
+    const events = eventUnion(mapping, concept, true, true)
     if (!events) return null
     const counted = `WITH ev AS (
   ${events}
@@ -578,7 +577,7 @@ LEFT JOIN per_stay ps ON ${columns.map((c) => `ps.${c} = pc.${c}`).join(' AND ')
   FROM ${visit.name} v
   ${needsPatient ? patientJoin : ''}
   ${joins.join('\n  ')}
-  WHERE v.start_datetime IS NOT NULL${andRange('v.patient_id', ctx.range)}
+  WHERE v.start_datetime IS NOT NULL${andRange('v.patient_id')}
 )`
   const perCell = `SELECT ${columns.join(', ')}, ${measures.join(', ')}
 FROM cells

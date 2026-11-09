@@ -264,7 +264,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
             <>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon-xs" onClick={handlePausePipeline}>
+                  <Button variant="ghost" size="icon-xs" onClick={handlePausePipeline} aria-label={t('etl.pause_pipeline')}>
                     <Pause size={14} className="text-amber-500" />
                   </Button>
                 </TooltipTrigger>
@@ -272,7 +272,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon-xs" onClick={stopPipelineRun}>
+                  <Button variant="ghost" size="icon-xs" onClick={stopPipelineRun} aria-label={t('etl.stop')}>
                     <Square size={14} className="text-red-500" />
                   </Button>
                 </TooltipTrigger>
@@ -288,6 +288,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
                     size="icon-xs"
                     disabled={!canWrite}
                     onClick={pausedRun ? handleResumePipeline : handleRunPipeline}
+                    aria-label={pausedRun ? t('etl.resume_pipeline') : t('etl.run_pipeline')}
                   >
                     <Play size={14} className={pausedRun ? 'text-amber-500' : undefined} />
                   </Button>
@@ -301,7 +302,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
               {pausedRun && (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon-xs" onClick={discardPausedRun}>
+                    <Button variant="ghost" size="icon-xs" onClick={discardPausedRun} aria-label={t('etl.stop')}>
                       <Square size={14} className="text-red-500" />
                     </Button>
                   </TooltipTrigger>

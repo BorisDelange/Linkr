@@ -24,7 +24,6 @@ first response is sent. Check permissions before calling ``respond``.
 """
 
 import asyncio
-import contextlib
 import contextvars
 import logging
 import time
@@ -59,17 +58,38 @@ MAX_IN_FLIGHT_PER_USER = 100
 T = TypeVar("T")
 
 
-async def until_stopped(work: Awaitable[T], stop: Callable[[], object]) -> T:
+# How long a stopped query is waited for, past which it is let go: by then its
+# connection, stuck, has been taken out of the pool (query_cancel.STUCK_AFTER_S).
+STOP_WAIT_SECONDS = 75.0
+
+
+async def until_stopped(work: Awaitable[T], stop: Callable[[], object], give_up_after: float | None = None) -> T:
     """Await `work`; when cancelled, `stop` it and wait for it to end before the
     cancellation goes on. A query runs in a thread a cancel does not reach: left
-    behind, it would go on holding its lane slot and its connection."""
+    behind, it would go on holding its lane slot and its connection — unseen,
+    its job reading as stopped.
+
+    A second cancel (a pause, then Stop in the panel) stops it again and waits
+    on: it used to let go of it there. Only past `give_up_after` seconds is a
+    query that ignores its interrupt let go of, with a warning."""
     task = asyncio.ensure_future(work)
     try:
         return await asyncio.shield(task)
     except asyncio.CancelledError:
         stop()
-        with contextlib.suppress(BaseException):
-            await task
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + (STOP_WAIT_SECONDS if give_up_after is None else give_up_after)
+        while not task.done():
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                logger.warning("a stopped query still runs after its interrupt; let go of it")
+                break
+            try:
+                await asyncio.wait({task}, timeout=remaining)
+            except asyncio.CancelledError:
+                stop()
+        if task.done() and not task.cancelled():
+            task.exception()  # retrieved: its failure is the stop's, not news
         raise
 
 

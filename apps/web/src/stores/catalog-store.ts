@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { isServerMode } from '@/lib/api-client'
 import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
 import { PAGES_SITE_OWNER_TYPE } from '@/lib/dcat-ap/pages-deployment'
@@ -14,6 +15,8 @@ interface CatalogState {
   catalogs: DataCatalog[]
   catalogsLoaded: boolean
   loadCatalogs: () => Promise<void>
+  /** Read one catalog again, as stored (a server run writes its status and offset). */
+  reloadCatalog: (id: string) => Promise<void>
   getWorkspaceCatalogs: (workspaceId: string) => DataCatalog[]
   createCatalog: (catalog: DataCatalog) => Promise<void>
   updateCatalog: (id: string, changes: Partial<DataCatalog>) => Promise<void>
@@ -51,9 +54,10 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   loadCatalogs: async () => {
     try {
       const all = await getStorage().dataCatalogs.getAll()
-      // Recovery: reset any catalogs stuck in 'computing' (e.g. app was closed mid-compute)
+      // Recovery: reset any catalogs stuck in 'computing' (e.g. app was closed mid-compute).
+      // In server mode the server's run owns that status.
       const storage = getStorage()
-      for (const c of all) {
+      for (const c of isServerMode() ? [] : all) {
         if (c.status === 'computing') {
           const newStatus = c.lastComputedAt ? 'success' : 'draft'
           c.status = newStatus
@@ -86,6 +90,13 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
       // IDB store may not exist yet (upgrade pending); mark loaded so app doesn't block
       set({ catalogsLoaded: true })
     }
+  },
+
+  reloadCatalog: async (id) => {
+    const stored = await getStorage().dataCatalogs.getById(id)
+    if (!stored) return
+    const catalog = normalizeCatalog(stored)
+    set((s) => ({ catalogs: s.catalogs.map((c) => (c.id === id ? catalog : c)) }))
   },
 
   getWorkspaceCatalogs: (workspaceId) =>

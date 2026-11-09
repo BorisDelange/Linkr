@@ -5,6 +5,7 @@
  * each result once the job lists it done.
  */
 
+import type { JobGroup } from '@/lib/duckdb/query-log'
 import { ApiError, apiRequest } from '@/lib/api-client'
 import { cancelJob, type Job } from './environments'
 
@@ -45,55 +46,19 @@ export function startQueryJob(
   dataSourceId: string,
   label: string,
   queries: readonly QueryJobItem[],
-  { pushdown = true, keepGoing = false, shareLane = false }: { pushdown?: boolean; keepGoing?: boolean; shareLane?: boolean } = {},
+  { pushdown = true, keepGoing = false, shareLane = false, group }: {
+    pushdown?: boolean; keepGoing?: boolean; shareLane?: boolean
+    /** The run it is one of, one row of the jobs panel with its queries. */
+    group?: JobGroup
+  } = {},
 ): Promise<Job> {
   return apiRequest<Job>(`/data-sources/${encodeURIComponent(dataSourceId)}/query-jobs`, {
     method: 'POST',
-    body: JSON.stringify({ label, queries, pushdown, keepGoing, shareLane }),
+    body: JSON.stringify({
+      label, queries, pushdown, keepGoing, shareLane,
+      ...(group ? { groupKey: group.key, groupLabel: group.label } : {}),
+    }),
   })
-}
-
-/** The keys a job has run, and whether it has ended; null when it is gone. */
-export async function queryJobProgress(jobId: string): Promise<{ done: Set<string>; errors: Record<string, string>; ended: boolean } | null> {
-  try {
-    const job = await getJob(jobId)
-    const progress = job.result as QueryJobProgress | null | undefined
-    return {
-      done: new Set(progress?.done ?? []),
-      errors: progress?.errors ?? {},
-      ended: job.status === 'done' || job.status === 'error' || job.status === 'cancelled',
-    }
-  } catch (err) {
-    if (isJobGone(err)) return null
-    throw err
-  }
-}
-
-/**
- * One query's rows, out of order: waits for the job to run it. Null when it
- * never will — the query failed (a keep-going job), the job ended without it,
- * or is gone.
- */
-export async function queryJobKeyRows(
-  dataSourceId: string,
-  jobId: string,
-  key: string,
-  signal: AbortSignal,
-): Promise<Record<string, unknown>[] | null> {
-  for (;;) {
-    signal.throwIfAborted()
-    const progress = await retrying(() => queryJobProgress(jobId), signal)
-    if (!progress) return null
-    if (progress.done.has(key)) {
-      if (progress.errors[key] != null) return null
-      return retrying(() => queryJobRows(dataSourceId, jobId, key), signal).catch((err) => {
-        if (isJobGone(err)) return null
-        throw err
-      })
-    }
-    if (progress.ended) return null
-    await sleep(POLL_MS, signal)
-  }
 }
 
 /** `withInput`: also what the job runs (up to 200 KB) — for the panel's Input tab, not a poll. */

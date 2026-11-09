@@ -26,11 +26,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
-import { queryDataSource, sourceTables } from '@/lib/duckdb/engine'
+import { prepareQuerySql, queryDataSource, sourceTables } from '@/lib/duckdb/engine'
 import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
-import { jobExecutor } from '@/lib/duckdb/catalog-job-executor'
 import { buildServiceListQuery } from '@/lib/duckdb/catalog-queries'
+import { compileCatalogEstimateSpec, compileCatalogRunSpec, type CatalogEstimateRunState, type CatalogServerRunState } from '@/lib/duckdb/catalog-run-spec'
+import { getCatalogEstimates } from '@/lib/api/stats-cache'
+import { useServerRun, type ServerRunView } from '@/hooks/use-server-run'
 import { formatDuration } from '@/lib/format-helpers'
 import { estimateCrossings, estimateKey, getCachedEstimate, type CatalogUnitInfo, type CrossingEstimate, type EstimateProgress } from '@/lib/duckdb/catalog-compute'
 import { canonicalCrossing, catalogCounts, crossingId, DEFAULT_AGE_BRACKETS, DEFAULT_CONCEPT_CONFIG, DEFAULT_SERVICE_CONFIG, enabledVariables } from '@/lib/data-catalog/config'
@@ -65,34 +67,77 @@ interface Props {
 
 const CARD_ORDER: CatalogVariableId[] = ['period', 'age', 'sex', 'service', 'concept']
 
+/** A server run as the run card shows a run of the page's own. */
+function serverSnapshot(view: ServerRunView<CatalogServerRunState>): CatalogRunSnapshot {
+  const { run, active } = view
+  const st: CatalogServerRunState = (active && run?.state) || {}
+  return {
+    running: active,
+    pausing: run?.status === 'pausing',
+    phase: active ? st.phase ?? 'mounting' : null,
+    computed: active ? st.offset ?? null : null,
+    total: active ? st.total ?? null : null,
+    steps: st.steps ?? {},
+    current: st.current ?? null,
+    phaseStartedAt: st.phaseStartedAt ? Date.parse(st.phaseStartedAt) : null,
+    reading: null,
+    error: (run?.status === 'failed' ? run.error : null) ?? view.error,
+  }
+}
+
+/** A server estimate's progress as the Crossings card shows the page's own. */
+function serverEstimateProgress(st: CatalogEstimateRunState | undefined): EstimateProgress {
+  const current = st?.current
+  return {
+    done: st?.offset ?? 0,
+    total: st?.total ?? 0,
+    current: current?.step === 'estimates' ? current.crossing ?? null : current ? 'ranking' : null,
+  }
+}
+
 /**
  * Configure what the catalog counts, then compute it — resumably.
  *
  * Three cards, in the order they are decided: the VARIABLES (each with its own
  * parameters), the CROSSINGS between them (with the share of cells a crossing
- * would publish, estimated on demand), then the run. The run itself lives in a
- * module-level registry (`catalog-runner`), so leaving the tab does not abandon
- * a computation that takes minutes to hours.
+ * would publish, estimated on demand), then the run. The run is the server's in
+ * server mode (`useServerRun`), else it lives in a module-level registry
+ * (`catalog-runner`): either way leaving the tab does not abandon a computation
+ * that takes minutes to hours.
  */
 export function CatalogConfigTab({ catalog }: Props) {
   const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('catalog:write')
-  const { updateCatalog, setResultCache } = useCatalogStore()
+  const { updateCatalog, setResultCache, reloadCatalog, loadResultCache } = useCatalogStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const dataSource = dataSources.find((ds) => ds.id === catalog.dataSourceId && ds.workspaceId === catalog.workspaceId)
   const mapping = dataSource?.schemaMapping
 
-  // The run lives in the registry, not here: leaving the tab must not stop a
-  // computation that takes hours. This only mirrors what the run reports —
-  // including a run this component never started.
-  const [snapshot, setSnapshot] = useState<CatalogRunSnapshot>(() => getCatalogRunSnapshot(catalog.id))
+  // The run lives on the server or in the registry, not here: leaving the tab
+  // must not stop a computation that takes hours. This only mirrors what the run
+  // reports — including a run this component never started.
+  const serverMode = isServerMode()
+  const [localSnapshot, setSnapshot] = useState<CatalogRunSnapshot>(() => getCatalogRunSnapshot(catalog.id))
   const [confirmRestart, setConfirmRestart] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   useEffect(() => {
+    if (serverMode) return
     setSnapshot(getCatalogRunSnapshot(catalog.id))
     return watchCatalogRun(catalog.id, setSnapshot)
-  }, [catalog.id])
+  }, [catalog.id, serverMode])
+  const serverRun = useServerRun<CatalogServerRunState>('catalog', catalog.id, serverMode)
+  const snapshot = serverMode ? serverSnapshot(serverRun) : localSnapshot
+  // The server wrote the catalog's status and results as it went: read them once it stops.
+  const serverActive = serverRun.active
+  const wasActive = useRef(serverActive)
+  useEffect(() => {
+    if (wasActive.current && !serverActive) {
+      void reloadCatalog(catalog.id).catch(() => {})
+      void loadResultCache(catalog.id)
+    }
+    wasActive.current = serverActive
+  }, [serverActive, catalog.id, reloadCatalog, loadResultCache])
 
   const { running, pausing, error } = snapshot
   // The crossing units are planned only once the rankings are in: until then the bar has no total.
@@ -138,27 +183,58 @@ export function CatalogConfigTab({ catalog }: Props) {
   const [estimates, setEstimates] = useState<Record<string, CrossingEstimate>>({})
   // Null when idle. Each estimate is a whole aggregate over the warehouse, so
   // the run can be stopped: the query in flight is interrupted.
-  const [estimating, setEstimating] = useState<EstimateProgress | null>(null)
-  const [estimateError, setEstimateError] = useState<string | null>(null)
+  const [localEstimating, setEstimating] = useState<EstimateProgress | null>(null)
+  const [localEstimateError, setEstimateError] = useState<string | null>(null)
   const estimateAbort = useRef<AbortController | null>(null)
   useEffect(() => () => estimateAbort.current?.abort(), [])
-  const estimateOf = (vars: CatalogVariableId[]) => estimates[crossingId(vars)] ?? getCachedEstimate(estimateKey(catalog, vars))
+  // Server mode: the server estimates and stores each estimate as it lands
+  // (kind `catalog_estimate`); the page reads them again as the run moves on.
+  const estimateRun = useServerRun<CatalogEstimateRunState>('catalog_estimate', catalog.id, serverMode)
+  const [storedEstimates, setStoredEstimates] = useState<Record<string, CrossingEstimate>>({})
+  const landed = estimateRun.run ? `${estimateRun.run.id}:${estimateRun.run.state?.offset ?? 0}:${estimateRun.run.status}` : ''
+  useEffect(() => {
+    if (!serverMode) return
+    let cancelled = false
+    getCatalogEstimates(catalog.id).then((stored) => { if (!cancelled) setStoredEstimates(stored) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [serverMode, catalog.id, landed])
+  const estimating = serverMode ? (estimateRun.active ? serverEstimateProgress(estimateRun.run?.state) : null) : localEstimating
+  const estimateError = serverMode
+    ? (estimateRun.run?.status === 'failed' ? estimateRun.run.error : null) ?? estimateRun.error ?? localEstimateError
+    : localEstimateError
+  const estimateOf = (vars: CatalogVariableId[]) => (serverMode
+    ? storedEstimates[estimateKey(catalog, vars)]
+    : estimates[crossingId(vars)] ?? getCachedEstimate(estimateKey(catalog, vars)))
   const estimate = async () => {
     if (!mapping) return
+    setEstimateError(null)
+    // Every possible crossing of the enabled variables, not only the chosen
+    // ones: the point is to choose.
+    const all: CatalogVariableId[][] = []
+    for (let i = 0; i < enabled.length; i++) {
+      for (let j = i + 1; j < enabled.length; j++) {
+        all.push([enabled[i], enabled[j]])
+        for (let k = j + 1; k < enabled.length; k++) all.push([enabled[i], enabled[j], enabled[k]])
+      }
+    }
+    if (serverMode) {
+      try {
+        await ensureMounted(catalog.dataSourceId)
+        const spec = await compileCatalogEstimateSpec({ ...catalog, crossings: all }, mapping, {
+          label: t('data_catalog.estimate_label', { name: localized(catalog.name, i18n.language) }),
+          known: (key) => key in storedEstimates,
+          prepare: (sql) => prepareQuerySql(catalog.dataSourceId, sql),
+        })
+        if (spec) await estimateRun.start(spec)
+      } catch (err) {
+        setEstimateError(err instanceof Error ? err.message : String(err))
+      }
+      return
+    }
     const controller = new AbortController()
     estimateAbort.current = controller
-    setEstimateError(null)
     setEstimating({ done: 0, total: 0, current: null })
     try {
-      // Every possible crossing of the enabled variables, not only the chosen
-      // ones: the point is to choose.
-      const all: CatalogVariableId[][] = []
-      for (let i = 0; i < enabled.length; i++) {
-        for (let j = i + 1; j < enabled.length; j++) {
-          all.push([enabled[i], enabled[j]])
-          for (let k = j + 1; k < enabled.length; k++) all.push([enabled[i], enabled[j], enabled[k]])
-        }
-      }
       await estimateCrossings({ ...catalog, crossings: all }, mapping, query, {
         signal: controller.signal,
         onEstimate: (id, e) => setEstimates((prev) => ({ ...prev, [id]: e })),
@@ -171,6 +247,7 @@ export function CatalogConfigTab({ catalog }: Props) {
       setEstimating(null)
     }
   }
+  const stopEstimate = () => (serverMode ? void estimateRun.cancel().catch(() => {}) : estimateAbort.current?.abort())
 
   // --- Run ---
   /**
@@ -204,6 +281,26 @@ export function CatalogConfigTab({ catalog }: Props) {
 
   const run = useCallback(async (restart: boolean) => {
     if (!mapping || !dataSource) return
+    if (serverMode) {
+      const fresh = restart || catalog.computedSteps == null
+      try {
+        if (!fresh && serverRun.resumable) {
+          await serverRun.resume()
+          return
+        }
+        await ensureMounted(catalog.dataSourceId)
+        const spec = await compileCatalogRunSpec(catalog, mapping, {
+          label: t('data_catalog.run_label', { name: localized(catalog.name, i18n.language) }),
+          fresh,
+          tables: await sourceTables(catalog.dataSourceId),
+          prepare: (sql) => prepareQuerySql(catalog.dataSourceId, sql),
+        })
+        await serverRun.start(spec)
+      } catch {
+        // Shown by the run card, from the reader's error.
+      }
+      return
+    }
     clearCatalogRunError(catalog.id)
     // A resume needs the counts already made; only a fresh cache is discarded.
     const stored = restart ? null : await getStorage().catalogResults.get(catalog.id)
@@ -215,17 +312,14 @@ export function CatalogConfigTab({ catalog }: Props) {
       mapping,
       ensureMounted: () => ensureMounted(catalog.dataSourceId).then(() => {}),
       tables: () => sourceTables(catalog.dataSourceId),
-      query: (sql, signal) => queryDataSource(catalog.dataSourceId, sql, { signal, allRows: true, heavy: true, origin: 'Catalog · estimate size' }),
-      executor: isServerMode()
-        ? jobExecutor(catalog.dataSourceId, (phase) => t(`data_catalog.job_${phase}`, { name: localized(catalog.name, i18n.language) }))
-        : undefined,
+      query: (sql, signal) => queryDataSource(catalog.dataSourceId, sql, { signal, allRows: true, heavy: true, origin: 'Catalog · compute' }),
       resumeFrom,
       persist,
       persistError: async (message) => {
         await updateCatalog(catalog.id, { status: 'error', lastError: message })
       },
     })
-  }, [catalog, mapping, dataSource, ensureMounted, persist, updateCatalog, t, i18n.language])
+  }, [catalog, mapping, dataSource, ensureMounted, persist, updateCatalog, t, i18n.language, serverMode, serverRun])
 
   /** Throw the computed results away, unlocking a fresh run. */
   const discard = useCallback(async () => {
@@ -242,6 +336,7 @@ export function CatalogConfigTab({ catalog }: Props) {
     }))
     setSnapshot(getCatalogRunSnapshot(catalog.id))
   }, [catalog.id, setResultCache, updateCatalog])
+  const pause = () => (serverMode ? void serverRun.pause().catch(() => {}) : pauseCatalogRun(catalog.id))
 
   // `!= null` covers both: absent (never run) and an explicit null (finished).
   const savedOffset = catalog.computedSteps ?? null
@@ -387,7 +482,7 @@ export function CatalogConfigTab({ catalog }: Props) {
             </span>
           )}
           {estimating ? (
-            <Button variant="destructive" size="sm" className="gap-1.5" onClick={() => estimateAbort.current?.abort()}>
+            <Button variant="destructive" size="sm" className="gap-1.5" onClick={stopEstimate}>
               <Square size={12} />
               {t('data_catalog.estimate_stop')}
             </Button>
@@ -543,7 +638,7 @@ export function CatalogConfigTab({ catalog }: Props) {
 
         <div className="flex items-center gap-2">
           {running ? (
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => pauseCatalogRun(catalog.id)} disabled={pausing}>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={pause} disabled={pausing}>
               {pausing ? <Loader2 size={14} className="animate-spin" /> : <Pause size={14} />}
               {pausing ? t('data_catalog.compute_pausing') : t('data_catalog.compute_pause')}
             </Button>
@@ -555,7 +650,7 @@ export function CatalogConfigTab({ catalog }: Props) {
           )}
           {/* Once finished, the main button already recomputes from scratch: starting over only differs from resuming. */}
           {paused && (
-            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setConfirmRestart(true)}>
+            <Button variant="destructive" size="sm" className="gap-1.5" onClick={() => setConfirmRestart(true)}>
               <RotateCcw size={14} />
               {t('data_catalog.compute_restart')}
             </Button>
@@ -591,7 +686,7 @@ export function CatalogConfigTab({ catalog }: Props) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { setConfirmRestart(false); void run(true) }}>
+            <AlertDialogAction variant="destructive" onClick={() => { setConfirmRestart(false); void run(true) }}>
               {t('data_catalog.compute_restart')}
             </AlertDialogAction>
           </AlertDialogFooter>

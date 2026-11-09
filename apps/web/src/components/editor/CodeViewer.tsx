@@ -1,6 +1,6 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import Editor, { type BeforeMount } from '@monaco-editor/react'
+import Editor, { type BeforeMount, type OnMount } from '@monaco-editor/react'
 import { useAppStore, resolveEditorTheme } from '@/stores/app-store'
 import { defineLinkrThemes } from './monaco-themes'
 
@@ -25,12 +25,16 @@ export function CodeViewer({
   language,
   height: fixedHeight,
   maxHeight = 400,
+  followEnd = false,
 }: {
   value: string
   language: string
   /** Fill a container instead of auto-sizing (e.g. '100%' inside a flex modal). */
   height?: string | number
   maxHeight?: number
+  /** A log: opened on its last lines, and following the new ones while the
+   *  reader stays at the end — not once they scroll up to read. */
+  followEnd?: boolean
 }) {
   const { t } = useTranslation()
   const { editorSettings, darkMode } = useAppStore()
@@ -45,12 +49,32 @@ export function CodeViewer({
     defineLinkrThemes(monaco)
   }, [])
 
+  const editorRef = useRef<Parameters<OnMount>[0] | null>(null)
+  const atEnd = useRef(true)
+  const toEnd = useCallback(() => {
+    const editor = editorRef.current
+    const lines = editor?.getModel()?.getLineCount()
+    if (editor && lines) editor.revealLine(lines)
+  }, [])
+  const onMount: OnMount = useCallback((editor) => {
+    editorRef.current = editor
+    if (!followEnd) return
+    toEnd()
+    editor.onDidScrollChange((e) => {
+      atEnd.current = e.scrollTop + editor.getLayoutInfo().height >= e.scrollHeight - lineHeight
+    })
+  }, [followEnd, toEnd, lineHeight])
+  useEffect(() => {
+    if (followEnd && atEnd.current) toEnd()
+  }, [value, followEnd, toEnd])
+
   return (
     <Editor
       height={height}
       language={languageMap[language] ?? language}
       value={value}
       beforeMount={beforeMount}
+      onMount={onMount}
       theme={theme}
       // Default placeholder is an unstyled div inheriting the parent font size.
       loading={<span className="text-xs text-muted-foreground">{t('app.loading')}</span>}

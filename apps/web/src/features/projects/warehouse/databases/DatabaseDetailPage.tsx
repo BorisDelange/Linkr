@@ -175,12 +175,13 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
   const sqlEverOpened = useEverOpened(shownTab === 'sql')
   const cohortsEverOpened = useEverOpened(shownTab === 'cohorts')
 
-  // Opening a database refreshes the patient count its card shows — once per
-  // opening, when it is reachable.
+  // A database never counted is counted on opening, once. A count it has is
+  // kept: computing the statistics refreshes it (use-database-stats), not every
+  // visit — a query on the patients for a figure already shown.
   const refreshPatientCount = useDataSourceStore((s) => s.refreshPatientCount)
   const connected = source?.status === 'connected'
   useEffect(() => {
-    if (source?.id && connected) void refreshPatientCount(source.id, { force: true })
+    if (source?.id && connected) void refreshPatientCount(source.id)
   }, [source?.id, connected, refreshPatientCount])
 
   // Opening a database checks its connection: a database dropped, a password
@@ -656,6 +657,7 @@ function OverviewTab({
         cache={cache}
         isLoading={statsLoading}
         hasMappedSchema={hasMappedSchema}
+        patientCount={source.stats?.patientCount}
         onSeeStatistics={onSeeStatistics}
       />
 
@@ -684,11 +686,15 @@ function DatabaseStatCards({
   cache,
   isLoading,
   hasMappedSchema,
+  patientCount,
   onSeeStatistics,
 }: {
   cache: DatabaseStatsCache | null
   isLoading: boolean
   hasMappedSchema: boolean
+  /** The quick count the database card shows, taken on every opening: the
+   *  patients card reads it until the statistics are computed. */
+  patientCount: number | undefined
   onSeeStatistics: () => void
 }) {
   const { t } = useTranslation()
@@ -697,13 +703,11 @@ function DatabaseStatCards({
   // which would read as "this database is empty" — and clicking one opens the
   // Statistics tab, where the full breakdown lives. What the dash MEANS is said
   // by the banner the overview puts above these cards.
-  const pending = !cache && !isLoading
-
   const cards = [
     { key: 'tables', icon: <Table size={16} className="text-teal-600 dark:text-teal-400" />, value: cache?.summary.tableCount, label: t('databases.detail_tables') },
     ...(hasMappedSchema
       ? [
-          { key: 'patients', icon: <Users size={16} className="text-teal-600 dark:text-teal-400" />, value: cache?.summary.patientCount, label: t('databases.detail_patients') },
+          { key: 'patients', icon: <Users size={16} className="text-teal-600 dark:text-teal-400" />, value: cache?.summary.patientCount ?? patientCount, label: t('databases.detail_patients') },
           { key: 'visits', icon: <Activity size={16} className="text-teal-600 dark:text-teal-400" />, value: cache?.summary.visitCount, label: t('databases.detail_visits') },
           { key: 'visit-units', icon: <BedDouble size={16} className="text-teal-600 dark:text-teal-400" />, value: cache?.summary.visitDetailCount, label: t('databases.detail_visit_units') },
         ]
@@ -731,7 +735,7 @@ function DatabaseStatCards({
                 <Skeleton className="h-8 w-16" />
               ) : (
                 <div className="text-2xl font-bold tabular-nums">
-                  {pending || c.value == null ? '—' : c.value.toLocaleString()}
+                  {c.value == null ? '—' : c.value.toLocaleString()}
                 </div>
               )}
               <div className="truncate text-xs text-muted-foreground">{c.label}</div>

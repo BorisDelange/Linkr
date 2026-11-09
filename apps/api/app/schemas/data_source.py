@@ -219,9 +219,10 @@ class QueryJobRequest(CamelModel):
     pushdown: bool = False
     # A failing query does not end the job: its error is kept by its key.
     keep_going: bool = False
-    # Take the heavy-query lane for each query, not for the whole job: a run of
-    # hours lets the heavy queries asked meanwhile through (query_jobs.start).
-    share_lane: bool = False
+    # The action the job is one of (a database's concept statistics), and its
+    # name: the panel shows its jobs and queries under one row.
+    group_key: str | None = Field(default=None, max_length=128)
+    group_label: str | None = Field(default=None, max_length=255)
 
 
 class QueryCancelRequest(CamelModel):

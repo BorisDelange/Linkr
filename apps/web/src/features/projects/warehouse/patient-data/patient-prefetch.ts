@@ -100,7 +100,8 @@ function groupOf(sql: string): JobGroup | undefined {
   const shown = Object.values(usePatientChartStore.getState().selectedPatientId)
   const patientId = shown.find((id): id is string => !!id && filtersOnPatient(sql, id))
   if (!patientId) return undefined
-  opened = { patientId, group: { key: `patient:${crypto.randomUUID()}`, label: `Patient ${patientId}` } }
+  // Never the patient's id in a label: the jobs panel shows it to every member of the workspace.
+  opened = { patientId, group: { key: `patient:${crypto.randomUUID()}`, label: 'Patient' } }
   return opened.group
 }
 const keyOf = (dataSourceId: string, sql: string) => `${dataSourceId}\n${sql}`
@@ -202,7 +203,7 @@ async function readAhead() {
       if (kept) await kept.read.catch(() => {})
       else await keep(key, queryDataSource(dataSourceId, sql, {
         signal: controller.signal,
-        origin: `Read ahead, patient ${aheadId} · ${purpose.get(sql) ?? 'patient board'}`,
+        origin: `Read ahead, next patient · ${purpose.get(sql) ?? 'patient board'}`,
         group,
       })).catch(() => {})
     }

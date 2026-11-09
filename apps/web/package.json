@@ -75,6 +75,7 @@
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
+    "sql-formatter": "^15.9.0",
     "supercluster": "^9.1.0",
     "tailwind-merge": "^3.4.0",
     "tailwindcss": "^4.1.18",

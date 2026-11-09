@@ -3,14 +3,6 @@ from datetime import datetime
 from pydantic import Field
 
 from app.schemas.base import CamelModel
-from app.schemas.data_source import QueryJobItem
-
-
-class ConceptCacheAssembleRequest(CamelModel):
-    """The full (unpaginated) list SQL the frontend built: the dictionaries joined
-    to the units done so far, through the view `memory.main._concept_counts`."""
-
-    select_sql: str
 
 
 class ConceptRunStatus(CamelModel):
@@ -33,16 +25,6 @@ class ConceptRunStart(CamelModel):
     manifest: dict
     # Drop the units already done: a fresh run rather than a resume.
     reset: bool = False
-
-
-class ConceptUnitsJobRequest(CamelModel):
-    """Counting units of run `run_id` run one after the other as a job, each kept
-    as its unit's file; a key starting `assemble-` writes the list from the units
-    done so far instead (services/data/query_jobs.write_concept_units)."""
-
-    label: str = Field(min_length=1, max_length=255)
-    run_id: str
-    units: list[QueryJobItem] = Field(min_length=1, max_length=10_000)
 
 
 class ConceptPageRequest(CamelModel):

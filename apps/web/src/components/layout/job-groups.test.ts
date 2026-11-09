@@ -13,14 +13,14 @@ function job(id: string, over: Partial<Job> = {}): Job {
 describe('groupJobs', () => {
   it('folds a group where its newest job is, and keeps the others apart', () => {
     const rows = groupJobs([
-      job('4', { groupKey: 'g', groupLabel: 'Patient 12' }),
+      job('4', { groupKey: 'g', groupLabel: 'Patient' }),
       job('3'),
-      job('2', { groupKey: 'g', groupLabel: 'Patient 12' }),
-      job('1', { groupKey: 'g', groupLabel: 'Patient 12' }),
+      job('2', { groupKey: 'g', groupLabel: 'Patient' }),
+      job('1', { groupKey: 'g', groupLabel: 'Patient' }),
     ])
     expect(rows).toHaveLength(2)
     const first = rows[0]
-    expect('group' in first && first.group.label).toBe('Patient 12')
+    expect('group' in first && first.group.label).toBe('Patient')
     expect('group' in first && first.group.jobs.map((j) => j.id)).toEqual(['4', '2', '1'])
     expect('group' in first && first.group.startedAt).toBe('2026-11-03T10:00:01Z')
     expect('group' in first && first.group.finishedAt).toBe('2026-11-03T10:00:04.5Z')
@@ -39,6 +39,74 @@ describe('groupJobs', () => {
   })
 
   it('shows a group of one job as that job', () => {
-    expect(groupJobs([job('1', { groupKey: 'g', groupLabel: 'Patient 12' })])).toEqual([{ job: expect.objectContaining({ id: '1' }) }])
+    expect(groupJobs([job('1', { groupKey: 'g', groupLabel: 'Patient' })])).toEqual([{ job: expect.objectContaining({ id: '1' }) }])
+  })
+})
+
+describe('groupJobs, jobs sent together', () => {
+  it('folds a burst of jobs of no group into one row, named by their section', () => {
+    const rows = groupJobs([
+      job('3', { label: 'test · list its tables and columns' }),
+      job('2', { label: 'test · list its tables and columns' }),
+      job('1', { label: 'test · count patients' }),
+    ])
+    expect(rows).toHaveLength(1)
+    expect('group' in rows[0] && rows[0].group.label).toBe('test')
+    expect('group' in rows[0] && rows[0].group.jobs).toHaveLength(3)
+  })
+
+  it('names a burst of several sections by its count', () => {
+    const rows = groupJobs(
+      [job('2', { label: 'test · tables' }), job('1', { label: 'Databases · patient count' })],
+      { entity: ({ name }) => name, mixed: (n) => `${n} together` },
+    )
+    expect('group' in rows[0] && rows[0].group.label).toBe('2 together')
+  })
+
+  it('keeps apart the jobs sent further apart, and those of a group', () => {
+    const apart = groupJobs([
+      job('9', { createdAt: '2026-11-03T10:00:09Z' }),
+      job('1', { createdAt: '2026-11-03T10:00:01Z' }),
+    ])
+    expect(apart).toHaveLength(2)
+    const grouped = groupJobs([job('3', { groupKey: 'run', groupLabel: 'Run' }), job('2'), job('1', { groupKey: 'run' })])
+    expect(grouped.map((r) => ('group' in r ? r.group.key : r.job.id))).toEqual(['run', '2'])
+  })
+})
+
+
+describe('groupJobs, by what the jobs are for', () => {
+  const db = (name: string, id = name) => ({ entityType: 'database', entityId: id, entityName: name })
+
+  it('names a burst by its entity, and the section its jobs share', () => {
+    const rows = groupJobs([
+      job('2', { label: 'Concepts · value histogram of 1', ...db('test') }),
+      job('1', { label: 'Concepts · count records of 1', ...db('test') }),
+    ])
+    expect('group' in rows[0] && rows[0].group.label).toBe('database “test” · Concepts')
+    expect('group' in rows[0] && rows[0].group.entity).toEqual({ type: 'database', id: 'test', name: 'test' })
+  })
+
+  it('does not repeat the entity its labels already name', () => {
+    const rows = groupJobs([
+      job('2', { label: 'test · patient count', ...db('test') }),
+      job('1', { label: 'test · list its tables and columns', ...db('test') }),
+    ])
+    expect('group' in rows[0] && rows[0].group.label).toBe('database “test”')
+  })
+
+  it('keeps the jobs of two databases sent together apart', () => {
+    const rows = groupJobs([
+      job('3', db('a')), job('2', db('b')), job('1', db('b')),
+    ])
+    expect(rows.map((r) => ('group' in r ? r.group.jobs.length : r.job.id))).toEqual(['3', 2])
+  })
+
+  it('says no entity for a group of several', () => {
+    const rows = groupJobs([
+      job('2', { groupKey: 'run', ...db('a') }),
+      job('1', { groupKey: 'run', ...db('b') }),
+    ])
+    expect('group' in rows[0] && rows[0].group.entity).toBeNull()
   })
 })

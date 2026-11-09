@@ -1,7 +1,7 @@
 import i18n from '@/lib/i18n'
 import { isServerMode } from '@/lib/api-client'
 import { queryDataSource, discoverTables } from './engine'
-import { runQueryJob } from './run-query-job'
+import { followServerPlan, preparePlan } from '@/lib/server-runs/query-plan'
 import { quoteTableRef } from '@/lib/format-helpers'
 import { specTables } from '@/lib/schema-classes/spec'
 import type { DatabaseStatsCache, TableRowCount } from '@/types'
@@ -50,8 +50,8 @@ export interface StatsOptions {
 
 export type StatsPhase = 'stats' | 'counts'
 
-/** Where a database's statistics job of `phase` is remembered in this browser. */
-export const statsJobName = (dsId: string, phase: StatsPhase) => `stats:${dsId}:${phase}`
+/** The scope of a database's statistics run of `phase` (a `database_stats` server run). */
+export const statsRunScope = (dsId: string, phase: StatsPhase) => `${dsId}:${phase}`
 
 function statsRunner(dsId: string, phase: StatsPhase, { signal, label, resumeOnly }: StatsOptions, parallel: number): StatsRunner {
   if (!isServerMode()) {
@@ -68,24 +68,21 @@ function statsRunner(dsId: string, phase: StatsPhase, { signal, label, resumeOnl
       }
     }
   }
+  // A run of the server's: a reload, a closed tab or a restart leaves it going on,
+  // and the page that comes back joins it (`resumeOnly`).
   return async (queries, onRows) => {
-    const outcome = await runQueryJob(
-      dsId,
-      label ?? i18n.t('databases.stats_job', { name: dsId }),
-      queries.map(({ key, sql }) => ({ key, sql })),
-      (i, rows, { error }) => onRows(i, error == null ? rows : null),
-      {
-        signal: signal ?? new AbortController().signal,
-        keepGoing: true,
-        remember: { name: statsJobName(dsId, phase), signature: queries.map((q) => `${q.key}:${q.sql.length}`).join(',') },
-        resumeOnly,
-      },
-    )
-    if (!outcome) throw new DOMException('nothing to resume', 'AbortError')
-    if (outcome.delivered === queries.length) return
+    const plan = await preparePlan(dsId, {
+      label: label ?? i18n.t('databases.stats_job', { name: dsId }),
+      items: queries.map(({ key, sql }) => ({ key, sql, what: key.replace(/_/g, ' ') })),
+      keepGoing: true,
+    })
+    const run = await followServerPlan('database_stats', statsRunScope(dsId, phase), plan,
+      (i, rows, error) => onRows(i, error == null ? rows : null), { signal, resumeOnly })
+    if (!run) throw new DOMException('nothing to resume', 'AbortError')
+    if (run.status === 'done') return
     // Stopped from the jobs panel: as a stop from the page.
-    if (outcome.status === 'cancelled') throw new DOMException('cancelled', 'AbortError')
-    throw new Error(outcome.error ?? `the statistics job ended ${outcome.status}`)
+    if (run.status === 'cancelled' || run.status === 'paused') throw new DOMException('cancelled', 'AbortError')
+    throw new Error(run.error ?? `the statistics run ended ${run.status}`)
   }
 }
 

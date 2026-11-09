@@ -1,7 +1,8 @@
 /** The workspace wiki, data catalogs, and the READMEs of workspace entities. */
 import { fromJsonSchema } from '@modelcontextprotocol/server'
 import { randomUUID } from 'node:crypto'
-import { runCatalogComputation } from '@/lib/duckdb/catalog-run'
+import { compileCatalogRunSpec, type CatalogServerRunState } from '@/lib/duckdb/catalog-run-spec'
+import { injectClassRelations } from '@/lib/schema-classes/inject'
 import { buildServiceListQuery } from '@/lib/duckdb/catalog-queries'
 import { defaultCatalogCrossings, defaultCatalogVariables } from '@/lib/data-catalog/config'
 import { withAnonymizationImpact } from '@/lib/data-catalog/publish'
@@ -23,6 +24,17 @@ import {
 } from './wiki.js'
 
 const MAX_CONTENT = 40_000
+
+/** A catalog computation the server owns (services/server_runs/catalog). */
+interface ServerCatalogRun {
+  id: string
+  status: string
+  error: string | null
+  state: CatalogServerRunState
+}
+const ACTIVE_RUN = new Set(['queued', 'running', 'pausing'])
+const RESUMABLE_RUN = new Set(['paused', 'interrupted', 'failed'])
+const RUN_POLL_MS = 2000
 
 const SCOPE_PROPS = {
   workspace_id: { type: 'string', description: 'The workspace id.' },
@@ -63,6 +75,11 @@ const catalogs = {
     return api.request<unknown>('PUT', `/data-catalogs/${encodeURIComponent(catalogId)}/results-cache`, { computedAt, payload })
   },
   deleteResults: (id: string) => api.request<void>('DELETE', `/data-catalogs/${encodeURIComponent(id)}/results-cache`),
+  latestRun: (id: string) =>
+    api.request<ServerCatalogRun | null>('GET', `/server-runs/latest?kind=catalog&scopeId=${encodeURIComponent(id)}`),
+  startRun: (id: string, spec: unknown) =>
+    api.request<ServerCatalogRun>('POST', '/server-runs', { kind: 'catalog', scopeId: id, spec }),
+  resumeRun: (runId: string) => api.request<ServerCatalogRun>('POST', `/server-runs/${encodeURIComponent(runId)}/resume`),
 }
 
 function describePage(page: WikiPage, pages: WikiPage[], lang: string, attachments: WikiAttachmentMeta[]): string {
@@ -499,31 +516,31 @@ export function registerWikiTools(server: Server): void {
   server.registerTool('compute_data_catalog', {
     description:
       'Compute a data catalog the way the app does: aggregate queries on its database (concept counts, totals, '
-      + 'rankings, then each crossing, over slices of the patients on a large warehouse), results stored on the '
-      + 'server and shared with every user. Resumable: it works for up to `time_budget_seconds` then stops at a save '
-      + 'point — call again to resume. An already computed catalog is recomputed only with restart: true. Only '
-      + 'aggregate counts are produced.',
+      + 'rankings, then each crossing, over slices of the patients on a large warehouse), run by the server and '
+      + 'stored there, shared with every user. Starts the computation (or resumes a paused one, or follows the one '
+      + 'going on) and waits up to `time_budget_seconds`: the computation goes on after that — call again to see '
+      + 'where it is. An already computed catalog is recomputed only with restart: true. Only aggregate counts are produced.',
     annotations: WRITE,
-    inputSchema: fromJsonSchema<{ catalog_id: string; restart?: boolean; time_budget_seconds?: number; force?: boolean }>({
+    inputSchema: fromJsonSchema<{ catalog_id: string; restart?: boolean; time_budget_seconds?: number }>({
       type: 'object',
       properties: {
         catalog_id: { type: 'string' },
         restart: { type: 'boolean', description: 'Discard previous or partial results and start over.' },
-        time_budget_seconds: { type: 'number', description: 'Default 50, max 600. The query in flight when it runs out is redone on resume.' },
-        force: { type: 'boolean', description: 'Run even if the catalog looks like it is being computed in Linkr right now.' },
+        time_budget_seconds: { type: 'number', description: 'How long to wait for it, default 50, max 600. The computation goes on past it.' },
       },
       required: ['catalog_id'],
     }),
-  }, guard(async ({ catalog_id, restart, time_budget_seconds, force }) => {
+  }, guard(async ({ catalog_id, restart, time_budget_seconds }) => {
     const catalog = await catalogs.get(catalog_id).catch(() => null)
     if (!catalog) return failure(`No data catalog ${catalog_id} (list_data_catalogs lists them).`)
+    let run = await catalogs.latestRun(catalog_id)
+    const going = !!run && ACTIVE_RUN.has(run.status)
     const paused = catalog.computedSteps != null
-    if (!restart && !paused && catalog.status === 'success') {
-      return text(`Already computed (${catalog.lastComputedAt}). Read it with get_data_catalog_results, or pass restart: true to recompute.`)
+    if (going && restart) {
+      return failure('The catalog is being computed right now: wait for it to end, or pause it in Linkr, before starting over.')
     }
-    const sinceUpdate = Date.now() - new Date(catalog.updatedAt).getTime()
-    if (!force && catalog.status === 'computing' && sinceUpdate < 120_000) {
-      return failure(`The catalog was being computed ${Math.round(sinceUpdate / 1000)} s ago, probably in an open Linkr tab: two runs would interleave their writes. Wait, or pass force: true.`)
+    if (!going && !restart && !paused && catalog.status === 'success') {
+      return text(`Already computed (${catalog.lastComputedAt}). Read it with get_data_catalog_results, or pass restart: true to recompute.`)
     }
     const ds = await api.getDataSource(catalog.dataSourceId).catch(() => null)
     if (ds && ds.workspaceId !== catalog.workspaceId) return failure(FOREIGN_DATABASE)
@@ -531,43 +548,37 @@ export function registerWikiTools(server: Server): void {
     const budget = Math.min(Math.max(time_budget_seconds ?? 50, 5), 600) * 1000
     const startedAt = Date.now()
 
-    const stored = restart ? null : await catalogs.getResults(catalog_id)
-    if (restart) await catalogs.update(catalog_id, { computedSteps: null })
-    const resumeFrom = stored && paused ? stored : null
-
-    let lastStep = 0
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), budget)
-    try {
-      const outcome = await runCatalogComputation({
-        catalog,
-        mapping: ds.schemaMapping,
-        query: (sql) => api.query(ds.id, sql),
-        resumeFrom,
-        persist: async (computed, done) => {
-          const cache = done ? withAnonymizationImpact(catalog, computed) : computed
-          await catalogs.saveResults(cache)
-          await catalogs.update(catalog_id, {
-            status: done ? 'success' : 'computing',
-            lastError: null,
-            lastComputedAt: cache.computedAt,
-            lastComputeDurationMs: cache.durationMs,
-            computedSteps: done ? null : cache.completedSteps ?? 0,
-          })
-        },
-      }, controller.signal, { progress: (computed) => { lastStep = computed } })
-      if (outcome === 'paused') {
-        return text(`Paused after ${lastStep} step(s) (time budget reached); progress is saved. Call compute_data_catalog again to resume.`)
+    if (!going) {
+      if (run && RESUMABLE_RUN.has(run.status) && paused && !restart) {
+        run = await catalogs.resumeRun(run.id)
+      } else {
+        const mapping = ds.schemaMapping
+        const spec = await compileCatalogRunSpec(catalog, mapping, {
+          label: `Data catalog “${loc(catalog.name)}”: computation`,
+          fresh: !!restart || !paused,
+          prepare: (sql) => injectClassRelations(sql, mapping),
+        })
+        run = await catalogs.startRun(catalog_id, spec)
       }
-      const cache = await catalogs.getResults(catalog_id)
-      return text(`Computed in ${Math.round((Date.now() - startedAt) / 1000)} s.\n${cache ? renderCatalogResults(catalog, cache, 'summary') : ''}`)
-    } catch (e) {
-      const message = (e as Error).message
-      await catalogs.update(catalog_id, { status: 'error', lastError: message }).catch(() => {})
-      return failure(`Computation failed: ${message}`)
-    } finally {
-      clearTimeout(timer)
     }
+    while (run && ACTIVE_RUN.has(run.status) && Date.now() - startedAt < budget) {
+      await new Promise((r) => setTimeout(r, RUN_POLL_MS))
+      run = await catalogs.latestRun(catalog_id)
+    }
+    if (!run) return failure('The computation could not be found on the server.')
+    const st = run.state ?? {}
+    const where = st.total ? `${st.offset ?? 0} of ${st.total} queries (${Math.floor((100 * (st.offset ?? 0)) / st.total)} %)` : `${st.offset ?? 0} queries, ${st.phase ?? 'starting'}`
+    if (ACTIVE_RUN.has(run.status)) {
+      return text(`Still computing on the server: ${where}. It goes on without this call; call compute_data_catalog again to follow it.`)
+    }
+    if (run.status === 'failed') return failure(`Computation failed: ${run.error ?? 'unknown error'}`)
+    if (run.status !== 'done') return text(`The computation is ${run.status} after ${where}; call compute_data_catalog to resume it.`)
+    const cache = await catalogs.getResults(catalog_id)
+    if (cache && !cache.anonymizationImpact) {
+      // The masks of the current settings, as the app's Anonymization tab works them out.
+      await catalogs.saveResults(withAnonymizationImpact(catalog, cache)).catch(() => {})
+    }
+    return text(`Computed (${Math.round((Date.now() - startedAt) / 1000)} s waited).\n${cache ? renderCatalogResults(catalog, cache, 'summary') : ''}`)
   }))
 
   server.registerTool('get_data_catalog_results', {

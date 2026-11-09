@@ -1,5 +1,5 @@
 import * as duckdbEngine from '@/lib/duckdb/engine'
-import { runQueryJob } from '@/lib/duckdb/run-query-job'
+import { followServerPlan, preparePlan } from '@/lib/server-runs/query-plan'
 import { isServerMode } from '@/lib/api-client'
 import i18n from '@/lib/i18n'
 import { getStorage } from '@/lib/storage'
@@ -120,20 +120,20 @@ export async function countAllTables(
   if (tables.length === 0) return counts
 
   if (isServerMode()) {
-    // One job, in the heavy-query lane: no count outlasts a gateway's timeout or
-    // runs beside another heavy query, and the jobs panel can stop it.
+    // A run of the server's, in the heavy-query lane: no count outlasts a gateway's
+    // timeout or runs beside another heavy query, a reload finds it going on, and
+    // the jobs panel can stop it.
     let done = 0
-    await runQueryJob(
-      dataSourceId,
-      i18n.t('databases.count_tables_job'),
-      tables.map((table, i) => ({ key: `t${i}`, sql: `SELECT COUNT(*) as cnt FROM ${quoteTableRef(table)}` })),
-      (i, rows, { error }) => {
-        if (error == null) counts.set(tables[i], Number(rows[0]?.cnt ?? 0))
-        options.onBatch?.(new Map(counts))
-        options.onProgress?.(++done, tables.length)
-      },
-      { signal: new AbortController().signal, keepGoing: true },
-    )
+    const plan = await preparePlan(dataSourceId, {
+      label: i18n.t('databases.count_tables_job'),
+      items: tables.map((table, i) => ({ key: `t${i}`, sql: `SELECT COUNT(*) as cnt FROM ${quoteTableRef(table)}`, what: `Rows of ${table}` })),
+      keepGoing: true,
+    })
+    await followServerPlan('database_stats', `${dataSourceId}:counts`, plan, (i, rows, error) => {
+      if (error == null && rows) counts.set(tables[i], Number(rows[0]?.cnt ?? 0))
+      options.onBatch?.(new Map(counts))
+      options.onProgress?.(++done, tables.length)
+    })
   } else {
     await countInBatches(dataSourceId, tables, counts, options)
   }

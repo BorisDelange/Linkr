@@ -402,6 +402,7 @@ async def build_environment(
 def _detail(job: Job) -> JobResponse:
     return JobResponse.model_validate(job, from_attributes=True).model_copy(update={
         "summary": jobs.summary_of(job.log_tail), "cancellable": jobs.is_running(job.id),
+        "stopping": jobs.is_stopping(job.id),
     })
 
 

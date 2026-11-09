@@ -54,3 +54,8 @@ class Job(Base, UUIDPKMixin, TimestampMixin):
     # jobs under one row, labelled `group_label`. NULL: a job of its own.
     group_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     group_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # What it is for — `database`, `project`, `vocabulary` — and its id and name
+    # when it started: the panel names and orders the jobs by it (jobs.Entity).
+    entity_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    entity_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    entity_name: Mapped[str | None] = mapped_column(String(255), nullable=True)

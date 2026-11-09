@@ -4,7 +4,7 @@
 import type * as duckdb from '@duckdb/duckdb-wasm'
 import { DataType, Type as ArrowType } from 'apache-arrow'
 import { isServerMode } from '@/lib/api-client'
-import { fetchDataSourceSchema, planQueryOnServer, queryDataSourceOnServer, type QueryExecution } from '@/lib/api/data-sources'
+import { fetchDataSourceSchema, forgetDataSourceSchema, planQueryOnServer, queryDataSourceOnServer, type QueryExecution } from '@/lib/api/data-sources'
 import { queryFileSourceOnServer } from '@/lib/api/mapping-projects'
 import { injectClassRelations } from '@/lib/schema-classes/inject'
 import { RELATION_PREFIX } from '@/lib/schema-classes/contracts'
@@ -230,8 +230,12 @@ export function sourceTables(dataSourceId: string): Promise<string[] | null> {
   return tables
 }
 
-export function forgetSourceTables(dataSourceId: string): void {
+/** `schema`: the tables changed on the server too — not a mere remount, nor a
+ *  connection check, which opening a database runs beside the reads of its
+ *  tables it means to share (fetchDataSourceSchema). */
+export function forgetSourceTables(dataSourceId: string, { schema = false }: { schema?: boolean } = {}): void {
   sourceTablesCache.delete(dataSourceId)
+  if (schema) forgetDataSourceSchema(dataSourceId)
 }
 
 // --- Mount / unmount ---
@@ -687,7 +691,7 @@ export async function queryDataSource(
     // dropped since still reads as present. Retried only when a fresh list
     // writes the query differently.
     if (!MISSING_TABLE.test(String(e))) throw e
-    forgetSourceTables(dataSourceId)
+    forgetSourceTables(dataSourceId, { schema: true })
     const fresh = await prepareQuerySql(dataSourceId, sql)
     if (fresh === prepared) throw e
     return runOnSource(dataSourceId, fresh, options)
@@ -845,10 +849,10 @@ const SERVER_PAGE_ROWS = 10_000
 export async function queryDataSourceAll(
   dataSourceId: string,
   baseSql: string,
-  options: { signal?: AbortSignal; origin?: string } = {},
+  options: { signal?: AbortSignal; origin?: string; group?: JobGroup } = {},
 ): Promise<Record<string, unknown>[]> {
-  const { signal, origin } = options
-  if (!isServerMode()) return queryDataSource(dataSourceId, baseSql, { signal, origin })
+  const { signal, origin, group } = options
+  if (!isServerMode()) return queryDataSource(dataSourceId, baseSql, { signal, origin, group })
 
   const step = SERVER_PAGE_ROWS
   const all: Record<string, unknown>[] = []
@@ -863,7 +867,7 @@ export async function queryDataSourceAll(
     const page = await queryDataSource(
       dataSourceId,
       `SELECT * FROM (${baseSql}) AS _src ORDER BY ALL LIMIT ${step} OFFSET ${offset}`,
-      { signal, origin },
+      { signal, origin, group },
     )
     all.push(...page)
     if (page.length < step) break

@@ -181,6 +181,47 @@ async def test_until_stopped_waits_for_the_stopped_work_to_end():
     assert ended.is_set()
 
 
+async def test_until_stopped_waits_through_a_second_cancel():
+    """A pause, then Stop in the panel: the second cancel stops the work again and
+    goes on waiting for it — let go of, it would hold its connection unseen."""
+    stop = asyncio.Event()
+    stops: list[int] = []
+    ended = asyncio.Event()
+
+    async def query():
+        try:
+            await asyncio.shield(stop.wait())
+        finally:
+            ended.set()
+
+    def stopping():
+        stops.append(1)
+        if len(stops) == 2:
+            stop.set()
+
+    caller = asyncio.create_task(deferred.until_stopped(query(), stopping))
+    await asyncio.sleep(0)
+    caller.cancel()
+    await asyncio.sleep(0.05)
+    assert not caller.done()
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    assert ended.is_set() and len(stops) == 2
+
+
+async def test_until_stopped_lets_go_of_work_that_ignores_its_stop(caplog):
+    async def stuck():
+        await asyncio.shield(asyncio.Event().wait())
+
+    caller = asyncio.create_task(deferred.until_stopped(stuck(), lambda: None, give_up_after=0.05))
+    await asyncio.sleep(0)
+    caller.cancel()
+    with caplog.at_level("WARNING", logger="app.core.deferred"), pytest.raises(asyncio.CancelledError):
+        await caller
+    assert "let go of it" in caplog.text
+
+
 async def test_a_failure_with_a_client_waiting_is_not_logged(caplog):
     async def failing():
         raise ValueError("Conversion Error: DUMMY-NAME")

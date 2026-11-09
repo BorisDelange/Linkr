@@ -5,6 +5,7 @@ import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import { conceptRelations } from '@/lib/schema-classes/relations'
 import { buildSizeQuery, buildPatientBoundsQuery } from '@/lib/duckdb/catalog-queries'
+import { fillCatalogSql } from '@/lib/duckdb/catalog-sql-fill'
 import { planConceptCountUnits } from '@/features/projects/warehouse/concepts/concept-count-plan'
 import { buildConceptsAssembleQuery, computeAvailableColumns } from '@/features/projects/warehouse/concepts/concept-queries'
 import { buildOverviewEventsQuery, buildOverviewInventoryQuery, buildOverviewTileDensityQuery } from '@/lib/duckdb/patient-overview-queries'
@@ -32,7 +33,7 @@ it('exports the concept-count SQL', () => {
   const sizes = [1, 2, 4, 8, 16, 32, 64]
   writeFileSync(path.join(__dirname, 'sql.json'), JSON.stringify({
     size: withClassRelations(buildSizeQuery(mapping)!, mapping),
-    bounds: Object.fromEntries(sizes.filter((n) => n > 1).map((n) => [n, withClassRelations(buildPatientBoundsQuery(mapping, n)!, mapping)])),
+    bounds: Object.fromEntries(sizes.filter((n) => n > 1).map((n) => [n, withClassRelations(fillCatalogSql(buildPatientBoundsQuery(mapping)!, { slices: n }), mapping)])),
     plans: Object.fromEntries(sizes.map((n) => [n, plan(n)])),
     assemble: { partial: assemble(true, false), complete: assemble(true, true) },
     overview: overview(mapping),

@@ -467,17 +467,8 @@ export function buildDictionaryPageQuery(
   orderedIds?: number[],
 ): string {
   const dict = source.dictionary
-  const rel = source.dict
   const idExpr = conceptIdExpr(source)
-  // The table name stands in for a missing vocabulary: it is half of the
-  // (vocabulary, code) identity mappings are keyed on.
-  const select = `SELECT
-    ${idExpr} AS concept_id,
-    ${dict.hasCode ? 'CAST(d.concept_code AS VARCHAR)' : `CAST(${idExpr} AS VARCHAR)`} AS concept_code,
-    d.concept_name AS concept_name,
-    ${has(rel, 'terminology_id') ? 'CAST(d.terminology_id AS VARCHAR)' : `'${escSql(dict.table)}'`} AS vocabulary_id,
-    ${has(rel, 'category') ? 'CAST(d.category AS VARCHAR)' : 'NULL'} AS category
-  FROM ${rel.name} d`
+  const select = pageSelect(source)
 
   if (orderedIds) {
     // The ranking already IS the page: take its slice and fetch those concepts,
@@ -488,10 +479,7 @@ export function buildDictionaryPageQuery(
     const positions = slice
       .map((id, i) => `WHEN ${Math.trunc(id)} THEN ${i}`)
       .join(' ')
-    return `${select}
-  WHERE ${idExpr} IN (${ids})
-  ${onePerId(source, idExpr)}
-  ORDER BY CASE ${idExpr} ${positions} END`
+    return pageOfIds(source, select, ids, positions)
   }
 
   const direction = sort.direction === 'desc' ? 'DESC' : 'ASC'
@@ -510,6 +498,40 @@ export function buildDictionaryPageQuery(
   WHERE ${namesAConcept(idExpr)}${dict.ownId ? '' : `\n  ${onePerId(source, idExpr)}`}
   ORDER BY ${order}
   LIMIT ${Math.trunc(limit)} OFFSET ${Math.trunc(offset)}`
+}
+
+function pageSelect(source: ProfileSource): string {
+  const dict = source.dictionary
+  const rel = source.dict
+  const idExpr = conceptIdExpr(source)
+  // The table name stands in for a missing vocabulary: it is half of the
+  // (vocabulary, code) identity mappings are keyed on.
+  return `SELECT
+    ${idExpr} AS concept_id,
+    ${dict.hasCode ? 'CAST(d.concept_code AS VARCHAR)' : `CAST(${idExpr} AS VARCHAR)`} AS concept_code,
+    d.concept_name AS concept_name,
+    ${has(rel, 'terminology_id') ? 'CAST(d.terminology_id AS VARCHAR)' : `'${escSql(dict.table)}'`} AS vocabulary_id,
+    ${has(rel, 'category') ? 'CAST(d.category AS VARCHAR)' : 'NULL'} AS category
+  FROM ${rel.name} d`
+}
+
+function pageOfIds(source: ProfileSource, select: string, ids: string, positions: string): string {
+  const idExpr = conceptIdExpr(source)
+  return `${select}
+  WHERE ${idExpr} IN (${ids})
+  ${onePerId(source, idExpr)}
+  ORDER BY CASE ${idExpr} ${positions} END`
+}
+
+/** Where a server run puts a page's ids, and their ranking (`WHEN id THEN i …`),
+ *  in the page SQL it is given; the server's tokens (schemas/concept_run.py). */
+export const RUN_PAGE_IDS = '/*LINKR_IDS*/'
+export const RUN_PAGE_POSITIONS = '/*LINKR_POSITIONS*/'
+
+/** `buildDictionaryPageQuery` over a ranking, compiled once for a server run:
+ *  the server fills in each page's ids and their order. */
+export function buildDictionaryPageTemplate(source: ProfileSource): string {
+  return pageOfIds(source, pageSelect(source), RUN_PAGE_IDS, RUN_PAGE_POSITIONS)
 }
 
 /** Serialize one extracted row's values in EXTRACTION_COLUMNS order. */
@@ -531,6 +553,53 @@ export function extractionCsvRows(rows: ExtractedConcept[]): string {
 export function extractedConceptIds(csv: string): number[] {
   const { data } = Papa.parse<Record<string, string>>(csv, { header: true, skipEmptyLines: true })
   return data.map((row) => Number(row.concept_id))
+}
+
+/** A dictionary page's concepts, each id once (the first row wins). */
+function dictionaryConcepts(page: readonly Record<string, unknown>[]) {
+  const concepts: { concept: DictionaryConcept; conceptId: number; conceptName: string }[] = []
+  const seen = new Set<number>()
+  for (const raw of page) {
+    const concept = raw as unknown as DictionaryConcept
+    const conceptId = Number(concept.concept_id)
+    if (seen.has(conceptId)) continue
+    seen.add(conceptId)
+    concepts.push({ concept, conceptId, conceptName: concept.concept_name == null ? '' : String(concept.concept_name) })
+  }
+  return concepts
+}
+
+/**
+ * A dictionary page's CSV rows, given each concept's profile. With metadata on,
+ * the rows stop at the first concept without one. Twin of the server's
+ * `extracted_rows` (app/services/concept_runs/profiles.py), both held to
+ * `__fixtures__/concept-runs/profiles.json`.
+ */
+export function extractedRows(
+  page: readonly Record<string, unknown>[],
+  profiles: ReadonlyMap<number, ProfileOutcome>,
+  { metadata, counts, recordTotals }: { metadata: boolean; counts: boolean; recordTotals?: ReadonlyMap<number, number> },
+): ExtractedConcept[] {
+  const rows: ExtractedConcept[] = []
+  for (const { concept, conceptId, conceptName } of dictionaryConcepts(page)) {
+    const profile = profiles.get(conceptId) ?? null
+    // A pause abandons the batch in flight: its concepts are profiled again on
+    // resume, and the rows stop before the first of them.
+    if (metadata && !profile) break
+    rows.push({
+      terminology: concept.vocabulary_id ?? '',
+      concept_code: concept.concept_code == null ? '' : String(concept.concept_code),
+      concept_id: conceptId,
+      concept_name: conceptName,
+      category: concept.category ?? '',
+      record_count: counts && profile ? (recordTotals?.get(conceptId) ?? profile.rowsCount) : null,
+      patient_count: counts && profile ? profile.patientsCount : null,
+      // An empty cell, not "null": the source view parses this column as JSON and
+      // treats anything unparseable as absent, which is what a withheld profile is.
+      info_json: profile?.json ? JSON.stringify(profile.json) : '',
+    })
+  }
+  return rows
 }
 
 /** What one batch produced, and whether there is more to do. */
@@ -630,15 +699,7 @@ export async function extractBatch(
 
   const metadata = computesMetadata(options)
   const counts = computesCounts(options)
-  const concepts: { concept: DictionaryConcept; conceptId: number; conceptName: string }[] = []
-  const seen = new Set<number>()
-  for (const raw of page) {
-    const concept = raw as unknown as DictionaryConcept
-    const conceptId = Number(concept.concept_id)
-    if (seen.has(conceptId)) continue
-    seen.add(conceptId)
-    concepts.push({ concept, conceptId, conceptName: concept.concept_name == null ? '' : String(concept.concept_name) })
-  }
+  const concepts = dictionaryConcepts(page)
 
   const profiles = new Map<number, ProfileOutcome>()
   if (metadata) {
@@ -709,26 +770,9 @@ export async function extractBatch(
     }
   }
 
-  const rows: ExtractedConcept[] = []
-  for (const { concept, conceptId, conceptName } of concepts) {
-    const profile = profiles.get(conceptId) ?? null
-    // A pause abandons the batch in flight: its concepts are profiled again on
-    // resume, and the rows stop before the first of them.
-    if (metadata && !profile) break
-    const conceptCode = concept.concept_code == null ? '' : String(concept.concept_code)
-    rows.push({
-      terminology: concept.vocabulary_id ?? '',
-      concept_code: conceptCode,
-      concept_id: conceptId,
-      concept_name: conceptName,
-      category: concept.category ?? '',
-      record_count: counts && profile ? (recordTotals?.get(conceptId) ?? profile.rowsCount) : null,
-      patient_count: counts && profile ? profile.patientsCount : null,
-      // An empty cell, not "null": the source view parses this column as JSON and
-      // treats anything unparseable as absent, which is what a withheld profile is.
-      info_json: profile?.json ? JSON.stringify(profile.json) : '',
-    })
-    if (!metadata) onProgress?.(offset + rows.length, total, { conceptCode, conceptName })
+  const rows = extractedRows(page, profiles, { metadata, counts, recordTotals })
+  if (!metadata) {
+    rows.forEach((row, i) => onProgress?.(offset + i + 1, total, { conceptCode: row.concept_code, conceptName: row.concept_name }))
   }
 
   const nextOffset = offset + rows.length

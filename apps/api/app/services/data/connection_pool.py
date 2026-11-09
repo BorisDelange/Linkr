@@ -37,12 +37,18 @@ from app.services.data import query_cancel
 
 
 class _Entry:
-    __slots__ = ("con", "lock", "last_used")
+    __slots__ = ("con", "lock", "last_used", "retired")
 
     def __init__(self, con: duckdb.DuckDBPyConnection):
         self.con = con
         self.lock = threading.Lock()
         self.last_used = time.monotonic()
+        # Taken out of the pool (`retire`): those waiting for it go to a new one.
+        self.retired = False
+
+
+class _Retired(Exception):
+    """The connection waited for was retired: wait for its replacement."""
 
 
 _registry: dict[str, _Entry] = {}
@@ -83,15 +89,35 @@ _CANCEL_POLL_S = 0.2
 
 
 @contextlib.contextmanager
-def _waiting_for(lock: threading.Lock) -> Iterator[None]:
-    """Hold `lock`; a query cancelled while it waits for it gives up at once
-    (query_cancel.QueryCancelled) instead of once the one ahead of it ends."""
-    while not lock.acquire(timeout=_CANCEL_POLL_S):
+def _waiting_for(entry: _Entry) -> Iterator[None]:
+    """Hold `entry`'s lock; a query cancelled while it waits for it gives up at
+    once (query_cancel.QueryCancelled) instead of once the one ahead of it ends,
+    and one whose connection is retired meanwhile goes to its replacement."""
+    while not entry.lock.acquire(timeout=_CANCEL_POLL_S):
         query_cancel.raise_if_cancelled()
+        if entry.retired:
+            raise _Retired()
     try:
         yield
     finally:
-        lock.release()
+        entry.lock.release()
+
+
+def retire(con: duckdb.DuckDBPyConnection) -> bool:
+    """Take out of the pool a connection stuck in a query that ignores its
+    interrupt: the next query opens a fresh one, and those waiting for it move
+    to that one — rather than the database being out of reach until a restart.
+    Not closed: the thread stuck in it still holds it."""
+    with _registry_lock:
+        for key, entry in list(_registry.items()):
+            if entry.con is con:
+                entry.retired = True
+                del _registry[key]
+                return True
+    return False
+
+
+query_cancel.on_stuck(retire)
 
 
 def run_pooled(
@@ -106,6 +132,18 @@ def run_pooled(
     If the warm connection raises (e.g. the remote dropped it), it is discarded
     and the call retried once with a fresh `setup` — so a stale handle self-heals
     instead of failing the request."""
+    while True:
+        try:
+            return _run_on_entry(key, setup, use)
+        except _Retired:
+            continue
+
+
+def _run_on_entry(
+    key: str,
+    setup: Callable[[], duckdb.DuckDBPyConnection],
+    use: Callable[[duckdb.DuckDBPyConnection], list[dict]],
+) -> list[dict]:
     now = time.monotonic()
     with _registry_lock:
         _sweep_locked(now)
@@ -114,7 +152,7 @@ def run_pooled(
             entry = _Entry(setup())
             _registry[key] = entry
 
-    with _waiting_for(entry.lock):
+    with _waiting_for(entry):
         entry.last_used = time.monotonic()
         try:
             return use(entry.con)
@@ -130,7 +168,7 @@ def run_pooled(
             with _registry_lock:
                 new_entry = _Entry(fresh)
                 _registry[key] = new_entry
-            with _waiting_for(new_entry.lock):
+            with _waiting_for(new_entry):
                 new_entry.last_used = time.monotonic()
                 return use(new_entry.con)
 
@@ -144,6 +182,8 @@ def invalidate(key: str) -> None:
         keys = [k for k in _registry if k == key or (":" not in key and k.startswith(f"{key}:"))]
         entries = [_registry.pop(k) for k in keys]
     for entry in entries:
+        # Those waiting for it open a fresh one rather than queue to find it closed.
+        entry.retired = True
         with entry.lock:
             _close_quietly(entry.con)
 

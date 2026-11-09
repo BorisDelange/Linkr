@@ -1,5 +1,6 @@
 /**
- * Keeps a catalog computation running while nobody is watching it.
+ * Keeps a catalog computation running while nobody is watching it — in
+ * client-only mode; in server mode the server runs it (services/server_runs/catalog).
  *
  * The run belongs to the CATALOG, not to the tab that started it. Counting a
  * real warehouse's concepts and crossing its variables takes minutes to hours, and
@@ -25,10 +26,11 @@
  * catalog would interleave their writes and lose rows.
  */
 
+import { isPageLeaving } from '@/lib/page-leaving'
 import type { CatalogResultCache, DataCatalog } from '@/types'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { CatalogQuery, CatalogRunStep, CatalogUnitInfo } from './catalog-compute'
-import { runCatalogComputation, type CatalogPhaseExecutor, type CatalogStepProgress } from './catalog-run'
+import { runCatalogComputation, type CatalogStepProgress } from './catalog-run'
 
 export type { CatalogStepProgress }
 
@@ -175,8 +177,6 @@ export interface StartCatalogRunInput {
   persist: (cache: CatalogResultCache, done: boolean) => Promise<void>
   /** Record a failure on the stored catalog, so a reload shows it. */
   persistError: (message: string) => Promise<void>
-  /** How each phase's queries run (server mode: a job); one by one through `query` when absent. */
-  executor?: CatalogPhaseExecutor
 }
 
 /**
@@ -237,11 +237,9 @@ async function loop(input: StartCatalogRunInput, controller: AbortController): P
       tables: await input.tables?.(),
       resumeFrom: input.resumeFrom?.cache ?? null,
       persist: input.persist,
-      executor: input.executor,
     }, signal, {
       step: (step) => emitNow(catalogId, { phase: step, phaseStartedAt: Date.now(), reading: null }),
       unit: (info) => emit(catalogId, { current: info }),
-      reading: (reading) => emit(catalogId, { reading }),
       progress: (computed, steps, total) => {
         if (total !== getCatalogRunSnapshot(catalogId).total) emitNow(catalogId, { computed, steps, total })
         else emit(catalogId, { computed, steps })
@@ -250,7 +248,8 @@ async function loop(input: StartCatalogRunInput, controller: AbortController): P
       finishing: () => emitNow(catalogId, { phase: 'saving', phaseStartedAt: Date.now(), current: null, reading: null }),
     })
   } catch (err) {
-    if (!signal.aborted) {
+    // A page left aborts the requests in flight: not the run's failure.
+    if (!signal.aborted && !isPageLeaving()) {
       const message = err instanceof Error ? err.message : String(err)
       emit(catalogId, { error: message })
       try {

@@ -77,7 +77,7 @@ export async function queryDataSourceOnServer(
       {
         method: 'POST',
         body: JSON.stringify({
-          sql, allRows, pushdown, ...(native ? { native } : {}), ...(heavy ? { heavy } : {}), ...(queryId ? { queryId } : {}),
+          sql, allRows, pushdown, ...(native ? { native } : {}), ...(heavy ? { heavy } : {}), queryId,
           ...(origin ? { origin } : {}),
           ...(group ? { groupKey: group.key, groupLabel: group.label } : {}),
         }),
@@ -97,39 +97,64 @@ export async function queryDataSourceOnServer(
  * The call rejects as soon as `signal` aborts, without waiting for that answer:
  * a query still waiting its turn in the server's heavy lane, or one an external
  * database is slow to stop, would otherwise hold the caller until it ends.
+ *
+ * A page left stops its queries the same way (`stopQueriesOnLeave`).
  */
 export async function cancellableOnServer<T>(
   dataSourceId: string,
   signal: AbortSignal | undefined,
-  request: (queryId: string | undefined) => Promise<T>,
+  request: (queryId: string) => Promise<T>,
 ): Promise<T> {
-  if (!signal) return request(undefined)
-  signal.throwIfAborted()
+  signal?.throwIfAborted()
   const queryId = crypto.randomUUID()
+  pendingQueries.set(queryId, dataSourceId)
   let rejectOnAbort: (reason: unknown) => void = () => {}
   const aborted = new Promise<never>((_, reject) => { rejectOnAbort = reject })
   const onAbort = () => {
-    rejectOnAbort(signal.reason)
-    void apiRequest(`/data-sources/${encodeURIComponent(dataSourceId)}/query/cancel`, {
-      method: 'POST',
-      body: JSON.stringify({ queryId }),
-    }).catch(() => {})
+    rejectOnAbort(signal?.reason)
+    cancelOnServer(dataSourceId, queryId)
   }
-  signal.addEventListener('abort', onAbort, { once: true })
+  signal?.addEventListener('abort', onAbort, { once: true })
   try {
     const pending = request(queryId)
     // Its late failure (the 409 of the cancel) has nobody left to hear it.
     pending.catch(() => {})
-    const res = await Promise.race([pending, aborted])
-    signal.throwIfAborted()
+    const res = await (signal ? Promise.race([pending, aborted]) : pending)
+    signal?.throwIfAborted()
     return res
   } catch (err) {
-    signal.throwIfAborted()
+    signal?.throwIfAborted()
     throw err
   } finally {
-    signal.removeEventListener('abort', onAbort)
+    pendingQueries.delete(queryId)
+    signal?.removeEventListener('abort', onAbort)
   }
 }
+
+function cancelOnServer(dataSourceId: string, queryId: string, keepalive = false): void {
+  void apiRequest(`/data-sources/${encodeURIComponent(dataSourceId)}/query/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ queryId }),
+    keepalive,
+  }).catch(() => {})
+}
+
+/** The queries this page waits on, by id → their database. */
+const pendingQueries = new Map<string, string>()
+
+/**
+ * A page left (a reload) drops its requests, not the queries they run: those
+ * go on on the server, nobody to read them, holding the user's share of it —
+ * a few reloads in, every new request was refused as "too many long-running
+ * requests". Stopped as the page goes; the jobs of a long run (query jobs)
+ * are not queries of this page, and go on.
+ */
+function stopQueriesOnLeave(): void {
+  for (const [queryId, dataSourceId] of pendingQueries) cancelOnServer(dataSourceId, queryId, true)
+  pendingQueries.clear()
+}
+
+if (typeof window !== 'undefined') window.addEventListener('pagehide', stopQueriesOnLeave)
 
 /**
  * Materialise a server-owned DuckDB file for this source and apply a schema's
@@ -358,7 +383,23 @@ export function retestConnectionOnServer(
 export function fetchDataSourceSchema(
   dataSourceId: string,
 ): Promise<IntrospectedTable[]> {
-  return apiRequest<IntrospectedTable[]>(`/data-sources/${encodeURIComponent(dataSourceId)}/schema`)
+  const hit = schemaReads.get(dataSourceId)
+  if (hit && Date.now() - hit.at < SCHEMA_REUSE_MS) return hit.tables
+  const tables = apiRequest<IntrospectedTable[]>(`/data-sources/${encodeURIComponent(dataSourceId)}/schema`)
+  schemaReads.set(dataSourceId, { at: Date.now(), tables })
+  tables.catch(() => { if (schemaReads.get(dataSourceId)?.tables === tables) schemaReads.delete(dataSourceId) })
+  return tables
+}
+
+/** Opening a database asks for its tables from a handful of places at once
+ *  (connection check, counts, concepts, statistics): one read answers them all,
+ *  instead of a job each in the panel. Short: a table created since must show. */
+const SCHEMA_REUSE_MS = 2000
+const schemaReads = new Map<string, { at: number; tables: Promise<IntrospectedTable[]> }>()
+
+/** The tables changed (written by an ETL, created from a DDL): read them again. */
+export function forgetDataSourceSchema(dataSourceId: string): void {
+  schemaReads.delete(dataSourceId)
 }
 
 /** One queryable table of a Parquet source, with the path(s) a script would read. */

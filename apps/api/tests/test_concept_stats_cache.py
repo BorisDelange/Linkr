@@ -108,12 +108,15 @@ async def test_cache_status_empty(client):
 
 
 async def test_counting_run_routes(client, monkeypatch, tmp_path_factory):
-    """Start a run, count a unit in a job, assemble: the status reports the unit,
-    and the page query reads the assembled list."""
+    """Start a run, count a unit, assemble (as the server's concept run does):
+    the status reports the unit, and the page query reads the assembled list."""
     import duckdb
+    import pytest
 
     from app.config import settings
-    from app.services.execution import jobs
+    from app.core import database
+    from app.services import data_source_service
+    from app.services.data import concept_cache_fs
 
     # Not tmp_path: that is the tests' data dir, which a serverPath may never touch.
     server_dir = tmp_path_factory.mktemp("server")
@@ -132,24 +135,27 @@ async def test_counting_run_routes(client, monkeypatch, tmp_path_factory):
     })).json()["id"]
     base = f"{API}/data-sources/{src}/concept-cache"
 
-    job = {"label": "Concepts", "runId": "r1", "units": [{
-        "key": "records-0",
-        "sql": "SELECT 'd' AS dict_key, concept_id, COUNT(*)::BIGINT AS record_count, "
-               "COUNT(DISTINCT person_id)::BIGINT AS patient_count FROM measurement GROUP BY concept_id",
-    }]}
-    assert (await client.post(f"{base}/units-job", headers=headers, json=job)).status_code == 409
+    unit = ("SELECT 'd' AS dict_key, concept_id, COUNT(*)::BIGINT AS record_count, "
+            "COUNT(DISTINCT person_id)::BIGINT AS patient_count FROM measurement GROUP BY concept_id")
 
+    async def count() -> None:
+        async with database.async_session() as session:
+            source = await data_source_service.get(session, src)
+            await data_source_service.write_concept_unit(session, source, None, "records-0", unit, "r1")
+
+    # A unit of a run that is not the stored one is refused.
+    with pytest.raises(concept_cache_fs.RunConflict):
+        await count()
     r = await client.put(f"{base}/run", headers=headers, json={"manifest": {"signature": "s", "runId": "r1"}, "reset": True})
     assert r.status_code == 204
-    r = await client.post(f"{base}/units-job", headers=headers, json=job)
-    assert r.status_code == 202, r.text
-    await jobs._tasks[r.json()["id"]]
-
-    assemble = {"selectSql": "SELECT c.concept_id, c.concept_name, n.record_count, n.patient_count FROM concept c "
-                             "LEFT JOIN memory.main._concept_counts n ON n.concept_id = c.concept_id"}
-    r = await client.post(f"{base}/assemble", headers=headers, json=assemble)
-    assert r.status_code == 200, r.text
-    assert r.json()["exists"] is True
+    await count()
+    async with database.async_session() as session:
+        source = await data_source_service.get(session, src)
+        await data_source_service.assemble_concept_cache(
+            session, source, None,
+            "SELECT c.concept_id, c.concept_name, n.record_count, n.patient_count FROM concept c "
+            "LEFT JOIN memory.main._concept_counts n ON n.concept_id = c.concept_id",
+        )
 
     status = (await client.get(base, headers=headers)).json()
     assert status["run"]["manifest"] == {"signature": "s", "runId": "r1"}

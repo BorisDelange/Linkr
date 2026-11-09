@@ -40,6 +40,12 @@ const JOURNEYS = {
   matrix: 'e2e/server/versioning-matrix.spec.ts',
   'workspace-pull': 'e2e/server/workspace-pull.spec.ts',
   'mapping-pull': 'e2e/server/mapping-project-pull.spec.ts',
+  // Not versioning, but on the same instance: it needs the demo's OMOP schema.
+  'long-runs': 'e2e/server/long-runs.spec.ts',
+  'demo-runs': 'e2e/server/demo-concept-runs.spec.ts',
+  'etl-runs': 'e2e/server/etl-runs.spec.ts',
+  'catalog-runs': 'e2e/server/catalog-runs.spec.ts',
+  'cohort-runs': 'e2e/server/cohort-runs.spec.ts',
 }
 
 function parseArgs(argv) {
@@ -155,7 +161,8 @@ async function main() {
   try {
     for (const name of a.journeys) {
       console.log(`\n━━ ${name}`)
-      rmSync(dataDir, { recursive: true, force: true })
+      // The previous journey's API and its run workers may still be writing as they exit.
+      rmSync(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 })
       cpSync(snapshot, dataDir, { recursive: true })
       const apiProc = startApi(apiPort, webPort)
       await waitFor(`${apiUrl}/api/v1/auth/me`, 120)

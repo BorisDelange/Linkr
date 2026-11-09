@@ -13,7 +13,38 @@ export interface JobGroupRow {
   /** Null while one of its jobs runs. */
   finishedAt: string | null
   createdAt: string
+  /** The entity all its jobs are for; null when they differ or say none. */
+  entity: JobEntity | null
 }
+
+export interface JobEntity {
+  type: string
+  id: string | null
+  name: string
+}
+
+/** How the panel words what a row is for. */
+export interface JobNames {
+  /** "Database “test”". */
+  entity: (entity: JobEntity) => string
+  /** A burst of jobs of no entity and several sections: "3 jobs sent together". */
+  mixed: (count: number) => string
+}
+
+const PLAIN_NAMES: JobNames = {
+  entity: ({ type, name }) => (name ? `${type} “${name}”` : type),
+  mixed: (count) => `${count} jobs`,
+}
+
+/** The entity a job is for, if it says. */
+export function entityOf(job: Job): JobEntity | null {
+  return job.entityType ? { type: job.entityType, id: job.entityId ?? null, name: job.entityName ?? '' } : null
+}
+
+const entityKey = (job: Job) => (job.entityType ? `${job.entityType}:${job.entityId ?? ''}` : '')
+
+/** The part of a label before ` · ` ("Concepts" of "Concepts · count records"). */
+const sectionOf = (label: string) => (label.includes(' · ') ? label.split(' · ')[0] : null)
 
 export type JobRow = { job: Job } | { group: JobGroupRow }
 
@@ -31,36 +62,83 @@ const earliest = (values: (string | null | undefined)[]) =>
 const latest = (values: (string | null | undefined)[]) =>
   values.filter((v): v is string => !!v).sort().at(-1) ?? null
 
+/** Jobs sent this close together, none in a group of its own, are one action
+ *  (a page opening, a concept clicked): one row. */
+const BURST_MS = 2000
+
+/** What a burst is called: its entity, with the section its jobs share
+ *  ("Database “test” · Concepts"); without an entity, that section, else `mixed`. */
+function burstLabel(jobs: Job[], names: JobNames): string {
+  const sections = new Set(jobs.map((j) => sectionOf(j.label)))
+  const section = sections.size === 1 ? [...sections][0] : null
+  const entity = entityOf(jobs[0])
+  if (!entity) return section ?? names.mixed(jobs.length)
+  const named = names.entity(entity)
+  return section && section !== entity.name ? `${named} · ${section}` : named
+}
+
+/** Each job's group: its own, else the burst it was sent in. */
+function groupsOf(jobs: readonly Job[], names: JobNames): Map<string, { key: string; label: string | null }> {
+  const of = new Map<string, { key: string; label: string | null }>()
+  let burst: Job[] = []
+  const flush = () => {
+    if (burst.length > 1) {
+      // Keyed by its first job: one sent after joins it without reopening it closed.
+      const group = { key: `burst:${burst.at(-1)!.id}`, label: burstLabel(burst, names) }
+      for (const job of burst) of.set(job.id, group)
+    }
+    burst = []
+  }
+  for (const job of jobs) {
+    if (job.groupKey) {
+      flush()
+      of.set(job.id, { key: job.groupKey, label: job.groupLabel ?? null })
+      continue
+    }
+    // One burst is one entity's: a page sending queries to two databases at
+    // once shows two rows.
+    const last = burst.at(-1)
+    if (last && (Date.parse(last.createdAt) - Date.parse(job.createdAt) > BURST_MS || entityKey(last) !== entityKey(job))) flush()
+    burst.push(job)
+  }
+  flush()
+  return of
+}
+
 /** The panel's rows, from jobs listed newest first: each group where its newest
  *  job is, holding all of its jobs. A group of one job is that job. */
-export function groupJobs(jobs: readonly Job[]): JobRow[] {
+export function groupJobs(jobs: readonly Job[], names: JobNames = PLAIN_NAMES): JobRow[] {
+  const groups = groupsOf(jobs, names)
   const members = new Map<string, Job[]>()
   for (const job of jobs) {
-    if (!job.groupKey) continue
-    const list = members.get(job.groupKey)
+    const group = groups.get(job.id)
+    if (!group) continue
+    const list = members.get(group.key)
     if (list) list.push(job)
-    else members.set(job.groupKey, [job])
+    else members.set(group.key, [job])
   }
   const rows: JobRow[] = []
   const placed = new Set<string>()
   for (const job of jobs) {
-    const list = job.groupKey ? members.get(job.groupKey) : undefined
-    if (!list || list.length === 1) {
+    const group = groups.get(job.id)
+    const list = group ? members.get(group.key) : undefined
+    if (!group || !list || list.length === 1) {
       rows.push({ job })
       continue
     }
-    if (placed.has(job.groupKey!)) continue
-    placed.add(job.groupKey!)
+    if (placed.has(group.key)) continue
+    placed.add(group.key)
     const live = list.some((j) => ACTIVE.has(j.status))
     rows.push({
       group: {
-        key: job.groupKey!,
-        label: list.find((j) => j.groupLabel)?.groupLabel ?? job.label,
+        key: group.key,
+        label: list.map((j) => groups.get(j.id)?.label).find(Boolean) ?? job.label,
         jobs: list,
         status: statusOf(list),
         startedAt: earliest(list.map((j) => j.startedAt)),
         finishedAt: live ? null : latest(list.map((j) => j.finishedAt)),
         createdAt: earliest(list.map((j) => j.createdAt)) ?? job.createdAt,
+        entity: new Set(list.map(entityKey)).size === 1 ? entityOf(job) : null,
       },
     })
   }

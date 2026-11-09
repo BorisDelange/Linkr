@@ -180,7 +180,7 @@ export function SuggestionComputeTab({ projectId, workspaceId, engines, canWrite
             allowed={canWrite}
             notAllowedReason={t('concept_mapping.engines_not_allowed')}
             size="sm"
-            variant="ghost"
+            variant="destructive"
             className="gap-1.5"
             disabled={!ready || (!!semantic && !engines.runtime.installed)}
             onClick={() => setConfirmRestart(true)}
@@ -222,7 +222,7 @@ export function SuggestionComputeTab({ projectId, workspaceId, engines, canWrite
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void start()}>{t('concept_mapping.engines_restart')}</AlertDialogAction>
+            <AlertDialogAction variant="destructive" onClick={() => void start()}>{t('concept_mapping.engines_restart')}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

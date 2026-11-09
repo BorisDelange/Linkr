@@ -719,6 +719,7 @@ function serializeMappingsForVersioning(mappings: ConceptMapping[], unmasked = f
   return JSON.stringify(cleaned, null, 2)
 }
 
+/** A run stored before the server ran them named its jobs, local to the instance. */
 function withoutJobIds({ jobIds: _jobIds, ...run }: Record<string, unknown>): Record<string, unknown> {
   return run
 }

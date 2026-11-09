@@ -47,6 +47,7 @@ import {
   buildSizeQuery,
   buildTotalsQuery,
 } from '@/lib/duckdb/catalog-queries'
+import { fillCatalogSql } from '@/lib/duckdb/catalog-sql-fill'
 import { planConceptCountUnits } from '@/features/projects/warehouse/concepts/concept-count-plan'
 import type { Cohort, CohortLevel, SchemaMapping } from '@/types'
 
@@ -164,7 +165,7 @@ planConceptCountUnits(mapping, [{ hi: facts.midPatientId }, { lo: facts.midPatie
 
 // ── Data catalog ──────────────────────────────────────────────────────────────
 add('catalog.size', 'buildSizeQuery', buildSizeQuery(mapping, facts.tables))
-add('catalog.patient-bounds', 'buildPatientBoundsQuery', buildPatientBoundsQuery(mapping, 4), true)
+add('catalog.patient-bounds', 'buildPatientBoundsQuery', fillCatalogSql(buildPatientBoundsQuery(mapping) ?? '', { slices: 4 }), true)
 add('catalog.totals', 'buildTotalsQuery', buildTotalsQuery(mapping))
 add('catalog.services.visit', 'buildServiceListQuery', buildServiceListQuery(mapping, 'visit'))
 add('catalog.services.stay', 'buildServiceListQuery', buildServiceListQuery(mapping, 'visit_detail'))

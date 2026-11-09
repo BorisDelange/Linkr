@@ -251,6 +251,14 @@ export function CohortBuilder() {
       // Error handled by store
     }
   }, [cohortId, activeSource, executeCohort])
+  // Server mode: a run the server went on with — this page reloaded, closed, or
+  // another tab's — shows here, going on or finished meanwhile.
+  const rejoinCohortRun = useCohortStore((s) => s.rejoinCohortRun)
+  const rejoinSourceId = activeSource?.id
+  const rejoinMapping = activeSource?.schemaMapping
+  useEffect(() => {
+    if (cohortId && rejoinSourceId) void rejoinCohortRun(cohortId, rejoinSourceId, rejoinMapping)
+  }, [cohortId, rejoinSourceId, rejoinMapping, rejoinCohortRun])
   // Every Run runs what the SQL editor shows, read live from it.
   const sqlRunRef = useRef<(() => void) | null>(null)
   const handleExecute = useCallback(() => {

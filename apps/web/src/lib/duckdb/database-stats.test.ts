@@ -8,8 +8,11 @@ vi.mock('./engine', () => ({
   queryDataSource: (ds: string, sql: string) => query(ds, sql),
   discoverTables: async () => ['person', 'visit', 'note'],
 }))
-const runQueryJob = vi.fn()
-vi.mock('./run-query-job', () => ({ runQueryJob: (...args: unknown[]) => runQueryJob(...args) }))
+const followServerPlan = vi.fn()
+vi.mock('@/lib/server-runs/query-plan', () => ({
+  preparePlan: async (_ds: string, plan: unknown) => plan,
+  followServerPlan: (...args: unknown[]) => followServerPlan(...args),
+}))
 
 const { computeDatabaseStats, streamTableCounts } = await import('./database-stats')
 
@@ -24,7 +27,7 @@ const mapping = mappingV1ToV2({
 beforeEach(() => {
   serverMode = false
   query.mockReset()
-  runQueryJob.mockReset()
+  followServerPlan.mockReset()
 })
 
 describe('computeDatabaseStats', () => {
@@ -40,28 +43,36 @@ describe('computeDatabaseStats', () => {
     expect(stats.genderDistribution).toEqual({ male: 0, female: 0, other: 0 })
   })
 
-  it('runs as one keep-going server job, and a cancel from the jobs panel reads as a stop', async () => {
+  it('runs as one keep-going server run, and a cancel from the jobs panel reads as a stop', async () => {
     serverMode = true
-    runQueryJob.mockImplementation(async (_ds, _label, queries: { key: string }[], onResult) => {
-      await onResult(0, [{ cnt: 7 }], { ms: 1, error: null })
-      return { status: 'cancelled', delivered: 1, error: null, total: queries.length }
+    followServerPlan.mockImplementation(async (_kind, _scope, _plan, onRows) => {
+      onRows(0, [{ cnt: 7 }])
+      return { status: 'cancelled', error: null }
     })
     await expect(computeDatabaseStats('ds', mapping, { label: 'Stats' })).rejects.toMatchObject({ name: 'AbortError' })
     expect(query).not.toHaveBeenCalled()
-    const [, label, queries, , opts] = runQueryJob.mock.calls[0]
-    expect(label).toBe('Stats')
-    expect(queries[0]).toEqual({ key: 'patientCount', sql: expect.stringContaining('linkr_patient') })
-    expect(opts.keepGoing).toBe(true)
+    const [kind, scope, plan] = followServerPlan.mock.calls[0]
+    expect([kind, scope]).toEqual(['database_stats', 'ds:stats'])
+    expect(plan.label).toBe('Stats')
+    expect(plan.items[0]).toMatchObject({ key: 'patientCount', sql: expect.stringContaining('linkr_patient') })
+    expect(plan.keepGoing).toBe(true)
+  })
+
+  it('joins, after a reload, the run going on — and says when there is none', async () => {
+    serverMode = true
+    followServerPlan.mockResolvedValue(null)
+    await expect(computeDatabaseStats('ds', mapping, { resumeOnly: true })).rejects.toMatchObject({ name: 'AbortError' })
+    expect(followServerPlan.mock.calls[0][4]).toMatchObject({ resumeOnly: true })
   })
 })
 
 describe('streamTableCounts', () => {
   it('keeps the tables counted before a stop', async () => {
     serverMode = true
-    runQueryJob.mockImplementation(async (_ds, _label, _queries, onResult) => {
-      await onResult(0, [{ cnt: 5 }], { ms: 1, error: null })
-      await onResult(1, [], { ms: 1, error: 'boom' })
-      return { status: 'cancelled', delivered: 2, error: null }
+    followServerPlan.mockImplementation(async (_kind, _scope, _plan, onRows) => {
+      onRows(0, [{ cnt: 5 }])
+      onRows(1, null, 'boom')
+      return { status: 'cancelled', error: null }
     })
     const batches: { tableName: string; rowCount: number }[][] = []
     await expect(streamTableCounts('ds', mapping, (b) => batches.push(b))).rejects.toMatchObject({ name: 'AbortError' })

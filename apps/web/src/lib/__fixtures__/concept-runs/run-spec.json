@@ -1,0 +1,1960 @@
+{
+  "setup": "\nCREATE TABLE concept AS SELECT i AS concept_id, 'Concept ' || i AS concept_name FROM range(1, 13) t(i);\nCREATE TABLE person AS SELECT i AS person_id FROM range(1, 121) t(i);\nCREATE TABLE measurement AS\nSELECT\n  CASE WHEN i % 17 = 0 THEN 0 ELSE CAST((i * 7) % 10 + 1 AS INTEGER) END AS mc,\n  CASE i % 5 WHEN 0 THEN NULL WHEN 1 THEN 11 ELSE CAST((i * 7) % 10 + 1 AS INTEGER) END AS msc,\n  CASE WHEN i % 9 = 3 THEN NULL ELSE ROUND(((i * 37) % 1000) / 13.0, 2) END AS v,\n  CASE i % 6 WHEN 0 THEN NULL WHEN 1 THEN 'low' WHEN 2 THEN 'high' ELSE CAST((i * 7) % 12 AS VARCHAR) END AS vs,\n  -- One unit leading each concept: a tie would let either engine pick its own.\n  CASE WHEN i % 5 < 3 THEN 'mg' WHEN i % 5 = 3 THEN 'g' ELSE NULL END AS u,\n  CAST(CASE WHEN (i * 7) % 10 + 1 = 8 THEN i % 4 + 1 ELSE (i * 13) % 120 + 1 END AS INTEGER) AS person_id,\n  TIMESTAMP '2015-01-01 08:00:00' + to_days(CAST((i * 11) % 2000 AS INTEGER)) + to_hours(CAST(i % 24 AS INTEGER)) AS dt\nFROM range(1, 6001) t(i)\n",
+  "spec": {
+    "label": "Twin",
+    "fingerprint": "twin-fingerprint",
+    "options": {
+      "metadata": true,
+      "sections": {
+        "counts": true,
+        "numeric": true,
+        "histogram": true,
+        "categorical": true,
+        "unit": true,
+        "frequency": true,
+        "temporal": true,
+        "hospitalUnits": true,
+        "missingRate": true,
+        "perPatient": true
+      },
+      "outlierMethod": "iqr",
+      "outlierCoef": 1.5,
+      "bins": "auto",
+      "minCategoryCount": 1,
+      "topN": 200,
+      "maxCategoryLength": 9007199254740991,
+      "minPatients": 0
+    },
+    "sort": {
+      "key": "records",
+      "direction": "desc"
+    },
+    "onlyWithRecords": true,
+    "needsCounts": true,
+    "metadata": true,
+    "countColumns": true,
+    "dataSourceLabel": "OMOP",
+    "dictionaries": [
+      {
+        "dictKey": "concept",
+        "idsSql": "WITH linkr_concept_concept AS NOT MATERIALIZED (\n  SELECT\n    d.\"concept_id\" AS concept_id,\n    NULL AS concept_terminology,\n    d.\"concept_name\" AS concept_name,\n    NULL AS concept_code,\n    NULL AS terminology_id,\n    NULL AS terminology_name,\n    NULL AS category,\n    NULL AS subcategory,\n    NULL AS record_count,\n    NULL AS patient_count\n  FROM (SELECT * FROM \"concept\" UNION ALL BY NAME SELECT NULL AS \"concept_id\", NULL AS \"concept_name\" WHERE false) d\n)\nSELECT DISTINCT d.concept_id AS concept_id FROM linkr_concept_concept d WHERE d.concept_id IS NOT NULL AND TRY_CAST(d.concept_id AS BIGINT) IS DISTINCT FROM 0",
+        "pageSql": "WITH linkr_concept_concept AS NOT MATERIALIZED (\n  SELECT\n    d.\"concept_id\" AS concept_id,\n    NULL AS concept_terminology,\n    d.\"concept_name\" AS concept_name,\n    NULL AS concept_code,\n    NULL AS terminology_id,\n    NULL AS terminology_name,\n    NULL AS category,\n    NULL AS subcategory,\n    NULL AS record_count,\n    NULL AS patient_count\n  FROM (SELECT * FROM \"concept\" UNION ALL BY NAME SELECT NULL AS \"concept_id\", NULL AS \"concept_name\" WHERE false) d\n)\nSELECT\n    d.concept_id AS concept_id,\n    CAST(d.concept_id AS VARCHAR) AS concept_code,\n    d.concept_name AS concept_name,\n    'concept' AS vocabulary_id,\n    NULL AS category\n  FROM linkr_concept_concept d\n  WHERE d.concept_id IN (/*LINKR_IDS*/)\n  QUALIFY row_number() OVER (PARTITION BY d.concept_id ORDER BY d.concept_name) = 1\n  ORDER BY CASE d.concept_id /*LINKR_POSITIONS*/ END",
+        "events": [
+          {
+            "relation": "linkr_event_measurements",
+            "signature": "b40f490c-365d-4e61-8c18-e005638c3319",
+            "countSql": "WITH linkr_event_measurements AS NOT MATERIALIZED (\n  SELECT\n    e.\"person_id\" AS patient_id,\n    e.\"mc\" AS concept_id,\n    e.\"dt\" AS start_datetime,\n    NULL AS visit_id,\n    NULL AS visit_detail_id,\n    NULL AS concept_terminology,\n    NULL AS concept_code,\n    e.\"msc\" AS source_concept_id,\n    NULL AS concept_name,\n    NULL AS end_datetime,\n    e.\"v\" AS value_number,\n    e.\"vs\" AS value_string,\n    e.\"u\" AS unit,\n    NULL AS unit_concept_id,\n    NULL AS route,\n    NULL AS route_concept_id\n  FROM (SELECT * FROM \"measurement\" UNION ALL BY NAME SELECT NULL AS \"person_id\", NULL AS \"mc\", NULL AS \"dt\", NULL AS \"msc\", NULL AS \"v\", NULL AS \"vs\", NULL AS \"u\" WHERE false) e\n)\nSELECT named.concept_id AS concept_id,\n    COUNT(*) AS record_count,\n    COUNT(DISTINCT patient_id) AS patient_count\n  FROM (SELECT UNNEST(CASE WHEN e.source_concept_id IS DISTINCT FROM e.concept_id THEN [e.concept_id, e.source_concept_id] ELSE [e.concept_id] END) AS concept_id, e.patient_id FROM linkr_event_measurements e) AS named\n  WHERE named.concept_id IS NOT NULL AND TRY_CAST(named.concept_id AS BIGINT) IS DISTINCT FROM 0\n  GROUP BY 1",
+            "batchSql": "-- The statistics of a batch of concepts, in one pass: a row per block of a concept\n  WITH linkr_event_measurements AS NOT MATERIALIZED (\n  SELECT\n    e.\"person_id\" AS patient_id,\n    e.\"mc\" AS concept_id,\n    e.\"dt\" AS start_datetime,\n    NULL AS visit_id,\n    NULL AS visit_detail_id,\n    NULL AS concept_terminology,\n    NULL AS concept_code,\n    e.\"msc\" AS source_concept_id,\n    NULL AS concept_name,\n    NULL AS end_datetime,\n    e.\"v\" AS value_number,\n    e.\"vs\" AS value_string,\n    e.\"u\" AS unit,\n    NULL AS unit_concept_id,\n    NULL AS route,\n    NULL AS route_concept_id\n  FROM (SELECT * FROM \"measurement\" UNION ALL BY NAME SELECT NULL AS \"person_id\", NULL AS \"mc\", NULL AS \"dt\", NULL AS \"msc\", NULL AS \"v\", NULL AS \"vs\", NULL AS \"u\" WHERE false) e\n),\n-- The batch's records, k being their concept: by its concept column, or by its source concept column when that names another one\n  scope AS MATERIALIZED (\n  SELECT e.concept_id AS k, e.patient_id, e.value_number, e.value_string, e.unit, e.start_datetime FROM linkr_event_measurements e WHERE e.concept_id IN (/*LINKR_IDS*/)\n  UNION ALL\n  SELECT e.source_concept_id AS k, e.patient_id, e.value_number, e.value_string, e.unit, e.start_datetime FROM linkr_event_measurements e WHERE e.source_concept_id IN (/*LINKR_IDS*/) AND e.concept_id IS DISTINCT FROM e.source_concept_id\n),\n  -- A concept's figures over all its records: counts, missing values, percentiles, unit\n  base AS (SELECT e.k, COUNT(*) AS rows_count, COUNT(DISTINCT e.patient_id) AS patients_count, ROUND(SUM(CASE WHEN e.value_number IS NULL AND (e.value_string IS NULL OR TRIM(CAST(e.value_string AS VARCHAR)) = '') THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 1) AS missing_rate, PERCENTILE_CONT(0.01) WITHIN GROUP (ORDER BY e.value_number) AS p1, PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY e.value_number) AS p25, PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY e.value_number) AS median, PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY e.value_number) AS p75, PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY e.value_number) AS p99, COUNT(e.value_number) FILTER (WHERE e.value_number IS NOT NULL) AS numeric_count, mode(CAST(e.unit AS VARCHAR)) FILTER (WHERE CAST(e.unit AS VARCHAR) IS NOT NULL AND TRIM(CAST(e.unit AS VARCHAR)) <> '') AS unit FROM scope e GROUP BY e.k),\n  -- Records per patient: their mean, median, min and max\n  per_patient AS (\n    SELECT k, ROUND(AVG(n), 1) AS per_patient_mean, MEDIAN(n) AS per_patient_median, MIN(n) AS per_patient_min, MAX(n) AS per_patient_max\n    FROM (SELECT e.k, COUNT(*) AS n FROM scope e GROUP BY e.k, e.patient_id) GROUP BY k),\n  -- Hours between two records of a patient, in time order: their median\n  frequency AS (\n    SELECT k, MEDIAN(hours) AS median_hours FROM (\n      SELECT k, EXTRACT(EPOCH FROM (ts - LAG(ts) OVER (PARTITION BY k, patient_id ORDER BY ts))) / 3600.0 AS hours\n      FROM (SELECT e.k, e.patient_id AS patient_id, CAST(e.start_datetime AS TIMESTAMP) AS ts FROM scope e WHERE e.start_datetime IS NOT NULL)\n    ) WHERE hours > 0 GROUP BY k),\n  -- A concept's figures on one row\n  scalar AS (\n    SELECT base.k, base.* EXCLUDE (k), per_patient.* EXCLUDE (k), frequency.* EXCLUDE (k)\n    FROM base LEFT JOIN per_patient USING (k) LEFT JOIN frequency USING (k)),\n  -- The concepts described further: the bounds past which a value is an outlier, the histogram's number of bins\n  fences AS (SELECT k, CASE WHEN numeric_count > 0 AND p25 IS NOT NULL AND p75 IS NOT NULL AND TRUE AND isfinite(p25 - CAST('1.5' AS DOUBLE) * (p75 - p25)) AND isfinite(p75 + CAST('1.5' AS DOUBLE) * (p75 - p25)) THEN p25 - CAST('1.5' AS DOUBLE) * (p75 - p25) END AS lo, CASE WHEN numeric_count > 0 AND p25 IS NOT NULL AND p75 IS NOT NULL AND TRUE AND isfinite(p25 - CAST('1.5' AS DOUBLE) * (p75 - p25)) AND isfinite(p75 + CAST('1.5' AS DOUBLE) * (p75 - p25)) THEN p75 + CAST('1.5' AS DOUBLE) * (p75 - p25) END AS hi, CAST(LEAST(50, GREATEST(1, CEIL(1 + LOG2(GREATEST(1, numeric_count))))) AS INTEGER) AS bins FROM scalar WHERE TRUE),\n  -- Their records\n  kept AS (SELECT e.* FROM scope e WHERE e.k IN (SELECT k FROM fences)),\n  -- The histogram: the values within the bounds…\n  filtered AS (\n    SELECT e.k, e.value_number AS value, e.patient_id AS patient_id\n    FROM scope e JOIN fences f ON f.k = e.k WHERE e.value_number IS NOT NULL AND (f.lo IS NULL OR (e.value_number >= f.lo AND e.value_number <= f.hi))\n  ),\n  -- …the width of a bin over their range…\n  spread AS (\n    SELECT x.k, (MAX(x.value) - MIN(x.value)) / ANY_VALUE(f.bins) AS width FROM filtered x JOIN fences f ON f.k = x.k GROUP BY x.k\n  ),\n  -- …rounded up to 1, 2, 5 or 10 times a power of ten…\n  magnitude AS (\n    SELECT k, width / POW(10, FLOOR(LOG10(width))) AS mantissa, CAST(FLOOR(LOG10(width)) AS INTEGER) AS step_e\n    FROM spread WHERE width > 0\n  ),\n  step AS (\n    SELECT k, CASE WHEN mantissa <= 1 THEN 1 WHEN mantissa <= 2 THEN 2 WHEN mantissa <= 5 THEN 5 ELSE 10 END AS step_m, step_e\n    FROM magnitude\n  ),\n  -- …and each value's bin, counted\n  bins AS (\n    SELECT x.k, CAST(FLOOR(CASE WHEN s.step_e < 0 THEN x.value * POW(10, -s.step_e) / s.step_m\n                              ELSE x.value / (s.step_m * POW(10, s.step_e)) END) AS INTEGER) AS bin_idx,\n           s.step_m, s.step_e, COUNT(*) AS count,\n           COUNT(DISTINCT x.patient_id) AS patients_count\n    FROM filtered x JOIN step s ON s.k = x.k GROUP BY ALL\n  )\n  -- Block 'scalar': a concept's figures\n  (SELECT 'scalar' AS block, k, 0 AS ord, rows_count AS s_rows_count, patients_count AS s_patients_count, missing_rate AS s_missing_rate, p1 AS s_p1, p25 AS s_p25, median AS s_median, p75 AS s_p75, p99 AS s_p99, numeric_count AS s_numeric_count, unit AS s_unit, per_patient_mean AS s_per_patient_mean, per_patient_median AS s_per_patient_median, per_patient_min AS s_per_patient_min, per_patient_max AS s_per_patient_max, median_hours AS s_median_hours FROM scalar)\n  UNION ALL BY NAME\n  -- Block 'numeric': the values within the bounds — range, mean, median, spread, percentiles\n  (SELECT 'numeric' AS block, e.k, 0 AS ord,\n    MIN(e.value_number) AS min,\n    MAX(e.value_number) AS max,\n    ROUND(AVG(e.value_number), 1) AS mean,\n    ROUND(MEDIAN(e.value_number), 1) AS median,\n    ROUND(STDDEV(e.value_number), 1) AS sd,\n    ROUND(PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY e.value_number), 1) AS p5,\n    ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY e.value_number), 1) AS p25,\n    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY e.value_number), 1) AS p75,\n    ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY e.value_number), 1) AS p95,\n    COUNT(e.value_number) AS numeric_count,\n    COUNT(DISTINCT e.patient_id) AS numeric_patients_count\n  FROM scope e JOIN fences f ON f.k = e.k WHERE e.value_number IS NOT NULL AND (f.lo IS NULL OR (e.value_number >= f.lo AND e.value_number <= f.hi)) GROUP BY e.k)\n  UNION ALL BY NAME\n  -- Block 'histogram': a row per bin\n  (SELECT 'histogram' AS block, k, bin_idx AS ord, bin_idx, step_m, step_e, count, patients_count FROM bins)\n  UNION ALL BY NAME\n  -- Block 'categorical': the most frequent text values\n  (SELECT 'categorical' AS block, k, ROW_NUMBER() OVER (PARTITION BY k ORDER BY count DESC, category ASC) AS ord,\n    category, count, patients_count, ROUND(count * 100.0 / SUM(count) OVER (PARTITION BY k), 1) AS percentage FROM (\n    SELECT e.k, CAST(e.value_string AS VARCHAR) AS category, COUNT(*) AS count, COUNT(DISTINCT e.patient_id) AS patients_count\n    FROM kept e WHERE CAST(e.value_string AS VARCHAR) IS NOT NULL AND TRIM(CAST(e.value_string AS VARCHAR)) <> ''\n    GROUP BY e.k, CAST(e.value_string AS VARCHAR)\n    HAVING COUNT(*) >= 1\n  ) QUALIFY ord <= 200)\n  UNION ALL BY NAME\n  -- Block 'temporal': records per year, first and last dates\n  (SELECT 'temporal' AS block, k, year AS ord, year, count, patients_count, percentage, start_date, end_date FROM (\n    SELECT k, EXTRACT(YEAR FROM ts) AS year, COUNT(*) AS count,\n         COUNT(DISTINCT patient_id) AS patients_count,\n         ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (PARTITION BY k), 1) AS percentage,\n         MIN(MIN(ts)) OVER (PARTITION BY k)::DATE AS start_date,\n         MAX(MAX(ts)) OVER (PARTITION BY k)::DATE AS end_date\n    FROM (SELECT e.k, CAST(e.start_datetime AS TIMESTAMP) AS ts, e.patient_id AS patient_id\n          FROM kept e WHERE e.start_datetime IS NOT NULL)\n    GROUP BY k, EXTRACT(YEAR FROM ts)))",
+            "emptyScalar": {
+              "rows_count": 0,
+              "patients_count": 0,
+              "missing_rate": null,
+              "p1": null,
+              "p25": null,
+              "median": null,
+              "p75": null,
+              "p99": null,
+              "numeric_count": 0,
+              "unit": null,
+              "per_patient_mean": null,
+              "per_patient_median": null,
+              "per_patient_min": null,
+              "per_patient_max": null,
+              "median_hours": null
+            },
+            "sections": [
+              "counts",
+              "missingRate",
+              "perPatient",
+              "frequency",
+              "numeric",
+              "histogram",
+              "unit",
+              "categorical",
+              "temporal"
+            ]
+          }
+        ],
+        "sections": [
+          "counts",
+          "missingRate",
+          "perPatient",
+          "frequency",
+          "numeric",
+          "histogram",
+          "unit",
+          "categorical",
+          "temporal"
+        ]
+      }
+    ],
+    "counts": null,
+    "extraction": null,
+    "fresh": false
+  },
+  "expected": [
+    {
+      "dictKey": "concept",
+      "conceptId": 1,
+      "rowsCount": 565,
+      "patientsCount": 12,
+      "json": {
+        "full_name": "Concept 1",
+        "data_source": "OMOP",
+        "unit": "mg",
+        "numeric_data": {
+          "min": 0,
+          "p5": 3.9,
+          "p25": 18.5,
+          "median": 38.5,
+          "mean": 38.1,
+          "p75": 57.7,
+          "p95": 72.3,
+          "max": 76.15,
+          "sd": 22.1,
+          "numeric_count": 502,
+          "numeric_patients_count": 12
+        },
+        "histogram": [
+          {
+            "x": 5,
+            "count": 62,
+            "patients_count": 12
+          },
+          {
+            "x": 15,
+            "count": 70,
+            "patients_count": 12
+          },
+          {
+            "x": 25,
+            "count": 61,
+            "patients_count": 12
+          },
+          {
+            "x": 35,
+            "count": 68,
+            "patients_count": 12
+          },
+          {
+            "x": 45,
+            "count": 65,
+            "patients_count": 12
+          },
+          {
+            "x": 55,
+            "count": 62,
+            "patients_count": 12
+          },
+          {
+            "x": 65,
+            "count": 71,
+            "patients_count": 12
+          },
+          {
+            "x": 75,
+            "count": 43,
+            "patients_count": 12
+          }
+        ],
+        "categorical_data": [
+          {
+            "category": "high",
+            "count": 188,
+            "patients_count": 4,
+            "percentage": 50
+          },
+          {
+            "category": "10",
+            "count": 94,
+            "patients_count": 2,
+            "percentage": 25
+          },
+          {
+            "category": "4",
+            "count": 94,
+            "patients_count": 2,
+            "percentage": 25
+          }
+        ],
+        "measurement_frequency": {
+          "typical_interval": "monthly or less"
+        },
+        "missing_rate": 11.2,
+        "records_per_patient": {
+          "mean": 47.1,
+          "median": 47,
+          "min": 47,
+          "max": 48
+        },
+        "temporal_distribution": {
+          "start_date": "2015-01-01",
+          "end_date": "2020-06-14",
+          "by_year": [
+            {
+              "year": 2015,
+              "percentage": 18.6,
+              "count": 105,
+              "patients_count": 12
+            },
+            {
+              "year": 2016,
+              "percentage": 18.6,
+              "count": 105,
+              "patients_count": 12
+            },
+            {
+              "year": 2017,
+              "percentage": 18.2,
+              "count": 103,
+              "patients_count": 12
+            },
+            {
+              "year": 2018,
+              "percentage": 18.4,
+              "count": 104,
+              "patients_count": 12
+            },
+            {
+              "year": 2019,
+              "percentage": 17.9,
+              "count": 101,
+              "patients_count": 12
+            },
+            {
+              "year": 2020,
+              "percentage": 8.3,
+              "count": 47,
+              "patients_count": 12
+            }
+          ]
+        }
+      },
+      "sections": [
+        "counts",
+        "missingRate",
+        "perPatient",
+        "frequency",
+        "numeric",
+        "histogram",
+        "unit",
+        "categorical",
+        "temporal"
+      ],
+      "variant": {
+        "outlierMethod": "iqr",
+        "outlierCoef": 1.5,
+        "bins": "auto"
+      },
+      "fingerprint": "twin-fingerprint",
+      "computedAt": ""
+    },
+    {
+      "dictKey": "concept",
+      "conceptId": 2,
+      "rowsCount": 600,
+      "patientsCount": 12,
+      "json": {
+        "full_name": "Concept 2",
+        "data_source": "OMOP",
+        "unit": "g",
+        "numeric_data": {
+          "min": 0.08,
+          "p5": 3.9,
+          "p25": 18.5,
+          "median": 38.5,
+          "mean": 38.2,
+          "p75": 57.8,
+          "p95": 72.4,
+          "max": 76.23,
+          "sd": 22.1,
+          "numeric_count": 533,
+          "numeric_patients_count": 12
+        },
+        "histogram": [
+          {
+            "x": 5,
+            "count": 66,
+            "patients_count": 12
+          },
+          {
+            "x": 15,
+            "count": 75,
+            "patients_count": 12
+          },
+          {
+            "x": 25,
+            "count": 65,
+            "patients_count": 12
+          },
+          {
+            "x": 35,
+            "count": 72,
+            "patients_count": 12
+          },
+          {
+            "x": 45,
+            "count": 69,
+            "patients_count": 12
+          },
+          {
+            "x": 55,
+            "count": 65,
+            "patients_count": 12
+          },
+          {
+            "x": 65,
+            "count": 76,
+            "patients_count": 12
+          },
+          {
+            "x": 75,
+            "count": 45,
+            "patients_count": 12
+          }
+        ],
+        "categorical_data": [
+          {
+            "category": "low",
+            "count": 200,
+            "patients_count": 4,
+            "percentage": 33.3
+          },
+          {
+            "category": "11",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 16.7
+          },
+          {
+            "category": "3",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 16.7
+          },
+          {
+            "category": "5",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 16.7
+          },
+          {
+            "category": "9",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 16.7
+          }
+        ],
+        "measurement_frequency": {
+          "typical_interval": "monthly or less"
+        },
+        "missing_rate": 0,
+        "records_per_patient": {
+          "mean": 50,
+          "median": 50,
+          "min": 50,
+          "max": 50
+        },
+        "temporal_distribution": {
+          "start_date": "2015-01-04",
+          "end_date": "2020-06-17",
+          "by_year": [
+            {
+              "year": 2015,
+              "percentage": 18.5,
+              "count": 111,
+              "patients_count": 12
+            },
+            {
+              "year": 2016,
+              "percentage": 18,
+              "count": 108,
+              "patients_count": 12
+            },
+            {
+              "year": 2017,
+              "percentage": 18.5,
+              "count": 111,
+              "patients_count": 12
+            },
+            {
+              "year": 2018,
+              "percentage": 18,
+              "count": 108,
+              "patients_count": 12
+            },
+            {
+              "year": 2019,
+              "percentage": 18.5,
+              "count": 111,
+              "patients_count": 12
+            },
+            {
+              "year": 2020,
+              "percentage": 8.5,
+              "count": 51,
+              "patients_count": 12
+            }
+          ]
+        }
+      },
+      "sections": [
+        "counts",
+        "missingRate",
+        "perPatient",
+        "frequency",
+        "numeric",
+        "histogram",
+        "unit",
+        "categorical",
+        "temporal"
+      ],
+      "variant": {
+        "outlierMethod": "iqr",
+        "outlierCoef": 1.5,
+        "bins": "auto"
+      },
+      "fingerprint": "twin-fingerprint",
+      "computedAt": ""
+    },
+    {
+      "dictKey": "concept",
+      "conceptId": 3,
+      "rowsCount": 565,
+      "patientsCount": 12,
+      "json": {
+        "full_name": "Concept 3",
+        "data_source": "OMOP",
+        "unit": "mg",
+        "numeric_data": {
+          "min": 0.15,
+          "p5": 4,
+          "p25": 18.6,
+          "median": 37.9,
+          "mean": 38.1,
+          "p75": 57.9,
+          "p95": 72.5,
+          "max": 76.31,
+          "sd": 22.2,
+          "numeric_count": 503,
+          "numeric_patients_count": 12
+        },
+        "histogram": [
+          {
+            "x": 5,
+            "count": 63,
+            "patients_count": 12
+          },
+          {
+            "x": 15,
+            "count": 71,
+            "patients_count": 12
+          },
+          {
+            "x": 25,
+            "count": 61,
+            "patients_count": 12
+          },
+          {
+            "x": 35,
+            "count": 68,
+            "patients_count": 12
+          },
+          {
+            "x": 45,
+            "count": 64,
+            "patients_count": 12
+          },
+          {
+            "x": 55,
+            "count": 62,
+            "patients_count": 12
+          },
+          {
+            "x": 65,
+            "count": 72,
+            "patients_count": 12
+          },
+          {
+            "x": 75,
+            "count": 42,
+            "patients_count": 12
+          }
+        ],
+        "categorical_data": [
+          {
+            "category": "high",
+            "count": 189,
+            "patients_count": 4,
+            "percentage": 50.1
+          },
+          {
+            "category": "10",
+            "count": 94,
+            "patients_count": 2,
+            "percentage": 24.9
+          },
+          {
+            "category": "4",
+            "count": 94,
+            "patients_count": 2,
+            "percentage": 24.9
+          }
+        ],
+        "measurement_frequency": {
+          "typical_interval": "monthly or less"
+        },
+        "missing_rate": 11,
+        "records_per_patient": {
+          "mean": 47.1,
+          "median": 47,
+          "min": 47,
+          "max": 48
+        },
+        "temporal_distribution": {
+          "start_date": "2015-01-07",
+          "end_date": "2020-06-20",
+          "by_year": [
+            {
+              "year": 2015,
+              "percentage": 18.2,
+              "count": 103,
+              "patients_count": 12
+            },
+            {
+              "year": 2016,
+              "percentage": 18.6,
+              "count": 105,
+              "patients_count": 12
+            },
+            {
+              "year": 2017,
+              "percentage": 18.1,
+              "count": 102,
+              "patients_count": 12
+            },
+            {
+              "year": 2018,
+              "percentage": 18.2,
+              "count": 103,
+              "patients_count": 12
+            },
+            {
+              "year": 2019,
+              "percentage": 17.9,
+              "count": 101,
+              "patients_count": 12
+            },
+            {
+              "year": 2020,
+              "percentage": 9,
+              "count": 51,
+              "patients_count": 12
+            }
+          ]
+        }
+      },
+      "sections": [
+        "counts",
+        "missingRate",
+        "perPatient",
+        "frequency",
+        "numeric",
+        "histogram",
+        "unit",
+        "categorical",
+        "temporal"
+      ],
+      "variant": {
+        "outlierMethod": "iqr",
+        "outlierCoef": 1.5,
+        "bins": "auto"
+      },
+      "fingerprint": "twin-fingerprint",
+      "computedAt": ""
+    },
+    {
+      "dictKey": "concept",
+      "conceptId": 4,
+      "rowsCount": 600,
+      "patientsCount": 12,
+      "json": {
+        "full_name": "Concept 4",
+        "data_source": "OMOP",
+        "numeric_data": {
+          "min": 0.23,
+          "p5": 4.1,
+          "p25": 18.7,
+          "median": 38.7,
+          "mean": 38.3,
+          "p75": 57.9,
+          "p95": 72.5,
+          "max": 76.38,
+          "sd": 22.2,
+          "numeric_count": 533,
+          "numeric_patients_count": 12
+        },
+        "histogram": [
+          {
+            "x": 5,
+            "count": 67,
+            "patients_count": 12
+          },
+          {
+            "x": 15,
+            "count": 74,
+            "patients_count": 12
+          },
+          {
+            "x": 25,
+            "count": 65,
+            "patients_count": 12
+          },
+          {
+            "x": 35,
+            "count": 72,
+            "patients_count": 12
+          },
+          {
+            "x": 45,
+            "count": 69,
+            "patients_count": 12
+          },
+          {
+            "x": 55,
+            "count": 65,
+            "patients_count": 12
+          },
+          {
+            "x": 65,
+            "count": 76,
+            "patients_count": 12
+          },
+          {
+            "x": 75,
+            "count": 45,
+            "patients_count": 12
+          }
+        ],
+        "categorical_data": [
+          {
+            "category": "low",
+            "count": 200,
+            "patients_count": 4,
+            "percentage": 33.3
+          },
+          {
+            "category": "11",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 16.7
+          },
+          {
+            "category": "3",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 16.7
+          },
+          {
+            "category": "5",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 16.7
+          },
+          {
+            "category": "9",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 16.7
+          }
+        ],
+        "measurement_frequency": {
+          "typical_interval": "monthly or less"
+        },
+        "missing_rate": 0,
+        "records_per_patient": {
+          "mean": 50,
+          "median": 50,
+          "min": 50,
+          "max": 50
+        },
+        "temporal_distribution": {
+          "start_date": "2015-01-10",
+          "end_date": "2020-06-23",
+          "by_year": [
+            {
+              "year": 2015,
+              "percentage": 18,
+              "count": 108,
+              "patients_count": 12
+            },
+            {
+              "year": 2016,
+              "percentage": 18.5,
+              "count": 111,
+              "patients_count": 12
+            },
+            {
+              "year": 2017,
+              "percentage": 18,
+              "count": 108,
+              "patients_count": 12
+            },
+            {
+              "year": 2018,
+              "percentage": 18.5,
+              "count": 111,
+              "patients_count": 12
+            },
+            {
+              "year": 2019,
+              "percentage": 18,
+              "count": 108,
+              "patients_count": 12
+            },
+            {
+              "year": 2020,
+              "percentage": 9,
+              "count": 54,
+              "patients_count": 12
+            }
+          ]
+        }
+      },
+      "sections": [
+        "counts",
+        "missingRate",
+        "perPatient",
+        "frequency",
+        "numeric",
+        "histogram",
+        "unit",
+        "categorical",
+        "temporal"
+      ],
+      "variant": {
+        "outlierMethod": "iqr",
+        "outlierCoef": 1.5,
+        "bins": "auto"
+      },
+      "fingerprint": "twin-fingerprint",
+      "computedAt": ""
+    },
+    {
+      "dictKey": "concept",
+      "conceptId": 5,
+      "rowsCount": 600,
+      "patientsCount": 12,
+      "json": {
+        "full_name": "Concept 5",
+        "data_source": "OMOP",
+        "unit": "mg",
+        "numeric_data": {
+          "min": 0.31,
+          "p5": 4.2,
+          "p25": 18.8,
+          "median": 38.8,
+          "mean": 38.4,
+          "p75": 58,
+          "p95": 72.6,
+          "max": 76.46,
+          "sd": 22.2,
+          "numeric_count": 533,
+          "numeric_patients_count": 12
+        },
+        "histogram": [
+          {
+            "x": 5,
+            "count": 67,
+            "patients_count": 12
+          },
+          {
+            "x": 15,
+            "count": 74,
+            "patients_count": 12
+          },
+          {
+            "x": 25,
+            "count": 65,
+            "patients_count": 12
+          },
+          {
+            "x": 35,
+            "count": 72,
+            "patients_count": 12
+          },
+          {
+            "x": 45,
+            "count": 69,
+            "patients_count": 12
+          },
+          {
+            "x": 55,
+            "count": 65,
+            "patients_count": 12
+          },
+          {
+            "x": 65,
+            "count": 76,
+            "patients_count": 12
+          },
+          {
+            "x": 75,
+            "count": 45,
+            "patients_count": 12
+          }
+        ],
+        "categorical_data": [
+          {
+            "category": "high",
+            "count": 200,
+            "patients_count": 4,
+            "percentage": 50
+          },
+          {
+            "category": "10",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 25
+          },
+          {
+            "category": "4",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 25
+          }
+        ],
+        "measurement_frequency": {
+          "typical_interval": "monthly or less"
+        },
+        "missing_rate": 11.2,
+        "records_per_patient": {
+          "mean": 50,
+          "median": 50,
+          "min": 50,
+          "max": 50
+        },
+        "temporal_distribution": {
+          "start_date": "2015-01-03",
+          "end_date": "2020-06-16",
+          "by_year": [
+            {
+              "year": 2015,
+              "percentage": 18.5,
+              "count": 111,
+              "patients_count": 12
+            },
+            {
+              "year": 2016,
+              "percentage": 18,
+              "count": 108,
+              "patients_count": 12
+            },
+            {
+              "year": 2017,
+              "percentage": 18.5,
+              "count": 111,
+              "patients_count": 12
+            },
+            {
+              "year": 2018,
+              "percentage": 18,
+              "count": 108,
+              "patients_count": 12
+            },
+            {
+              "year": 2019,
+              "percentage": 18.5,
+              "count": 111,
+              "patients_count": 12
+            },
+            {
+              "year": 2020,
+              "percentage": 8.5,
+              "count": 51,
+              "patients_count": 12
+            }
+          ]
+        }
+      },
+      "sections": [
+        "counts",
+        "missingRate",
+        "perPatient",
+        "frequency",
+        "numeric",
+        "histogram",
+        "unit",
+        "categorical",
+        "temporal"
+      ],
+      "variant": {
+        "outlierMethod": "iqr",
+        "outlierCoef": 1.5,
+        "bins": "auto"
+      },
+      "fingerprint": "twin-fingerprint",
+      "computedAt": ""
+    },
+    {
+      "dictKey": "concept",
+      "conceptId": 6,
+      "rowsCount": 565,
+      "patientsCount": 12,
+      "json": {
+        "full_name": "Concept 6",
+        "data_source": "OMOP",
+        "unit": "mg",
+        "numeric_data": {
+          "min": 0.38,
+          "p5": 4.2,
+          "p25": 18.9,
+          "median": 38.9,
+          "mean": 38.5,
+          "p75": 58.1,
+          "p95": 72.7,
+          "max": 76.54,
+          "sd": 22.1,
+          "numeric_count": 503,
+          "numeric_patients_count": 12
+        },
+        "histogram": [
+          {
+            "x": 5,
+            "count": 63,
+            "patients_count": 12
+          },
+          {
+            "x": 15,
+            "count": 69,
+            "patients_count": 12
+          },
+          {
+            "x": 25,
+            "count": 62,
+            "patients_count": 12
+          },
+          {
+            "x": 35,
+            "count": 69,
+            "patients_count": 12
+          },
+          {
+            "x": 45,
+            "count": 65,
+            "patients_count": 12
+          },
+          {
+            "x": 55,
+            "count": 61,
+            "patients_count": 12
+          },
+          {
+            "x": 65,
+            "count": 72,
+            "patients_count": 12
+          },
+          {
+            "x": 75,
+            "count": 42,
+            "patients_count": 12
+          }
+        ],
+        "categorical_data": [
+          {
+            "category": "low",
+            "count": 188,
+            "patients_count": 4,
+            "percentage": 33.3
+          },
+          {
+            "category": "5",
+            "count": 95,
+            "patients_count": 2,
+            "percentage": 16.8
+          },
+          {
+            "category": "11",
+            "count": 94,
+            "patients_count": 2,
+            "percentage": 16.6
+          },
+          {
+            "category": "3",
+            "count": 94,
+            "patients_count": 2,
+            "percentage": 16.6
+          },
+          {
+            "category": "9",
+            "count": 94,
+            "patients_count": 2,
+            "percentage": 16.6
+          }
+        ],
+        "measurement_frequency": {
+          "typical_interval": "monthly or less"
+        },
+        "missing_rate": 0,
+        "records_per_patient": {
+          "mean": 47.1,
+          "median": 47,
+          "min": 47,
+          "max": 48
+        },
+        "temporal_distribution": {
+          "start_date": "2015-01-06",
+          "end_date": "2020-06-19",
+          "by_year": [
+            {
+              "year": 2015,
+              "percentage": 18.1,
+              "count": 102,
+              "patients_count": 12
+            },
+            {
+              "year": 2016,
+              "percentage": 18.2,
+              "count": 103,
+              "patients_count": 12
+            },
+            {
+              "year": 2017,
+              "percentage": 18.2,
+              "count": 103,
+              "patients_count": 12
+            },
+            {
+              "year": 2018,
+              "percentage": 18.2,
+              "count": 103,
+              "patients_count": 12
+            },
+            {
+              "year": 2019,
+              "percentage": 18.4,
+              "count": 104,
+              "patients_count": 12
+            },
+            {
+              "year": 2020,
+              "percentage": 8.8,
+              "count": 50,
+              "patients_count": 12
+            }
+          ]
+        }
+      },
+      "sections": [
+        "counts",
+        "missingRate",
+        "perPatient",
+        "frequency",
+        "numeric",
+        "histogram",
+        "unit",
+        "categorical",
+        "temporal"
+      ],
+      "variant": {
+        "outlierMethod": "iqr",
+        "outlierCoef": 1.5,
+        "bins": "auto"
+      },
+      "fingerprint": "twin-fingerprint",
+      "computedAt": ""
+    },
+    {
+      "dictKey": "concept",
+      "conceptId": 7,
+      "rowsCount": 600,
+      "patientsCount": 12,
+      "json": {
+        "full_name": "Concept 7",
+        "data_source": "OMOP",
+        "unit": "g",
+        "numeric_data": {
+          "min": 0.46,
+          "p5": 4.3,
+          "p25": 18.9,
+          "median": 38.2,
+          "mean": 38.5,
+          "p75": 58.2,
+          "p95": 72.8,
+          "max": 76.62,
+          "sd": 22.2,
+          "numeric_count": 533,
+          "numeric_patients_count": 12
+        },
+        "histogram": [
+          {
+            "x": 5,
+            "count": 67,
+            "patients_count": 12
+          },
+          {
+            "x": 15,
+            "count": 74,
+            "patients_count": 12
+          },
+          {
+            "x": 25,
+            "count": 65,
+            "patients_count": 12
+          },
+          {
+            "x": 35,
+            "count": 73,
+            "patients_count": 12
+          },
+          {
+            "x": 45,
+            "count": 68,
+            "patients_count": 12
+          },
+          {
+            "x": 55,
+            "count": 65,
+            "patients_count": 12
+          },
+          {
+            "x": 65,
+            "count": 76,
+            "patients_count": 12
+          },
+          {
+            "x": 75,
+            "count": 45,
+            "patients_count": 12
+          }
+        ],
+        "categorical_data": [
+          {
+            "category": "high",
+            "count": 200,
+            "patients_count": 4,
+            "percentage": 50
+          },
+          {
+            "category": "10",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 25
+          },
+          {
+            "category": "4",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 25
+          }
+        ],
+        "measurement_frequency": {
+          "typical_interval": "monthly or less"
+        },
+        "missing_rate": 11.2,
+        "records_per_patient": {
+          "mean": 50,
+          "median": 50,
+          "min": 50,
+          "max": 50
+        },
+        "temporal_distribution": {
+          "start_date": "2015-01-09",
+          "end_date": "2020-06-22",
+          "by_year": [
+            {
+              "year": 2015,
+              "percentage": 18,
+              "count": 108,
+              "patients_count": 12
+            },
+            {
+              "year": 2016,
+              "percentage": 18.5,
+              "count": 111,
+              "patients_count": 12
+            },
+            {
+              "year": 2017,
+              "percentage": 18,
+              "count": 108,
+              "patients_count": 12
+            },
+            {
+              "year": 2018,
+              "percentage": 18.5,
+              "count": 111,
+              "patients_count": 12
+            },
+            {
+              "year": 2019,
+              "percentage": 18,
+              "count": 108,
+              "patients_count": 12
+            },
+            {
+              "year": 2020,
+              "percentage": 9,
+              "count": 54,
+              "patients_count": 12
+            }
+          ]
+        }
+      },
+      "sections": [
+        "counts",
+        "missingRate",
+        "perPatient",
+        "frequency",
+        "numeric",
+        "histogram",
+        "unit",
+        "categorical",
+        "temporal"
+      ],
+      "variant": {
+        "outlierMethod": "iqr",
+        "outlierCoef": 1.5,
+        "bins": "auto"
+      },
+      "fingerprint": "twin-fingerprint",
+      "computedAt": ""
+    },
+    {
+      "dictKey": "concept",
+      "conceptId": 8,
+      "rowsCount": 565,
+      "patientsCount": 2,
+      "json": {
+        "full_name": "Concept 8",
+        "data_source": "OMOP",
+        "unit": "mg",
+        "numeric_data": {
+          "min": 0.54,
+          "p5": 4.4,
+          "p25": 19,
+          "median": 39,
+          "mean": 38.7,
+          "p75": 58.2,
+          "p95": 72.9,
+          "max": 76.69,
+          "sd": 22.2,
+          "numeric_count": 502,
+          "numeric_patients_count": 2
+        },
+        "histogram": [
+          {
+            "x": 5,
+            "count": 63,
+            "patients_count": 2
+          },
+          {
+            "x": 15,
+            "count": 69,
+            "patients_count": 2
+          },
+          {
+            "x": 25,
+            "count": 62,
+            "patients_count": 2
+          },
+          {
+            "x": 35,
+            "count": 68,
+            "patients_count": 2
+          },
+          {
+            "x": 45,
+            "count": 65,
+            "patients_count": 2
+          },
+          {
+            "x": 55,
+            "count": 61,
+            "patients_count": 2
+          },
+          {
+            "x": 65,
+            "count": 71,
+            "patients_count": 2
+          },
+          {
+            "x": 75,
+            "count": 43,
+            "patients_count": 2
+          }
+        ],
+        "categorical_data": [
+          {
+            "category": "low",
+            "count": 189,
+            "patients_count": 2,
+            "percentage": 33.5
+          },
+          {
+            "category": "11",
+            "count": 94,
+            "patients_count": 1,
+            "percentage": 16.6
+          },
+          {
+            "category": "3",
+            "count": 94,
+            "patients_count": 1,
+            "percentage": 16.6
+          },
+          {
+            "category": "5",
+            "count": 94,
+            "patients_count": 1,
+            "percentage": 16.6
+          },
+          {
+            "category": "9",
+            "count": 94,
+            "patients_count": 1,
+            "percentage": 16.6
+          }
+        ],
+        "measurement_frequency": {
+          "typical_interval": "every 8 hours"
+        },
+        "missing_rate": 0,
+        "records_per_patient": {
+          "mean": 282.5,
+          "median": 282.5,
+          "min": 282,
+          "max": 283
+        },
+        "temporal_distribution": {
+          "start_date": "2015-01-02",
+          "end_date": "2020-06-15",
+          "by_year": [
+            {
+              "year": 2015,
+              "percentage": 18.2,
+              "count": 103,
+              "patients_count": 2
+            },
+            {
+              "year": 2016,
+              "percentage": 17.9,
+              "count": 101,
+              "patients_count": 2
+            },
+            {
+              "year": 2017,
+              "percentage": 18.6,
+              "count": 105,
+              "patients_count": 2
+            },
+            {
+              "year": 2018,
+              "percentage": 18.1,
+              "count": 102,
+              "patients_count": 2
+            },
+            {
+              "year": 2019,
+              "percentage": 18.8,
+              "count": 106,
+              "patients_count": 2
+            },
+            {
+              "year": 2020,
+              "percentage": 8.5,
+              "count": 48,
+              "patients_count": 2
+            }
+          ]
+        }
+      },
+      "sections": [
+        "counts",
+        "missingRate",
+        "perPatient",
+        "frequency",
+        "numeric",
+        "histogram",
+        "unit",
+        "categorical",
+        "temporal"
+      ],
+      "variant": {
+        "outlierMethod": "iqr",
+        "outlierCoef": 1.5,
+        "bins": "auto"
+      },
+      "fingerprint": "twin-fingerprint",
+      "computedAt": ""
+    },
+    {
+      "dictKey": "concept",
+      "conceptId": 9,
+      "rowsCount": 600,
+      "patientsCount": 12,
+      "json": {
+        "full_name": "Concept 9",
+        "data_source": "OMOP",
+        "numeric_data": {
+          "min": 0.62,
+          "p5": 4.5,
+          "p25": 19.1,
+          "median": 38.7,
+          "mean": 38.7,
+          "p75": 58.3,
+          "p95": 72.9,
+          "max": 76.77,
+          "sd": 22.2,
+          "numeric_count": 534,
+          "numeric_patients_count": 12
+        },
+        "histogram": [
+          {
+            "x": 5,
+            "count": 67,
+            "patients_count": 12
+          },
+          {
+            "x": 15,
+            "count": 74,
+            "patients_count": 12
+          },
+          {
+            "x": 25,
+            "count": 65,
+            "patients_count": 12
+          },
+          {
+            "x": 35,
+            "count": 73,
+            "patients_count": 12
+          },
+          {
+            "x": 45,
+            "count": 68,
+            "patients_count": 12
+          },
+          {
+            "x": 55,
+            "count": 66,
+            "patients_count": 12
+          },
+          {
+            "x": 65,
+            "count": 76,
+            "patients_count": 12
+          },
+          {
+            "x": 75,
+            "count": 45,
+            "patients_count": 12
+          }
+        ],
+        "categorical_data": [
+          {
+            "category": "high",
+            "count": 200,
+            "patients_count": 4,
+            "percentage": 50
+          },
+          {
+            "category": "10",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 25
+          },
+          {
+            "category": "4",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 25
+          }
+        ],
+        "measurement_frequency": {
+          "typical_interval": "monthly or less"
+        },
+        "missing_rate": 11,
+        "records_per_patient": {
+          "mean": 50,
+          "median": 50,
+          "min": 50,
+          "max": 50
+        },
+        "temporal_distribution": {
+          "start_date": "2015-01-05",
+          "end_date": "2020-06-18",
+          "by_year": [
+            {
+              "year": 2015,
+              "percentage": 18.3,
+              "count": 110,
+              "patients_count": 12
+            },
+            {
+              "year": 2016,
+              "percentage": 18.2,
+              "count": 109,
+              "patients_count": 12
+            },
+            {
+              "year": 2017,
+              "percentage": 18.5,
+              "count": 111,
+              "patients_count": 12
+            },
+            {
+              "year": 2018,
+              "percentage": 18,
+              "count": 108,
+              "patients_count": 12
+            },
+            {
+              "year": 2019,
+              "percentage": 18.5,
+              "count": 111,
+              "patients_count": 12
+            },
+            {
+              "year": 2020,
+              "percentage": 8.5,
+              "count": 51,
+              "patients_count": 12
+            }
+          ]
+        }
+      },
+      "sections": [
+        "counts",
+        "missingRate",
+        "perPatient",
+        "frequency",
+        "numeric",
+        "histogram",
+        "unit",
+        "categorical",
+        "temporal"
+      ],
+      "variant": {
+        "outlierMethod": "iqr",
+        "outlierCoef": 1.5,
+        "bins": "auto"
+      },
+      "fingerprint": "twin-fingerprint",
+      "computedAt": ""
+    },
+    {
+      "dictKey": "concept",
+      "conceptId": 10,
+      "rowsCount": 600,
+      "patientsCount": 12,
+      "json": {
+        "full_name": "Concept 10",
+        "data_source": "OMOP",
+        "unit": "mg",
+        "numeric_data": {
+          "min": 0.69,
+          "p5": 4.5,
+          "p25": 19.2,
+          "median": 38.4,
+          "mean": 38.7,
+          "p75": 58.4,
+          "p95": 73,
+          "max": 76.85,
+          "sd": 22.1,
+          "numeric_count": 533,
+          "numeric_patients_count": 12
+        },
+        "histogram": [
+          {
+            "x": 5,
+            "count": 67,
+            "patients_count": 12
+          },
+          {
+            "x": 15,
+            "count": 74,
+            "patients_count": 12
+          },
+          {
+            "x": 25,
+            "count": 65,
+            "patients_count": 12
+          },
+          {
+            "x": 35,
+            "count": 73,
+            "patients_count": 12
+          },
+          {
+            "x": 45,
+            "count": 68,
+            "patients_count": 12
+          },
+          {
+            "x": 55,
+            "count": 66,
+            "patients_count": 12
+          },
+          {
+            "x": 65,
+            "count": 75,
+            "patients_count": 12
+          },
+          {
+            "x": 75,
+            "count": 45,
+            "patients_count": 12
+          }
+        ],
+        "categorical_data": [
+          {
+            "category": "low",
+            "count": 200,
+            "patients_count": 4,
+            "percentage": 33.3
+          },
+          {
+            "category": "11",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 16.7
+          },
+          {
+            "category": "3",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 16.7
+          },
+          {
+            "category": "5",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 16.7
+          },
+          {
+            "category": "9",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 16.7
+          }
+        ],
+        "measurement_frequency": {
+          "typical_interval": "monthly or less"
+        },
+        "missing_rate": 0,
+        "records_per_patient": {
+          "mean": 50,
+          "median": 50,
+          "min": 50,
+          "max": 50
+        },
+        "temporal_distribution": {
+          "start_date": "2015-01-08",
+          "end_date": "2020-06-21",
+          "by_year": [
+            {
+              "year": 2015,
+              "percentage": 18,
+              "count": 108,
+              "patients_count": 12
+            },
+            {
+              "year": 2016,
+              "percentage": 18.5,
+              "count": 111,
+              "patients_count": 12
+            },
+            {
+              "year": 2017,
+              "percentage": 18,
+              "count": 108,
+              "patients_count": 12
+            },
+            {
+              "year": 2018,
+              "percentage": 18.5,
+              "count": 111,
+              "patients_count": 12
+            },
+            {
+              "year": 2019,
+              "percentage": 18,
+              "count": 108,
+              "patients_count": 12
+            },
+            {
+              "year": 2020,
+              "percentage": 9,
+              "count": 54,
+              "patients_count": 12
+            }
+          ]
+        }
+      },
+      "sections": [
+        "counts",
+        "missingRate",
+        "perPatient",
+        "frequency",
+        "numeric",
+        "histogram",
+        "unit",
+        "categorical",
+        "temporal"
+      ],
+      "variant": {
+        "outlierMethod": "iqr",
+        "outlierCoef": 1.5,
+        "bins": "auto"
+      },
+      "fingerprint": "twin-fingerprint",
+      "computedAt": ""
+    },
+    {
+      "dictKey": "concept",
+      "conceptId": 11,
+      "rowsCount": 1200,
+      "patientsCount": 14,
+      "json": {
+        "full_name": "Concept 11",
+        "data_source": "OMOP",
+        "unit": "mg",
+        "numeric_data": {
+          "min": 0.15,
+          "p5": 4,
+          "p25": 18.6,
+          "median": 38.2,
+          "mean": 38.4,
+          "p75": 58,
+          "p95": 72.9,
+          "max": 76.69,
+          "sd": 22.2,
+          "numeric_count": 1067,
+          "numeric_patients_count": 14
+        },
+        "histogram": [
+          {
+            "x": 5,
+            "count": 134,
+            "patients_count": 14
+          },
+          {
+            "x": 15,
+            "count": 149,
+            "patients_count": 14
+          },
+          {
+            "x": 25,
+            "count": 130,
+            "patients_count": 14
+          },
+          {
+            "x": 35,
+            "count": 145,
+            "patients_count": 14
+          },
+          {
+            "x": 45,
+            "count": 137,
+            "patients_count": 14
+          },
+          {
+            "x": 55,
+            "count": 130,
+            "patients_count": 14
+          },
+          {
+            "x": 65,
+            "count": 152,
+            "patients_count": 14
+          },
+          {
+            "x": 75,
+            "count": 90,
+            "patients_count": 14
+          }
+        ],
+        "categorical_data": [
+          {
+            "category": "high",
+            "count": 200,
+            "patients_count": 4,
+            "percentage": 20
+          },
+          {
+            "category": "low",
+            "count": 200,
+            "patients_count": 2,
+            "percentage": 20
+          },
+          {
+            "category": "10",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 10
+          },
+          {
+            "category": "11",
+            "count": 100,
+            "patients_count": 1,
+            "percentage": 10
+          },
+          {
+            "category": "3",
+            "count": 100,
+            "patients_count": 1,
+            "percentage": 10
+          },
+          {
+            "category": "4",
+            "count": 100,
+            "patients_count": 2,
+            "percentage": 10
+          },
+          {
+            "category": "5",
+            "count": 100,
+            "patients_count": 1,
+            "percentage": 10
+          },
+          {
+            "category": "9",
+            "count": 100,
+            "patients_count": 1,
+            "percentage": 10
+          }
+        ],
+        "measurement_frequency": {
+          "typical_interval": "monthly or less"
+        },
+        "missing_rate": 5.5,
+        "records_per_patient": {
+          "mean": 85.7,
+          "median": 50,
+          "min": 50,
+          "max": 300
+        },
+        "temporal_distribution": {
+          "start_date": "2015-01-02",
+          "end_date": "2020-06-20",
+          "by_year": [
+            {
+              "year": 2015,
+              "percentage": 18.3,
+              "count": 219,
+              "patients_count": 14
+            },
+            {
+              "year": 2016,
+              "percentage": 18.3,
+              "count": 219,
+              "patients_count": 14
+            },
+            {
+              "year": 2017,
+              "percentage": 18.3,
+              "count": 219,
+              "patients_count": 14
+            },
+            {
+              "year": 2018,
+              "percentage": 18.3,
+              "count": 219,
+              "patients_count": 14
+            },
+            {
+              "year": 2019,
+              "percentage": 18.3,
+              "count": 219,
+              "patients_count": 14
+            },
+            {
+              "year": 2020,
+              "percentage": 8.8,
+              "count": 105,
+              "patients_count": 14
+            }
+          ]
+        }
+      },
+      "sections": [
+        "counts",
+        "missingRate",
+        "perPatient",
+        "frequency",
+        "numeric",
+        "histogram",
+        "unit",
+        "categorical",
+        "temporal"
+      ],
+      "variant": {
+        "outlierMethod": "iqr",
+        "outlierCoef": 1.5,
+        "bins": "auto"
+      },
+      "fingerprint": "twin-fingerprint",
+      "computedAt": ""
+    }
+  ],
+  "countsManifest": {
+    "runId": "twin-counts",
+    "version": 3,
+    "signature": "aebf8c6a-e434-4139-845f-1cbd71c17ca1",
+    "slices": [
+      {}
+    ],
+    "units": [
+      {
+        "key": "records-0-std",
+        "step": "records"
+      },
+      {
+        "key": "records-0-src",
+        "step": "records"
+      },
+      {
+        "key": "patients-1-of-1",
+        "step": "patients"
+      }
+    ],
+    "startedAt": "2026-11-08T00:00:00.000Z"
+  },
+  "counts": {
+    "runId": "twin-counts",
+    "steps": [
+      {
+        "step": "records",
+        "items": [
+          {
+            "key": "records-0-std",
+            "sql": "WITH linkr_event_measurements AS NOT MATERIALIZED (\n  SELECT\n    e.\"person_id\" AS patient_id,\n    e.\"mc\" AS concept_id,\n    e.\"dt\" AS start_datetime,\n    NULL AS visit_id,\n    NULL AS visit_detail_id,\n    NULL AS concept_terminology,\n    NULL AS concept_code,\n    e.\"msc\" AS source_concept_id,\n    NULL AS concept_name,\n    NULL AS end_datetime,\n    e.\"v\" AS value_number,\n    e.\"vs\" AS value_string,\n    e.\"u\" AS unit,\n    NULL AS unit_concept_id,\n    NULL AS route,\n    NULL AS route_concept_id\n  FROM (SELECT * FROM \"measurement\" UNION ALL BY NAME SELECT NULL AS \"person_id\", NULL AS \"mc\", NULL AS \"dt\", NULL AS \"msc\", NULL AS \"v\", NULL AS \"vs\", NULL AS \"u\" WHERE false) e\n)\nSELECT 'concept' AS dict_key, e.concept_id AS concept_id, COUNT(*)::BIGINT AS record_count, NULL::BIGINT AS patient_count, 'linkr_event_measurements' AS relation, 'b40f490c-365d-4e61-8c18-e005638c3319' AS relation_sig\nFROM linkr_event_measurements e\nWHERE e.concept_id IS NOT NULL\nGROUP BY e.concept_id"
+          },
+          {
+            "key": "records-0-src",
+            "sql": "WITH linkr_event_measurements AS NOT MATERIALIZED (\n  SELECT\n    e.\"person_id\" AS patient_id,\n    e.\"mc\" AS concept_id,\n    e.\"dt\" AS start_datetime,\n    NULL AS visit_id,\n    NULL AS visit_detail_id,\n    NULL AS concept_terminology,\n    NULL AS concept_code,\n    e.\"msc\" AS source_concept_id,\n    NULL AS concept_name,\n    NULL AS end_datetime,\n    e.\"v\" AS value_number,\n    e.\"vs\" AS value_string,\n    e.\"u\" AS unit,\n    NULL AS unit_concept_id,\n    NULL AS route,\n    NULL AS route_concept_id\n  FROM (SELECT * FROM \"measurement\" UNION ALL BY NAME SELECT NULL AS \"person_id\", NULL AS \"mc\", NULL AS \"dt\", NULL AS \"msc\", NULL AS \"v\", NULL AS \"vs\", NULL AS \"u\" WHERE false) e\n)\nSELECT 'concept' AS dict_key, e.source_concept_id AS concept_id, COUNT(*)::BIGINT AS record_count, NULL::BIGINT AS patient_count, 'linkr_event_measurements' AS relation, 'b40f490c-365d-4e61-8c18-e005638c3319' AS relation_sig\nFROM linkr_event_measurements e\nWHERE e.source_concept_id IS NOT NULL AND e.source_concept_id IS DISTINCT FROM e.concept_id\nGROUP BY e.source_concept_id"
+          },
+          {
+            "key": "assemble-1",
+            "sql": "WITH linkr_concept_concept AS NOT MATERIALIZED (\n  SELECT\n    d.\"concept_id\" AS concept_id,\n    NULL AS concept_terminology,\n    d.\"concept_name\" AS concept_name,\n    NULL AS concept_code,\n    NULL AS terminology_id,\n    NULL AS terminology_name,\n    NULL AS category,\n    NULL AS subcategory,\n    NULL AS record_count,\n    NULL AS patient_count\n  FROM (SELECT * FROM \"concept\" UNION ALL BY NAME SELECT NULL AS \"concept_id\", NULL AS \"concept_name\" WHERE false) d\n)\nSELECT c.concept_id, c.concept_name, _counts.patient_count AS patient_count, COALESCE(_counts.record_count, 0) AS record_count FROM linkr_concept_concept c LEFT JOIN (SELECT concept_id, SUM(record_count)::BIGINT AS record_count, SUM(patient_count)::BIGINT AS patient_count\n  FROM memory.main._concept_counts\n  WHERE dict_key = 'concept'\n  GROUP BY concept_id) _counts ON c.concept_id = _counts.concept_id "
+          }
+        ]
+      },
+      {
+        "step": "patients",
+        "items": [
+          {
+            "key": "patients-1-of-1",
+            "sql": "WITH linkr_event_measurements AS NOT MATERIALIZED (\n  SELECT\n    e.\"person_id\" AS patient_id,\n    e.\"mc\" AS concept_id,\n    e.\"dt\" AS start_datetime,\n    NULL AS visit_id,\n    NULL AS visit_detail_id,\n    NULL AS concept_terminology,\n    NULL AS concept_code,\n    e.\"msc\" AS source_concept_id,\n    NULL AS concept_name,\n    NULL AS end_datetime,\n    e.\"v\" AS value_number,\n    e.\"vs\" AS value_string,\n    e.\"u\" AS unit,\n    NULL AS unit_concept_id,\n    NULL AS route,\n    NULL AS route_concept_id\n  FROM (SELECT * FROM \"measurement\" UNION ALL BY NAME SELECT NULL AS \"person_id\", NULL AS \"mc\", NULL AS \"dt\", NULL AS \"msc\", NULL AS \"v\", NULL AS \"vs\", NULL AS \"u\" WHERE false) e\n)\nSELECT dict_key, cid AS concept_id, NULL::BIGINT AS record_count, COUNT(DISTINCT pid)::BIGINT AS patient_count\nFROM (\n  SELECT 'concept' AS dict_key, e.concept_id AS cid, e.patient_id AS pid FROM linkr_event_measurements e WHERE e.concept_id IS NOT NULL\n  UNION ALL\n  SELECT 'concept' AS dict_key, e.source_concept_id AS cid, e.patient_id AS pid FROM linkr_event_measurements e WHERE e.source_concept_id IS NOT NULL AND e.source_concept_id IS DISTINCT FROM e.concept_id\n) _evts\nGROUP BY dict_key, cid"
+          },
+          {
+            "key": "assemble-0",
+            "sql": "WITH linkr_concept_concept AS NOT MATERIALIZED (\n  SELECT\n    d.\"concept_id\" AS concept_id,\n    NULL AS concept_terminology,\n    d.\"concept_name\" AS concept_name,\n    NULL AS concept_code,\n    NULL AS terminology_id,\n    NULL AS terminology_name,\n    NULL AS category,\n    NULL AS subcategory,\n    NULL AS record_count,\n    NULL AS patient_count\n  FROM (SELECT * FROM \"concept\" UNION ALL BY NAME SELECT NULL AS \"concept_id\", NULL AS \"concept_name\" WHERE false) d\n)\nSELECT c.concept_id, c.concept_name, COALESCE(_counts.patient_count, 0) AS patient_count, COALESCE(_counts.record_count, 0) AS record_count FROM linkr_concept_concept c LEFT JOIN (SELECT concept_id, SUM(record_count)::BIGINT AS record_count, SUM(patient_count)::BIGINT AS patient_count\n  FROM memory.main._concept_counts\n  WHERE dict_key = 'concept'\n  GROUP BY concept_id) _counts ON c.concept_id = _counts.concept_id "
+          }
+        ]
+      }
+    ],
+    "finalAssembleSql": "WITH linkr_concept_concept AS NOT MATERIALIZED (\n  SELECT\n    d.\"concept_id\" AS concept_id,\n    NULL AS concept_terminology,\n    d.\"concept_name\" AS concept_name,\n    NULL AS concept_code,\n    NULL AS terminology_id,\n    NULL AS terminology_name,\n    NULL AS category,\n    NULL AS subcategory,\n    NULL AS record_count,\n    NULL AS patient_count\n  FROM (SELECT * FROM \"concept\" UNION ALL BY NAME SELECT NULL AS \"concept_id\", NULL AS \"concept_name\" WHERE false) d\n)\nSELECT c.concept_id, c.concept_name, COALESCE(_counts.patient_count, 0) AS patient_count, COALESCE(_counts.record_count, 0) AS record_count FROM linkr_concept_concept c LEFT JOIN (SELECT concept_id, SUM(record_count)::BIGINT AS record_count, SUM(patient_count)::BIGINT AS patient_count\n  FROM memory.main._concept_counts\n  WHERE dict_key = 'concept'\n  GROUP BY concept_id) _counts ON c.concept_id = _counts.concept_id "
+  }
+}

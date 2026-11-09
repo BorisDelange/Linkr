@@ -165,7 +165,8 @@ export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
 export interface StatsSection {
   type: 'stats'
   title?: string
-  items: { label: string; value: string; highlight?: boolean }[]
+  /** `row`: the line it shows on — the spread, the percentiles, the counts. */
+  items: { label: string; value: string; highlight?: boolean; row?: number }[]
   boxplot?: { min: number; p25: number; median: number; p75: number; max: number; mean?: number }
 }
 
@@ -404,11 +405,15 @@ export function SectionRenderer({ section }: { section: Section }) {
   if (section.type === 'stats') {
     return (
       <SectionCard title={section.title}>
-        <div className="flex flex-wrap gap-x-4 gap-y-1">
-          {section.items.map((item) => (
-            <div key={item.label} className="flex items-baseline gap-1.5 text-xs">
-              <span className="text-muted-foreground">{item.label}</span>
-              <span className={item.highlight ? 'font-bold text-foreground' : 'font-semibold tabular-nums'}>{item.value}</span>
+        <div className="flex flex-col gap-1">
+          {[...new Set(section.items.map((item) => item.row ?? 0))].sort((a, b) => a - b).map((row) => (
+            <div key={row} className="flex flex-wrap gap-x-4 gap-y-1">
+              {section.items.filter((item) => (item.row ?? 0) === row).map((item) => (
+                <div key={item.label} className="flex items-baseline gap-1.5 text-xs">
+                  <span className="text-muted-foreground">{item.label}</span>
+                  <span className={item.highlight ? 'font-bold text-foreground' : 'font-semibold tabular-nums'}>{item.value}</span>
+                </div>
+              ))}
             </div>
           ))}
         </div>
@@ -782,17 +787,18 @@ export function extractSections(
   if (info.numeric_data && typeof info.numeric_data === 'object' && !Array.isArray(info.numeric_data)) {
     const nd = info.numeric_data as Record<string, unknown>
     const items: StatsSection['items'] = []
+    // A line each: the spread, the percentiles, then the counts and the rest.
     const statOrder = [
-      { key: 'min', label: 'Min' },
-      { key: 'p5', label: 'P5' },
-      { key: 'p25', label: 'P25' },
-      { key: 'median', label: 'Median', highlight: true },
-      { key: 'mean', label: 'Mean', highlight: true },
-      { key: 'p75', label: 'P75' },
-      { key: 'p95', label: 'P95' },
-      { key: 'max', label: 'Max' },
-      { key: 'sd', label: 'SD' },
-      { key: 'std', label: 'SD' },
+      { key: 'min', label: 'Min', row: 0 },
+      { key: 'mean', label: 'Mean', highlight: true, row: 0 },
+      { key: 'sd', label: 'SD', row: 0 },
+      { key: 'std', label: 'SD', row: 0 },
+      { key: 'max', label: 'Max', row: 0 },
+      { key: 'p5', label: 'P5', row: 1 },
+      { key: 'p25', label: 'P25', row: 1 },
+      { key: 'median', label: 'Median', highlight: true, row: 1 },
+      { key: 'p75', label: 'P75', row: 1 },
+      { key: 'p95', label: 'P95', row: 1 },
     ]
     for (const def of statOrder) {
       const val = nd[def.key]
@@ -801,6 +807,7 @@ export function extractSections(
         label: def.label,
         value: typeof val === 'number' ? fmtNum(val) : String(val),
         highlight: def.highlight,
+        row: def.row,
       })
     }
     const covered = new Set(statOrder.map((s) => s.key))
@@ -809,6 +816,7 @@ export function extractSections(
       items.push({
         label: formatLabel(key),
         value: typeof val === 'number' ? fmtNum(val) : String(val),
+        row: 2,
       })
     }
     if (items.length > 0) {

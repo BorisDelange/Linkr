@@ -120,36 +120,6 @@ async def test_a_query_within_the_limit_answers_as_usual(client, monkeypatch):
     assert r.status_code == 200 and len(r.json()["rows"]) == 3
 
 
-async def test_a_concept_list_query_past_the_limit_is_stopped(client, monkeypatch):
-    headers = await _admin(client)
-    _, ds = await _database(client, headers)
-    r = await client.put(f"{API}/data-sources/{ds}/concept-cache/run", headers=headers, json={
-        "manifest": {"runId": "run-a", "units": []}, "reset": True,
-    })
-    assert r.status_code == 204, r.text
-    r = await client.post(f"{API}/data-sources/{ds}/concept-cache/units-job", headers=headers, json={
-        "label": "Concepts", "runId": "run-a", "units": [
-            {"key": "records-0", "sql": "SELECT a AS concept_id, 1 AS n FROM t"},
-            {"key": "assemble-0", "sql": "SELECT concept_id, sum(n) AS n FROM memory.main._concept_counts GROUP BY 1"},
-        ],
-    })
-    task = jobs._tasks.get(r.json()["id"])
-    if task is not None:
-        await asyncio.gather(task, return_exceptions=True)
-
-    monkeypatch.setattr(settings, "query_timeout_seconds", 1)
-    page = f"{API}/data-sources/{ds}/concept-cache/query"
-    r = await asyncio.wait_for(client.post(page, headers=headers, json={
-        "sql": "SELECT count(*) AS c FROM concepts, range(100000000000) r(i)",
-    }), 30)
-    assert r.status_code == 422 and r.json()["detail"]["code"] == "query_time_limit"
-    r = await client.post(page, headers=headers, json={"sql": "SELECT count(*) AS c FROM concepts"})
-    assert r.json()["rows"] == [{"c": 3}]
-
-
-# --- Stopping another user's job --------------------------------------------------
-
-
 async def test_an_admin_stops_another_users_running_query(client, db):
     admin = await _admin(client)
     ws, ds = await _database(client, admin)

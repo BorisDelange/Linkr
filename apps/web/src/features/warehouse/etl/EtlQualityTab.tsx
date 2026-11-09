@@ -32,7 +32,12 @@ import {
   type QualityConceptRow,
   type QualityDiff,
 } from './quality-diff'
-import { loadConceptQuality } from './load-concept-quality'
+import { assembleConceptQuality, conceptQualityPlan, loadConceptQuality } from './load-concept-quality'
+import { isServerMode } from '@/lib/api-client'
+import { sourceTables } from '@/lib/duckdb/engine'
+import { useServerRun } from '@/hooks/use-server-run'
+import { ACTIVE_RUN_STATUSES } from '@/lib/api/server-runs'
+import { preparePlan, runResults, type QueryListState } from '@/lib/server-runs/query-plan'
 import { QueryErrorNotice, StatsColumn } from './quality-stats-column'
 import type { DatabaseStatsCache, DataSource } from '@/types'
 
@@ -389,6 +394,25 @@ function ConceptQualityView({
 
   const fingerprint = useMemo(() => qualityFingerprint(runHistory), [runHistory])
 
+  // Server mode: the comparison is a run of the server's, so a reload, a closed
+  // tab or a second member finds it going on rather than starting it again.
+  const onServer = isServerMode()
+  const serverRun = useServerRun<QueryListState>('etl_quality', pipelineId, onServer && !!targetId)
+  const { start: startServerRun } = serverRun
+
+  const save = useCallback(async (loaded: QualityConceptRow[]) => {
+    const at = new Date().toISOString()
+    setRows(loaded)
+    setComputedAt(at)
+    await getStorage().etlQualityCache.save({
+      pipelineId,
+      computedAt: at,
+      targetDataSourceId: targetId!,
+      fingerprint,
+      rows: loaded,
+    }).catch(() => {})
+  }, [pipelineId, targetId, fingerprint])
+
   const request = useRef(0)
   const load = useCallback(async (force: boolean) => {
     if (!targetId) return
@@ -408,26 +432,51 @@ function ConceptQualityView({
     setLoading(true)
     setError(undefined)
     try {
+      if (onServer) {
+        // Started — or the one going on joined —, and assembled once it ends (below).
+        const plan = conceptQualityPlan(await sourceTables(targetId), tRef.current('etl.quality_run_job'), { targetId, fingerprint })
+        await startServerRun(await preparePlan(targetId, plan))
+        return
+      }
       const loaded = await loadConceptQuality(targetId)
       if (ticket !== request.current) return
-      const at = new Date().toISOString()
-      setRows(loaded)
-      setComputedAt(at)
-      await getStorage().etlQualityCache.save({
-        pipelineId,
-        computedAt: at,
-        targetDataSourceId: targetId,
-        fingerprint,
-        rows: loaded,
-      }).catch(() => {})
+      await save(loaded)
     } catch (e) {
       if (ticket !== request.current) return
       setRows([])
       setError(errorText(e))
     } finally {
-      if (ticket === request.current) setLoading(false)
+      if (ticket === request.current && !onServer) setLoading(false)
     }
-  }, [pipelineId, targetId, fingerprint])
+  }, [pipelineId, targetId, fingerprint, onServer, startServerRun, save])
+
+  // The server's run, followed: going on, it shows as loading; ended, its results
+  // become the table — once, and only those of this target and this last run.
+  const applied = useRef<string | null>(null)
+  const run = serverRun.run
+  useEffect(() => {
+    if (!run) return
+    if (ACTIVE_RUN_STATUSES.includes(run.status)) {
+      setLoading(true)
+      return
+    }
+    const meta = run.state.meta ?? {}
+    if (meta.targetId !== targetId || meta.fingerprint !== fingerprint || applied.current === run.id) {
+      if (run.status !== 'done') setLoading(false)
+      return
+    }
+    applied.current = run.id
+    if (run.status !== 'done') {
+      setLoading(false)
+      if (run.status === 'failed') setError(run.error ?? undefined)
+      return
+    }
+    const keys = conceptQualityPlan(null, '', {}).items.map((item) => item.key)
+    void runResults(run.id, run.state, keys)
+      .then((results) => save(assembleConceptQuality(results)))
+      .then(() => setError(undefined), (e) => { setRows([]); setError(errorText(e)) })
+      .finally(() => setLoading(false))
+  }, [run, targetId, fingerprint, save])
 
   // Gated on the history being read: the fingerprint keys on the last run, so
   // firing early would compute against 'none' and then recompute a moment later.

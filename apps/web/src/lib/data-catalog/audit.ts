@@ -374,12 +374,13 @@ function propagate(eqs: Equation[], factOfTable: Map<string, Fact>, measuresOfTa
   return { lo, hi, inconsistent }
 }
 
-/** Audit what a catalog publishes under its current settings. */
-export async function auditCatalog(
-  catalog: Pick<DataCatalog, 'variables' | 'crossings' | 'anonymization' | 'counts'>,
-  cache: CatalogResultCache,
-  hooks: AuditHooks = {},
-): Promise<AnonymizationAudit> {
+/** What an audit stamps on itself: the settings and the results it audited. */
+export type AuditStamp = Pick<AnonymizationAudit, 'threshold' | 'mode' | 'noise' | 'resultsComputedAt'>
+
+type AuditedCatalog = Pick<DataCatalog, 'variables' | 'crossings' | 'anonymization' | 'counts'>
+
+/** What a catalog publishes under its current settings, as the audit reads it. */
+export function auditInputOf(catalog: AuditedCatalog, cache: CatalogResultCache): { input: AuditInput; stamp: AuditStamp } {
   const { threshold, mode = 'replace', noise = 0 } = catalog.anonymization
   const masks = computeCatalogMasks(catalog, cache, threshold)
   const published = buildPublishedCatalog(catalog, cache, { masks })
@@ -396,17 +397,26 @@ export async function auditCatalog(
       records: shown ? c.recordCount : null,
     }
   })
+  return {
+    input: {
+      published,
+      concepts,
+      hidesMasked: mode === 'suppress',
+      everyConcept: catalog.variables.concept?.scope === 'all',
+      totals: publishedTotals(catalog, cache),
+      threshold,
+      noise,
+    },
+    stamp: { threshold, mode, noise, resultsComputedAt: cache.computedAt },
+  }
+}
+
+/** Audit what a catalog publishes under its current settings. */
+export async function auditCatalog(catalog: AuditedCatalog, cache: CatalogResultCache, hooks: AuditHooks = {}): Promise<AnonymizationAudit> {
+  const { input, stamp } = auditInputOf(catalog, cache)
   const startedAt = Date.now()
-  const result = await auditPublished({
-    published,
-    concepts,
-    hidesMasked: mode === 'suppress',
-    everyConcept: catalog.variables.concept?.scope === 'all',
-    totals: publishedTotals(catalog, cache),
-    threshold,
-    noise,
-  }, hooks)
-  return { threshold, mode, noise, resultsComputedAt: cache.computedAt, computedAt: new Date().toISOString(), durationMs: Date.now() - startedAt, ...result }
+  const result = await auditPublished(input, hooks)
+  return { ...stamp, computedAt: new Date().toISOString(), durationMs: Date.now() - startedAt, ...result }
 }
 
 /** The audit proper, over what is published. */
@@ -463,7 +473,9 @@ export async function auditPublished(input: AuditInput, hooks: AuditHooks = {}):
   }
   hooks.progress?.(components.length, components.length)
   const rank = (f: AnonymizationAuditFinding) => (f.measure === 'patients' ? 0 : 1)
+  // By code units, not localeCompare: the server's twin (catalog_audit/compute.py) sorts the same.
   const findings = [...found.values()].sort((a, b) => rank(a) - rank(b)
-    || CATALOG_VARIABLE_ORDER.indexOf(a.variables[0]) - CATALOG_VARIABLE_ORDER.indexOf(b.variables[0]) || a.crossing.localeCompare(b.crossing))
+    || CATALOG_VARIABLE_ORDER.indexOf(a.variables[0]) - CATALOG_VARIABLE_ORDER.indexOf(b.variables[0])
+    || (a.crossing < b.crossing ? -1 : a.crossing > b.crossing ? 1 : 0))
   return { components: components.length, unknowns, inconsistent, findings }
 }

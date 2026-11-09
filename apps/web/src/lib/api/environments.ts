@@ -134,6 +134,14 @@ export interface Job {
   /** The action it is one of: the panel shows a group's jobs under one row. */
   groupKey?: string | null
   groupLabel?: string | null
+  /** Stopped, and its query in flight not stopped yet: a database honours an
+   *  interrupt only between two steps of its work. */
+  stopping?: boolean
+  /** What it is for — `database`, `project`, `vocabularies`… — and its id and
+   *  name when it started: the panel names and orders the jobs by it. */
+  entityType?: string | null
+  entityId?: string | null
+  entityName?: string | null
 }
 
 /** What a finished derivation reports, on its job. */

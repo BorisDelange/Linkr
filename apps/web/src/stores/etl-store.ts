@@ -7,6 +7,8 @@ import { treeNodePath } from '@/lib/entity-tree'
 import { compareEtlFilesByOrder } from '@/lib/etl-file-order'
 import { dropOrphan, mergeRemoteFiles } from '@/lib/remote-files-merge'
 import type { EtlPipeline, EtlFile, EtlRunLog, EtlRunHistoryEntry } from '@/types'
+import { ACTIVE_RUN_STATUSES, type ServerRun } from '@/lib/api/server-runs'
+import type { EtlRunState, EtlServerDriver } from '@/lib/api/etl-runs'
 
 /** A file's path inside its pipeline — the key the versioning marks use. */
 function pathOfFile(files: EtlFile[], id: string): string {
@@ -117,6 +119,18 @@ interface EtlState {
   discardPausedRun: () => void
   setScriptStatus: (fileId: string, log: EtlRunLog) => void
   finishPipelineRun: (status: 'success' | 'error') => void
+  /**
+   * Server mode with a managed target: the pipeline runs on the server
+   * (services/server_runs/etl.py) and this store only mirrors it — Pause, Stop
+   * and discard go to the server through the driver; a reload reads the run
+   * back. Null when the page drives the run (client-only, a non-managed target).
+   */
+  serverDriver: EtlServerDriver | null
+  setServerDriver: (driver: EtlServerDriver | null) => void
+  /** The server run last mirrored, while it is live or waits paused. */
+  mirroredRunId: string | null
+  /** Reflect the target's server run: running, paused, or just ended. */
+  mirrorServerRun: (run: ServerRun<EtlRunState> | null) => void
   /** Forget every past run: the history list AND the per-script status icons the
    *  Pipeline widgets and the Scripts tree read from it. Refused while a run is
    *  in progress, which would otherwise wipe the state that run is writing. */
@@ -607,7 +621,12 @@ export const useEtlStore = create<EtlState>((set, get) => ({
     // Computed in the updater, persisted after it returns: a `set` updater must
     // stay pure, or a double-render would save twice.
     let toPersist: EtlRunHistoryEntry | undefined
-    const { pipelineRunAbort } = get()
+    const { pipelineRunAbort, serverDriver, mirroredRunId } = get()
+    // A script run from the editor drives itself even beside a server run.
+    if (!pipelineRunAbort && serverDriver && mirroredRunId) {
+      serverDriver.cancel()
+      return
+    }
     pipelineRunAbort?.abort()
     set((s) => {
       // The script in flight keeps its own status, which would otherwise stay
@@ -658,6 +677,11 @@ export const useEtlStore = create<EtlState>((set, get) => ({
 
   pausePipelineRun: () => {
     if (!get().pipelineRunning) return []
+    const { pipelineRunAbort, serverDriver, mirroredRunId } = get()
+    if (!pipelineRunAbort && serverDriver && mirroredRunId) {
+      serverDriver.pause()
+      return []
+    }
     let pending: string[] = []
     let toPersist: EtlRunHistoryEntry | undefined
     get().pipelineRunAbort?.abort()
@@ -725,6 +749,11 @@ export const useEtlStore = create<EtlState>((set, get) => ({
   discardPausedRun: () => {
     const paused = get().pausedRun
     if (!paused) return
+    const { serverDriver, mirroredRunId } = get()
+    if (serverDriver && mirroredRunId === paused.runId) {
+      serverDriver.cancel()
+      return
+    }
     let toPersist: EtlRunHistoryEntry | undefined
     set((s) => {
       const history = [...s.runHistory]
@@ -735,6 +764,49 @@ export const useEtlStore = create<EtlState>((set, get) => ({
       return { runHistory: history, pausedRun: null }
     })
     persistRun(toPersist)
+  },
+
+  serverDriver: null,
+  setServerDriver: (driver) => set({ serverDriver: driver }),
+  mirroredRunId: null,
+
+  mirrorServerRun: (run) => {
+    const s = get()
+    const mine = !!run && run.state.pipelineId === s.activePipelineId
+    if (!run || !mine) {
+      // Gone from view (another pipeline's run on the target, or none): stop mirroring.
+      if (s.mirroredRunId) set({ mirroredRunId: null, pipelineRunning: false, pausedRun: null, runReading: null, runningFileIds: [] })
+      return
+    }
+    const live = ACTIVE_RUN_STATUSES.includes(run.status)
+    const waiting = run.status === 'paused' || run.status === 'interrupted'
+    if (!live && !waiting) {
+      // Ended: the history the server wrote is the record now.
+      if (s.mirroredRunId === run.id) {
+        set({ mirroredRunId: null, pipelineRunning: false, pausedRun: null, runReading: null, runningFileIds: [] })
+        void get().loadRunHistory(run.state.pipelineId ?? '').catch(() => {})
+      }
+      return
+    }
+    const scripts = run.state.scripts ?? []
+    const statuses = new Map(scripts.map((log) => [log.fileId, log]))
+    const fileIds = run.state.fileIds ?? []
+    const entry: EtlRunHistoryEntry = {
+      id: run.id,
+      pipelineId: run.state.pipelineId ?? '',
+      startedAt: run.state.startedAt ?? run.createdAt,
+      status: 'running',
+      scripts,
+    }
+    set((state) => ({
+      mirroredRunId: run.id,
+      pipelineRunning: live,
+      runningFileIds: live ? fileIds : [],
+      scriptStatuses: statuses,
+      runReading: live ? run.state.current?.reading ?? null : null,
+      pausedRun: waiting ? { runId: run.id, pendingFileIds: fileIds.slice(run.state.next ?? 0) } : null,
+      runHistory: [entry, ...state.runHistory.filter((r) => r.id !== run.id)].slice(0, MAX_RUN_HISTORY),
+    }))
   },
 
   setScriptStatus: (fileId, log) => {

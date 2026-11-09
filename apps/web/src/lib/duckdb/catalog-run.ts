@@ -1,8 +1,9 @@
 /**
- * One catalog computation, start to finish or up to a pause, with no view and
- * no registry: the app's runner (`catalog-runner.ts`) drives it for a tab that
- * may come and go, the MCP server for a tool call with a time budget. It takes
- * an already-routed query and imports nothing that needs a browser.
+ * One catalog computation in the browser (client-only mode), start to finish or
+ * up to a pause, with no view and no registry: the app's runner
+ * (`catalog-runner.ts`) drives it for a tab that may come and go. It takes an
+ * already-routed query and imports nothing that needs a browser. In server mode
+ * the server runs the same plan (services/server_runs/catalog).
  *
  * The unit of progress is one query (see `catalog-compute.ts`); the cache
  * written at each save point holds exactly the units before its offset, so a
@@ -11,14 +12,14 @@
 
 import type { CatalogResultCache, DataCatalog } from '@/types'
 import type { SchemaMapping } from '@/types/schema-mapping'
-import { effectiveCrossings } from '@/lib/data-catalog/config'
 import {
   baseUnits,
   cacheFromState,
+  compileCatalogPlan,
   emptyRunState,
   orderModalities,
+  planCatalogSlices,
   planCrossings,
-  planSlices,
   stateFromCache,
   type CatalogQuery,
   type CatalogRunState,
@@ -27,57 +28,6 @@ import {
   type CatalogUnitInfo,
   type CrossingPlan,
 } from './catalog-compute'
-
-/** One unit's query, by the unit's position in the run. */
-export interface CatalogPhaseQuery {
-  offset: number
-  sql: string
-}
-
-/** The phases made of units, which a paused run can resume inside. */
-export type CatalogUnitPhase = 'base' | 'crossings'
-/** `sizing` is the warehouse's size and patient bounds, before any unit. */
-export type CatalogPhase = 'sizing' | CatalogUnitPhase
-
-/**
- * Runs one phase's queries in order and hands each result over as it lands.
- * Without one, the run sends them one by one through `query`; the app in server
- * mode hands the whole phase to a server job (`catalog-job-executor.ts`), which
- * outlives the tab and no gateway timeout can cut.
- */
-export type CatalogPhaseExecutor = (phase: {
-  name: CatalogPhase
-  queries: readonly CatalogPhaseQuery[]
-  /** The job a paused run left this phase to: follow it rather than start over. */
-  resumeJob: string | null
-  /** A job now carries the phase: saved at once, so a tab closed before its first
-   *  result still resumes by following it. */
-  jobStarted: (jobId: string) => Promise<void>
-  /** The query at `offset` is the one being worked on, for the progress line;
-   *  `reading`, the percent of its data read when the database can tell. */
-  starting: (offset: number, reading?: number | null) => void
-  onRows: (offset: number, rows: Record<string, unknown>[]) => Promise<void>
-  signal: AbortSignal
-}) => Promise<void>
-
-/** The phase was cancelled from outside the run (the jobs panel): a pause. */
-export class CatalogPhaseCancelled extends Error {
-  constructor() {
-    super('cancelled')
-    this.name = 'CatalogPhaseCancelled'
-  }
-}
-
-/** The default executor: one query after the other, through `query`. */
-export function sequentialExecutor(query: CatalogQuery): CatalogPhaseExecutor {
-  return async ({ queries, starting, onRows, signal }) => {
-    for (const q of queries) {
-      signal.throwIfAborted()
-      starting(q.offset)
-      await onRows(q.offset, await query(q.sql, signal))
-    }
-  }
-}
 
 /**
  * Shortest gap between two writes of the cache, in milliseconds.
@@ -104,16 +54,14 @@ export interface CatalogComputationInput {
   resumeFrom: CatalogResultCache | null
   /** Write the cache back after each save point, so a later call resumes. */
   persist: (cache: CatalogResultCache, done: boolean) => Promise<void>
-  /** How each phase's queries run; one by one through `query` when absent. */
-  executor?: CatalogPhaseExecutor
+  /** Patient slice size and concept chunk, smaller in tests. */
+  planOptions?: { sliceRows?: number; conceptChunk?: number }
 }
 
 /** What a watcher can be told along the way; every hook is optional. */
 export interface CatalogComputationHooks {
   step?: (step: CatalogRunStep) => void
   unit?: (info: CatalogUnitInfo) => void
-  /** Percent of its data the query in flight has read; null when unknown or once it is done. */
-  reading?: (pct: number | null) => void
   /** Units done so far, per step, and the planned total once known. */
   progress?: (computed: number, steps: Partial<Record<CatalogRunStep, CatalogStepProgress>>, total: number | null) => void
   saved?: (computed: number) => void
@@ -142,22 +90,20 @@ export async function runCatalogComputation(
   signal: AbortSignal,
   hooks: CatalogComputationHooks = {},
 ): Promise<'done' | 'paused'> {
-  const { catalog, mapping, query, persist } = input
-  const execute = input.executor ?? sequentialExecutor(query)
+  const { catalog, query, persist } = input
   const startedAt = Date.now()
   let state: CatalogRunState = emptyRunState()
   let offset = 0
   let savedOffset = 0
-  let plan: CrossingPlan | null = null
-  let job: { id: string; phase: CatalogUnitPhase } | null = null
+  let crossingPlan: CrossingPlan | null = null
   let base: Pick<CatalogResultCache, 'catalogId' | 'computedAt' | 'durationMs'> = { catalogId: catalog.id, computedAt: new Date().toISOString(), durationMs: 0 }
+  const plan = compileCatalogPlan(catalog, input.mapping, input.tables, input.planOptions)
 
   const save = async (done: boolean) => {
-    const order = plan?.crossings ?? effectiveCrossings(catalog)
-    const cache = cacheFromState({ ...base, labels: plan?.labels }, state, order, offset)
-    if (job && cache.work) cache.work.job = job
+    const order = crossingPlan?.crossings ?? plan.crossings.map((c) => c.variables)
+    const cache = cacheFromState({ ...base, labels: crossingPlan?.labels }, state, order, offset)
     if (done) {
-      cache.modalities = orderModalities(catalog, cache.crossings)
+      cache.modalities = orderModalities(plan.modalities, cache.crossings)
       cache.durationMs = Date.now() - startedAt
       cache.computedAt = new Date().toISOString()
       delete cache.work
@@ -171,103 +117,54 @@ export async function runCatalogComputation(
     const resumed = input.resumeFrom?.work ? input.resumeFrom : null
     if (resumed) {
       state = stateFromCache(resumed)
-      job = resumed.work?.job ?? null
       offset = resumed.completedSteps ?? 0
       savedOffset = offset
       base = { catalogId: catalog.id, computedAt: resumed.computedAt, durationMs: resumed.durationMs }
     } else {
       hooks.step?.('sizing')
       hooks.progress?.(0, { sizing: { done: 0, total: 1 } }, null)
-      // Through the executor like the units: on a server, a job of its own that
-      // no gateway timeout cuts and the jobs panel shows.
-      const sizingQuery: CatalogQuery = async (sql) => {
-        let rows: Record<string, unknown>[] = []
-        await execute({
-          name: 'sizing',
-          queries: [{ offset: 0, sql }],
-          resumeJob: null,
-          jobStarted: async () => {},
-          starting: (_, reading) => hooks.reading?.(reading ?? null),
-          onRows: async (_, r) => { rows = r },
-          signal,
-        })
-        return rows
-      }
-      state.slices = await planSlices(mapping, sizingQuery, signal, undefined, input.tables)
+      state.slices = await planCatalogSlices(plan, query, signal)
     }
     const sized = { sizing: { done: 1, total: 1 } }
 
     let savedAt = Date.now()
     let step: CatalogRunStep | null = null
     let total: number | null = null
-    const runUnits = async (units: readonly CatalogRunUnit[], first: number, all: () => CatalogRunUnit[], phase: CatalogUnitPhase) => {
-      const announce = (at: number) => {
-        const unit = units[at - first]
+    const runUnits = async (units: readonly CatalogRunUnit[], first: number, all: () => CatalogRunUnit[]) => {
+      while (offset < first + units.length) {
+        signal.throwIfAborted()
+        const unit = units[offset - first]
         if (unit.info.step !== step) hooks.step?.((step = unit.info.step))
         hooks.unit?.(unit.info)
-      }
-      const advance = async (rows: readonly Record<string, unknown>[]) => {
-        announce(offset)
-        units[offset - first].apply(state, rows)
+        const rows = unit.sql ? await query(unit.sql, signal) : []
+        signal.throwIfAborted()
+        unit.apply(state, rows)
         offset++
-        hooks.reading?.(null)
         hooks.progress?.(offset, stepCounts(all(), offset, sized), total)
         if (Date.now() - savedAt >= SAVE_EVERY_MS) {
           await save(false)
           savedAt = Date.now()
         }
       }
-      // A unit without a query takes its place before the next query's rows.
-      const catchUp = async (to: number) => {
-        while (offset < to) await advance([])
-      }
-      const queries = units.slice(offset - first).flatMap((u, i) => (u.sql ? [{ offset: offset + i, sql: u.sql }] : []))
-      if (queries.length) {
-        await execute({
-          name: phase,
-          queries,
-          resumeJob: job?.phase === phase ? job.id : null,
-          jobStarted: async (id) => {
-            job = { id, phase }
-            await save(false)
-          },
-          starting: (at, reading) => {
-            announce(at)
-            hooks.reading?.(reading ?? null)
-          },
-          onRows: async (at, rows) => {
-            signal.throwIfAborted()
-            // Already added in: a resumed job hands back what it finished.
-            if (at < offset) return
-            await catchUp(at)
-            await advance(rows)
-          },
-          signal,
-        })
-      }
-      signal.throwIfAborted()
-      await catchUp(first + units.length)
-      if (job?.phase === phase) job = null
     }
 
-    const baseList = baseUnits(catalog, mapping, state.slices)
+    const baseList = baseUnits(plan, state.slices)
     hooks.progress?.(offset, { ...stepCounts(baseList, offset, sized), crossings: { done: 0, total: null } }, null)
-    await runUnits(baseList, 0, () => baseList, 'base')
-    signal.throwIfAborted()
+    await runUnits(baseList, 0, () => baseList)
 
-    plan = planCrossings(catalog, mapping, state)
-    const crossingUnits = plan.units
+    crossingPlan = planCrossings(plan, state)
+    const crossingUnits = crossingPlan.units
     const everything = () => [...baseList, ...crossingUnits]
     total = baseList.length + crossingUnits.length
     hooks.progress?.(offset, stepCounts(everything(), offset, sized), total)
-    await runUnits(crossingUnits, baseList.length, everything, 'crossings')
+    await runUnits(crossingUnits, baseList.length, everything)
     signal.throwIfAborted()
 
     hooks.finishing?.()
     await save(true)
     return 'done'
   } catch (err) {
-    if (!signal.aborted && !(err instanceof CatalogPhaseCancelled)) throw err
+    if (!signal.aborted) throw err
     // A pause keeps every unit finished so far, not just the last save point.
     if (offset > savedOffset) {
       try { await save(false) } catch { /* the next resume redoes the unsaved units */ }

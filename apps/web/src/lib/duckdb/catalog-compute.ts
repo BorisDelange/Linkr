@@ -12,6 +12,7 @@ import {
   type CrossingQueryContext,
   type PatientRange,
 } from './catalog-queries'
+import { fillCatalogSql, type CatalogFill } from './catalog-sql-fill'
 import {
   ageBucketLabels,
   catalogCounts,
@@ -29,11 +30,20 @@ import type {
   CatalogGrandTotal,
   CatalogResultCache,
   CatalogVariableId,
+  CatalogVariables,
   DataCatalog,
+  PeriodGranularity,
 } from '@/types'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { addKeys } from '@/lib/data-catalog/perturbation'
 import { conceptRelations } from '@/lib/schema-classes/relations'
+
+/*
+ * The planning below has a Python twin the server runs a catalog with
+ * (apps/api services/server_runs/catalog/compute.py): what a unit queries, how
+ * its rows add into the run state, the cache a run writes. Change one, change
+ * the other and regenerate the twin fixture (catalog-run-spec.twin.test.ts).
+ */
 
 export type ComputeStep = 'mounting' | 'building' | 'executing' | 'processing' | 'saving'
 
@@ -61,7 +71,7 @@ const MISSING_MAPPING = 'Cannot build catalog query: missing schema mapping (pat
  * exact whatever the split — every cell carries its concept, and each concept
  * falls in one chunk — so the chunks only bound a query's size.
  */
-const CONCEPT_CHUNK = 2000
+export const CONCEPT_CHUNK = 2000
 
 /**
  * Event rows per patient slice. Below it the warehouse is counted in one go;
@@ -69,7 +79,111 @@ const CONCEPT_CHUNK = 2000
  * groups of billions of rows and a pause loses at most one slice.
  */
 export const SLICE_EVENT_ROWS = 250_000_000
-const MAX_SLICES = 64
+export const MAX_SLICES = 64
+
+/** Strings in code-unit order, the same in every locale and on the server. */
+const byCodeUnits = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+// ---------------------------------------------------------------------------
+// Plan
+// ---------------------------------------------------------------------------
+
+/** What `orderModalities` needs of the variables. */
+export interface CatalogModalityPlan {
+  age?: string[]
+  sex?: boolean
+  period?: { granularity: PeriodGranularity; step: number }
+  service?: boolean
+  concept?: boolean
+}
+
+/**
+ * Every query a run may send, as templates (`catalog-queries.ts`), and what
+ * planning the units from their results needs of the catalog. The same in both
+ * modes: the server's run spec is this, its SQL with the class relations in.
+ */
+export interface CatalogPlan {
+  sizeSql: string
+  /** Null without a patient relation: the warehouse is then counted in one go. */
+  boundsSql: string | null
+  sliceRows: number
+  maxSlices: number
+  conceptChunk: number
+  conceptCounts: { dictKey: string; sql: string }[]
+  totalsSql: string
+  /** The ranking a top-N service grouping keeps its services from, when a crossing uses them. */
+  serviceRankSql: string | null
+  /** The concept modalities with their patients, when a crossing uses the concept. */
+  conceptRankSql: string | null
+  /** Every crossing a run computes (`effectiveCrossings`), in order. Null SQL: nothing to query. */
+  crossings: { variables: CatalogVariableId[]; sql: string | null }[]
+  /** The dictionaries' keys, in the order the concept tokens number them. */
+  dictKeys: string[]
+  concept: {
+    level: 'concept' | 'category' | 'subcategory'
+    scope: 'all' | 'top'
+    topN: number
+    categoryColumn: boolean
+    subcategoryColumn: boolean
+  } | null
+  service: { grouping: 'all' | 'top' | 'manual'; topN: number } | null
+  /** The concept list counts visits. */
+  visits: boolean
+  modalities: CatalogModalityPlan
+}
+
+export function modalityPlanOf(variables: CatalogVariables): CatalogModalityPlan {
+  return {
+    ...(variables.age?.enabled ? { age: ageBucketLabels(variables.age.brackets) } : {}),
+    ...(variables.sex?.enabled ? { sex: true } : {}),
+    ...(variables.period?.enabled ? { period: { granularity: variables.period.granularity, step: variables.period.step ?? 1 } } : {}),
+    ...(variables.service?.enabled ? { service: true } : {}),
+    ...(variables.concept?.enabled ? { concept: true } : {}),
+  }
+}
+
+/**
+ * A catalog's plan on a mapping. `tables`: what the database has, so sizing
+ * leaves out an event on a missing table.
+ */
+export function compileCatalogPlan(
+  catalog: Pick<DataCatalog, 'variables' | 'crossings' | 'counts' | 'dataSourceId'>,
+  mapping: SchemaMapping,
+  tables?: readonly string[] | null,
+  { sliceRows = SLICE_EVENT_ROWS, conceptChunk = CONCEPT_CHUNK }: { sliceRows?: number; conceptChunk?: number } = {},
+): CatalogPlan {
+  const variables = catalog.variables
+  const cfg = variables.concept
+  const counts = catalogCounts(catalog)
+  const sizeSql = buildSizeQuery(mapping, tables)
+  const conceptCounts = buildConceptCountQueries(mapping, cfg?.categoryColumn, cfg?.subcategoryColumn, counts.visits, catalog.dataSourceId)
+  const totalsSql = buildTotalsQuery(mapping, counts, catalog.dataSourceId)
+  if (!sizeSql || !conceptCounts || !totalsSql) throw new Error(MISSING_MAPPING)
+
+  const crossings = effectiveCrossings(catalog)
+  const used = new Set(crossings.flat())
+  const service = variables.service
+  const ctx: CrossingQueryContext = { mapping, variables, counts, keySalt: catalog.dataSourceId }
+  return {
+    sizeSql,
+    boundsSql: buildPatientBoundsQuery(mapping),
+    sliceRows,
+    maxSlices: MAX_SLICES,
+    conceptChunk,
+    conceptCounts: conceptCounts.map(({ dictKey, sql }) => ({ dictKey, sql })),
+    totalsSql,
+    serviceRankSql: used.has('service') && service?.grouping === 'top' ? buildServiceListQuery(mapping, service.level) : null,
+    conceptRankSql: used.has('concept') && cfg ? buildConceptRankQuery(mapping, cfg) : null,
+    crossings: crossings.map((vars) => ({ variables: vars, sql: crossingId(vars) === 'concept' ? null : buildCrossingQuery(ctx, vars) })),
+    dictKeys: conceptRelations(mapping).map((d) => d.key ?? ''),
+    concept: cfg
+      ? { level: cfg.level, scope: cfg.scope, topN: cfg.topN, categoryColumn: !!cfg.categoryColumn, subcategoryColumn: !!cfg.subcategoryColumn }
+      : null,
+    service: service ? { grouping: service.grouping, topN: service.topN } : null,
+    visits: counts.visits,
+    modalities: modalityPlanOf(variables),
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Run state
@@ -150,7 +264,6 @@ function checkResumeState(cache: CatalogResultCache): void {
     && (work?.slices == null || (Array.isArray(work.slices) && work.slices.every((s) => s != null && typeof s === 'object' && isBound(s.lo) && isBound(s.hi))))
     && (work?.services == null || (Array.isArray(work.services) && work.services.every((r) => Array.isArray(r) && typeof r[0] === 'string' && isCount(r[1]))))
     && (work?.concepts == null || (Array.isArray(work.concepts) && work.concepts.every((r) => Array.isArray(r) && typeof r[0] === 'string' && isCount(r[1]) && isCount(r[2]))))
-    && (work?.job == null || (typeof work.job.id === 'string' && (work.job.phase === 'base' || work.job.phase === 'crossings')))
   if (!valid) throw new Error(INVALID_RESUME)
 }
 
@@ -211,6 +324,22 @@ function serializeBound(v: unknown): string | number {
   return String(v)
 }
 
+/** How many slices a warehouse of this size is counted in. */
+export function slicesWanted(sizeRows: readonly Record<string, unknown>[], sliceRows: number, maxSlices = MAX_SLICES): number {
+  const eventRows = Number(sizeRows[0]?.event_rows ?? 0)
+  return Math.min(maxSlices, Math.ceil(eventRows / sliceRows))
+}
+
+/** The slices between the bounds the bounds query returned. */
+export function slicesFromBounds(boundRows: readonly Record<string, unknown>[]): SerializedRange[] {
+  const bounds = boundRows.map((r) => serializeBound(r.b))
+  if (bounds.length === 0) return [{}]
+  return [...bounds, undefined].map((hi, i) => ({
+    ...(i > 0 ? { lo: bounds[i - 1] } : {}),
+    ...(hi != null ? { hi } : {}),
+  }))
+}
+
 /**
  * The patient slices a warehouse is counted in: one, the whole warehouse,
  * unless its events run past `sliceRows`.
@@ -224,17 +353,18 @@ export async function planSlices(
 ): Promise<SerializedRange[]> {
   const sizeSql = buildSizeQuery(mapping, tables)
   if (!sizeSql) throw new Error(MISSING_MAPPING)
-  const size = (await query(sizeSql, signal))[0] ?? {}
-  const eventRows = Number(size.event_rows ?? 0)
-  const wanted = Math.min(MAX_SLICES, Math.ceil(eventRows / sliceRows))
-  if (wanted < 2) return [{}]
-  const boundsSql = buildPatientBoundsQuery(mapping, wanted)
-  const bounds = boundsSql ? (await query(boundsSql, signal)).map((r) => serializeBound(r.b)) : []
-  if (bounds.length === 0) return [{}]
-  return [...bounds, undefined].map((hi, i) => ({
-    ...(i > 0 ? { lo: bounds[i - 1] } : {}),
-    ...(hi != null ? { hi } : {}),
-  }))
+  return planCatalogSlices({ sizeSql, boundsSql: buildPatientBoundsQuery(mapping), sliceRows, maxSlices: MAX_SLICES }, query, signal)
+}
+
+/** The same, from a plan's templates. */
+export async function planCatalogSlices(
+  plan: Pick<CatalogPlan, 'sizeSql' | 'boundsSql' | 'sliceRows' | 'maxSlices'>,
+  query: CatalogQuery,
+  signal?: AbortSignal,
+): Promise<SerializedRange[]> {
+  const wanted = slicesWanted(await query(plan.sizeSql, signal), plan.sliceRows, plan.maxSlices)
+  if (wanted < 2 || !plan.boundsSql) return [{}]
+  return slicesFromBounds(await query(fillCatalogSql(plan.boundsSql, { slices: wanted }), signal))
 }
 
 // ---------------------------------------------------------------------------
@@ -242,9 +372,8 @@ export async function planSlices(
 // ---------------------------------------------------------------------------
 
 /**
- * One unit as data, so a whole phase can be handed to a server job: its query,
- * and how its rows add into the run state. `sql` is null for a unit that only
- * rearranges counts already made.
+ * One unit as data: its query, and how its rows add into the run state. `sql`
+ * is null for a unit that only rearranges counts already made.
  */
 export interface CatalogRunUnit {
   info: CatalogUnitInfo
@@ -266,18 +395,15 @@ const rangeOf = (s: SerializedRange): PatientRange | null => (s.lo == null && s.
  * and the rankings the crossings are planned from (top services, concepts in
  * scope). Step by step, each over every slice.
  */
-export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, slices: readonly SerializedRange[]): CatalogRunUnit[] {
-  const cfg = catalog.variables.concept
-  const counts = catalogCounts(catalog)
+export function baseUnits(plan: CatalogPlan, slices: readonly SerializedRange[]): CatalogRunUnit[] {
+  const cfg = plan.concept
   const units: CatalogRunUnit[] = []
 
   slices.forEach((s, i) => {
-    const queries = buildConceptCountQueries(mapping, cfg?.categoryColumn, cfg?.subcategoryColumn, rangeOf(s), counts.visits, catalog.dataSourceId)
-    if (!queries) throw new Error(MISSING_MAPPING)
-    for (const q of queries) {
+    for (const q of plan.conceptCounts) {
       units.push({
         info: { step: 'concepts', dictionary: q.dictKey, slice: sliceOf(slices, i) },
-        sql: q.sql,
+        sql: fillCatalogSql(q.sql, { range: rangeOf(s) }),
         apply: (state, rows) => {
           for (const row of rows) {
             const r: CatalogConceptRow = {
@@ -288,7 +414,7 @@ export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, slices: 
               subcategory: cfg?.subcategoryColumn ? (row.concept_subcategory as string | null) ?? null : undefined,
               patientCount: Number(row.patient_count ?? 0),
               recordCount: Number(row.record_count ?? 0),
-              ...(counts.visits ? { visitCount: Number(row.visit_count ?? 0) } : {}),
+              ...(plan.visits ? { visitCount: Number(row.visit_count ?? 0) } : {}),
               ...(row.patient_key != null ? { patientKey: Number(row.patient_key) } : {}),
             }
             const prev = state.concepts.get(conceptKey(r))
@@ -304,11 +430,9 @@ export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, slices: 
   })
 
   slices.forEach((s, i) => {
-    const sql = buildTotalsQuery(mapping, rangeOf(s), counts, catalog.dataSourceId)
-    if (!sql) throw new Error(MISSING_MAPPING)
     units.push({
       info: { step: 'totals', slice: sliceOf(slices, i) },
-      sql,
+      sql: fillCatalogSql(plan.totalsSql, { range: rangeOf(s) }),
       apply: (state, rows) => {
         const row = rows[0] ?? {}
         state.totals.totalPatients += Number(row.total_patients ?? 0)
@@ -320,15 +444,12 @@ export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, slices: 
     })
   })
 
-  const used = new Set(effectiveCrossings(catalog).flat())
-  const service = catalog.variables.service
-  if (used.has('service') && service?.grouping === 'top') {
+  const { serviceRankSql, conceptRankSql } = plan
+  if (serviceRankSql) {
     slices.forEach((s, i) => {
-      const sql = buildServiceListQuery(mapping, service.level, rangeOf(s))
-      if (!sql) return
       units.push({
         info: { step: 'ranking', ranked: 'service', slice: sliceOf(slices, i) },
-        sql,
+        sql: fillCatalogSql(serviceRankSql, { range: rangeOf(s) }),
         apply: (state, rows) => {
           for (const r of rows) {
             const name = String(r.svc)
@@ -338,13 +459,11 @@ export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, slices: 
       })
     })
   }
-  if (used.has('concept') && cfg) {
+  if (conceptRankSql) {
     slices.forEach((s, i) => {
-      const sql = buildConceptRankQuery(mapping, cfg, rangeOf(s))
-      if (!sql) return
       units.push({
         info: { step: 'ranking', ranked: 'concept', slice: sliceOf(slices, i) },
-        sql,
+        sql: fillCatalogSql(conceptRankSql, { range: rangeOf(s) }),
         apply: (state, rows) => {
           for (const r of rows) {
             const key = String(r.concept)
@@ -372,10 +491,11 @@ function conceptFilterOf(modalities: readonly string[], dictKeys: readonly strin
 }
 
 const byCountThenName = <T>(entries: [string, T][], count: (v: T) => number) =>
-  entries.sort((a, b) => count(b[1]) - count(a[1]) || a[0].localeCompare(b[0]))
+  entries.sort((a, b) => count(b[1]) - count(a[1]) || byCodeUnits(a[0], b[0]))
 
 export interface CrossingPlan {
-  ctx: CrossingQueryContext
+  /** The top services and the concept filter the crossings are filled with. */
+  fill: CatalogFill
   crossings: CatalogVariableId[][]
   units: CatalogRunUnit[]
   labels: CatalogResultCache['labels']
@@ -387,36 +507,26 @@ export interface CrossingPlan {
  * concept variable's 1-way marginal), and for each crossing one query per
  * concept chunk and patient slice.
  */
-export function planCrossings(catalog: DataCatalog, mapping: SchemaMapping, state: CatalogRunState): CrossingPlan {
-  const variables = catalog.variables
-  const crossings = effectiveCrossings(catalog)
-  const service = variables.service
+export function planCrossings(plan: CatalogPlan, state: CatalogRunState): CrossingPlan {
+  const service = plan.service
   const topServices = service?.grouping === 'top'
     ? byCountThenName([...state.serviceRank], (p) => p).slice(0, Math.max(0, service.topN)).map(([name]) => name)
     : []
 
-  const concept = variables.concept
-  const dictKeys = conceptRelations(mapping).map((d) => d.key ?? '')
+  const concept = plan.concept
+  const dictKeys = plan.dictKeys
   const ranked = byCountThenName([...state.conceptRank], (v) => v.patients)
-  const kept = concept?.level === 'concept' && concept.scope === 'top' ? ranked.slice(0, Math.max(0, concept.topN)) : ranked
+  const keepsTop = concept?.level === 'concept' && concept.scope === 'top'
+  const kept = keepsTop ? ranked.slice(0, Math.max(0, concept.topN)) : ranked
   const conceptRows: CatalogCrossingRow[] = kept.map(([key, v]) => ({ values: [key], patients: v.patients, records: v.records }))
-  const conceptFilter = concept?.level === 'concept' && concept.scope === 'top' ? conceptFilterOf(conceptRows.map((r) => r.values[0]), dictKeys) : null
+  const conceptFilter = keepsTop ? conceptFilterOf(conceptRows.map((r) => r.values[0]), dictKeys) : null
 
-  const ctx: CrossingQueryContext = { mapping, variables, topServices, conceptFilter, counts: catalogCounts(catalog), keySalt: catalog.dataSourceId }
+  const fill: CatalogFill = { topServices, conceptFilter, dictKeys }
   const slices = state.slices
   const units: CatalogRunUnit[] = []
-  const queryUnit = (vars: CatalogVariableId[], info: CatalogUnitInfo, unitCtx: CrossingQueryContext): CatalogRunUnit => ({
-    info,
-    sql: buildCrossingQuery(unitCtx, vars),
-    apply: (st, rows) => {
-      const id = crossingId(vars)
-      const entry = st.crossings.get(id) ?? { variables: vars, cells: new Map() }
-      mergeCells(entry.cells, rows.map((r) => crossingRow(vars, r)))
-      st.crossings.set(id, entry)
-    },
-  })
+  const chunkSize = plan.conceptChunk
 
-  for (const vars of crossings) {
+  for (const { variables: vars, sql } of plan.crossings) {
     const id = crossingId(vars)
     if (id === 'concept') {
       units.push({
@@ -426,24 +536,32 @@ export function planCrossings(catalog: DataCatalog, mapping: SchemaMapping, stat
       })
       continue
     }
-    const chunks: (ConceptFilter | null)[] = vars.includes('concept') && concept?.level === 'concept' && conceptRows.length > CONCEPT_CHUNK
-      ? Array.from({ length: Math.ceil(conceptRows.length / CONCEPT_CHUNK) }, (_, i) =>
-        conceptFilterOf(conceptRows.slice(i * CONCEPT_CHUNK, (i + 1) * CONCEPT_CHUNK).map((r) => r.values[0]), dictKeys))
+    const chunks: (ConceptFilter | null)[] = vars.includes('concept') && concept?.level === 'concept' && conceptRows.length > chunkSize
+      ? Array.from({ length: Math.ceil(conceptRows.length / chunkSize) }, (_, i) =>
+        conceptFilterOf(conceptRows.slice(i * chunkSize, (i + 1) * chunkSize).map((r) => r.values[0]), dictKeys))
       : [null]
     chunks.forEach((chunk, c) => {
       slices.forEach((s, i) => {
-        units.push(queryUnit(vars, {
-          step: 'crossings',
-          crossing: vars,
-          chunk: chunks.length > 1 ? [c + 1, chunks.length] : undefined,
-          slice: sliceOf(slices, i),
-        }, { ...ctx, conceptFilter: chunk ?? conceptFilter, range: rangeOf(s) }))
+        units.push({
+          info: {
+            step: 'crossings',
+            crossing: vars,
+            chunk: chunks.length > 1 ? [c + 1, chunks.length] : undefined,
+            slice: sliceOf(slices, i),
+          },
+          sql: sql == null ? null : fillCatalogSql(sql, { ...fill, conceptFilter: chunk ?? conceptFilter, range: rangeOf(s) }),
+          apply: (st, rows) => {
+            const entry = st.crossings.get(id) ?? { variables: vars, cells: new Map() }
+            mergeCells(entry.cells, rows.map((r) => crossingRow(vars, r)))
+            st.crossings.set(id, entry)
+          },
+        })
       })
     })
   }
 
   let labels: CatalogResultCache['labels']
-  if (crossings.some((c) => c.includes('concept')) && concept?.level === 'concept' && state.concepts.size) {
+  if (plan.crossings.some((c) => c.variables.includes('concept')) && concept?.level === 'concept' && state.concepts.size) {
     const multi = dictKeys.length > 1
     const inScope = new Set(conceptRows.map((r) => r.values[0]))
     const names: Record<string, string> = {}
@@ -454,7 +572,7 @@ export function planCrossings(catalog: DataCatalog, mapping: SchemaMapping, stat
     labels = { concept: names }
   }
 
-  return { ctx, crossings, units, labels }
+  return { fill, crossings: plan.crossings.map((c) => c.variables), units, labels }
 }
 
 /** One cell of a crossing query, raw. */
@@ -475,28 +593,27 @@ function crossingRow(vars: CatalogVariableId[], r: Record<string, unknown>): Cat
  * publishes (`publishedVariables`).
  */
 export function orderModalities(
-  catalog: Pick<DataCatalog, 'variables'>,
+  modalities: CatalogModalityPlan,
   crossings: readonly CatalogCrossingResult[],
 ): CatalogResultCache['modalities'] {
   const marginal = (v: CatalogVariableId) => crossings.find((c) => c.id === v)?.rows ?? []
   const byPatients = (v: CatalogVariableId) =>
     [...marginal(v)]
-      .sort((a, b) => Number(a.values[0] === OTHER_MODALITY) - Number(b.values[0] === OTHER_MODALITY) || b.patients - a.patients || a.values[0].localeCompare(b.values[0]))
+      .sort((a, b) => Number(a.values[0] === OTHER_MODALITY) - Number(b.values[0] === OTHER_MODALITY) || b.patients - a.patients || byCodeUnits(a.values[0], b.values[0]))
       .map((r) => r.values[0])
 
   const out: CatalogResultCache['modalities'] = {}
-  const { variables } = catalog
-  if (variables.age?.enabled) out.age = ageBucketLabels(variables.age.brackets)
-  if (variables.sex?.enabled) {
+  if (modalities.age) out.age = [...modalities.age]
+  if (modalities.sex) {
     const present = new Set(marginal('sex').map((r) => r.values[0]))
     out.sex = SEX_MODALITIES.filter((s) => s !== 'other' || present.has(s))
   }
-  if (variables.period?.enabled) {
+  if (modalities.period) {
     const periods = marginal('period').map((r) => r.values[0]).sort()
-    out.period = periods.length ? periodRange(periods[0], periods[periods.length - 1], variables.period.granularity, variables.period.step ?? 1) : []
+    out.period = periods.length ? periodRange(periods[0], periods[periods.length - 1], modalities.period.granularity, modalities.period.step) : []
   }
-  if (variables.service?.enabled) out.service = byPatients('service')
-  if (variables.concept?.enabled) out.concept = byPatients('concept')
+  if (modalities.service) out.service = byPatients('service')
+  if (modalities.concept) out.concept = byPatients('concept')
   return out
 }
 
@@ -534,11 +651,56 @@ export interface EstimateProgress {
 }
 
 /**
+ * The estimates still to make: the rankings to run (over the whole warehouse),
+ * then one query per crossing whose estimate is not `known`, its top services
+ * and concept filter tokens filled from the rankings (`planCrossings`).
+ */
+export interface CatalogEstimatePlan {
+  plan: CatalogPlan
+  estimates: { variables: CatalogVariableId[]; key: string; sql: string }[]
+}
+
+/** Null when every crossing's estimate is known. */
+export function compileEstimatePlan(
+  catalog: DataCatalog,
+  mapping: SchemaMapping,
+  known: (key: string) => boolean = (key) => estimates.has(key),
+): CatalogEstimatePlan | null {
+  const todo = effectiveCrossings(catalog).filter((vars) => !known(estimateKey(catalog, vars)))
+  if (todo.length === 0) return null
+  const plan = compileCatalogPlan({ ...catalog, crossings: todo }, mapping)
+  const ctx: CrossingQueryContext = { mapping, variables: catalog.variables, counts: catalogCounts(catalog), keySalt: catalog.dataSourceId }
+  return {
+    plan,
+    estimates: todo.flatMap((vars) => {
+      const sql = buildCrossingEstimateQuery(ctx, vars, catalog.anonymization.threshold)
+      return sql ? [{ variables: vars, key: estimateKey(catalog, vars), sql }] : []
+    }),
+  }
+}
+
+/** The rankings an estimate runs first: one query each, over the whole warehouse. */
+export function estimateRankingUnits(plan: CatalogPlan): CatalogRunUnit[] {
+  return baseUnits(plan, [{}]).filter((u) => u.info.step === 'ranking')
+}
+
+export function estimateOfRow(rows: readonly Record<string, unknown>[]): CrossingEstimate {
+  const row = rows[0] ?? {}
+  return {
+    cells: Number(row.cells ?? 0),
+    published: Number(row.published ?? 0),
+    mass: Number(row.mass ?? 0),
+    publishedMass: Number(row.published_mass ?? 0),
+  }
+}
+
+/**
  * Primary-suppression yield of each crossing: non-empty cells, those reaching
  * the threshold, and the patient mass of each. One aggregate query per
  * crossing — a whole crossing's worth of work on a large warehouse — so every
  * query is interrupted when `signal` aborts, and an estimate already made for
- * the same parameters is reused.
+ * the same parameters is reused. In server mode the server runs the same plan
+ * (services/server_runs/catalog, kind `catalog_estimate`).
  */
 export async function estimateCrossings(
   catalog: DataCatalog,
@@ -550,12 +712,11 @@ export async function estimateCrossings(
     signal?: AbortSignal
   } = {},
 ): Promise<void> {
-  const todo = effectiveCrossings(catalog).filter((vars) => !estimates.has(estimateKey(catalog, vars)))
-  if (todo.length === 0) return
-  const scoped = { ...catalog, crossings: todo }
+  const compiled = compileEstimatePlan(catalog, mapping)
+  if (!compiled) return
   const state = emptyRunState()
-  const ranking = baseUnits(scoped, mapping, [{}]).filter((u) => u.info.step === 'ranking')
-  const total = ranking.length + todo.length
+  const ranking = estimateRankingUnits(compiled.plan)
+  const total = ranking.length + compiled.estimates.length
   let done = 0
   for (const unit of ranking) {
     signal?.throwIfAborted()
@@ -563,22 +724,13 @@ export async function estimateCrossings(
     await runUnit(unit, state, query, signal)
     done++
   }
-  const plan = planCrossings(scoped, mapping, state)
-  for (const vars of todo) {
+  const { fill } = planCrossings(compiled.plan, state)
+  for (const { variables, key, sql } of compiled.estimates) {
     signal?.throwIfAborted()
-    onProgress?.({ done, total, current: vars })
-    const sql = buildCrossingEstimateQuery(plan.ctx, vars, catalog.anonymization.threshold)
-    if (sql) {
-      const row = (await query(sql, signal))[0] ?? {}
-      const estimate: CrossingEstimate = {
-        cells: Number(row.cells ?? 0),
-        published: Number(row.published ?? 0),
-        mass: Number(row.mass ?? 0),
-        publishedMass: Number(row.published_mass ?? 0),
-      }
-      estimates.set(estimateKey(catalog, vars), estimate)
-      onEstimate?.(crossingId(vars), estimate)
-    }
+    onProgress?.({ done, total, current: variables })
+    const estimate = estimateOfRow(await query(fillCatalogSql(sql, fill), signal))
+    estimates.set(key, estimate)
+    onEstimate?.(crossingId(variables), estimate)
     done++
   }
   onProgress?.({ done, total, current: null })

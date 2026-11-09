@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import logging
 import re
+import uuid
 
 import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -18,19 +19,17 @@ from app.models.data_source import DataSource
 from app.models.job import Job
 from app.models.user import User
 from app.schemas.concept_cache import (
-    ConceptCacheAssembleRequest,
+    ConceptCacheStatus,
+    ConceptPageRequest,
+    ConceptPageResult,
     ConceptProfilesRead,
     ConceptProfilesResult,
     ConceptProfilesRunSave,
     ConceptProfilesSummary,
     ConceptProfilesWrite,
-    ConceptCacheStatus,
-    ConceptRunStart,
-    ConceptUnitsJobRequest,
-    ConceptPageRequest,
-    ConceptPageResult,
     ConceptRelationsRequest,
     ConceptRelationsResult,
+    ConceptRunStart,
     ConceptStatsResponse,
     ConceptStatsSave,
     RelationRecordsRequest,
@@ -38,52 +37,61 @@ from app.schemas.concept_cache import (
 )
 from app.schemas.data_source import (
     CompactStatus,
-    ParquetLayoutEntry,
-    ParquetLayoutRequest,
-    DatabaseConnectionInfo,
     CreateFromDdlRequest,
-    MoveFileRequest,
+    DatabaseConnectionInfo,
+    DatabaseLoginSave,
+    DatabaseLoginStatus,
     DataSourceCreate,
     DataSourceFileImportRequest,
     DataSourceFileResponse,
     DataSourceResponse,
     DataSourceUpdate,
-    DatabaseLoginSave,
-    DatabaseLoginStatus,
     DerivePlanRequest,
     DeriveRequest,
-    FlightStatus,
     EtlJobRequest,
     EtlRunRequest,
+    FlightStatus,
     IntrospectedTable,
+    MoveFileRequest,
+    ParquetLayoutEntry,
+    ParquetLayoutRequest,
     QueryCancelRequest,
     QueryCancelResult,
+    QueryExecution,
     QueryJobRequest,
     QueryRequest,
-    QueryExecution,
     QueryResult,
     TestConnectionRequest,
     TestConnectionResult,
 )
+from app.schemas.execution import JobResponse
 from app.schemas.stats_cache import StatsCacheResponse, StatsCacheSave
 from app.services import (
-    upload_ledger,
     blob_store,
     change_tracking,
+    code_acceptance_service,
     cohort_derive_service,
     concept_profile_service,
     concept_stats_cache_service,
     data_source_service,
     database_binding,
-    code_acceptance_service,
     database_credential_service,
     fs_browser,
     notification_service,
     stats_cache_service,
+    upload_ledger,
 )
-from app.services.data import concept_cache_fs, etl_jobs, connection_pool, db_connect, managed_db, pushdown, query_cancel, query_jobs
+from app.services.data import (
+    concept_cache_fs,
+    connection_pool,
+    db_connect,
+    etl_jobs,
+    managed_db,
+    pushdown,
+    query_cancel,
+    query_jobs,
+)
 from app.services.execution import jobs
-from app.schemas.execution import JobResponse
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +113,8 @@ async def _load_source(
     if source is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     await _require_source_access(db, source, user, permission)
+    # Every job of this request — its queries included — is this database's.
+    jobs.current_entity.set(jobs.Entity("database", source.id, _named(source)))
     return source
 
 
@@ -414,7 +424,8 @@ async def query_data_source(
     source = await _load_source(db, source_id, user, "databases:read")
     login = await _login(db, source, user)
 
-    query_id = _query_id(body.query_id) if body.query_id else None
+    # Named here, not by `within_limit`: its job follows how far it has read.
+    query_id = _query_id(body.query_id) if body.query_id else uuid.uuid4().hex
 
     async def run() -> list[dict]:
         async with deferred.session() as session:
@@ -432,9 +443,12 @@ async def query_data_source(
         cap = db_connect.row_cap.set(db_connect.MAX_QUERY_ROWS_ALL) if body.all_rows else None
         execution: dict = {}
         recorded = pushdown.execution.set(execution)
+        job_id = deferred.current_job.get()
+        watch = asyncio.create_task(query_jobs.watch_progress(
+            (query_id, str(user.id)), lambda pct: jobs.JobHandle(job_id).progress(int(pct)),
+        )) if job_id is not None else None
         try:
             rows = await query_cancel.within_limit(run, str(user.id), query_id)
-            job_id = deferred.current_job.get()
             if job_id is not None:
                 await jobs.record_query(
                     job_id, rows=len(rows), sent=execution.pop("sent", None),
@@ -453,6 +467,9 @@ async def query_data_source(
         except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, redact_secrets(str(e)))
         finally:
+            if watch is not None:
+                watch.cancel()
+                await asyncio.gather(watch, return_exceptions=True)
             if cap is not None:
                 db_connect.row_cap.reset(cap)
             pushdown.execution.reset(recorded)
@@ -514,7 +531,8 @@ async def start_query_job(
     job = await query_jobs.start(
         db, source.id, source.workspace_id, user.id, body.label,
         [query_jobs.JobQuery(q.key, q.sql, q.pushdown) for q in body.queries],
-        query_jobs.read_rows(login, body.pushdown), keep_going=body.keep_going, share_lane=body.share_lane,
+        query_jobs.read_rows(login, body.pushdown), keep_going=body.keep_going,
+        group_key=body.group_key, group_label=body.group_label,
     )
     return job
 
@@ -967,10 +985,9 @@ async def get_data_source_schema(
     mapping / table-discovery UI. Uses the stored (encrypted) credentials."""
     source = await _load_source(db, source_id, user, "databases:read")
     login = await _login(db, source, user)
-    async with jobs.tracked(user.id, f"{_named(source)} · list its tables and columns", workspace_id=source.workspace_id) as job_id:
+    async with jobs.tracked_if_slow(user.id, f"{_named(source)} · list its tables and columns", workspace_id=source.workspace_id) as late:
         tables = await _introspect(db, source, login, user)
-        if job_id is not None:
-            await jobs.note(job_id, f"{len(tables)} tables")
+        late.note(f"{len(tables)} tables")
         return tables
 
 
@@ -1111,63 +1128,6 @@ async def start_concept_run(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
-
-
-@router.post("/{source_id}/concept-cache/units-job", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
-async def start_concept_units_job(
-    source_id: str,
-    body: ConceptUnitsJobRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Run counting units of run `runId` as a job of the database's workspace, for
-    units too long for one request — 409 when that run is no longer the stored
-    one. The job lists each unit done once its file is kept."""
-    source = await _load_source(db, source_id, user, "databases:read")
-    await _require_source_access(db, source, user, "databases:write")
-    if not source.workspace_id:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "this database belongs to no workspace")
-    login = await _login(db, source, user)
-    if len({u.key for u in body.units}) != len(body.units):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "unit keys must be unique")
-    run = concept_cache_fs.run_status(source.id)
-    if run is None or run["manifest"].get("runId") != body.run_id:
-        raise HTTPException(status.HTTP_409_CONFLICT, "this counting run was replaced")
-    return await query_jobs.start(
-        db, source.id, source.workspace_id, user.id, body.label,
-        [query_jobs.JobQuery(u.key, u.sql) for u in body.units], query_jobs.write_concept_units(login, body.run_id),
-    )
-
-
-@router.post("/{source_id}/concept-cache/assemble", response_model=ConceptCacheStatus)
-async def assemble_concept_cache(
-    source_id: str,
-    body: ConceptCacheAssembleRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Write the concept list from the units done so far. Atomic: readers keep
-    seeing the previous list until the new one is in place."""
-    source = await _load_source(db, source_id, user, "databases:read")
-    await _require_source_access(db, source, user, "databases:write")
-    login = await _login(db, source, user)
-    try:
-        mtime = await query_cancel.within_limit(
-            lambda: data_source_service.assemble_concept_cache(db, source, login, body.select_sql), str(user.id),
-        )
-    except query_cancel.TimedOut:
-        raise
-    except db_connect.ConnectionFailed as e:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, _connection_error(user, "concept_cache", e, source),
-        ) from None
-    except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, redact_secrets(str(e)))
-    except HTTPException:
-        raise
-    except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, redact_secrets(str(e)))
-    return ConceptCacheStatus(exists=True, refreshed_at=mtime, run=concept_cache_fs.run_status(source_id))
 
 
 @router.post("/{source_id}/concept-cache/query", response_model=ConceptPageResult)

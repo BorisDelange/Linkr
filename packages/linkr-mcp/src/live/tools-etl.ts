@@ -41,6 +41,19 @@ interface Db {
   connectionConfig?: { managed?: boolean } | null
 }
 
+/** A pipeline run the server owns, as the app's Pipeline tab reads it. */
+interface ServerEtlRun {
+  id: string
+  status: string
+  error: string | null
+  state: { pipelineId?: string; scripts?: EtlRunLog[]; next?: number }
+}
+
+const ACTIVE_RUN = new Set(['queued', 'running', 'pausing'])
+// Under the client's timeout: past it the run goes on, and the answer says so.
+const SERVER_RUN_WAIT_MS = 240_000
+const SERVER_RUN_POLL_MS = 2000
+
 const enc = encodeURIComponent
 const qs = (workspaceId?: string) => (workspaceId ? `?workspaceId=${enc(workspaceId)}` : '')
 
@@ -58,6 +71,11 @@ const etl = {
   runs: (id: string) => api.request<EtlRunHistoryEntry[]>('GET', `/etl-pipelines/${enc(id)}/runs`),
   // An upsert keyed by the run id: the same row is re-sent as the run advances.
   saveRun: (entry: EtlRunHistoryEntry) => api.request<EtlRunHistoryEntry>('POST', '/etl-runs', entry),
+  // A whole pipeline run on a managed target: the server's (services/server_runs/etl.py).
+  startRun: (targetId: string, spec: Record<string, unknown>) =>
+    api.request<ServerEtlRun>('POST', '/server-runs', { kind: 'etl', scopeId: targetId, spec }),
+  latestRun: (targetId: string) =>
+    api.request<ServerEtlRun | null>('GET', `/server-runs/latest?kind=etl&scopeId=${enc(targetId)}`),
   run: (targetId: string, body: { sql: string; roles: Record<string, string>; mappingData: Record<string, string> }) =>
     api.request<{ rows: Record<string, unknown>[] }>('POST', `/data-sources/${enc(targetId)}/etl-run`, body),
 }
@@ -250,6 +268,11 @@ async function runPipeline(p: Pipeline, scripts: EtlNode[], files: EtlNode[], sh
   const roles = etlRoles(ids)
   const mappingData = mappingDataOf(files)
   const paths = pathsById(files)
+  // A managed target runs the pipeline on the server, as the app does — but a
+  // script whose rows are asked for runs here, where its last rows come back.
+  if (managed && target && !(showRows > 0 && scripts.length === 1)) {
+    return runPipelineOnServer(p, target.id, scripts, paths, ids, roles, mappingData, dbLabel(dbs)(p.targetDataSourceId))
+  }
 
   const entry: EtlRunHistoryEntry = {
     id: `run-${Date.now()}`, pipelineId: p.id, startedAt: new Date().toISOString(), status: 'running', scripts: [],
@@ -304,6 +327,53 @@ async function runPipeline(p: Pipeline, scripts: EtlNode[], files: EtlNode[], sh
 
   const out = runReport(entry.id, failed, managed ? dbLabel(dbs)(p.targetDataSourceId) : null, report)
   if (showRows > 0 && !failed && scripts.length === 1) out.push(`Result of the last statement:\n${formatRows(lastRows, showRows)}`)
+  return { content: [{ type: 'text', text: out.join('\n') }], ...(failed ? { isError: true } : {}) }
+}
+
+/**
+ * The app's server run of a pipeline (services/server_runs/etl.py): started —
+ * or the one already going on for its target followed — then waited for up to
+ * SERVER_RUN_WAIT_MS. The server records it in the pipeline's run history.
+ */
+async function runPipelineOnServer(
+  p: Pipeline, targetId: string, scripts: EtlNode[], paths: Map<string, string>,
+  ids: Parameters<typeof serverRoleSchemas>[0], roles: Record<string, string>, mappingData: Record<string, string>,
+  targetLabel: string,
+): Promise<ToolResult> {
+  const steps = scripts.map((file) => {
+    const dsId = scriptDatabaseId(file, p)
+    const runnable = !skipReason(file, dsId) && dsId && file.content
+    return {
+      fileId: file.id,
+      name: paths.get(file.id) ?? file.name,
+      sql: runnable ? resolveRolePrefixes(file.content!, serverRoleSchemas(ids, true, dsId!)) : null,
+    }
+  })
+  let run = await etl.startRun(targetId, { label: `ETL “${loc(p.name)}”`, pipelineId: p.id, roles, steps, mappingData })
+  if (run.state.pipelineId && run.state.pipelineId !== p.id) {
+    return failure(`Another pipeline is running on this target (run ${run.id}): one run per target database. Wait for it.`)
+  }
+  const until = Date.now() + SERVER_RUN_WAIT_MS
+  while (ACTIVE_RUN.has(run.status) && Date.now() < until) {
+    await new Promise((resolve) => setTimeout(resolve, SERVER_RUN_POLL_MS))
+    run = (await etl.latestRun(targetId)) ?? run
+  }
+  const report = (run.state.scripts ?? []).map((log) => {
+    const name = paths.get(log.fileId) ?? log.fileId
+    if (log.status === 'error') return `- ${name}: ERROR — ${clip(log.error ?? '', 2000)}`
+    if (log.status === 'success') return `- ${name}: success — ${log.output ?? ''}`
+    return `- ${name}: ${log.status}`
+  })
+  if (ACTIVE_RUN.has(run.status)) {
+    return text([
+      `Run ${run.id} is still going on, on the server, on target ${targetLabel}: it carries on without this call `
+        + '(see list_etl_runs, or the Pipeline tab).',
+      ...report,
+    ].join('\n'))
+  }
+  const failed = run.status !== 'done'
+  const out = runReport(run.id, failed, targetLabel, report)
+  if (failed && run.error) out.push(`Error: ${clip(run.error, 2000)}`)
   return { content: [{ type: 'text', text: out.join('\n') }], ...(failed ? { isError: true } : {}) }
 }
 
@@ -611,8 +681,9 @@ export function registerEtlTools(server: Server): void {
       'Run an ETL pipeline as the app\'s Run button does: its enabled SQL scripts in run order (or only the scripts '
       + 'given, even disabled ones), each against the pipeline\'s target, stopping at the first error; the run is '
       + 'recorded in the pipeline\'s run history. On a writable target this WRITES to that database (scripts often '
-      + 'drop and rebuild tables), and can overwrite or delete its data: ask the user before running. Waits for the '
-      + 'end; a single script over ~5 minutes exceeds the client timeout.',
+      + 'drop and rebuild tables), and can overwrite or delete its data: ask the user before running. On a writable '
+      + 'target the run is the server\'s, as in the app: this waits up to 4 minutes, then reports it still going on '
+      + '(it carries on; one run per target). Elsewhere it waits for the end.',
     annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{ pipeline_id: string; paths?: string[]; show_rows?: number; ignore_running?: boolean }>({
       type: 'object',

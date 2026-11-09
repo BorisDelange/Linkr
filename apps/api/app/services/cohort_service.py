@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from sqlalchemy import delete as sa_delete, select
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import has_permission, has_project_permission
@@ -74,12 +75,23 @@ async def update(db: AsyncSession, cohort: Cohort, data: CohortUpdate) -> Cohort
     return cohort
 
 
+# The server runs of a cohort keep its members' ids in their files: they go with it.
+_RUN_KINDS = ("cohort_run", "cohort_figures")
+
+
 async def delete(db: AsyncSession, cohort: Cohort) -> None:
+    from app.services.server_runs import runs
+
+    await runs.forget(db, _RUN_KINDS, [cohort.id])
     await db.delete(cohort)
     await db.commit()
 
 
 async def delete_for_project(db: AsyncSession, project_uid: str) -> None:
+    from app.services.server_runs import runs
+
+    ids = (await db.execute(select(Cohort.id).where(Cohort.project_uid == project_uid))).scalars().all()
+    await runs.forget(db, _RUN_KINDS, list(ids))
     await db.execute(sa_delete(Cohort).where(Cohort.project_uid == project_uid))
     await db.commit()
 

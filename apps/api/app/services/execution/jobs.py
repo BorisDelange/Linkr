@@ -14,16 +14,19 @@ reconciled to ``error`` at startup — the row survives, the process does not.
 import asyncio
 import contextlib
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import and_, delete, func, null, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import audit, deferred
 from app.config import settings
+from app.core import audit, deferred
 from app.core.database import async_session
 from app.core.redact import redact_secrets, scrub_row_values
 from app.models.job import Job
+from app.models.project import Project
 from app.models.user import User
 
 # Live tasks by job id, so cancel() can reach a running job's asyncio.Task.
@@ -66,6 +69,39 @@ QUERY_RESULTS_KIND = "query"
 OUTPUT_KINDS = ("run", "etl", "derive")
 
 
+@dataclass(frozen=True)
+class Entity:
+    """What a job is for, as the panel names it: `database`, `project`,
+    `vocabulary`… with its id and name."""
+
+    type: str
+    id: str
+    name: str
+
+
+# The entity the request works on, set where the route loads it
+# (`data_sources._load_source`): every job the request creates — each of its
+# queries, a job started by it — is that entity's. Tasks started from the
+# request carry it with them.
+current_entity: ContextVar[Entity | None] = ContextVar("job_entity", default=None)
+
+
+async def _entity_of(db: AsyncSession, entity: Entity | None, project_uid: str | None) -> Entity | None:
+    entity = entity or current_entity.get()
+    if entity is None and project_uid is not None:
+        project = await db.get(Project, project_uid)
+        if project is not None:
+            entity = Entity("project", project_uid, _name_of(project.name) or project_uid)
+    return entity
+
+
+def _name_of(name: object) -> str:
+    """A localized name in one language: English first, then any."""
+    if isinstance(name, dict):
+        return str(name.get("en") or next((v for v in name.values() if v), "") or "")
+    return str(name or "")
+
+
 async def create(
     db: AsyncSession,
     project_uid: str | None,
@@ -78,6 +114,7 @@ async def create(
     running: bool = False,
     group_key: str | None = None,
     group_label: str | None = None,
+    entity: Entity | None = None,
 ) -> Job:
     """A queued job owned by a project, or — `project_uid` None — by a workspace.
     `input`: what it runs (its SQL, its code), kept for the panel. `running`: it
@@ -86,6 +123,7 @@ async def create(
     named `group_label`."""
     if (project_uid is None) == (workspace_id is None):
         raise ValueError("a job belongs to exactly one project or one workspace")
+    entity = await _entity_of(db, entity, project_uid)
     job = Job(
         project_uid=project_uid,
         workspace_id=workspace_id,
@@ -97,6 +135,9 @@ async def create(
         input=capped_input(input),
         group_key=group_key or None,
         group_label=(group_label or None) if group_key else None,
+        entity_type=entity.type if entity else None,
+        entity_id=entity.id[:64] if entity else None,
+        entity_name=entity.name[:255] if entity else None,
     )
     db.add(job)
     await db.commit()
@@ -214,6 +255,68 @@ async def tracked(
     await _set(job.id, status="done", progress=100)
 
 
+# A read past this many seconds becomes a job of the panel (`tracked_if_slow`).
+SLOW_SECONDS = 2.0
+
+
+class LateJob:
+    """A `tracked_if_slow` request's job, once it has one, and what it says."""
+
+    def __init__(self) -> None:
+        self.job_id: str | None = None
+        self.summary: str | None = None
+
+    def note(self, text: str) -> None:
+        self.summary = text
+
+
+@asynccontextmanager
+async def tracked_if_slow(
+    user_id: int, label: str, *, project_uid: str | None = None, workspace_id: str | None = None,
+    after: float | None = None,
+):
+    """As `tracked`, for a read that is nearly always instant (a database's
+    tables, asked by every view that opens it): a job only once it has run
+    `after` seconds — the panel shows one that hangs, not each of the dozens
+    that answered at once."""
+    late = LateJob()
+    if project_uid is None and workspace_id is None:
+        yield late
+        return
+    past = asyncio.Event()
+
+    async def record() -> None:
+        await asyncio.sleep(SLOW_SECONDS if after is None else after)
+        past.set()
+        async with async_session() as db:
+            job = await create(db, project_uid, user_id, QUERY_KIND, label, workspace_id=workspace_id, running=True)
+        late.job_id = job.id
+
+    timer = asyncio.create_task(record())
+
+    async def settle() -> str | None:
+        # Past its sleep, the job is being written: waited for, not cut off.
+        if past.is_set():
+            await asyncio.gather(timer, return_exceptions=True)
+        else:
+            timer.cancel()
+            await asyncio.gather(timer, return_exceptions=True)
+        return late.job_id
+
+    try:
+        yield late
+    except asyncio.CancelledError:
+        if job_id := await settle():
+            await _set(job_id, status="cancelled")
+        raise
+    except Exception as e:
+        if job_id := await settle():
+            await _set(job_id, status="error", log_tail=scrub_row_values(str(e))[-4000:])
+        raise
+    if job_id := await settle():
+        await _set(job_id, status="done", progress=100, **({"log_tail": late.summary} if late.summary else {}))
+
+
 async def note(job_id: str, text: str) -> None:
     """A job's one-line outcome, as its output."""
     await _set(job_id, log_tail=redact_secrets(text)[-4000:])
@@ -295,6 +398,10 @@ class JobHandle:
     async def progress(self, pct: int) -> None:
         await _set(self.job_id, progress=max(0, min(100, pct)))
 
+    async def set_input(self, text: str) -> None:
+        """What the job runs now, for a job going through many queries."""
+        await _set(self.job_id, input=capped_input(text))
+
     async def set_result(self, result: dict) -> None:
         """`error`/`errors` carry a driver's text, kept to what a log may hold."""
         if isinstance(result.get("error"), str):
@@ -370,8 +477,19 @@ async def cancel(db: AsyncSession, job: Job) -> bool:
     """Cancel a live job. Returns False if it already finished (nothing to do)."""
     if not is_running(job.id):
         return False
-    _tasks[job.id].cancel()
+    task = _tasks[job.id]
+    _stopping.add(job.id)
+    task.add_done_callback(lambda _: _stopping.discard(job.id))
+    task.cancel()
     return True
+
+
+# Jobs cancelled and still running: their query in flight takes its time to stop.
+_stopping: set[str] = set()
+
+
+def is_stopping(job_id: str) -> bool:
+    return job_id in _stopping and is_running(job_id)
 
 
 # What the panel lists: its last rows, a group counting as one; and the most

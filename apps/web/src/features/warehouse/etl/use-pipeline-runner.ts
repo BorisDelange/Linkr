@@ -1,9 +1,12 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { resolveRolePrefixes, usedRoles } from '@/lib/duckdb/role-prefix'
-import { RunAbortedError, runPipelineSql } from './run-pipeline-sql'
+import { useServerRun } from '@/hooks/use-server-run'
+import { ACTIVE_RUN_STATUSES } from '@/lib/api/server-runs'
+import type { EtlRunState, EtlRunStep } from '@/lib/api/etl-runs'
+import { RunAbortedError, compileEtlRunSpec, runPipelineSql, serverStreamTarget } from './run-pipeline-sql'
 import { mappingExportNameOf } from '@/lib/duckdb/mapping-source'
 import { treeNodePath } from '@/lib/entity-tree'
 import { formatDuration } from '@/lib/format-helpers'
@@ -19,6 +22,47 @@ interface RunnerOptions {
 }
 
 /**
+ * Server mode with a managed target: the store mirrors the pipeline's run, and
+ * its Pause and Stop go to the server. Held by the pipeline's page, not by a tab:
+ * a run that ends while another tab shows — the Quality check — must still
+ * leave the store, or the target reads as held for writing for good.
+ */
+export function useEtlServerRunMirror(pipeline: EtlPipeline | undefined) {
+  const { dataSourceIdOf } = useRoleSchemas(pipeline)
+  // Selected from the store, so a target that loads or turns managed is seen.
+  const serverTarget = useDataSourceStore(() => serverStreamTarget(pipeline))
+  const serverRun = useServerRun<EtlRunState>('etl', serverTarget, !!serverTarget)
+  const { pause: pauseServer, cancel: cancelServer } = serverRun
+  useEffect(() => {
+    if (!serverTarget) return
+    const driver = {
+      pause: () => void pauseServer().catch(() => {}),
+      cancel: () => void cancelServer().catch(() => {}),
+    }
+    useEtlStore.getState().setServerDriver(driver)
+    return () => {
+      if (useEtlStore.getState().serverDriver === driver) useEtlStore.getState().setServerDriver(null)
+    }
+  }, [serverTarget, pauseServer, cancelServer])
+  // A script's writes leave the patient rows kept for the session behind: once
+  // the run ends, they are read again.
+  const wasLive = useRef(false)
+  useEffect(() => {
+    const run = serverRun.run
+    useEtlStore.getState().mirrorServerRun(run)
+    const live = !!run && ACTIVE_RUN_STATUSES.includes(run.status)
+    if (wasLive.current && !live && serverTarget) {
+      clearPatientQueries(serverTarget)
+      for (const role of ['source', 'vocab'] as const) {
+        const roleId = dataSourceIdOf(role)
+        if (roleId) clearPatientQueries(roleId)
+      }
+    }
+    wasLive.current = live
+  }, [serverRun.run, serverTarget, dataSourceIdOf])
+}
+
+/**
  * Run a pipeline's scripts, reporting progress through the ETL store.
  *
  * Shared by the Pipeline and Scripts tabs: the Scripts tab used to run its own
@@ -31,6 +75,10 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
   const { t } = useTranslation()
   const pipelineRunning = useEtlStore((s) => s.pipelineRunning)
   const { roleSchemasFor, dataSourceIdOf } = useRoleSchemas(pipeline)
+  // Server mode with a managed target: the pipeline runs on the server, whatever
+  // becomes of this page. The page mirrors the run (`useEtlServerRunMirror`).
+  const serverTarget = useDataSourceStore(() => serverStreamTarget(pipeline))
+  const serverRun = useServerRun<EtlRunState>('etl', serverTarget, !!serverTarget)
 
   /**
    * CSV text of the `mapping.` exports this pipeline holds, keyed by export name.
@@ -74,6 +122,26 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
         error: t('etl.run_foreign_database'),
       })
       onScriptError?.(offending.id)
+      return
+    }
+    if (serverTarget) {
+      // Compiled now, run there: the scripts as they would run here, in order.
+      const steps: EtlRunStep[] = files.map((file) => {
+        const dsId = file.dataSourceId ?? pipeline.targetDataSourceId ?? pipeline.sourceDataSourceId
+        const sql = !file.disabled && file.content && dsId ? resolveRolePrefixes(file.content, roleSchemasFor(dsId)) : null
+        return { fileId: file.id, name: file.name, sql }
+      })
+      const spec = await compileEtlRunSpec(pipeline, serverTarget, steps, mappingDataFor())
+      const waiting = useEtlStore.getState().pausedRun
+      try {
+        if (options.resume && waiting && waiting.runId === serverRun.run?.id) await serverRun.resume(spec)
+        else await serverRun.start(spec)
+      } catch (err) {
+        useEtlStore.getState().setScriptStatus(files[0].id, {
+          id: `log-${files[0].id}-${Date.now()}`, pipelineId: pipeline.id, fileId: files[0].id,
+          status: 'error', error: err instanceof Error ? err.message : String(err),
+        })
+      }
       return
     }
     const store = useEtlStore.getState()
@@ -195,7 +263,7 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
     useEtlStore.getState().finishPipelineRun(
       hasError || abort?.signal.aborted ? 'error' : 'success',
     )
-  }, [pipeline, roleSchemasFor, dataSourceIdOf, mappingDataFor, onScriptError, hasForeignDatabase, t])
+  }, [pipeline, roleSchemasFor, dataSourceIdOf, mappingDataFor, onScriptError, hasForeignDatabase, t, serverTarget, serverRun])
 
   /**
    * Run one ad-hoc chunk of SQL (a file, a selection, a line) through the same

@@ -10,6 +10,8 @@
  * winding down (landing its last save) waits for it, then begins.
  */
 
+import { isPageLeaving } from '@/lib/page-leaving'
+
 export interface RunSnapshotBase {
   running: boolean
   error: string | null
@@ -111,7 +113,8 @@ export function createRunRegistry<I, S extends RunSnapshotBase>(opts: RunRegistr
     try {
       await opts.execute(input, controller.signal, emit)
     } catch (err) {
-      if (!controller.signal.aborted) {
+      // A page left aborts the requests in flight: not the run's failure.
+      if (!controller.signal.aborted && !isPageLeaving()) {
         const message = err instanceof Error ? err.message : String(err)
         emit({ error: message } as Partial<S>, true)
         try {

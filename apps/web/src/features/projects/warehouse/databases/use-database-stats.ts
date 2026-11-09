@@ -3,8 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
-import { computeDatabaseStats, statsJobName, streamTableCounts, type StatsPhase } from '@/lib/duckdb/database-stats'
-import { hasRememberedJob } from '@/lib/duckdb/run-query-job'
+import { computeDatabaseStats, statsRunScope, streamTableCounts, type StatsPhase } from '@/lib/duckdb/database-stats'
+import { ACTIVE_RUN_STATUSES, getLatestServerRun } from '@/lib/api/server-runs'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { localized } from '@/lib/localized'
 import type { DatabaseStatsCache, SchemaMapping } from '@/types'
@@ -180,13 +180,20 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
     void compute()
   }, [dataSourceId, compute])
 
-  // A computation a closed tab left on the server: follow it rather than lose it.
+  // A computation going on on the server — started before a reload, in another
+  // tab, by another member: follow it rather than start another.
   const resumed = useRef<string | null>(null)
   useEffect(() => {
     if (!isServerMode() || !cacheLoaded || resumed.current === dataSourceId || _inFlight.has(dataSourceId)) return
     resumed.current = dataSourceId
-    if (hasRememberedJob(statsJobName(dataSourceId, 'stats'))) void compute('stats')
-    else if (hasRememberedJob(statsJobName(dataSourceId, 'counts'))) void compute('counts')
+    const going = async (phase: StatsPhase) => {
+      const run = await getLatestServerRun('database_stats', statsRunScope(dataSourceId, phase)).catch(() => null)
+      return !!run && ACTIVE_RUN_STATUSES.includes(run.status)
+    }
+    void (async () => {
+      if (await going('stats')) void compute('stats')
+      else if (await going('counts')) void compute('counts')
+    })()
   }, [cacheLoaded, dataSourceId, compute])
 
   /** Stop the refresh: the queries in flight are cancelled (server mode
