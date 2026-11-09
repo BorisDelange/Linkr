@@ -349,7 +349,7 @@ async function runPipelineOnServer(
       sql: runnable ? resolveRolePrefixes(file.content!, serverRoleSchemas(ids, true, dsId!)) : null,
     }
   })
-  let run = await etl.startRun(targetId, { label: `ETL “${loc(p.name)}”`, pipelineId: p.id, roles, steps, mappingData })
+  let run = await etl.startRun(targetId, { label: `Pipeline “${loc(p.name)}” · Run`, pipelineId: p.id, roles, steps, mappingData })
   if (run.state.pipelineId && run.state.pipelineId !== p.id) {
     return failure(`Another pipeline is running on this target (run ${run.id}): one run per target database. Wait for it.`)
   }

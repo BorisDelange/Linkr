@@ -730,8 +730,8 @@
     "profiles_stale_other": "{{count}} computed on data that has changed since",
     "profiles_share_hint": "The percentage counts rows, not concepts: what each concept costs to compute. The largest concepts come first, so it runs ahead of the count of concepts.",
     "profiles_eta_hint": "The time left is estimated from the batches done so far, each batch costing a scan of its table plus its rows.",
-    "profiles_job_label": "Concept statistics “{{name}}”",
-    "run_job_label": "Concept counts and statistics “{{name}}”",
+    "profiles_job_label": "Database “{{name}}” · Concept statistics",
+    "run_job_label": "Database “{{name}}” · Concept counts and statistics",
     "profiles_up_to_date": "Up to date with the data",
     "profiles_check": "Check the data",
     "profiles_sections": "What to compute for each concept",
@@ -740,7 +740,7 @@
   },
   "databases": {
     "count_tables_job": "Count the tables",
-    "stats_job": "Statistics of database “{{name}}”",
+    "stats_job": "Database “{{name}}” · Statistics",
     "error_file_missing": "The database « {{name}} » cannot be read: its file is no longer where it was (moved or deleted). Check its connection on the Databases page.",
     "detail_cohorts": "Cohorts",
     "location": "Location",
@@ -1049,7 +1049,7 @@
     "no_results": "No scan results yet",
     "no_results_description": "Click \"Run Scan\" to analyze data quality across all tables.",
     "stop_scan": "Stop",
-    "job_label": "Data quality “{{name}}”",
+    "job_label": "Rule set “{{name}}” · Checks",
     "run_scan": "Run Scan",
     "scanning": "Scanning...",
     "score": "Score",
@@ -1278,9 +1278,9 @@
     "delete_other_group_confirm": "Delete the {{count}} check(s) of \"{{name}}\"? This cannot be undone."
   },
   "cohorts": {
-    "run_job": "Cohort “{{name}}”",
-    "figures_job": "Statistics of cohort “{{name}}”",
-    "report_job": "Report of cohort “{{name}}”",
+    "run_job": "Cohort “{{name}}” · Run",
+    "figures_job": "Cohort “{{name}}” · Statistics",
+    "report_job": "Cohort “{{name}}” · Report figures",
     "results_patients": "Patients",
     "patients_widget_paused": "Paused until the cohort runs.",
     "patients_not_run": "The cohort has not run: its widgets are paused, and can still be moved, edited or removed.",
@@ -4065,6 +4065,7 @@
     "group_count_other": "{{count}} jobs",
     "burst_one": "{{count}} job",
     "burst_other": "{{count}} jobs sent together",
+    "burst_queries": "Queries",
     "cancel_group": "Stop all its jobs",
     "cancel_failed": "Could not stop the job: {{error}}",
     "stop": "Stop",
@@ -4106,7 +4107,9 @@
     "fact_action": "Action",
     "fact_jobs": "Jobs",
     "fact_status": "Status",
-    "fact_started": "Started"
+    "fact_started": "Started",
+    "fact_ended": "Ended",
+    "fact_duration": "Duration"
   },
   "server": {
     "title": "System Monitor",
@@ -4580,7 +4583,7 @@
   },
   "etl": {
     "run_foreign_database": "This pipeline points at a database of another workspace, so it cannot run. Choose a database of this workspace.",
-    "run_job": "ETL “{{name}}”",
+    "run_job": "Pipeline “{{name}}” · Run",
     "gen_warn_table_not_in_ddl": "{{table}} is not in the target's DDL: only the columns its mapping names are written.",
     "gen_warn_no_target_relation": "The target schema does not say where {{relation}} goes (no visual relation): not written.",
     "gen_warn_invalid_relation": "Not written: the schema of {{relation}} holds a table name or SQL fragment that does not fit in one statement.",
@@ -5616,7 +5619,7 @@
     "extract_restart": "Start over",
     "extract_restart_title": "Start the extraction over?",
     "extract_restart_description": "Everything extracted so far is discarded and the concepts are profiled again from the beginning. The mappings you have already made are not affected.",
-    "extract_job_label": "Concept extraction “{{name}}”",
+    "extract_job_label": "Mapping project “{{name}}” · Concept extraction",
     "extract_settings_changed": "These settings differ from the paused extraction's, which resumes only as it started. Start over to apply them, or set them back to resume.",
     "extract_paused": "Paused at {{date}}",
     "extract_complete": "Completed on {{date}}",
@@ -5811,7 +5814,7 @@
     "extract_newer_profiles": "The database has newer concept profiles than this extraction",
     "extract_newer_profiles_hint": "Computed since, from its Concepts tab or another project. Updating reads them under this project's thresholds — only what they lack is computed.",
     "extract_newer_profiles_update": "Update",
-    "extract_job_group": "Mapping project “{{name}}” · source concepts"
+    "extract_job_group": "Mapping project “{{name}}” · Source concepts"
   },
   "data_catalog": {
     "pages_hint_github": "In the repository, set Settings › Pages › Source to \"GitHub Actions\" once.",
@@ -5895,8 +5898,8 @@
     "threshold": "Threshold",
     "threshold_hint": "minimum patients per row",
     "compute": "Compute catalog",
-    "run_label": "Data catalog “{{name}}”: computation",
-    "estimate_label": "Data catalog “{{name}}”: size estimate",
+    "run_label": "Catalog “{{name}}” · Computation",
+    "estimate_label": "Catalog “{{name}}” · Size estimate",
     "computing": "Computing...",
     "step_building": "Building SQL query…",
     "step_executing": "Executing query…",
@@ -5945,7 +5948,7 @@
     "audit_stop": "Stop",
     "audit_resume": "Resume",
     "audit_paused": "Paused at {{done}} of {{total}} systems solved",
-    "audit_run_label": "Data catalog “{{name}}”: disclosure audit",
+    "audit_run_label": "Catalog “{{name}}” · Disclosure audit",
     "audit_progress": "{{done}} of {{total}} systems solved",
     "audit_preparing": "Building the published tables…",
     "audit_not_run": "Not run yet on these results.",

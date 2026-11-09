@@ -25,15 +25,15 @@ export interface JobEntity {
 
 /** How the panel words what a row is for. */
 export interface JobNames {
-  /** "Database “test”". */
-  entity: (entity: JobEntity) => string
   /** A burst of jobs of no entity and several sections: "3 jobs sent together". */
   mixed: (count: number) => string
+  /** A burst of one entity's jobs of several sections: "Queries". */
+  queries: () => string
 }
 
 const PLAIN_NAMES: JobNames = {
-  entity: ({ type, name }) => (name ? `${type} “${name}”` : type),
   mixed: (count) => `${count} jobs`,
+  queries: () => 'Queries',
 }
 
 /** The entity a job is for, if it says. */
@@ -43,8 +43,11 @@ export function entityOf(job: Job): JobEntity | null {
 
 const entityKey = (job: Job) => (job.entityType ? `${job.entityType}:${job.entityId ?? ''}` : '')
 
-/** The part of a label before ` · ` ("Concepts" of "Concepts · count records"). */
-const sectionOf = (label: string) => (label.includes(' · ') ? label.split(' · ')[0] : null)
+/** The part of what a job does before ` · ` ("Concepts" of "Concepts · count records"). */
+const sectionOf = (job: Job) => {
+  const { action } = splitEntityHead(job.label, entityOf(job))
+  return action.includes(' · ') ? action.split(' · ')[0] : null
+}
 
 export type JobRow = { job: Job } | { group: JobGroupRow }
 
@@ -66,15 +69,14 @@ const latest = (values: (string | null | undefined)[]) =>
  *  (a page opening, a concept clicked): one row. */
 const BURST_MS = 2000
 
-/** What a burst is called: its entity, with the section its jobs share
- *  ("Database “test” · Concepts"); without an entity, that section, else `mixed`. */
+/** What a burst does: the section its jobs share ("Concepts" — the panel names
+ *  the entity before it, as for every row), else `queries`; without an entity,
+ *  that section, else `mixed`. */
 function burstLabel(jobs: Job[], names: JobNames): string {
-  const sections = new Set(jobs.map((j) => sectionOf(j.label)))
+  const sections = new Set(jobs.map(sectionOf))
   const section = sections.size === 1 ? [...sections][0] : null
-  const entity = entityOf(jobs[0])
-  if (!entity) return section ?? names.mixed(jobs.length)
-  const named = names.entity(entity)
-  return section && section !== entity.name ? `${named} · ${section}` : named
+  if (section) return section
+  return entityOf(jobs[0]) ? names.queries() : names.mixed(jobs.length)
 }
 
 /** Each job's group: its own, else the burst it was sent in. */
@@ -144,3 +146,18 @@ export function groupJobs(jobs: readonly Job[], names: JobNames = PLAIN_NAMES): 
   }
   return rows
 }
+
+/**
+ * A label's "what it is for" and what the job does: the entity the label starts
+ * by naming — `Database “test” · ` of `Database “test” · Patient list`, French
+ * quotes alike —, else the bare name of the job's entity it starts with (`test · `,
+ * as the server labels a database's queries). No head when it names neither.
+ */
+export function splitEntityHead(label: string, entity: JobEntity | null = null): { head: string; action: string } {
+  const named = /^([^·“«]*[“«][^”»]*[”»]) · /.exec(label)
+  if (named) return { head: named[0], action: label.slice(named[0].length) }
+  const bare = entity?.name ? `${entity.name} · ` : null
+  if (bare && label.startsWith(bare)) return { head: bare, action: label.slice(bare.length) }
+  return { head: '', action: label }
+}
+

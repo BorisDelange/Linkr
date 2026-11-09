@@ -26,7 +26,7 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { clearLoggedQueries, stopLoggedQuery } from '@/lib/duckdb/query-log'
 import { QUERY_KIND, useLocalQueries } from './use-query-log'
-import { entityOf, groupJobs, type JobEntity, type JobGroupRow, type JobNames } from './job-groups'
+import { entityOf, groupJobs, splitEntityHead, type JobEntity, type JobGroupRow, type JobNames } from './job-groups'
 import type { TFunction } from 'i18next'
 
 const ACTIVE = new Set(['queued', 'running'])
@@ -168,8 +168,8 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
 
   const listed = server ? jobs : localQueries
   const names = useMemo<JobNames>(() => ({
-    entity: (entity) => entityLabel(t, entity),
     mixed: (count) => t('jobs.burst', { count }),
+    queries: () => t('jobs.burst_queries'),
   }), [t])
   const rows = useMemo(() => groupJobs(listed, names), [listed, names])
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set())
@@ -239,8 +239,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
 
   const hasFinished = listed.some((j) => !ACTIVE.has(j.status))
 
-  // `named`: the group row above already names its entity.
-  const renderJob = (job: Job, named = false) => (
+  const renderJob = (job: Job) => (
     <li key={job.id} className="flex items-center justify-between gap-2 rounded px-1.5 py-1 hover:bg-muted/50">
       {/* Click the row to open the full log in a modal. */}
       <button
@@ -257,12 +256,11 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="min-w-0 truncate py-px leading-normal">
-              {!named && <EntityPrefix entity={entityOf(job)} label={job.label} />}
-              {job.label}
+              <JobLabel entity={entityOf(job)} label={job.label} />
             </span>
           </TooltipTrigger>
           <TooltipContent side="top" sideOffset={4} className="max-w-96">
-            <JobFacts entity={entityOf(job)} action={job.label} status={job.status} createdAt={job.createdAt} />
+            <JobFacts entity={entityOf(job)} label={job.label} job={job} />
           </TooltipContent>
         </Tooltip>
         {job.kind === QUERY_KIND && job.status === 'done' && (
@@ -410,18 +408,11 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <span className="min-w-0 truncate py-px font-medium leading-normal">
-                          <EntityPrefix entity={row.group.entity} label={row.group.label} />
-                          {row.group.label}
+                          <JobLabel entity={row.group.entity} label={row.group.label} />
                         </span>
                       </TooltipTrigger>
                       <TooltipContent side="top" sideOffset={4} className="max-w-96">
-                        <JobFacts
-                          entity={row.group.entity}
-                          action={row.group.label}
-                          status={row.group.status}
-                          createdAt={row.group.createdAt}
-                          jobs={row.group.jobs.length}
-                        />
+                        <JobFacts entity={row.group.entity} label={row.group.label} job={row.group} jobs={row.group.jobs.length} />
                       </TooltipContent>
                     </Tooltip>
                     <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
@@ -453,7 +444,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
                 </div>
                 {openGroups.has(row.group.key) && (
                   <ul className="ml-3 flex flex-col gap-1 border-l pl-1">
-                    {row.group.jobs.map((job) => renderJob(job, !!row.group.entity))}
+                    {row.group.jobs.map((job) => renderJob(job))}
                   </ul>
                 )}
               </li>
@@ -557,7 +548,7 @@ function InstanceJobList({ jobs, onCancel, stopping }: {
               {formatJobTime(job.createdAt)}
             </span>
             <span className="flex shrink-0"><JobStatusIcon status={job.status} /></span>
-            <span className="min-w-0 flex-1 truncate py-px leading-normal" title={job.label}>{job.label}</span>
+            <span className="min-w-0 flex-1 truncate py-px leading-normal" title={job.label}><JobLabel entity={entityOf(job)} label={job.label} /></span>
             <span className="shrink-0 text-[10px] text-muted-foreground">{job.username ?? '—'}</span>
             <JobDuration job={job} className="shrink-0 text-[10px] text-muted-foreground" />
             {job.cancellable !== false && (
@@ -584,31 +575,41 @@ function entityLabel(t: TFunction, entity: JobEntity): string {
   return entity.name ? t('jobs.entity_label', { type, name: entity.name }) : type
 }
 
-/** What the entity is, before a label that does not say it ("Database “test” · "
- *  before "Concepts · count records of 5"): every row says what it is for. */
-function EntityPrefix({ entity, label }: { entity: JobEntity | null; label: string }) {
+/** A job's label, always `Type “name” · what it does`, what it is for in grey:
+ *  the entity the label starts by naming, else the job's entity. */
+function JobLabel({ entity, label }: { entity: JobEntity | null; label: string }) {
   const { t } = useTranslation()
-  if (!entity) return null
-  if (entity.name && label.includes(entity.name)) return null
-  return <span className="text-muted-foreground">{entityLabel(t, entity)} · </span>
+  const { head, action } = splitEntityHead(label, entity)
+  const prefix = entity && !/[“«]/.test(head) ? `${entityLabel(t, entity)} · ` : head
+  return (
+    <>
+      {prefix && <span className="text-muted-foreground">{prefix}</span>}
+      {action}
+    </>
+  )
 }
 
 /** A row on hover: what it is for, what it does, how it stands, since when. */
-function JobFacts({ entity, action, status, createdAt, jobs }: {
+function JobFacts({ entity, label, job, jobs }: {
   entity: JobEntity | null
-  action: string
-  status: Job['status']
-  createdAt: string
+  label: string
+  job: Pick<Job, 'status' | 'createdAt' | 'startedAt' | 'finishedAt'>
   jobs?: number
 }) {
   const { t, i18n } = useTranslation()
+  const at = (iso: string) => new Date(iso).toLocaleString(i18n.language)
+  const { action } = splitEntityHead(label, entity)
   const facts: [string, string][] = [
     ...(entity ? [[t('jobs.fact_type'), t(`jobs.entity_types.${entity.type}`, { defaultValue: entity.type })] as [string, string]] : []),
     ...(entity?.name ? [[t('jobs.fact_name'), entity.name] as [string, string]] : []),
     [t('jobs.fact_action'), action],
     ...(jobs ? [[t('jobs.fact_jobs'), String(jobs)] as [string, string]] : []),
-    [t('jobs.fact_status'), t(`jobs.status.${status}`)],
-    [t('jobs.fact_started'), new Date(createdAt).toLocaleString(i18n.language)],
+    [t('jobs.fact_status'), t(`jobs.status.${job.status}`)],
+    [t('jobs.fact_started'), at(job.createdAt)],
+    ...(job.finishedAt ? [[t('jobs.fact_ended'), at(job.finishedAt)] as [string, string]] : []),
+    ...(job.finishedAt && job.startedAt
+      ? [[t('jobs.fact_duration'), formatDuration(Math.max(0, Date.parse(job.finishedAt) - Date.parse(job.startedAt)))] as [string, string]]
+      : []),
   ]
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">

@@ -730,8 +730,8 @@
     "profiles_stale_other": "{{count}} calculés sur des données modifiées depuis",
     "profiles_share_hint": "Le pourcentage compte des lignes, pas des concepts : ce que chaque concept coûte à calculer. Les concepts les plus volumineux passent en premier, il avance donc plus vite que le nombre de concepts.",
     "profiles_eta_hint": "Le temps restant est estimé d’après les lots déjà faits, chaque lot coûtant une lecture de sa table plus ses lignes.",
-    "profiles_job_label": "Statistiques des concepts « {{name}} »",
-    "run_job_label": "Comptages et statistiques des concepts « {{name}} »",
+    "profiles_job_label": "Base « {{name}} » · Statistiques des concepts",
+    "run_job_label": "Base « {{name}} » · Comptages et statistiques des concepts",
     "profiles_up_to_date": "À jour avec les données",
     "profiles_check": "Vérifier les données",
     "profiles_sections": "Ce qu’il faut calculer pour chaque concept",
@@ -740,7 +740,7 @@
   },
   "databases": {
     "count_tables_job": "Compter les tables",
-    "stats_job": "Statistiques de la base « {{name}} »",
+    "stats_job": "Base « {{name}} » · Statistiques",
     "error_file_missing": "La base « {{name}} » ne peut pas être lue : son fichier n'est plus à l'emplacement indiqué (déplacé ou supprimé). Vérifiez sa connexion dans la page Bases de données.",
     "detail_cohorts": "Cohortes",
     "location": "Emplacement",
@@ -1049,7 +1049,7 @@
     "no_results": "Aucun résultat de scan",
     "no_results_description": "Cliquez sur « Lancer le scan » pour analyser la qualité des données.",
     "stop_scan": "Arrêter",
-    "job_label": "Qualité des données « {{name}} »",
+    "job_label": "Jeu de règles « {{name}} » · Contrôles",
     "run_scan": "Lancer le scan",
     "scanning": "Scan en cours...",
     "score": "Score",
@@ -1278,9 +1278,9 @@
     "delete_other_group_confirm": "Supprimer les {{count}} contrôle(s) de « {{name}} » ? Cette action est irréversible."
   },
   "cohorts": {
-    "run_job": "Cohorte « {{name}} »",
-    "figures_job": "Statistiques de la cohorte « {{name}} »",
-    "report_job": "Rapport de la cohorte « {{name}} »",
+    "run_job": "Cohorte « {{name}} » · Exécution",
+    "figures_job": "Cohorte « {{name}} » · Statistiques",
+    "report_job": "Cohorte « {{name}} » · Chiffres du rapport",
     "results_patients": "Patients",
     "patients_widget_paused": "En pause tant que la cohorte n'a pas été exécutée.",
     "patients_not_run": "La cohorte n'a pas été exécutée : ses widgets sont en pause, et peuvent toujours être déplacés, modifiés ou supprimés.",
@@ -4065,6 +4065,7 @@
     "group_count_other": "{{count}} tâches",
     "burst_one": "{{count}} job",
     "burst_other": "{{count}} jobs lancés ensemble",
+    "burst_queries": "Requêtes",
     "cancel_group": "Interrompre toutes ses tâches",
     "cancel_failed": "Impossible d'interrompre la tâche : {{error}}",
     "stop": "Arrêter",
@@ -4106,7 +4107,9 @@
     "fact_action": "Action",
     "fact_jobs": "Jobs",
     "fact_status": "Statut",
-    "fact_started": "Lancé"
+    "fact_started": "Lancé",
+    "fact_ended": "Terminé",
+    "fact_duration": "Durée"
   },
   "server": {
     "title": "Moniteur système",
@@ -4580,7 +4583,7 @@
   },
   "etl": {
     "run_foreign_database": "Ce pipeline pointe vers une base de données d’un autre espace de travail : il ne peut donc pas s’exécuter. Choisissez une base de données de cet espace.",
-    "run_job": "ETL « {{name}} »",
+    "run_job": "Pipeline « {{name}} » · Exécution",
     "gen_warn_table_not_in_ddl": "{{table}} n'est pas dans la DDL de la cible : seules les colonnes que son mapping nomme sont écrites.",
     "gen_warn_no_target_relation": "Le schéma cible ne dit pas où va {{relation}} (pas de relation visuelle) : non écrit.",
     "gen_warn_invalid_relation": "Non écrit : le schéma de {{relation}} contient un nom de table ou un fragment SQL qui ne tient pas dans une seule instruction.",
@@ -5616,7 +5619,7 @@
     "extract_restart": "Tout recommencer",
     "extract_restart_title": "Recommencer l'extraction ?",
     "extract_restart_description": "Tout ce qui a été extrait jusqu'ici est abandonné et les concepts sont profilés à nouveau depuis le début. Les alignements déjà réalisés ne sont pas touchés.",
-    "extract_job_label": "Extraction des concepts « {{name}} »",
+    "extract_job_label": "Projet de mapping « {{name}} » · Extraction des concepts",
     "extract_settings_changed": "Ces réglages diffèrent de ceux de l’extraction en pause, qui ne reprend qu’à l’identique. Recommencez pour les appliquer, ou remettez-les pour reprendre.",
     "extract_paused": "Interrompue le {{date}}",
     "extract_complete": "Terminée le {{date}}",
@@ -5811,7 +5814,7 @@
     "extract_newer_profiles": "La base a des profils de concepts plus récents que cette extraction",
     "extract_newer_profiles_hint": "Calculés depuis, dans son onglet Concepts ou par un autre projet. La mise à jour les lit avec les seuils de ce projet ; seul ce qui leur manque est calculé.",
     "extract_newer_profiles_update": "Mettre à jour",
-    "extract_job_group": "Projet de mapping « {{name}} » · concepts sources"
+    "extract_job_group": "Projet de mapping « {{name}} » · Concepts sources"
   },
   "data_catalog": {
     "pages_hint_github": "Dans le dépôt, réglez une fois Settings › Pages › Source sur « GitHub Actions ».",
@@ -5895,8 +5898,8 @@
     "threshold": "Seuil",
     "threshold_hint": "patients minimum par ligne",
     "compute": "Calculer le catalogue",
-    "run_label": "Catalogue « {{name}} » : calcul",
-    "estimate_label": "Catalogue « {{name}} » : estimation de la taille",
+    "run_label": "Catalogue « {{name}} » · Calcul",
+    "estimate_label": "Catalogue « {{name}} » · Estimation de la taille",
     "computing": "Calcul en cours...",
     "step_building": "Construction de la requête SQL…",
     "step_executing": "Exécution de la requête…",
@@ -5945,7 +5948,7 @@
     "audit_stop": "Arrêter",
     "audit_resume": "Reprendre",
     "audit_paused": "En pause à {{done}} systèmes résolus sur {{total}}",
-    "audit_run_label": "Catalogue « {{name}} » : audit de divulgation",
+    "audit_run_label": "Catalogue « {{name}} » · Audit de divulgation",
     "audit_progress": "{{done}} systèmes résolus sur {{total}}",
     "audit_preparing": "Construction des tables publiées…",
     "audit_not_run": "Pas encore lancé sur ces résultats.",

@@ -554,7 +554,7 @@ export function registerWikiTools(server: Server): void {
       } else {
         const mapping = ds.schemaMapping
         const spec = await compileCatalogRunSpec(catalog, mapping, {
-          label: `Data catalog “${loc(catalog.name)}”: computation`,
+          label: `Catalog “${loc(catalog.name)}” · Computation`,
           fresh: !!restart || !paused,
           prepare: (sql) => injectClassRelations(sql, mapping),
         })

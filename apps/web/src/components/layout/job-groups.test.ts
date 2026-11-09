@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Job } from '@/lib/api/environments'
-import { groupJobs } from './job-groups'
+import { splitEntityHead, groupJobs } from './job-groups'
 
 function job(id: string, over: Partial<Job> = {}): Job {
   return {
@@ -58,7 +58,7 @@ describe('groupJobs, jobs sent together', () => {
   it('names a burst of several sections by its count', () => {
     const rows = groupJobs(
       [job('2', { label: 'test · tables' }), job('1', { label: 'Databases · patient count' })],
-      { entity: ({ name }) => name, mixed: (n) => `${n} together` },
+      { mixed: (n) => `${n} together`, queries: () => 'Queries' },
     )
     expect('group' in rows[0] && rows[0].group.label).toBe('2 together')
   })
@@ -78,21 +78,29 @@ describe('groupJobs, jobs sent together', () => {
 describe('groupJobs, by what the jobs are for', () => {
   const db = (name: string, id = name) => ({ entityType: 'database', entityId: id, entityName: name })
 
-  it('names a burst by its entity, and the section its jobs share', () => {
+  it('names a burst by the section its jobs share, its entity beside', () => {
     const rows = groupJobs([
       job('2', { label: 'Concepts · value histogram of 1', ...db('test') }),
       job('1', { label: 'Concepts · count records of 1', ...db('test') }),
     ])
-    expect('group' in rows[0] && rows[0].group.label).toBe('database “test” · Concepts')
+    expect('group' in rows[0] && rows[0].group.label).toBe('Concepts')
     expect('group' in rows[0] && rows[0].group.entity).toEqual({ type: 'database', id: 'test', name: 'test' })
   })
 
-  it('does not repeat the entity its labels already name', () => {
+  it('reads the section past the entity its labels start by naming', () => {
+    const rows = groupJobs([
+      job('2', { label: 'Database “test” · Patient list · patient count', ...db('test') }),
+      job('1', { label: 'Database “test” · Patient list · one page of patients', ...db('test') }),
+    ])
+    expect('group' in rows[0] && rows[0].group.label).toBe('Patient list')
+  })
+
+  it('calls the jobs of one entity sharing no section its queries', () => {
     const rows = groupJobs([
       job('2', { label: 'test · patient count', ...db('test') }),
       job('1', { label: 'test · list its tables and columns', ...db('test') }),
     ])
-    expect('group' in rows[0] && rows[0].group.label).toBe('database “test”')
+    expect('group' in rows[0] && rows[0].group.label).toBe('Queries')
   })
 
   it('keeps the jobs of two databases sent together apart', () => {
@@ -110,3 +118,22 @@ describe('groupJobs, by what the jobs are for', () => {
     expect('group' in rows[0] && rows[0].group.entity).toBeNull()
   })
 })
+
+describe('splitEntityHead', () => {
+  it('takes the entity a label starts by naming', () => {
+    expect(splitEntityHead('Database “test” · Patient list · one page')).toEqual({ head: 'Database “test” · ', action: 'Patient list · one page' })
+    expect(splitEntityHead('Cohorte « test » · membres')).toEqual({ head: 'Cohorte « test » · ', action: 'membres' })
+  })
+
+  it("takes the bare name of the job's entity a server label starts with", () => {
+    const entity = { type: 'database', id: 'd', name: 'Test' }
+    expect(splitEntityHead('Test · patient count', entity)).toEqual({ head: 'Test · ', action: 'patient count' })
+    expect(splitEntityHead('Test · patient count')).toEqual({ head: '', action: 'Test · patient count' })
+  })
+
+  it('leaves a label that names no entity first whole', () => {
+    expect(splitEntityHead('Statistics of database “test”')).toEqual({ head: '', action: 'Statistics of database “test”' })
+    expect(splitEntityHead('Patient list · one page of patients')).toEqual({ head: '', action: 'Patient list · one page of patients' })
+  })
+})
+
