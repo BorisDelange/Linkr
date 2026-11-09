@@ -353,7 +353,7 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
       {/* Not loaded: nothing to list, so the page is the choice of what to load. */}
       {notLoaded && !running && (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-2">
-          <Card className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
+          <Card className="flex w-full flex-col gap-6 p-6">
             <div className="flex items-start gap-3">
               <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-warning/15">
                 <AlertTriangle size={18} className="text-warning" />
@@ -475,6 +475,8 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
                   error={concepts.detailError}
                   statsDeferred={concepts.conceptStatsDeferred}
                   onLoadStats={concepts.loadSelectedStats}
+                  // Its queries would contend with the run's on the same database.
+                  loadStatsBlocked={running ? t('concepts.stats_load_busy') : null}
                   hasValueColumn={hasValueColumn}
                   excludeOutliers={concepts.excludeOutliers}
                   statsEnabled={concepts.statsEnabled}

@@ -29,6 +29,8 @@ interface ConceptDetailProps {
   /** The stats are not known without a query on the source, and this computes them. */
   statsDeferred?: boolean
   onLoadStats?: () => void
+  /** Why the stats cannot be computed now. */
+  loadStatsBlocked?: string | null
   hasValueColumn: boolean
   excludeOutliers: boolean
   statsEnabled: boolean
@@ -60,6 +62,7 @@ export function ConceptDetail({
   error,
   statsDeferred,
   onLoadStats,
+  loadStatsBlocked,
   hasValueColumn,
   excludeOutliers,
   statsEnabled,
@@ -112,9 +115,11 @@ export function ConceptDetail({
             <span className="min-w-0 break-words text-sm font-semibold leading-tight">
               {conceptName || conceptIdLabel || t('concepts.unnamed_concept')}
             </span>
+            {/* Cut past a share of the line: a long code otherwise squeezed the
+                name to a letter per line. */}
             {conceptCode && (
-              <Badge variant="outline" className="shrink-0 font-mono">
-                {conceptCode}
+              <Badge asChild variant="outline" className="min-w-0 max-w-[40%] shrink font-mono">
+                <div><TruncatedText text={conceptCode} /></div>
               </Badge>
             )}
             {(statsSql.length > 0 || onClose) && (
@@ -210,6 +215,7 @@ export function ConceptDetail({
           error={statsError}
           deferred={statsDeferred}
           onLoad={onLoadStats}
+          loadBlocked={loadStatsBlocked}
           excludeOutliers={excludeOutliers}
           statsEnabled={statsEnabled}
           patientCount={

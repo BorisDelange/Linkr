@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
+import { Tooltip as HintTooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { zeroAnchoredHistogramScale, tightHistogramScale } from '@/lib/chart-ticks'
 import type { ConceptStats, HistogramBin } from './use-concepts'
 
@@ -26,6 +27,8 @@ interface ConceptStatsPanelProps {
   /** Not known without a query on the source: offer to compute them. */
   deferred?: boolean
   onLoad?: () => void
+  /** Why `onLoad` is not offered now (a run computing the whole database's). */
+  loadBlocked?: string | null
 }
 
 function StatRow({ label, value }: { label: string; value: string | number }) {
@@ -143,6 +146,7 @@ export function ConceptStatsPanel({
   patientCount,
   deferred = false,
   onLoad,
+  loadBlocked,
 }: ConceptStatsPanelProps) {
   const { t } = useTranslation()
   const [startAtZero, setStartAtZero] = useState(true)
@@ -174,10 +178,28 @@ export function ConceptStatsPanel({
         <h4 className="text-xs font-medium">{t('concepts.stats_title')}</h4>
         <p className="text-xs text-muted-foreground">{t('concepts.stats_not_loaded')}</p>
         <div className="flex justify-center pt-3">
-          <Button size="xs" variant="outline" onClick={onLoad}>
-            <BarChart3 size={12} />
-            {t('concepts.stats_load')}
-          </Button>
+          {loadBlocked ? (
+            // The detail pane is outside the page's provider; a disabled button
+            // takes no hover, so its wrapper carries the tooltip.
+            <TooltipProvider delayDuration={300}>
+              <HintTooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0}>
+                    <Button size="xs" variant="outline" disabled>
+                      <BarChart3 size={12} />
+                      {t('concepts.stats_load')}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-wrap">{loadBlocked}</TooltipContent>
+              </HintTooltip>
+            </TooltipProvider>
+          ) : (
+            <Button size="xs" variant="outline" onClick={onLoad}>
+              <BarChart3 size={12} />
+              {t('concepts.stats_load')}
+            </Button>
+          )}
         </div>
       </div>
     )
