@@ -73,7 +73,7 @@ async def update(
 async def delete(db: AsyncSession, workspace: Workspace) -> None:
     from app.models.data_catalog import DataCatalog
     from app.models.data_source import DataSource
-    from app.models.dq_rule_set import DqRuleSet
+    from app.models.dq_rule_set import DqProfile, DqRuleSet
     from app.models.etl_pipeline import EtlPipeline
     from app.models.job import Job
     from app.models.mapping_project import MappingProject
@@ -113,6 +113,7 @@ async def delete(db: AsyncSession, workspace: Workspace) -> None:
         "data-catalogs": catalog_ids,
         "etl-pipelines": pipeline_ids,
         "dq-rule-sets": (await db.scalars(select(DqRuleSet.id).where(DqRuleSet.workspace_id == workspace_id))).all(),
+        "dq-profiles": (await db.scalars(select(DqProfile.id).where(DqProfile.workspace_id == workspace_id))).all(),
         "sql-collections": (await db.scalars(
             select(SqlScriptCollection.id).where(SqlScriptCollection.workspace_id == workspace_id)
         )).all(),

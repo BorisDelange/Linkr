@@ -1,7 +1,7 @@
 import { apiRequest } from '@/lib/api-client'
 
 /** What a server run computes (apps/api services/server_runs/registry.py). */
-export type ServerRunKind = 'stats' | 'extraction' | 'etl' | 'etl_quality' | 'database_stats' | 'cohort_run' | 'cohort_figures' | 'catalog' | 'catalog_estimate' | 'catalog_audit'
+export type ServerRunKind = 'stats' | 'extraction' | 'etl' | 'etl_quality' | 'database_stats' | 'cohort_run' | 'cohort_figures' | 'catalog' | 'catalog_estimate' | 'catalog_audit' | 'dq_rule_set' | 'dq_profile'
 export type ServerRunStatus = 'queued' | 'running' | 'pausing' | 'paused' | 'interrupted' | 'done' | 'failed' | 'cancelled'
 
 export const ACTIVE_RUN_STATUSES: readonly ServerRunStatus[] = ['queued', 'running', 'pausing']

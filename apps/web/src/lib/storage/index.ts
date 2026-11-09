@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, PatientDashboard, PatientDashboardTab, PatientDashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, EtlQualityCache, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, ConceptList, DataDictionary, MappingProject, MappingProjectStats, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, PatientDashboard, PatientDashboardTab, PatientDashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, EtlQualityCache, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, DqProfile, ConceptSet, ConceptList, DataDictionary, MappingProject, MappingProjectStats, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -363,10 +363,23 @@ export interface DqCustomCheckStorage {
 /** Storage interface for DQ scan-run history persistence. */
 export interface DqRunHistoryStorage {
   getByRuleSet(ruleSetId: string): Promise<DqRunHistoryEntry[]>
+  getByProfile(profileId: string): Promise<DqRunHistoryEntry[]>
   create(entry: DqRunHistoryEntry): Promise<void>
   update(id: string, changes: Partial<DqRunHistoryEntry>): Promise<void>
   delete(id: string): Promise<void>
   deleteByRuleSet(ruleSetId: string): Promise<void>
+  deleteByProfile(profileId: string): Promise<void>
+}
+
+/** Storage interface for DQ quality profile persistence. */
+export interface DqProfileStorage {
+  getAll(): Promise<DqProfile[]>
+  getByWorkspace(workspaceId: string): Promise<DqProfile[]>
+  getById(id: string): Promise<DqProfile | undefined>
+  create(profile: DqProfile): Promise<void>
+  update(id: string, changes: Partial<DqProfile>): Promise<void>
+  /** Deletes its run history too. */
+  delete(id: string): Promise<void>
 }
 
 /** Storage interface for OHDSI concept set persistence. */
@@ -569,6 +582,7 @@ export interface Storage {
   dqRuleSets: DqRuleSetStorage
   dqCustomChecks: DqCustomCheckStorage
   dqRunHistory: DqRunHistoryStorage
+  dqProfiles: DqProfileStorage
   conceptSets: ConceptSetStorage
   dataDictionaries: DataDictionaryStorage
   conceptLists: ConceptListStorage

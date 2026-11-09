@@ -12,6 +12,7 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useDqStore } from '@/stores/dq-store'
+import { useDqProfileStore } from '@/stores/dq-profile-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useSchemaPresetStore } from '@/stores/schema-preset-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -20,7 +21,7 @@ import { localized } from '@/lib/localized'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
 import { clearAllData } from '@/lib/version-check'
-import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, Settings2, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, User, Workflow, SquareTerminal, ShieldCheck, Puzzle, FileSpreadsheet, Pencil, Download, GitBranch, Database as DatabaseIcon } from 'lucide-react'
+import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, Settings2, ArrowLeft, BookOpen, ArrowRightLeft, ClipboardCheck, MoreHorizontal, LayoutDashboard, UsersRound, User, Workflow, SquareTerminal, ShieldCheck, Puzzle, FileSpreadsheet, Pencil, Download, GitBranch, Database as DatabaseIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { HeaderEntityBadge } from '@/components/layout/header-entity-badge'
@@ -34,6 +35,7 @@ import { useSqlCollectionActions } from '@/features/warehouse/sql-scripts/use-sq
 import { usePluginActions } from '@/features/settings/use-plugin-actions'
 import { useCatalogActions } from '@/features/warehouse/catalog/use-catalog-actions'
 import { useDqRuleSetActions } from '@/features/warehouse/data-quality/use-dq-rule-set-actions'
+import { useDqProfileActions } from '@/features/warehouse/data-quality/use-dq-profile-actions'
 import { useSchemaPresetActions, toSchemaPresetItem } from '@/features/warehouse/use-schema-preset-actions'
 import { useDatabaseActions } from '@/features/projects/warehouse/databases/use-database-actions'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -91,6 +93,8 @@ const workspaceSegmentTitleKeys: Record<string, string> = {
   'warehouse/concept-mapping/projects': 'app_warehouse.nav_concept_mapping_projects',
   'warehouse/concept-mapping/overview': 'app_warehouse.nav_concept_mapping_overview',
   'warehouse/data-quality': 'app_warehouse.nav_data_quality',
+  'warehouse/data-quality/rule-sets': 'data_quality.rs_title',
+  'warehouse/data-quality/profiles': 'data_quality.profiles_title',
   'warehouse/etl': 'app_warehouse.nav_etl',
   'warehouse/sql-scripts': 'app_warehouse.nav_sql_scripts',
   'warehouse/catalog': 'app_warehouse.nav_catalog',
@@ -163,7 +167,9 @@ export function Header() {
   // Exclude the literal view segments (/projects, /overview) — they're list-level
   // views, not a specific mapping project, so they must not resolve to a project name.
   const cmId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/concept-mapping\/(?!projects$|overview$)([^/]+)$/)?.[1]
-  const dqId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/data-quality\/([^/]+)$/)?.[1]
+  // Same for /rule-sets and /profiles; a profile lives one level down.
+  const dqId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/data-quality\/(?!rule-sets$|profiles$)([^/]+)$/)?.[1]
+  const dqProfileId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/data-quality\/profiles\/([^/]+)$/)?.[1]
   const schemaId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/schemas\/([^/]+)$/)?.[1]
   // A database detail page exists at both levels — the workspace warehouse and a
   // project's warehouse — and both show the same badge.
@@ -177,14 +183,16 @@ export function Header() {
   // Detail pages get a back arrow before the title that returns to their list view. Each list
   // path is the detail path with the trailing :id segment removed.
   const backToListPath = (() => {
-    const detailId = dashboardId ?? cohortId ?? patientBoardId ?? etlId ?? sqlId ?? catalogId ?? cmId ?? dqId ?? schemaId ?? dbId
+    const detailId = dashboardId ?? cohortId ?? patientBoardId ?? etlId ?? sqlId ?? catalogId ?? cmId ?? dqId ?? dqProfileId ?? schemaId ?? dbId
     if (!detailId) return null
     const idx = pathname.lastIndexOf(`/${detailId}`)
     if (idx <= 0) return null
     const base = pathname.slice(0, idx)
     // A mapping project's list view is /concept-mapping/projects, not the bare
     // /concept-mapping base (which is the overview landing) — so append it.
-    return cmId ? `${base}/projects` : base
+    if (cmId) return `${base}/projects`
+    // Likewise a rule set's list is /data-quality/rule-sets.
+    return dqId ? `${base}/rule-sets` : base
   })()
 
   // Only subscribe to the store whose entity is currently displayed. URLs carry a short id
@@ -198,6 +206,7 @@ export function Header() {
   const catalogEntity = useCatalogStore((s) => catalogId ? resolveByIdPrefix(s.catalogs, catalogId, (c) => c.id) : undefined)
   const cmProject = useConceptMappingStore((s) => cmId ? resolveByIdPrefix(s.mappingProjects, cmId, (p) => p.id) : undefined)
   const dqEntity = useDqStore((s) => dqId ? resolveByIdPrefix(s.dqRuleSets, dqId, (r) => r.id) : undefined)
+  const dqProfile = useDqProfileStore((s) => dqProfileId ? resolveByIdPrefix(s.profiles, dqProfileId, (p) => p.id) : undefined)
   // `id` first, `presetId` second: the URL carries a shortened id now, but one
   // bookmarked before the switch still carries the slug. A preset installed from
   // the catalog has both, and they differ — so the slug pass must run whenever the
@@ -242,6 +251,7 @@ export function Header() {
   const sqlActions = useSqlCollectionActions()
   const catalogActions = useCatalogActions()
   const dqActions = useDqRuleSetActions()
+  const dqProfileActions = useDqProfileActions()
   const schemaActions = useSchemaPresetActions()
   const dbActions = useDatabaseActions()
   const schemaItem = schemaPreset ? toSchemaPresetItem(schemaPreset) : undefined
@@ -257,6 +267,7 @@ export function Header() {
   const [sqlMenuOpen, setSqlMenuOpen] = useState(false)
   const [catalogMenuOpen, setCatalogMenuOpen] = useState(false)
   const [dqMenuOpen, setDqMenuOpen] = useState(false)
+  const [dqProfileMenuOpen, setDqProfileMenuOpen] = useState(false)
   const [schemaMenuOpen, setSchemaMenuOpen] = useState(false)
   const [dbMenuOpen, setDbMenuOpen] = useState(false)
 
@@ -309,6 +320,7 @@ export function Header() {
       if (catalogId) return catalogName ? localized(catalogName, language) : t('app_warehouse.nav_catalog')
       if (cmId) return cmName ? localized(cmName, language) : t('app_warehouse.nav_concept_mapping')
       if (dqId) return dqName ? localized(dqName, language) : t('app_warehouse.nav_data_quality')
+      if (dqProfileId) return dqProfile ? localized(dqProfile.name, language) : t('data_quality.profiles_title')
       if (dbId) return dbEntity ? localized(dbEntity.name, language) : t('app_warehouse.nav_databases')
 
       // Schema detail. Unlike the entities above, never fall back to the raw id
@@ -466,6 +478,22 @@ export function Header() {
       onOpenChange={setDqMenuOpen}
       trigger={
         <HeaderEntityBadge icon={ShieldCheck} label={localized(dqEntity.name, language)} />
+      }
+    />
+  ) : dqProfile ? (
+    <EntityActionsMenu
+      item={dqProfile}
+      {...dqProfileActions}
+      syncScope="dq-profiles"
+      align="start"
+      // Already on the profile's page: switch tab rather than open the dialog.
+      onOpenDocs={(_item, tab) => navigate(`${pathname}?tab=${tab}`, { replace: true })}
+      onVersioningOverride={() => navigate(`${pathname}?tab=versioning`, { replace: true })}
+      onDeleted={handleEntityDeleted}
+      open={dqProfileMenuOpen}
+      onOpenChange={setDqProfileMenuOpen}
+      trigger={
+        <HeaderEntityBadge icon={ClipboardCheck} label={localized(dqProfile.name, language)} />
       }
     />
   ) : schemaItem ? (

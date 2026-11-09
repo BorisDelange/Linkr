@@ -58,15 +58,56 @@ class DqRuleSet(Base, TimestampMixin):
     check_groups: Mapped[list | None] = mapped_column(PortableJSON)
 
 
+class DqProfile(Base, TimestampMixin):
+    """A quality profile: checks chosen from several rule sets, applied to one
+    database. It points at its checks (rule set + checkKey), never copies them,
+    so a check fixed in its rule set is fixed in every profile using it."""
+
+    __tablename__ = "dq_profiles"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE")
+    )
+    entity_id: Mapped[str | None] = mapped_column(String(255))
+    name: Mapped[dict] = mapped_column(PortableJSON, default=dict)  # LocalizedString
+    description: Mapped[dict] = mapped_column(PortableJSON, default=dict)
+    badges: Mapped[list | None] = mapped_column(PortableJSON)
+    readme: Mapped[dict | None] = mapped_column(PortableJSON)
+    license: Mapped[dict | None] = mapped_column(PortableJSON)
+    data_source_id: Mapped[str] = mapped_column(String(36))
+    data_source_ref: Mapped[dict | None] = mapped_column(PortableJSON)
+    # [{ruleSetId, ruleSetRef?, mode: "all" | "selected", checkKeys?}]: "all" takes
+    # the whole rule set, new checks included; "selected" only the keys listed.
+    sources: Mapped[list] = mapped_column(PortableJSON, default=list)
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    last_run_at: Mapped[str | None] = mapped_column(String(40))
+    last_run_duration_ms: Mapped[int | None] = mapped_column(Integer)
+    last_score: Mapped[float | None] = mapped_column(Float)
+    origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
+    version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    created_by: Mapped[str | None] = mapped_column(Text)
+    created_by_details: Mapped[dict | None] = mapped_column(PortableJSON)
+    organization: Mapped[dict | None] = mapped_column(PortableJSON)
+    lineage_id: Mapped[str | None] = mapped_column(String(36))
+    parent_lineage_id: Mapped[str | None] = mapped_column(String(36))
+    git_remote_config: Mapped[dict | None] = mapped_column(PortableJSON)
+
+
 class DqRunHistory(Base):
-    """One persisted data-quality scan run for a rule set. `report` holds the full
-    scan report (counts + SQL, no row data) so a past run can be reopened."""
+    """One persisted data-quality scan run, of a rule set or of a quality profile.
+    `report` holds the full scan report (counts + SQL, no row data) so a past run
+    can be reopened."""
 
     __tablename__ = "dq_run_history"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     rule_set_id: Mapped[str | None] = mapped_column(
         ForeignKey("dq_rule_sets.id", ondelete="CASCADE")
+    )
+    profile_id: Mapped[str | None] = mapped_column(
+        ForeignKey("dq_profiles.id", ondelete="CASCADE")
     )
     workspace_id: Mapped[str | None] = mapped_column(String(36))
     data_source_id: Mapped[str] = mapped_column(String(36))
@@ -94,6 +135,9 @@ class DqCustomCheck(Base, TimestampMixin):
     rule_set_id: Mapped[str] = mapped_column(
         ForeignKey("dq_rule_sets.id", ondelete="CASCADE")
     )
+    # Portable key, unique in the rule set, set at creation and never changed (a
+    # rename keeps it): what an export and a quality profile point at.
+    check_key: Mapped[str | None] = mapped_column(Text)
     name: Mapped[str] = mapped_column(String(255), default="")
     description: Mapped[str] = mapped_column(Text, default="")
     category: Mapped[str] = mapped_column(String(20))

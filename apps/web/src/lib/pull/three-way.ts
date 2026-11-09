@@ -82,7 +82,7 @@ export class PullAppTooOldError extends Error {
 }
 
 /** Keys that identify an element of a JSON array, in order of preference. */
-const ELEMENT_KEYS = ['id', 'path', 'key', 'templateKey', 'entityId', 'username', 'name'] as const
+const ELEMENT_KEYS = ['id', 'path', 'key', 'checkKey', 'templateKey', 'entityId', 'username', 'name'] as const
 
 type Json = Record<string, unknown>
 

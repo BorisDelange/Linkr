@@ -281,16 +281,20 @@ class QueryingExecutor(RunExecutor):
         w = self.watchdog
         return {"watchdog": {"srtt": w.srtt, "rttvar": w.rttvar, "rows": w.rows} if w.srtt is not None else {}}
 
-    async def query(self, sql: str, what: str, *, deadline: float | None = None) -> list[dict]:
+    async def query(self, sql: str, what: str, *, deadline: float | None = None, pushdown: bool = True) -> list[dict]:
         """A query of the run, in the heavy lane — one heavy query at a time,
-        whatever run asks — shown as the job's input under `what` it computes."""
+        whatever run asks — shown as the job's input under `what` it computes.
+        `pushdown`: an external database may compute it; the worker reads only
+        databases DuckDB reads itself, where it means nothing."""
         await self.handle.set_input(f"-- {what}\n{sql}")
         async with jobs.lane_slot("heavy_query"):
             # One access-log line per query, as through `/query`.
             with audit.job_scope(self.handle.job_id, "query", self.launched_by):
                 if isinstance(self.worker, QueryWorker):
                     data_source_service._audit(self.source, "query", sql)
-                rows = await self.worker.run(sql, deadline=deadline)
+                    rows = await self.worker.run(sql, deadline=deadline)
+                else:
+                    rows = await self.worker.run(sql, deadline=deadline, pushdown=pushdown)
                 audit.bind(row_count=len(rows))
         return rows
 
@@ -308,7 +312,7 @@ class _InProcess:
     async def stop(self) -> None:
         pass
 
-    async def run(self, sql: str, *, deadline: float | None = None) -> list[dict]:
+    async def run(self, sql: str, *, deadline: float | None = None, pushdown: bool = True) -> list[dict]:
         ex = self.executor
         tag = (f"job:{ex.handle.job_id}", str(ex.user_id))
         token = query_cancel.current_query.set(tag)
@@ -319,7 +323,7 @@ class _InProcess:
                 source = await data_source_service.get(db, ex.source_id)
                 if source is None:
                     raise ValueError("the database no longer exists")
-                return await data_source_service.query(db, source, ex.login, sql, pushdown=True)
+                return await data_source_service.query(db, source, ex.login, sql, pushdown=pushdown)
 
         try:
             stoppable = deferred.until_stopped(work(), lambda: query_cancel.cancel(*tag))

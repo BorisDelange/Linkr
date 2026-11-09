@@ -26,9 +26,10 @@ class GitSyncState(Base):
 
     Keyed by (scope, entity_id, branch), shared across every versionable scope
     (projects, mapping-projects, sql-collections, etl-pipelines, data-catalogs,
-    dq-rule-sets, schema-presets, user-plugins, workspaces) — same scopes as the
-    repo-getters in git_service. Not a foreign key: the entity lives in another
-    table and the row is always safe to drop (a missing anchor just re-adopts).
+    dq-rule-sets, dq-profiles, schema-presets, user-plugins, workspaces) — same
+    scopes as the repo-getters in git_service. Not a foreign key: the entity lives
+    in another table and the row is always safe to drop (a missing anchor just
+    re-adopts).
     """
 
     __tablename__ = "git_sync_state"

@@ -1,16 +1,31 @@
 import { describe, expect, it } from 'vitest'
 import type { DqCustomCheck } from '@/types'
-import { checkKeys, importedChecks, portableChecks } from './dq-check-portable'
+import { checkKeys, importedChecks, portableChecks, withCheckKeys } from './dq-check-portable'
 
 const check = (id: string, name: string, order: number, templateKey: string | null = null) =>
   ({ id, ruleSetId: 'rs', name, order, templateKey, updatedAt: 'x', createdAt: 'c' }) as unknown as DqCustomCheck
 
 describe('dq-check-portable', () => {
-  it('writes checks in display order without their local fields', () => {
-    expect(portableChecks([check('b', 'Two', 1), check('a', 'One', 0)])).toEqual([
-      { name: 'One', order: 0, templateKey: null, createdAt: 'c' },
-      { name: 'Two', order: 1, templateKey: null, createdAt: 'c' },
+  it('writes checks in display order, key first, without their local fields', () => {
+    const out = portableChecks([check('b', 'Two', 1), check('a', 'One', 0)])
+    expect(out).toEqual([
+      { checkKey: 'one', name: 'One', order: 0, templateKey: null, createdAt: 'c' },
+      { checkKey: 'two', name: 'Two', order: 1, templateKey: null, createdAt: 'c' },
     ])
+    expect(Object.keys(out[0])[0]).toBe('checkKey')
+  })
+
+  it('keeps a stored key when the check is renamed, through export and import', () => {
+    const renamed = { ...check('a', 'Renamed', 0), checkKey: 'original-name' }
+    const [imported] = importedChecks(portableChecks([renamed]), 'rs')
+    expect(imported.checkKey).toBe('original-name')
+    expect(imported.id).toBe(importedChecks(portableChecks([{ ...renamed, name: 'Again' }]), 'rs')[0].id)
+  })
+
+  it('keys new checks apart from the ones their rule set holds', () => {
+    const existing = [{ name: 'Same', templateKey: null, checkKey: 'same' }]
+    expect(withCheckKeys([{ name: 'Same', templateKey: null }], existing)[0].checkKey).toBe('same#2')
+    expect(withCheckKeys([{ name: 'Other', templateKey: null, checkKey: 'kept' }], existing)[0].checkKey).toBe('kept')
   })
 
   it('keys a check by its template key, else its name, disambiguating duplicates', () => {

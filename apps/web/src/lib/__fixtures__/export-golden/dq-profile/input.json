@@ -1,0 +1,108 @@
+{
+  "profile": {
+    "id": "pr-1",
+    "workspaceId": "ws1",
+    "entityId": "icu-quality",
+    "gitRemoteConfig": {
+      "url": "https://git.example.org/icu-quality.git",
+      "branch": "main"
+    },
+    "name": {
+      "en": "ICU warehouse quality",
+      "fr": "Qualité de l’entrepôt réa"
+    },
+    "description": {
+      "en": "What the ICU dashboards rely on",
+      "fr": "Ce sur quoi reposent les tableaux de bord réa"
+    },
+    "badges": null,
+    "readme": {
+      "en": "# ICU quality\n"
+    },
+    "license": {
+      "id": "MIT",
+      "text": "MIT License\n\nCopyright (c) 2026 University Hospital of Rennes\n"
+    },
+    "dataSourceId": "12994fb1-24c2-4aa4-8c6d-ba92b6b55646",
+    "dataSourceRef": {
+      "lineageId": "db-lin-1",
+      "entityId": "mimic-iv-demo",
+      "label": {
+        "en": "MIMIC-IV demo",
+        "fr": "MIMIC-IV démo"
+      }
+    },
+    "sources": [
+      {
+        "ruleSetId": "rs-1",
+        "ruleSetRef": {
+          "lineageId": "lin-1",
+          "entityId": "icu-dq",
+          "label": {
+            "en": "ICU data quality"
+          }
+        },
+        "mode": "all"
+      },
+      {
+        "ruleSetId": "rs-2",
+        "ruleSetRef": {
+          "entityId": "omop-structure",
+          "label": {
+            "en": "OMOP structure"
+          }
+        },
+        "mode": "selected",
+        "checkKeys": [
+          "ddl.not_null:person.person_id",
+          "valid-birth-year"
+        ]
+      }
+    ],
+    "status": "success",
+    "lastRunAt": "2026-06-01T00:00:00.000Z",
+    "lastRunDurationMs": 1234,
+    "lastScore": 92,
+    "origin": "user",
+    "createdById": 7,
+    "createdBy": "Boris Delange",
+    "createdByDetails": {
+      "firstName": "Boris",
+      "lastName": "Delange",
+      "orcid": "0000-0002-1825-0097"
+    },
+    "organization": null,
+    "lineageId": "pr-lin-1",
+    "parentLineageId": null,
+    "createdAt": "2026-01-02T03:04:05.000Z",
+    "updatedAt": "2026-06-01T00:00:00.000Z",
+    "version": "0.2.0"
+  },
+  "workspace": {
+    "id": "ws1",
+    "organizationId": "org1"
+  },
+  "organization": {
+    "id": "org1",
+    "name": {
+      "en": "University Hospital of Rennes",
+      "fr": ""
+    },
+    "type": "hospital",
+    "location": {
+      "en": "Rennes",
+      "fr": ""
+    },
+    "country": {
+      "en": "France",
+      "fr": ""
+    },
+    "website": "",
+    "email": "",
+    "customType": null,
+    "referenceId": "",
+    "customFields": null,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+}

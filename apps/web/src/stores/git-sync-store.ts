@@ -75,6 +75,9 @@ async function buildZipUncached(
   } else if (scope === 'dq-rule-sets') {
     const { buildDqRuleSetZip } = await import('@/lib/entity-io')
     result = await buildDqRuleSetZip(id, storage, { lfsOverrides })
+  } else if (scope === 'dq-profiles') {
+    const { buildDqProfileZip } = await import('@/lib/entity-io')
+    result = await buildDqProfileZip(id, storage, { lfsOverrides })
   } else if (scope === 'schema-presets') {
     const { buildSchemaPresetZip } = await import('@/lib/entity-io')
     result = await buildSchemaPresetZip(id, storage, { lfsOverrides })

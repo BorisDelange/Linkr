@@ -112,6 +112,8 @@ class DqRuleSetResponse(CamelModel):
 class DqCustomCheckCreate(CamelModel):
     id: SegmentId
     rule_set_id: str
+    # Assigned by the server when missing or already taken in the rule set.
+    check_key: str | None = None
     name: str = ""
     description: str = ""
     category: str
@@ -180,6 +182,7 @@ class DqChecksDelete(CamelModel):
 class DqCustomCheckResponse(CamelModel):
     id: str
     rule_set_id: str
+    check_key: str | None = None
     name: str
     description: str
     category: str
@@ -199,10 +202,11 @@ class DqCustomCheckResponse(CamelModel):
 
 class DqRunHistoryCreate(CamelModel):
     id: SegmentId
-    # Required (like DqCustomCheckCreate.rule_set_id): the route authorizes the
-    # write via this rule set's workspace, so a null value must not slip past the
-    # `if body.rule_set_id` guard and let any authed user write an orphan run.
-    rule_set_id: str
+    # Exactly one of the two: the route authorizes the write via that rule set's
+    # or profile's workspace, so neither may be missing — an orphan run would
+    # slip past every guard.
+    rule_set_id: str | None = None
+    profile_id: str | None = None
     workspace_id: str | None = None
     data_source_id: str
     started_at: str
@@ -216,6 +220,12 @@ class DqRunHistoryCreate(CamelModel):
     not_applicable: int = 0
     duration_ms: int | None = None
     report: dict | None = None
+
+    @model_validator(mode="after")
+    def _one_owner(self):
+        if (self.rule_set_id is None) == (self.profile_id is None):
+            raise ValueError("a run belongs to exactly one rule set or one profile")
+        return self
 
 
 class DqRunHistoryUpdate(CamelModel):
@@ -234,6 +244,7 @@ class DqRunHistoryUpdate(CamelModel):
 class DqRunHistoryResponse(CamelModel):
     id: str
     rule_set_id: str | None = None
+    profile_id: str | None = None
     workspace_id: str | None = None
     data_source_id: str
     started_at: str
@@ -247,3 +258,127 @@ class DqRunHistoryResponse(CamelModel):
     not_applicable: int
     duration_ms: int | None = None
     report: dict | None = None
+
+
+# --- Quality profiles --------------------------------------------------------
+
+_SOURCE_MODES = ("all", "selected")
+
+
+def _check_sources(sources: list[dict] | None) -> list[dict] | None:
+    """Each entry: {ruleSetId, ruleSetRef?, mode, checkKeys?} — one per rule set."""
+    if sources is None:
+        return None
+    seen: set[str] = set()
+    for source in sources:
+        rule_set_id = source.get("ruleSetId") if isinstance(source, dict) else None
+        if not isinstance(rule_set_id, str) or not rule_set_id:
+            raise ValueError("each source needs a ruleSetId")
+        if rule_set_id in seen:
+            raise ValueError(f"rule set {rule_set_id} is listed twice")
+        seen.add(rule_set_id)
+        if source.get("mode") not in _SOURCE_MODES:
+            raise ValueError("a source's mode is 'all' or 'selected'")
+        keys = source.get("checkKeys")
+        if keys is not None and not (isinstance(keys, list) and all(isinstance(k, str) for k in keys)):
+            raise ValueError("checkKeys is a list of check keys")
+    return sources
+
+
+class DqProfileCreate(CamelModel):
+    id: SafeId
+    workspace_id: str
+    entity_id: str | None = None
+    git_remote_config: dict | None = None
+    name: dict = {}
+    description: dict = {}
+    badges: list | None = None
+    readme: dict | str | None = None
+    license: dict | None = None
+    data_source_id: str
+    data_source_ref: dict | None = None
+    sources: list[dict] = []
+    status: str = "draft"
+    last_run_at: str | None = None
+    last_run_duration_ms: int | None = None
+    last_score: float | None = None
+    origin: str = "user"
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
+    organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
+    created_at: datetime | None = None
+    version: str = "0.1.0"
+
+    @field_validator("sources")
+    @classmethod
+    def _sources(cls, v: list[dict] | None) -> list[dict] | None:
+        return _check_sources(v)
+
+
+class DqProfileUpdate(CamelModel):
+    entity_id: str | None = None
+    git_remote_config: dict | None = None
+    name: dict | None = None
+    description: dict | None = None
+    badges: list | None = None
+    readme: dict | str | None = None
+    license: dict | None = None
+    data_source_id: str | None = None
+    data_source_ref: dict | None = None
+    sources: list[dict] | None = None
+    status: str | None = None
+    last_run_at: str | None = None
+    last_run_duration_ms: int | None = None
+    last_score: float | None = None
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
+    organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
+    version: str | None = None
+    created_at: datetime | None = None
+
+    @field_validator("sources")
+    @classmethod
+    def _sources(cls, v: list[dict] | None) -> list[dict] | None:
+        return _check_sources(v)
+
+    @model_validator(mode="after")
+    def _no_null_on_required(self):
+        for field in ("data_source_id", "sources"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
+
+
+class DqProfileResponse(CamelModel):
+    id: str
+    workspace_id: str
+    entity_id: str | None = None
+    git_remote_config: dict | None = None
+    name: dict
+    description: dict
+    badges: list | None = None
+    readme: dict | str | None = None
+    license: dict | None = None
+    data_source_id: str
+    data_source_ref: dict | None = None
+    sources: list[dict]
+    status: str
+    last_run_at: str | None = None
+    last_run_duration_ms: int | None = None
+    last_score: float | None = None
+    origin: str
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
+    organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    version: str

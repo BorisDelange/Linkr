@@ -13,6 +13,7 @@ import { useEtlStore } from '@/stores/etl-store'
 import { useAppStore } from '@/stores/app-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useDqStore } from '@/stores/dq-store'
+import { useDqProfileStore } from '@/stores/dq-profile-store'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
@@ -76,6 +77,14 @@ const REFRESHERS: Record<string, (event: ChangeEvent) => Promise<void>> = {
     const dq = useDqStore.getState()
     await dq.loadDqRuleSets()
     if (dq.activeRuleSetId === e.entityId && e.action !== 'deleted') await dq.loadRuleSetChecks(e.entityId)
+    // An open profile page lists this rule set's checks too.
+    const profiles = useDqProfileStore.getState()
+    if (e.entityId in profiles.checksByRuleSet && e.action !== 'deleted') await profiles.loadRuleSetChecks([e.entityId])
+  },
+  dq_profile: async (e) => {
+    const profiles = useDqProfileStore.getState()
+    if (e.notification?.detail?.part !== 'run') await profiles.loadProfiles()
+    else if (profiles.runHistoryProfileId === e.entityId) await profiles.loadRunHistory(e.entityId)
   },
   dq_run: async (e) => {
     const dq = useDqStore.getState()

@@ -30,6 +30,7 @@ export type EntityColorKey =
   | 'mapping-project'
   | 'sql-collection'
   | 'dq-rule-set'
+  | 'dq-profile'
   | 'data-catalog'
   | 'etl-pipeline'
   | 'concepts'
@@ -75,6 +76,14 @@ export const ENTITY_COLORS: Record<EntityColorKey, EntityColor> = {
     icon: 'text-red-500',
     bg: 'bg-red-500/10',
     badge: 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400',
+  },
+  // Not a sidebar item: it sits beside the rule sets on the Data quality home, so
+  // it takes a hue far from their red. Violet is the catalog's chrome, never on
+  // the same page.
+  'dq-profile': {
+    icon: 'text-violet-500',
+    bg: 'bg-violet-500/10',
+    badge: 'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-400',
   },
   'data-catalog': {
     icon: 'text-lime-600',

@@ -189,6 +189,13 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
     ATTACHMENTS_RULE,
     ATTRS_RULE,
   ],
+  'dq-profiles': [
+    { test: /^entity\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_dq_profile_json' },
+    README_RULE,
+    LICENSE_RULE,
+    ATTACHMENTS_RULE,
+    ATTRS_RULE,
+  ],
   'schema-presets': [
     { test: /^(entity|preset)\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_preset_json' },
     // The mapping moved out of the manifest into its own file. Without a rule it

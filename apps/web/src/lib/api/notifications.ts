@@ -39,6 +39,8 @@ export interface NotificationDetail {
   part?:
     | 'widget' | 'tab' | 'suggestions' | 'mappings' | 'materialization' | 'derivation' | 'script' | 'folder'
     | 'file' | 'range' | 'entries' | 'relation' | 'database' | 'check' | 'node' | 'analysis'
+    /** A quality profile's run history changed (an execution, no bell). */
+    | 'run'
   action?: 'created' | 'updated' | 'deleted' | 'replaced' | 'linked' | 'unlinked' | 'started' | 'done' | 'failed'
   name?: LocalizedString
   fileId?: string

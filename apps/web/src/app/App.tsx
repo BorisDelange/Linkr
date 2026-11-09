@@ -259,6 +259,10 @@ export function App() {
             <Route path="/workspaces/:wsUid/warehouse/concept-mapping/overview" element={<WorkspaceGuard><ConceptMappingPage view="global" /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/concept-mapping/:mappingProjectId" element={<WorkspaceGuard><ConceptMappingPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/data-quality" element={<WorkspaceGuard><DqPage /></WorkspaceGuard>} />
+            {/* Literal view segments before the parameterized :ruleSetId route so they win the match. */}
+            <Route path="/workspaces/:wsUid/warehouse/data-quality/rule-sets" element={<WorkspaceGuard><DqPage view="rule-sets" /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/data-quality/profiles" element={<WorkspaceGuard><DqPage view="profiles" /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/data-quality/profiles/:profileId" element={<WorkspaceGuard><DqPage view="profiles" /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/data-quality/:ruleSetId" element={<WorkspaceGuard><DqPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/etl" element={<WorkspaceGuard><EtlPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/etl/:pipelineId" element={<WorkspaceGuard><EtlPage /></WorkspaceGuard>} />

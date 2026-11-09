@@ -13,6 +13,7 @@ import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useDqStore } from '@/stores/dq-store'
+import { useDqProfileStore } from '@/stores/dq-profile-store'
 import { useEtlStore } from '@/stores/etl-store'
 import { useFileStore } from '@/stores/file-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
@@ -172,6 +173,10 @@ export const REINSTALLABLE: Partial<
       await store.loadDqRuleSets()
       await store.loadRuleSetChecks(id)
     },
+  },
+  'dq-profiles': {
+    type: 'dq-profile',
+    reload: async () => { await useDqProfileStore.getState().loadProfiles() },
   },
   // Reloaded in the SAME scope the page uses (per workspace) — an unscoped reload
   // would swap the list for every workspace's presets.

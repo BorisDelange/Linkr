@@ -6,6 +6,7 @@ import type { DqRuleSet, DqCustomCheck, DqRunHistoryEntry } from '@/types'
 import type { DqReport } from '@/lib/duckdb/data-quality'
 import { normalizeDqCheck } from '@/lib/dq-taxonomy'
 import { usableExploreSql } from '@/lib/duckdb/data-quality-checks'
+import { checkKeys, withCheckKeys } from '@/lib/dq-check-portable'
 
 // Re-exported so existing imports (`from '@/stores/dq-store'`) keep working; the
 // canonical definition now lives in @/types alongside the other DQ entities.
@@ -26,6 +27,25 @@ function readCheck(check: DqCustomCheck): DqCustomCheck {
     tableName: check.tableName ?? null,
     disabled: check.disabled ?? false,
   })
+}
+
+/**
+ * A rule set's checks, in display order, each with its `checkKey`.
+ *
+ * A check stored in this browser before keys existed gets one here, written
+ * back once: a quality profile points at checks by key, so every check needs
+ * one that does not move. (Server rows got theirs from a migration.)
+ */
+export async function loadKeyedChecks(ruleSetId: string): Promise<DqCustomCheck[]> {
+  const storage = getStorage().dqCustomChecks
+  const checks = (await storage.getByRuleSet(ruleSetId))
+    .map(readCheck)
+    .sort((a, b) => a.order - b.order || (a.id < b.id ? -1 : 1))
+  if (checks.every((c) => c.checkKey)) return checks
+  const keys = checkKeys(checks)
+  const patches = checks.flatMap((c, i) => (c.checkKey ? [] : [{ id: c.id, changes: { checkKey: keys[i] } }]))
+  await storage.updateMany(ruleSetId, patches)
+  return checks.map((c, i) => ({ ...c, checkKey: keys[i] }))
 }
 
 // --- Store interface ---
@@ -88,6 +108,12 @@ interface DqState {
   clearRunHistory: (ruleSetId: string) => Promise<void>
 }
 
+/** The checks a new one must not share its key with. */
+async function siblingChecks(ruleSetId: string): Promise<DqCustomCheck[]> {
+  const { activeRuleSetId, customChecks } = useDqStore.getState()
+  return ruleSetId === activeRuleSetId ? customChecks : getStorage().dqCustomChecks.getByRuleSet(ruleSetId)
+}
+
 export const useDqStore = create<DqState>((set, get) => ({
   // --- Rule set CRUD ---
   dqRuleSets: [],
@@ -143,9 +169,9 @@ export const useDqStore = create<DqState>((set, get) => ({
   activeRuleSetId: null,
 
   loadRuleSetChecks: async (ruleSetId) => {
-    const checks = await getStorage().dqCustomChecks.getByRuleSet(ruleSetId)
+    const checks = await loadKeyedChecks(ruleSetId)
     set({
-      customChecks: checks.map(readCheck).sort((a, b) => a.order - b.order),
+      customChecks: checks,
       customChecksLoaded: true,
       activeRuleSetId: ruleSetId,
       _dirtyMap: new Map(),
@@ -153,15 +179,17 @@ export const useDqStore = create<DqState>((set, get) => ({
     })
   },
 
-  createCustomCheck: async (check) => {
+  createCustomCheck: async (input) => {
+    const [check] = withCheckKeys([input], await siblingChecks(input.ruleSetId))
     await getStorage().dqCustomChecks.create(check)
     set((s) => ({
       customChecks: [...s.customChecks, check].sort((a, b) => a.order - b.order),
     }))
   },
 
-  createCustomChecks: async (checks) => {
-    if (!checks.length) return
+  createCustomChecks: async (input) => {
+    if (!input.length) return
+    const checks = withCheckKeys(input, await siblingChecks(input[0].ruleSetId))
     await getStorage().dqCustomChecks.createMany(checks[0].ruleSetId, checks)
     set((s) => (
       checks[0]?.ruleSetId === s.activeRuleSetId

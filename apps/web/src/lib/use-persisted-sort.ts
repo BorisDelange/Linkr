@@ -21,6 +21,7 @@ export type SortScope =
   | 'etl-pipelines'
   | 'data-catalogs'
   | 'dq-rule-sets'
+  | 'dq-profiles'
   | 'mapping-projects'
   | 'sql-scripts'
   | 'community-catalog'

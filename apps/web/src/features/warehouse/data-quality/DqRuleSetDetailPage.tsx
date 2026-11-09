@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef, useState } from 'react'
+import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import {
@@ -38,7 +38,7 @@ import { useDqRuleSetActions } from './use-dq-rule-set-actions'
 import { DqChecksTab } from './DqChecksTab'
 import { DqResultsView } from './DqResultsView'
 import { DatabaseSqlTab } from '@/features/projects/warehouse/databases/DatabaseSqlTab'
-import type { DqReport } from '@/lib/duckdb/data-quality'
+import { runnableChecks, runOutcome, type DqReport } from '@/lib/duckdb/data-quality'
 import type { DqRuleSet } from '@/types'
 import { localized } from '@/lib/localized'
 import { EntityNotFound } from '@/components/layout/EntityNotFound'
@@ -49,7 +49,7 @@ type TabId = (typeof TAB_IDS)[number]
 const TABS: { id: TabId; labelKey: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
   { id: 'overview', labelKey: 'databases.detail_overview', icon: Info },
   { id: 'checks', labelKey: 'data_quality.tab_checks', icon: Code },
-  { id: 'results', labelKey: 'data_quality.tab_results', icon: BarChart3 },
+  { id: 'results', labelKey: 'data_quality.tab_test_results', icon: BarChart3 },
   { id: 'investigate', labelKey: 'data_quality.tab_investigate', icon: Search },
 ]
 
@@ -70,6 +70,9 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
     customChecks,
     addRunHistory,
     loadRunHistory,
+    runHistory,
+    deleteRunHistory,
+    clearRunHistory,
   } = useDqStore()
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const dataSources = useDataSourceStore((s) => s.dataSources)
@@ -124,10 +127,16 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
     if (fullRuleSetId) void loadRunHistory(fullRuleSetId)
   }, [fullRuleSetId, loadRunHistory])
 
+  const runChecks = useMemo(() => runnableChecks(customChecks), [customChecks])
+  const history = useMemo(() => fullRuleSetId ? {
+    entries: runHistory.filter((e) => e.ruleSetId === fullRuleSetId),
+    onDelete: (id: string) => void deleteRunHistory(id),
+    onClear: () => void clearRunHistory(fullRuleSetId),
+  } : undefined, [fullRuleSetId, runHistory, deleteRunHistory, clearRunHistory])
+
   const handleBack = useCallback(() => {
-    // Navigate to the data-quality list page using absolute path
     if (wsUid) {
-      navigate(paths.warehouseDataQuality(wsUid))
+      navigate(paths.warehouseDqRuleSets(wsUid))
     } else {
       navigate('..')
     }
@@ -136,9 +145,7 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
   const handleScanComplete = useCallback((report: DqReport) => {
     if (!ruleSet) return
 
-    const applicable = report.summary.total - report.summary.notApplicable
-    const score = applicable > 0 ? Math.round((report.summary.passed / applicable) * 100) : 100
-    const durationMs = report.results.reduce((sum, r) => sum + r.executionTimeMs, 0)
+    const { score, durationMs } = runOutcome(report)
 
     void updateRuleSet(ruleSet.id, {
       // The scan ran: failing checks are the score's business, not the status's.
@@ -165,6 +172,13 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
       report,
     }).catch((e) => console.warn('[dq] run-history persist:', e))
   }, [ruleSet, updateRuleSet, addRunHistory])
+
+  // The server recorded the run: its history row and the rule set's last score.
+  const handleServerRunDone = useCallback(() => {
+    if (!fullRuleSetId) return
+    void loadRunHistory(fullRuleSetId)
+    void loadDqRuleSets()
+  }, [fullRuleSetId, loadRunHistory, loadDqRuleSets])
 
   if (!dqRuleSetsLoaded) return null
 
@@ -287,11 +301,14 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
           </div>
           <div className={cn('h-full', activeTab !== 'results' && 'hidden')}>
             <DqResultsView
-              ruleSetId={ruleSet.id}
+              runKind="dq_rule_set"
+              runKey={ruleSet.id}
               runLabel={t('data_quality.job_label', { name: localized(ruleSet.name, i18n.language) })}
               dataSourceId={runnableSourceId}
-              customChecks={customChecks}
+              checks={runChecks}
+              history={history}
               onScanComplete={handleScanComplete}
+              onServerRunDone={handleServerRunDone}
               onBeforeScan={() => ensureMounted(runnableSourceId)}
               onInvestigate={handleInvestigate}
             />

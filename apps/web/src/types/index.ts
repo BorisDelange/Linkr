@@ -549,6 +549,7 @@ export type ReadmeOwnerType =
   | 'sql-collection'
   | 'etl-pipeline'
   | 'dq-rule-set'
+  | 'dq-profile'
   | 'data-catalog'
   /** The published site + CI file of a catalog deployed with GitLab/GitHub
    *  Pages; `fileName` is the path in the catalog repo (lib/dcat-ap/pages-deployment). */
@@ -1529,6 +1530,55 @@ export interface DqRuleSet extends Seedable, Authored, Lineaged {
 }
 
 /**
+ * A rule set a quality profile draws from: the whole of it, new checks included
+ * (`all`), or only the checks listed by key (`selected`).
+ */
+export interface DqProfileSource {
+  ruleSetId: string
+  /** Portable identity of the rule set, for export/import. */
+  ruleSetRef?: EntityRef
+  mode: 'all' | 'selected'
+  /** `selected` only: the `checkKey`s taken from the rule set. */
+  checkKeys?: string[]
+}
+
+/**
+ * A quality profile: checks chosen from several rule sets, applied to one
+ * database. It points at its checks (rule set + `checkKey`) and never copies
+ * them, so a check fixed in its rule set is fixed in every profile using it.
+ * Rule sets are where checks are written and tested; a profile is the run that
+ * counts on a database.
+ */
+export interface DqProfile extends Seedable, Authored, Lineaged {
+  id: string
+  /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
+  entityId?: string
+  workspaceId: string
+  name: LocalizedString
+  description: LocalizedString
+  badges?: ProjectBadge[]
+  /** The database the profile runs on, chosen at creation. */
+  dataSourceId: string
+  /** Portable identity of the database above (see DqRuleSet.dataSourceRef). */
+  dataSourceRef?: DataSourceRef
+  sources: DqProfileSource[]
+  status: DqRuleSetStatus
+  lastRunAt?: string
+  lastRunDurationMs?: number
+  /** Score 0-100, percentage of passing checks */
+  lastScore?: number
+  readme?: LocalizedString
+  license?: EntityLicense
+  /** Git repository the profile is versioned in (scope `dq-profiles`). */
+  gitRemoteConfig?: GitRemoteConfig
+  organization?: OrganizationInfo
+  /** User-facing semver (default '0.1.0'). */
+  version?: string
+  createdAt: string
+  updatedAt: string
+}
+
+/**
  * One check of a rule set. Every check is stored — the ones generated from a
  * schema at creation as much as those written by hand — so any of them can be
  * edited, disabled or deleted. Key order matches the server's
@@ -1537,6 +1587,9 @@ export interface DqRuleSet extends Seedable, Authored, Lineaged {
 export interface DqCustomCheck {
   id: string
   ruleSetId: string
+  /** Portable key, unique in the rule set, set at creation and never changed
+   *  (a rename keeps it): what an export and a quality profile point at. */
+  checkKey: string
   name: string
   description: string
   category: import('@/lib/dq-taxonomy').DqCategory
@@ -1563,7 +1616,9 @@ export interface DqCustomCheck {
  *  run can be reopened in the results table (light: counts + SQL, no row data). */
 export interface DqRunHistoryEntry {
   id: string
+  /** The rule set or the quality profile that ran: exactly one of the two. */
   ruleSetId?: string
+  profileId?: string
   workspaceId?: string
   dataSourceId: string
   startedAt: string

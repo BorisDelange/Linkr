@@ -101,6 +101,7 @@ export function NotificationsBell() {
         case 'workspace': return paths.workspaceHome(ws)
         case 'data_catalog': return paths.warehouseDataCatalog(ws, n.entityId)
         case 'dq_rule_set': return paths.warehouseDqRuleSet(ws, n.entityId)
+        case 'dq_profile': return paths.warehouseDqProfile(ws, n.entityId)
         case 'patient_board': {
           if (n.projectUid || !n.detail?.dataSourceId) break
           const sources = useDataSourceStore.getState().dataSources

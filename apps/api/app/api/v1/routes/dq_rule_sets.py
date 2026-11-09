@@ -22,6 +22,7 @@ from app.schemas.dq_rule_set import (
     DqRunHistoryResponse,
     DqRunHistoryUpdate,
 )
+from app.api.v1.routes.dq_profiles import load_profile, notify_profile
 from app.services import change_tracking, database_binding, dq_rule_set_service, notification_service
 
 router = APIRouter(tags=["data-quality"])
@@ -143,6 +144,14 @@ async def _notify_runs(
         entity_type="dq_run", entity_id=rule_set_id, project_uid=None, label=None,
         detail={"workspaceId": workspace_id}, notify=False,
     )
+
+
+async def _notify_run(db: AsyncSession, request: Request, user: User, run: DqRunHistory | SimpleNamespace) -> None:
+    if run.profile_id:
+        profile = SimpleNamespace(id=run.profile_id, workspace_id=run.workspace_id, name=None)
+        await notify_profile(db, request, user, "updated", profile, part="run", notify=False)
+    else:
+        await _notify_runs(db, request, user, run.rule_set_id, run.workspace_id)
 
 
 # --- Rule sets -------------------------------------------------------------
@@ -424,6 +433,8 @@ async def _load_run(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     if run.rule_set_id:
         await _load_rule_set(db, run.rule_set_id, user, permission)
+    elif run.profile_id:
+        await load_profile(db, run.profile_id, user, permission)
     elif run.workspace_id:
         await check_workspace_permission(db, run.workspace_id, user, permission)
     else:
@@ -467,17 +478,20 @@ async def create_run(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    rule_set = await _load_rule_set(db, body.rule_set_id, user, "data-quality:write")
-    # Trust the rule set's workspace, not the client-supplied one.
-    body.workspace_id = rule_set.workspace_id
-    await _require_database_read(db, rule_set, user)
-    await database_binding.require_stored_local(db, rule_set.workspace_id, rule_set.data_source_id, body.data_source_id)
+    owner = (
+        await _load_rule_set(db, body.rule_set_id, user, "data-quality:write") if body.rule_set_id
+        else await load_profile(db, body.profile_id, user, "data-quality:write")
+    )
+    # Trust the owner's workspace, not the client-supplied one.
+    body.workspace_id = owner.workspace_id
+    await check_workspace_permission(db, owner.workspace_id, user, "databases:read")
+    await database_binding.require_stored_local(db, owner.workspace_id, owner.data_source_id, body.data_source_id)
     body.report = _scrub_report(body.report)
     try:
         run = await dq_rule_set_service.create_run(db, body)
     except dq_rule_set_service.RunIdTaken as e:
-        raise HTTPException(status.HTTP_409_CONFLICT, "This run id belongs to another rule set") from e
-    await _notify_runs(db, request, user, rule_set.id, rule_set.workspace_id)
+        raise HTTPException(status.HTTP_409_CONFLICT, "This run id belongs to another rule set or profile") from e
+    await _notify_run(db, request, user, run)
     return run
 
 
@@ -494,7 +508,7 @@ async def update_run(
     if "report" in body.model_fields_set:
         body.report = _scrub_report(body.report)
     run = await dq_rule_set_service.update_run(db, run, body)
-    await _notify_runs(db, request, user, run.rule_set_id, run.workspace_id)
+    await _notify_run(db, request, user, run)
     return run
 
 
@@ -506,6 +520,6 @@ async def delete_run(
     db: AsyncSession = Depends(get_db),
 ):
     run = await _load_run(db, run_id, user, "data-quality:write")
-    rule_set_id, workspace_id = run.rule_set_id, run.workspace_id
+    gone = SimpleNamespace(rule_set_id=run.rule_set_id, profile_id=run.profile_id, workspace_id=run.workspace_id)
     await dq_rule_set_service.delete_run(db, run)
-    await _notify_runs(db, request, user, rule_set_id, workspace_id)
+    await _notify_run(db, request, user, gone)

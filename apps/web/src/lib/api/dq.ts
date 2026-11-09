@@ -1,10 +1,11 @@
 import { apiRequest } from '@/lib/api-client'
-import type { DqCustomCheckStorage, DqRuleSetStorage, DqRunHistoryStorage } from '@/lib/storage'
-import type { DqCustomCheck, DqRuleSet, DqRunHistoryEntry } from '@/types'
+import type { DqCustomCheckStorage, DqProfileStorage, DqRuleSetStorage, DqRunHistoryStorage } from '@/lib/storage'
+import type { DqCustomCheck, DqProfile, DqRuleSet, DqRunHistoryEntry } from '@/types'
 
 const SET = '/dq-rule-sets'
 const CHECK = '/dq-custom-checks'
 const RUN = '/dq-run-history'
+const PROFILE = '/dq-profiles'
 
 /** Server-mode DQ rule set storage (workspace-scoped metadata). */
 export const apiDqRuleSetStorage: DqRuleSetStorage = {
@@ -86,6 +87,9 @@ export const apiDqRunHistoryStorage: DqRunHistoryStorage = {
   getByRuleSet: (ruleSetId) =>
     apiRequest<DqRunHistoryEntry[]>(`${SET}/${encodeURIComponent(ruleSetId)}/runs`),
 
+  getByProfile: (profileId) =>
+    apiRequest<DqRunHistoryEntry[]>(`${PROFILE}/${encodeURIComponent(profileId)}/runs`),
+
   create: async (entry) => {
     await apiRequest(RUN, { method: 'POST', body: JSON.stringify(entry) })
   },
@@ -100,5 +104,37 @@ export const apiDqRunHistoryStorage: DqRunHistoryStorage = {
 
   deleteByRuleSet: async (ruleSetId) => {
     await apiRequest(`${SET}/${encodeURIComponent(ruleSetId)}/runs`, { method: 'DELETE' })
+  },
+
+  deleteByProfile: async (profileId) => {
+    await apiRequest(`${PROFILE}/${encodeURIComponent(profileId)}/runs`, { method: 'DELETE' })
+  },
+}
+
+/** Server-mode quality profile storage (its runs are deleted with it). */
+export const apiDqProfileStorage: DqProfileStorage = {
+  getAll: () => apiRequest<DqProfile[]>(PROFILE),
+
+  getByWorkspace: (workspaceId) =>
+    apiRequest<DqProfile[]>(`${PROFILE}?workspaceId=${encodeURIComponent(workspaceId)}`),
+
+  getById: async (id) => {
+    try {
+      return await apiRequest<DqProfile>(`${PROFILE}/${encodeURIComponent(id)}`)
+    } catch {
+      return undefined
+    }
+  },
+
+  create: async (profile) => {
+    await apiRequest(PROFILE, { method: 'POST', body: JSON.stringify(profile) })
+  },
+
+  update: async (id, changes) => {
+    await apiRequest(`${PROFILE}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) })
+  },
+
+  delete: async (id) => {
+    await apiRequest(`${PROFILE}/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
 }

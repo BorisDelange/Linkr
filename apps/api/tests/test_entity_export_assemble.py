@@ -1,7 +1,7 @@
 """End-to-end parity for the standalone single-entity export builders.
 
 For each versionable workspace child (SQL collection, ETL pipeline, DQ rule set,
-data catalog, schema preset, user plugin), seed the SHARED golden input.json into
+quality profile, data catalog, schema preset, user plugin), seed the SHARED golden input.json into
 the DB, run the server standalone builder, and assert each produced file matches
 expected/ byte for byte — the same golden the TS twin test uses. This proves the
 server path matches the frontend build*Zip builders. Org is resolved from the
@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from app.models.data_catalog import DataCatalog
-from app.models.dq_rule_set import DqCustomCheck, DqRuleSet
+from app.models.dq_rule_set import DqCustomCheck, DqProfile, DqRuleSet
 from app.models.etl_pipeline import EtlFile, EtlPipeline
 from app.models.organization import Organization
 from app.models.schema_preset import SchemaPreset
@@ -26,6 +26,7 @@ from app.models.workspace import Workspace
 from app.services import attachment_service
 from app.services.workspace_export_assemble import (
     build_data_catalog_tree,
+    build_dq_profile_tree,
     build_dq_rule_set_tree,
     build_etl_pipeline_tree,
     build_schema_preset_tree,
@@ -268,6 +269,29 @@ async def test_dq_rule_set_matches_golden(db):
         ))
     await db.commit()
     _assert_tree(await build_dq_rule_set_tree(db, rule_set), expected)
+
+
+@pytest.mark.asyncio
+async def test_dq_profile_matches_golden(db):
+    data, expected = _golden("dq-profile")
+    await _seed_ws_org(db, data)
+    p = data["profile"]
+    profile = DqProfile(
+        id=p["id"], workspace_id=p["workspaceId"], entity_id=p["entityId"],
+        name=p["name"], description=p["description"], badges=p["badges"],
+        data_source_id=p["dataSourceId"], data_source_ref=p.get("dataSourceRef"),
+        sources=p["sources"], status=p["status"], last_run_at=p["lastRunAt"],
+        last_run_duration_ms=p["lastRunDurationMs"], last_score=p["lastScore"],
+        origin=p["origin"], created_by_id=p["createdById"], created_by=p["createdBy"],
+        created_by_details=p["createdByDetails"], organization=p["organization"],
+        lineage_id=p["lineageId"], parent_lineage_id=p["parentLineageId"],
+        git_remote_config=p["gitRemoteConfig"], version=p["version"],
+        readme=p.get("readme"), license=p.get("license"),
+        created_at=_dt(p["createdAt"]), updated_at=_dt(p["updatedAt"]),
+    )
+    db.add(profile)
+    await db.commit()
+    _assert_tree(await build_dq_profile_tree(db, profile), expected)
 
 
 @pytest.mark.asyncio

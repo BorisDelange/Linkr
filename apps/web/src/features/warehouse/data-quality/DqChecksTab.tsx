@@ -16,7 +16,6 @@ import {
   EyeOff,
   ListChecks,
   X,
-  Database,
   ChevronDown,
   ChevronRight,
   AlertTriangle,
@@ -30,6 +29,7 @@ import {
   FolderInput,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { DatabaseSelect } from '@/components/ui/database-select'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -82,11 +82,9 @@ import {
   matchesSidebarSearch,
   useSidebarSearch,
 } from '@/components/SidebarSearch'
-import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
-import { queryDataSource } from '@/lib/duckdb/engine'
-import { checkStatus, usableExploreSql } from '@/lib/duckdb/data-quality'
+import { usableExploreSql } from '@/lib/duckdb/data-quality'
 import {
   DQ_CATEGORIES,
   DQ_SEVERITIES,
@@ -99,14 +97,16 @@ import {
 } from '@/lib/dq-taxonomy'
 import { makeCheck } from '@/lib/dq-templates'
 import { useDqStore, type CheckQueryField } from '@/stores/dq-store'
-import { useDataSourceStore } from '@/stores/data-source-store'
-import { localized } from '@/lib/localized'
 import { buildPointer } from '@/lib/import-identity'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useDatabaseOptions } from '@/hooks/use-database-options'
-import { CATEGORY_DOT } from './DqConstants'
 import { AddSchemaChecksDialog } from './AddSchemaChecksDialog'
+import { DqCheckRow } from './DqCheckRow'
+import { DqTestResult } from './DqTestResult'
+import { useCheckTest } from './use-check-test'
 import { DeleteGroupDialog, MoveChecksDialog, NewGroupDialog } from './DqCheckGroupDialogs'
+import { FoldLevelButton } from './FoldLevelButton'
+import { OPEN_GROUPS_UP_TO, useFoldState } from './use-fold-state'
 import type { DqCustomCheck } from '@/types'
 
 interface Props {
@@ -134,13 +134,6 @@ function readGroupSort(): GroupSort {
 
 const ORIGINS: DqCheckOrigin[] = ['ddl', 'mapping', 'manual']
 const NO_SUBCATEGORY = '__none__'
-// Up to this many checks every group starts open; beyond, they start folded.
-const OPEN_GROUPS_UP_TO = 40
-
-interface TestResult {
-  success: boolean
-  lines: string[]
-}
 
 interface CheckGroup {
   key: string
@@ -149,7 +142,7 @@ interface CheckGroup {
 }
 
 export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('data-quality:write')
   const {
     customChecks,
@@ -175,7 +168,6 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
   // still nameable; only what the picker OFFERS is scoped to the rule set's
   // own workspace.
   const dbSources = useDatabaseOptions(ruleSetWorkspaceId)
-  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
   const [sidebarVisible, setSidebarVisible] = useState(true)
   const [originFilter, setOriginFilter] = useState<OriginFilter>('all')
@@ -186,8 +178,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
     try { localStorage.setItem(GROUP_SORT_KEY, sort) } catch { /* private window: the choice just doesn't stick */ }
   }
   const search = useSidebarSearch()
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<TestResult | null>(null)
+  const { testing, result: testResult, run: runTest, clear: clearTestResult } = useCheckTest(dataSourceId)
   const [queryField, setQueryField] = useState<CheckQueryField>('sql')
   // Set when a run is asked for with no database picked; cleared by picking one.
   const [databaseMissing, setDatabaseMissing] = useState(false)
@@ -218,8 +209,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
   const [renamingGroup, setRenamingGroup] = useState<string | null>(null)
   const [deletingGroup, setDeletingGroup] = useState<string | null>(null)
   const [moving, setMoving] = useState<string[] | null>(null)
-  // Groups the user folded or unfolded, against the default for the list size.
-  const [toggledGroups, setToggledGroups] = useState<Set<string>>(new Set())
+  const fold = useFoldState(() => customChecks.length <= OPEN_GROUPS_UP_TO)
 
   // Sidebar edit mode: multi-select via checkboxes + bulk enable/disable/delete.
   const [editMode, setEditMode] = useState(false)
@@ -286,13 +276,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
     if (!(await runOp(() => updateChecks(idsInGroup(from), { tableName: to })))) return
     setRenamingGroup(null)
     setEmptyGroups((prev) => prev.map((g) => (g === from ? to : g)))
-    setToggledGroups((prev) => {
-      if (!prev.has(from)) return prev
-      const next = new Set(prev)
-      next.delete(from)
-      next.add(to)
-      return next
-    })
+    fold.rename(from, to)
   }
 
   const deleteGroup = async (name: string, withChecks: boolean): Promise<boolean> => {
@@ -314,15 +298,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
     ? customChecks.find((c) => c.id === moving[0])?.tableName ?? null
     : undefined
 
-  const groupsOpenByDefault = customChecks.length <= OPEN_GROUPS_UP_TO
-  const isGroupOpen = (key: string) =>
-    !!search.query || !showGroupHeaders || (groupsOpenByDefault !== toggledGroups.has(key))
-  const toggleGroup = (key: string) => setToggledGroups((prev) => {
-    const next = new Set(prev)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    return next
-  })
+  const isGroupOpen = (key: string) => !!search.query || !showGroupHeaders || fold.isOpen(key)
 
   const handleNewCheck = useCallback(async () => {
     const check = makeCheck(ruleSetId, customChecks.reduce((max, c) => Math.max(max, c.order + 1), 0), {
@@ -384,66 +360,13 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
     })
   }, [deleteTarget, selectedIds, deleteCustomCheck, deleteCustomChecks, runOp])
 
-  const formatPct = useCallback(
-    (n: number) => n.toLocaleString(i18n.language, { maximumFractionDigits: 2 }),
-    [i18n.language],
-  )
-
   const handleTest = useCallback(async () => {
     if (!dataSourceId) {
       setDatabaseMissing(true)
       return
     }
-    if (!selectedCheck || testing) return
-    setTesting(true)
-    setTestResult(null)
-    try {
-      await ensureMounted(dataSourceId)
-      const rows = await queryDataSource(dataSourceId, selectedCheck.sql, { pushdown: selectedCheck.origin !== 'manual', origin: `Data quality · test check ${selectedCheck.name}` })
-      if (!rows.length) {
-        setTestResult({ success: false, lines: [t('data_quality.test_result_no_rows'), t('data_quality.test_expected_shape')] })
-        return
-      }
-      const row = rows[0]
-      if (!('violated_rows' in row) || !('total_rows' in row)) {
-        setTestResult({
-          success: false,
-          lines: [
-            t('data_quality.test_result_missing_columns', { columns: Object.keys(row).join(', ') }),
-            t('data_quality.test_expected_shape'),
-          ],
-        })
-        return
-      }
-      const violated = Number(row.violated_rows ?? 0)
-      const total = Number(row.total_rows ?? 0)
-      const status = checkStatus(violated, total, selectedCheck.threshold)
-      const pct = total > 0 ? (violated / total) * 100 : 0
-      const counts = t('data_quality.test_result_counts', {
-        violated: violated.toLocaleString(i18n.language),
-        total: total.toLocaleString(i18n.language),
-        pct: formatPct(pct),
-      })
-      const rule = selectedCheck.threshold === 0
-        ? t('data_quality.test_rule_zero')
-        : t('data_quality.test_rule_threshold', { threshold: formatPct(selectedCheck.threshold) })
-      if (status === 'not_applicable') {
-        setTestResult({ success: true, lines: [t('data_quality.test_result_not_applicable'), counts] })
-      } else {
-        setTestResult({
-          success: status === 'pass',
-          lines: [status === 'pass' ? t('data_quality.test_result_pass') : t('data_quality.test_result_fail'), counts, rule],
-        })
-      }
-    } catch (err) {
-      setTestResult({
-        success: false,
-        lines: [t('data_quality.test_result_error', { message: err instanceof Error ? err.message : String(err) })],
-      })
-    } finally {
-      setTesting(false)
-    }
-  }, [selectedCheck, testing, dataSourceId, ensureMounted, formatPct, i18n.language, t])
+    if (selectedCheck) await runTest(selectedCheck)
+  }, [selectedCheck, dataSourceId, runTest])
 
   const investigate = () => {
     if (!dataSourceId) {
@@ -519,29 +442,23 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                 {t('data_quality.select_database_first')}
               </span>
             )}
-            <Select
+            <DatabaseSelect
+              workspaceId={ruleSetWorkspaceId}
               value={dataSourceId}
-              onValueChange={(value) => {
+              onChange={(value) => {
                 setDatabaseMissing(false)
                 void updateRuleSet(ruleSetId, {
                   dataSourceId: value,
-                  dataSourceRef: buildPointer(dbSources, value),
+                  dataSourceRef: value ? buildPointer(dbSources, value) : undefined,
                 })
               }}
               disabled={!canWrite}
-            >
-              <SelectTrigger size="xs" className="w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
-                <Database size={12} className="text-muted-foreground" />
-                <SelectValue placeholder={t('data_quality.select_database')} />
-              </SelectTrigger>
-              <SelectContent>
-                {dbSources.map((ds) => (
-                  <SelectItem key={ds.id} value={ds.id}>
-                    {localized(ds.name, i18n.language)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              size="xs"
+              icon
+              placeholder={t('data_quality.select_database')}
+              noneLabel={t('data_quality.rs_database_none')}
+              className="w-auto border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50"
+            />
           </div>
         </div>
 
@@ -560,11 +477,16 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                   </SectionLabel>
                   <div className="flex items-center gap-0.5">
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant={filtered ? 'secondary' : 'ghost'} size="icon-xs">
-                          <Filter size={12} />
-                        </Button>
-                      </DropdownMenuTrigger>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant={filtered ? 'secondary' : 'ghost'} size="icon-xs">
+                              <Filter size={12} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent>{t('data_quality.filters')}</TooltipContent>
+                      </Tooltip>
                       <DropdownMenuContent align="end" density="compact" className="w-44">
                         <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground">{t('data_quality.filter_origin')}</DropdownMenuLabel>
                         <DropdownMenuCheckboxItem checked={originFilter === 'all'} onCheckedChange={() => setOriginFilter('all')}>
@@ -608,17 +530,28 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                         <TooltipContent>{editMode ? t('common.done') : t('data_quality.select_multiple')}</TooltipContent>
                       </Tooltip>
                     )}
+                    <FoldLevelButton
+                      levels={[groups.map((g) => ({ key: g.key }))]}
+                      isOpen={fold.isOpen}
+                      onFold={fold.setOpen}
+                      disabled={!showGroupHeaders || !!search.query}
+                    />
                     <SidebarSearchToggle
                       open={search.open}
                       onToggle={search.toggle}
                       label={t('data_quality.search_checks')}
                     />
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon-xs" disabled={!canWrite}>
-                          <Plus size={14} />
-                        </Button>
-                      </DropdownMenuTrigger>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon-xs" disabled={!canWrite}>
+                              <Plus size={14} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent>{t('data_quality.add_menu')}</TooltipContent>
+                      </Tooltip>
                       <DropdownMenuContent align="end" density="compact" className="w-48">
                         <DropdownMenuItem onClick={() => void handleNewCheck()}>
                           <SquarePen />
@@ -751,7 +684,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                               <ContextMenuTrigger asChild disabled={!canWrite}>
                                 <button
                                   type="button"
-                                  onClick={() => toggleGroup(group.key)}
+                                  onClick={() => fold.toggle(group.key)}
                                   className="flex h-6 w-full items-center gap-1 rounded px-1 text-left text-[10px] font-semibold text-muted-foreground hover:bg-accent/50"
                                 >
                                   {open ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
@@ -790,16 +723,32 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                                   selected={selectedCheckId === check.id && !editMode}
                                   editMode={editMode}
                                   checked={selectedIds.has(check.id)}
-                                  canWrite={canWrite}
                                   renaming={renamingId === check.id}
                                   onSelect={() => (editMode ? toggleSelected(check.id) : selectCheck(check.id))}
                                   onToggleSelected={() => toggleSelected(check.id)}
-                                  onStartRename={() => setRenamingId(check.id)}
                                   onRename={commitRename}
                                   onCancelRename={() => setRenamingId(null)}
-                                  onToggleDisabled={() => void runOp(() => setChecksDisabled([check.id], !check.disabled))}
-                                  onMove={() => setMoving([check.id])}
-                                  onDelete={() => setDeleteTarget(check.id)}
+                                  menu={canWrite && (
+                                    <>
+                                      <ContextMenuItem onClick={() => setRenamingId(check.id)}>
+                                        <Pencil size={14} />
+                                        {t('common.rename')}
+                                      </ContextMenuItem>
+                                      <ContextMenuItem onClick={() => void runOp(() => setChecksDisabled([check.id], !check.disabled))}>
+                                        {check.disabled ? <Eye size={14} /> : <EyeOff size={14} />}
+                                        {check.disabled ? t('data_quality.enable_check') : t('data_quality.disable_check')}
+                                      </ContextMenuItem>
+                                      <ContextMenuItem onClick={() => setMoving([check.id])}>
+                                        <FolderInput size={14} />
+                                        {t('data_quality.move_to')}
+                                      </ContextMenuItem>
+                                      <ContextMenuSeparator />
+                                      <ContextMenuItem variant="destructive" onClick={() => setDeleteTarget(check.id)}>
+                                        <Trash2 size={14} />
+                                        {t('common.delete')}
+                                      </ContextMenuItem>
+                                    </>
+                                  )}
                                 />
                               ))}
                             </div>
@@ -982,23 +931,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                   </div>
 
                   {/* Output pane */}
-                  {testResult && (
-                    <div className={cn(
-                      'flex items-start gap-2 border-t px-3 py-2 text-xs',
-                      testResult.success
-                        ? 'border-emerald-500/30 bg-emerald-500/5'
-                        : 'border-red-500/30 bg-red-500/5',
-                    )}>
-                      <div className="min-w-0 flex-1 space-y-0.5">
-                        {testResult.lines.map((line, i) => (
-                          <p key={i} className={cn(i === 0 ? 'font-medium' : 'text-muted-foreground', 'whitespace-pre-wrap')}>{line}</p>
-                        ))}
-                      </div>
-                      <Button variant="ghost" size="icon-xs" onClick={() => setTestResult(null)}>
-                        <X size={12} />
-                      </Button>
-                    </div>
-                  )}
+                  {testResult && <DqTestResult result={testResult} onClose={clearTestResult} />}
                 </div>
               ) : (
                 <div className="flex h-full items-center justify-center">
@@ -1127,150 +1060,5 @@ function ThresholdField({ value, disabled, onCommit }: {
         </span>
       )}
     </div>
-  )
-}
-
-/**
- * One check in the sidebar. Rename, enable/disable and delete live on the
- * right-click menu rather than hover icons, matching the IDE and plugin file
- * sidebars — hover clusters competed with the name for the row's width.
- */
-function DqCheckRow({
-  id,
-  name,
-  category,
-  dirty,
-  disabled,
-  selected,
-  editMode,
-  checked,
-  canWrite,
-  renaming,
-  onSelect,
-  onToggleSelected,
-  onStartRename,
-  onRename,
-  onCancelRename,
-  onToggleDisabled,
-  onMove,
-  onDelete,
-}: {
-  id: string
-  name: string
-  category: DqCategory
-  dirty: boolean
-  disabled: boolean
-  selected: boolean
-  editMode: boolean
-  checked: boolean
-  canWrite: boolean
-  renaming: boolean
-  onSelect: () => void
-  onToggleSelected: () => void
-  onStartRename: () => void
-  onRename: (next: string) => void
-  onCancelRename: () => void
-  onToggleDisabled: () => void
-  onMove: () => void
-  onDelete: () => void
-}) {
-  const { t } = useTranslation()
-  const { ref: nameRef, overflows, triggerProps } = useOverflowTooltip()
-
-  const dot = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className={cn(
-          'inline-block h-2 w-2 shrink-0 rounded-full',
-          CATEGORY_DOT[category],
-        )} />
-      </TooltipTrigger>
-      <TooltipContent side="left" className="max-w-xs">
-        <span className="font-semibold">{t(`data_quality.category_${category}`)}</span>
-        {' — '}
-        {t(`data_quality.category_${category}_help`)}
-      </TooltipContent>
-    </Tooltip>
-  )
-
-  // A fixed height, not vertical padding: the rename field then fits inside the
-  // row (h-5, `-ml-0.5` absorbing its border) and neither the row nor the text moves.
-  const rowClass = cn(
-    'flex h-7 w-full items-center gap-2 rounded-md px-2 text-xs transition-colors',
-    selected ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/50',
-    disabled && 'opacity-50',
-  )
-
-  if (renaming) {
-    return (
-      <div className={rowClass}>
-        {editMode && <Checkbox checked={checked} disabled className="size-3.5 shrink-0" />}
-        {dot}
-        <InlineRenameField
-          initialValue={name}
-          onSubmit={onRename}
-          onCancel={onCancelRename}
-          className="-ml-0.5 h-5"
-        />
-      </div>
-    )
-  }
-
-  return (
-    <Tooltip>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <div className={cn(rowClass, 'group')} data-check-id={id}>
-            {editMode && (
-              <Checkbox
-                checked={checked}
-                onCheckedChange={onToggleSelected}
-                className="size-3.5 shrink-0"
-                aria-label={t('common.select')}
-              />
-            )}
-            {dot}
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={onSelect}
-                {...triggerProps}
-                className={cn('min-w-0 flex-1 truncate text-left', disabled && 'line-through')}
-              >
-                <span ref={nameRef} className="block truncate">{name}</span>
-              </button>
-            </TooltipTrigger>
-            {dirty && (
-              <span
-                className="size-1.5 shrink-0 rounded-full bg-orange-400"
-                title={t('data_quality.unsaved')}
-              />
-            )}
-          </div>
-        </ContextMenuTrigger>
-        {canWrite && !editMode && (
-          <ContextMenuContent>
-            <ContextMenuItem onClick={onStartRename}>
-              <Pencil size={14} />
-              {t('common.rename')}
-            </ContextMenuItem>
-            <ContextMenuItem onClick={onToggleDisabled}>
-              {disabled ? <Eye size={14} /> : <EyeOff size={14} />}
-              {disabled ? t('data_quality.enable_check') : t('data_quality.disable_check')}
-            </ContextMenuItem>
-            <ContextMenuItem onClick={onMove}>
-              <FolderInput size={14} />
-              {t('data_quality.move_to')}
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem variant="destructive" onClick={onDelete}>
-              <Trash2 size={14} />
-              {t('common.delete')}
-            </ContextMenuItem>
-          </ContextMenuContent>
-        )}
-      </ContextMenu>
-      {overflows && <TooltipContent side="right">{name}</TooltipContent>}
-    </Tooltip>
   )
 }

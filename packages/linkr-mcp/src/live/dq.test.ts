@@ -10,7 +10,7 @@ import {
 import { registerDqTools } from './tools-dq'
 
 const check = (over: Partial<DqCustomCheck>): DqCustomCheck => ({
-  id: 'c1', ruleSetId: 'rs', name: 'Negative values', description: '', category: 'plausibility', subcategory: 'atemporal',
+  id: 'c1', ruleSetId: 'rs', checkKey: 'negative-values', name: 'Negative values', description: '', category: 'plausibility', subcategory: 'atemporal',
   severity: 'warning', threshold: 0, sql: 'SELECT 0 AS violated_rows, 1 AS total_rows', exploreSql: null, order: 0,
   origin: 'manual', templateKey: null, tableName: null, disabled: false, createdAt: '', updatedAt: '', ...over,
 })

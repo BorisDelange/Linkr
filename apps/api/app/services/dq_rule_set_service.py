@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.dq_rule_set import DqCustomCheck, DqRuleSet, DqRunHistory
 from app.services import attachment_service, git_secret
+from app.services.dq_check_portable import check_keys
 from app.schemas.dq_rule_set import (
     DqCustomCheckCreate,
     DqCustomCheckPatch,
@@ -63,8 +64,11 @@ async def update(
 
 async def delete(db: AsyncSession, rule_set: DqRuleSet) -> None:
     from app.services import git_service
+    from app.services.server_runs import runs
 
     rule_set_id = rule_set.id
+    # A run going on would write the history of a rule set that is gone.
+    await runs.forget(db, ("dq_rule_set",), [rule_set_id])
     await db.delete(rule_set)  # cascades to checks via FK
     await db.commit()
     # The README attachments' owner is polymorphic (no FK), so clean them here.
@@ -86,8 +90,24 @@ async def get_check(db: AsyncSession, check_id: str) -> DqCustomCheck | None:
     return await db.get(DqCustomCheck, check_id)
 
 
+async def _taken_keys(db: AsyncSession, rule_set_id: str) -> list[str]:
+    result = await db.execute(
+        select(DqCustomCheck.check_key).where(DqCustomCheck.rule_set_id == rule_set_id)
+    )
+    return [k for k in result.scalars().all() if k]
+
+
+def _keyed(data: list[DqCustomCheckCreate], taken: list[str]) -> list[DqCustomCheck]:
+    """The new checks as rows, each with a key no other check of its rule set has."""
+    keys = check_keys(((d.check_key, d.template_key, d.name) for d in data), taken)
+    return [
+        DqCustomCheck(**{**d.model_dump(exclude_none=True), "check_key": key})
+        for d, key in zip(data, keys)
+    ]
+
+
 async def create_check(db: AsyncSession, data: DqCustomCheckCreate) -> DqCustomCheck:
-    check = DqCustomCheck(**data.model_dump(exclude_none=True))
+    [check] = _keyed([data], await _taken_keys(db, data.rule_set_id))
     db.add(check)
     await db.commit()
     await db.refresh(check)
@@ -158,7 +178,7 @@ async def create_checks(
 ) -> list[DqCustomCheck]:
     """Raises ChecksConflict / ChecksTooMany before writing anything."""
     await _validate_new_checks(db, data)
-    checks = [DqCustomCheck(**d.model_dump(exclude_none=True)) for d in data]
+    checks = _keyed(data, await _taken_keys(db, data[0].rule_set_id)) if data else []
     db.add_all(checks)
     await _commit_new_checks(db)
     return await _checks_by_ids(db, [c.id for c in checks])
@@ -171,7 +191,7 @@ async def replace_checks(
     server refuses leaves the previous checks in place."""
     await _validate_new_checks(db, data, replacing=rule_set_id)
     await db.execute(sa_delete(DqCustomCheck).where(DqCustomCheck.rule_set_id == rule_set_id))
-    checks = [DqCustomCheck(**d.model_dump(exclude_none=True)) for d in data]
+    checks = _keyed(data, [])
     db.add_all(checks)
     await _commit_new_checks(db)
     return await _checks_by_ids(db, [c.id for c in checks])
@@ -276,8 +296,9 @@ async def create_run(db: AsyncSession, data: DqRunHistoryCreate) -> DqRunHistory
     run = await db.get(DqRunHistory, data.id)
     if run is None:
         run = DqRunHistory()
-    elif run.rule_set_id != data.rule_set_id:
-        # The rule set the caller was authorized on is the run's own, never another's.
+    elif (run.rule_set_id, run.profile_id) != (data.rule_set_id, data.profile_id):
+        # The rule set or profile the caller was authorized on is the run's own,
+        # never another's.
         raise RunIdTaken(data.id)
     for key, value in payload.items():
         setattr(run, key, value)

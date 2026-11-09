@@ -65,6 +65,11 @@ export async function renameBadgeCategory(
     if (badges) { await storage.dqRuleSets.update(ruleSet.id, { badges }); changed++ }
   }
 
+  for (const profile of await storage.dqProfiles.getByWorkspace(workspaceId)) {
+    const badges = rewrite(profile.badges)
+    if (badges) { await storage.dqProfiles.update(profile.id, { badges }); changed++ }
+  }
+
   // Schema presets have no update() — they upsert through save().
   for (const preset of await storage.schemaPresets.getByWorkspace(workspaceId)) {
     const badges = rewrite(preset.badges)
@@ -123,13 +128,14 @@ export async function collectWorkspaceBadges(
   storage: Storage,
   workspaceId: string,
 ): Promise<ProjectBadge[]> {
-  const [workspace, projects, sources, pipelines, collections, ruleSets, presets] = await Promise.all([
+  const [workspace, projects, sources, pipelines, collections, ruleSets, profiles, presets] = await Promise.all([
     storage.workspaces.getById(workspaceId),
     storage.projects.getAll(),
     storage.dataSources.getByWorkspace(workspaceId),
     storage.etlPipelines.getByWorkspace(workspaceId),
     storage.sqlScriptCollections.getByWorkspace(workspaceId),
     storage.dqRuleSets.getByWorkspace(workspaceId),
+    storage.dqProfiles.getByWorkspace(workspaceId),
     storage.schemaPresets.getByWorkspace(workspaceId),
   ])
 
@@ -140,6 +146,7 @@ export async function collectWorkspaceBadges(
     ...pipelines.flatMap((p) => p.badges ?? []),
     ...collections.flatMap((c) => c.badges ?? []),
     ...ruleSets.flatMap((r) => r.badges ?? []),
+    ...profiles.flatMap((p) => p.badges ?? []),
     ...presets.flatMap((p) => p.badges ?? []),
   ]
 }

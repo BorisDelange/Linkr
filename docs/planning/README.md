@@ -44,6 +44,7 @@ Built, and beyond what the automated journeys can check.
 | Web apps: really launching the Gradio, plumber, Panel, FastAPI and Flask presets (detection and commands are tested); one real long session past the idle stop | server | S |
 | Vocabularies and dictionaries: ATHENA import (full, subset, a second release), legacy vocabulary databases, dictionary sync + update, resolution, SQL tab | both | M |
 | Data catalog: variables and crossings, a resumed run, Pause/Stop, anonymization audit, Publish (Pages) | both | M |
+| Quality profiles: home → create (database required) → pick a whole rule set and some checks of another → run → History; rename a check in its rule set and see the profile keep it; delete a rule set and remove it from the profile; a reload mid-run, then Pause → reload → Resume, and Start over (server); close the tab mid-run and find it recorded in the History ([dq-standards-plan.md](dq-standards-plan.md) §3) | both | S |
 | Derive a cohort through the UI → new DuckDB, and → new schema (Linkr-owned DuckDB, Postgres with writes allowed) | server | S |
 | SPC widget added to a dashboard, server mode | server | S |
 | Server file picker end to end ([server-file-picker-plan.md](server-file-picker-plan.md) §6) | server | S |
@@ -95,7 +96,7 @@ BlockNote document mixing prose with live widgets, presentable as slides, export
 
 | Item | Effort |
 |------|--------|
-| A `checkKey` fixed at creation (`checkKeys()` derives one at export, so a rename changes it); quality profiles + Runs; DQ home with 3 widgets | L |
+| 🚧 Quality profiles: built on `feature/dq-profiles` (model, home with 2 widgets, checks + add dialog, runs, `checkKey`, export/import, git link); left: profiles in the workspace export / seed / catalog, MCP tools | M |
 | DQD generator + the 3 DQD-derived public rule sets | M |
 | `dqRunToDqv()`, run export, catalog publish with a "Data quality" section | M |
 

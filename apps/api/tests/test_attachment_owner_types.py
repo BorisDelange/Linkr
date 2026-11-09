@@ -17,6 +17,8 @@ CLIENT_OWNER_TYPES = {
     # The rendered Pages site of a catalog (lib/dcat-ap/pages-site-files.ts).
     "data-catalog-site",
     "data-source",
+    # A quality profile's README panel (DqProfileDetailPage); its export is to come.
+    "dq-profile",
     "dq-rule-set",
     "etl-pipeline",
     "mapping-project",

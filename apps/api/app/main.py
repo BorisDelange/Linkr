@@ -26,6 +26,7 @@ from app.api.v1.routes.data_sources import router as data_sources_router
 from app.api.v1.routes.database import router as database_router
 from app.api.v1.routes.dataset_files import router as dataset_files_router
 from app.api.v1.routes.deferred import router as deferred_router
+from app.api.v1.routes.dq_profiles import router as dq_profiles_router
 from app.api.v1.routes.dq_rule_sets import router as dq_rule_sets_router
 from app.api.v1.routes.entity_visits import router as entity_visits_router
 from app.api.v1.routes.environments import router as environments_router
@@ -272,6 +273,7 @@ app.include_router(patient_dashboards_router, prefix="/api/v1")
 app.include_router(readme_router, prefix="/api/v1")
 app.include_router(wiki_attachments_router, prefix="/api/v1")
 app.include_router(dq_rule_sets_router, prefix="/api/v1")
+app.include_router(dq_profiles_router, prefix="/api/v1")
 app.include_router(data_catalogs_router, prefix="/api/v1")
 app.include_router(concept_sets_router, prefix="/api/v1")
 app.include_router(vocabulary_library_router, prefix="/api/v1")

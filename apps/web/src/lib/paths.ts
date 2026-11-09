@@ -71,8 +71,12 @@ export const paths = {
   warehouseEtlPipeline: (wsUid: string, pipelineId: string) =>
     `${ws(wsUid)}/warehouse/etl/${shortenId(pipelineId)}`,
   warehouseDataQuality: (wsUid: string) => `${ws(wsUid)}/warehouse/data-quality`,
+  warehouseDqRuleSets: (wsUid: string) => `${ws(wsUid)}/warehouse/data-quality/rule-sets`,
   warehouseDqRuleSet: (wsUid: string, ruleSetId: string) =>
     `${ws(wsUid)}/warehouse/data-quality/${shortenId(ruleSetId)}`,
+  warehouseDqProfiles: (wsUid: string) => `${ws(wsUid)}/warehouse/data-quality/profiles`,
+  warehouseDqProfile: (wsUid: string, profileId: string) =>
+    `${ws(wsUid)}/warehouse/data-quality/profiles/${shortenId(profileId)}`,
   warehouseSchemas: (wsUid: string) => `${ws(wsUid)}/warehouse/schemas`,
   // Shortened like every other uuid-keyed entity. It used to carry the raw
   // presetId because that field was at once the key and the readable slug; the

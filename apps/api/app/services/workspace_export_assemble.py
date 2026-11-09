@@ -37,7 +37,7 @@ from app.schemas.concept_set import ConceptSetResponse
 from app.schemas.data_dictionary import DataDictionaryResponse
 from app.schemas.data_catalog import DataCatalogResponse
 from app.schemas.data_source import DataSourceResponse
-from app.schemas.dq_rule_set import DqCustomCheckResponse, DqRuleSetResponse
+from app.schemas.dq_rule_set import DqCustomCheckResponse, DqProfileResponse, DqRuleSetResponse
 from app.schemas.etl_pipeline import EtlFileResponse, EtlPipelineResponse
 from app.schemas.mapping_project import MappingProjectResponse, ServiceMappingResponse
 from app.schemas.organization import OrganizationResponse
@@ -67,6 +67,7 @@ from app.services.export_layout import (
     SIDECAR_TREE,
     TYPE_DATA_CATALOG,
     TYPE_DATABASE,
+    TYPE_DQ_PROFILE,
     TYPE_DQ_RULE_SET,
     TYPE_ETL_PIPELINE,
     TYPE_SCHEMA_PRESET,
@@ -211,6 +212,18 @@ def _portable_rule_set(data: dict) -> dict:
     if not data.get("checkGroups"):
         data.pop("checkGroups", None)
     return _drop_null_refs(data, "dataSourceRef", "schemaPresetRef")
+
+
+def _portable_profile(data: dict) -> dict:
+    """A quality profile's metadata pointing at its database and rule sets by
+    portable pointer only, as ``buildDqProfileFolder`` (entity-io.ts) writes it:
+    ``dataSourceId`` is blanked in place and each source loses its local
+    ``ruleSetId``, keeping the ``ruleSetRef`` the import resolves."""
+    data["dataSourceId"] = ""
+    data["sources"] = [
+        {k: v for k, v in source.items() if k != "ruleSetId"} for source in data.get("sources") or []
+    ]
+    return _drop_null_refs(data, "dataSourceRef")
 
 
 def _portable_collection(data: dict) -> dict:
@@ -1069,6 +1082,19 @@ async def build_dq_rule_set_tree(db: AsyncSession, rule_set) -> dict[str, bytes]
     return tree
 
 
+async def build_dq_profile_tree(db: AsyncSession, profile) -> dict[str, bytes]:
+    tree: dict[str, bytes] = {}
+    dumped = _portable_profile(_badged_dump(DqProfileResponse, profile))
+    tree[ENTITY_MANIFEST] = _json(
+        with_entity_type(
+            strip_entity_docs(_strip_instance_fields(dumped)), TYPE_DQ_PROFILE, APP_VERSION
+        )
+    )
+    tree.update(await _entity_docs(db, "", dumped, "dq-profile", profile.id))
+    await _attach_org(db, tree, ENTITY_MANIFEST, profile)
+    return tree
+
+
 # Mirrors isPagesTreePath (lib/dcat-ap/pages-deployment.ts): a site attachment's
 # file_name is its repo path and is client-supplied, so only site/** and the two
 # CI files may be written — never entity.json, ../x or .git/config.
@@ -1470,6 +1496,10 @@ async def assemble_etl_pipeline_zip(db: AsyncSession, pipeline) -> bytes:
 
 async def assemble_dq_rule_set_zip(db: AsyncSession, rule_set) -> bytes:
     return await asyncio.to_thread(_zip_tree, await build_dq_rule_set_tree(db, rule_set))
+
+
+async def assemble_dq_profile_zip(db: AsyncSession, profile) -> bytes:
+    return await asyncio.to_thread(_zip_tree, await build_dq_profile_tree(db, profile))
 
 
 async def assemble_data_catalog_zip(db: AsyncSession, catalog) -> bytes:

@@ -27,6 +27,7 @@ function fakeStorage() {
     etlPipelines: [{ id: 'et1', badges: undefined }],
     sqlScriptCollections: [{ id: 'sc1', badges: [badge('f', 'Source::MIMIC')] }],
     dqRuleSets: [{ id: 'dq1', badges: [] }],
+    dqProfiles: [{ id: 'pr1', badges: [badge('h', 'Source::MIMIC')] }],
     schemaPresets: [{ presetId: 'sp1', badges: [badge('g', 'Source::MIMIC')] }],
   }
 
@@ -57,6 +58,10 @@ function fakeStorage() {
       getByWorkspace: async () => db.dqRuleSets,
       update: async () => { throw new Error('should not update a rule set with no badges') },
     },
+    dqProfiles: {
+      getByWorkspace: async () => db.dqProfiles,
+      update: async (id: string, c: object) => { patch(db.dqProfiles.find((p) => p.id === id)!, c) },
+    },
     schemaPresets: {
       getByWorkspace: async () => db.schemaPresets,
       save: async (p: (typeof db.schemaPresets)[number]) => {
@@ -81,8 +86,9 @@ describe('renameBadgeCategory', () => {
     expect(labels(db.dataSources[0].badges)).toEqual(['Dataset::eICU'])
     expect(labels(db.sqlScriptCollections[0].badges)).toEqual(['Dataset::MIMIC'])
     expect(labels(db.schemaPresets[0].badges)).toEqual(['Dataset::MIMIC'])
-    // workspace + p1 + ds1 + sc1 + sp1
-    expect(changed).toBe(5)
+    expect(labels(db.dqProfiles[0].badges)).toEqual(['Dataset::MIMIC'])
+    // workspace + p1 + ds1 + sc1 + pr1 + sp1
+    expect(changed).toBe(6)
   })
 
   it('leaves another workspace untouched', async () => {
@@ -128,11 +134,11 @@ describe('collectWorkspaceBadges', () => {
   it('gathers badges from every collection, skipping other workspaces', async () => {
     const { storage } = fakeStorage()
     const all = await collectWorkspaceBadges(storage, WS)
-    // Source::MIMIC four times: workspace, project p1, sql collection, schema preset.
+    // Source::MIMIC five times: workspace, project p1, sql collection, quality profile, schema preset.
     expect(labels(all).sort()).toEqual(
       [
         'Domain::ICU',
-        'Source::MIMIC', 'Source::MIMIC', 'Source::MIMIC', 'Source::MIMIC',
+        'Source::MIMIC', 'Source::MIMIC', 'Source::MIMIC', 'Source::MIMIC', 'Source::MIMIC',
         'Source::eICU',
         'urgent',
       ].sort(),

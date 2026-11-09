@@ -26,6 +26,7 @@ const BY_SCOPE: Partial<Record<GitScope, CatalogEntryType>> = {
   'etl-pipelines': 'etl-pipeline',
   'data-catalogs': 'data-catalog',
   'dq-rule-sets': 'dq-rule-set',
+  'dq-profiles': 'dq-profile',
   'schema-presets': 'schema-preset',
   'databases': 'database',
 }

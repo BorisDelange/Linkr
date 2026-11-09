@@ -34,7 +34,7 @@ import type {
   Workspace, WikiPage, WikiAttachment,
   SqlScriptCollection, SqlScriptFile,
   EtlPipeline, EtlFile,
-  DqRuleSet, DqCustomCheck,
+  DqRuleSet, DqCustomCheck, DqProfile, DqProfileSource,
   ConceptSet, MappingProject, ConceptMapping,
   SourceConceptIdRange, SourceConceptIdEntry,
   DataCatalog, ServiceMapping, UserPlugin,
@@ -3364,6 +3364,58 @@ export async function buildDqRuleSetZip(
 }
 
 /**
+ * Folder layout for one quality profile's git repo: the profile (stripped) and
+ * its docs. It points at its database and rule sets by portable pointer only:
+ * `dataSourceId` is blanked as a rule set's is, and each source drops its local
+ * `ruleSetId`, keeping `ruleSetRef` — what the import resolves.
+ */
+export async function buildDqProfileFolder(
+  zip: JSZip,
+  prefix: string,
+  profile: DqProfile,
+  storage: Storage,
+): Promise<void> {
+  const portable = {
+    ...stripInstanceFields(profile),
+    dataSourceId: '',
+    sources: profile.sources.map(({ ruleSetId: _local, ...source }) => source),
+  } as unknown as DqProfile
+  zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(portable), 'dq-profile')))
+  await writeEntityDocs(zip, prefix, profile, storage, 'dq-profile', profile.id)
+}
+
+export async function buildDqProfileZip(
+  profileId: string,
+  storage: Storage,
+  options: { lfsOverrides?: Map<string, boolean> } = {},
+): Promise<{ blob: Blob; name: string } | null> {
+  const profile = await storage.dqProfiles.getById(profileId)
+  if (!profile) return null
+  const zip = new JSZip()
+  await buildDqProfileFolder(zip, '', profile, storage)
+  await attachEntityOrganization(zip, ENTITY_MANIFEST, profile, storage)
+  const blob = await finalizeEntityZip(zip, options.lfsOverrides)
+  return { blob, name: localized(profile.name, 'en') || profile.id }
+}
+
+/**
+ * A profile's sources as read from a tree, each pointed at the local rule set
+ * its `ruleSetRef` resolves to in the workspace — `''` when none does yet: the
+ * profile then reports it missing until the rule set lands.
+ */
+export async function resolveProfileSources(
+  sources: DqProfileSource[] | undefined,
+  storage: Storage,
+  workspaceId: string,
+): Promise<DqProfileSource[]> {
+  const ruleSets = await storage.dqRuleSets.getByWorkspace(workspaceId)
+  return (sources ?? []).map(({ ruleSetId: _stale, ...source }) => {
+    const local = source.ruleSetRef ? resolvePointer(ruleSets, source.ruleSetRef, workspaceId) : undefined
+    return { ruleSetId: local?.id ?? '', ...source }
+  })
+}
+
+/**
  * Folder layout for one schema preset's git repo: its mapping config (stripped)
  * plus the DDL as a real `.ddl` file. Keyed on presetId (its primary key), not id.
  *
@@ -4291,6 +4343,24 @@ export async function applyClonedEntity(
     return { ok: true }
   }
 
+  if (type === 'dq-profile') {
+    const profile = await readManifest<DqProfile>('dq-profile')
+    if (!profile) return { ok: false, reason: 'missing-manifest', context: MANIFEST['dq-profile'] }
+    // Its database and rule sets travel as pointers only: re-resolve them, and
+    // keep the stored database when the pointer matches nothing here.
+    const { id: _id, workspaceId: _ws, dataSourceId: _dsid, sources, ...rest } = dropForeignAuthorId(profile) as DqProfile
+    const changes = await withEntityDocs(rest, 'dq-profile') as Partial<DqProfile>
+    if (workspaceId) {
+      changes.sources = await resolveProfileSources(sources, storage, workspaceId)
+      if (profile.dataSourceRef) {
+        const database = resolvePointer(await storage.dataSources.getAll(), profile.dataSourceRef, workspaceId)
+        if (database) changes.dataSourceId = database.id
+      }
+    }
+    await storage.dqProfiles.update(targetId, changes)
+    return { ok: true }
+  }
+
   if (type === 'schema-preset') {
     const preset = await readManifest<CustomSchemaPreset & { name?: LocalizedString; description?: LocalizedString }>('schema-preset')
     if (!preset) return { ok: false, reason: 'missing-manifest', context: MANIFEST['schema-preset'] }
@@ -5087,7 +5157,7 @@ export interface ParsedWorkspaceZip {
 
 /** A git-linked entity discovered in a parsed workspace ZIP (metadata only — content lives in its repo). */
 export interface GitLinkedEntity {
-  type: 'project' | 'mapping-project' | 'sql-collection' | 'etl-pipeline' | 'data-catalog' | 'dq-rule-set' | 'schema-preset' | 'database'
+  type: 'project' | 'mapping-project' | 'sql-collection' | 'etl-pipeline' | 'data-catalog' | 'dq-rule-set' | 'dq-profile' | 'schema-preset' | 'database'
   /** Stable id (project.uid or entity id) of the created record, for a later clone. */
   id: string
   /**

@@ -16,7 +16,7 @@ from app.models.data_dictionary import DataDictionary
 from app.models.data_source import DataSource, DataSourceFile
 from app.models.database_credential import DatabaseCredential
 from app.models.dataset import DatasetAnalysis, DatasetFile
-from app.models.dq_rule_set import DqCustomCheck, DqRuleSet, DqRunHistory
+from app.models.dq_rule_set import DqCustomCheck, DqProfile, DqRuleSet, DqRunHistory
 from app.models.entity_visit import EntityVisit
 from app.models.environment import Environment
 from app.models.etl_pipeline import EtlFile, EtlPipeline
@@ -88,6 +88,7 @@ __all__ = [
     "IdeConnection",
     "EntityVisit",
     "UserPlugin",
+    "DqProfile",
     "DqRuleSet",
     "DqCustomCheck",
     "DqRunHistory",

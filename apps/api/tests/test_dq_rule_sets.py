@@ -371,3 +371,19 @@ async def test_a_run_without_its_rule_set_is_reached_only_through_its_workspace(
     assert (await client.delete(f"{API}/dq-run-history/in-ws", headers=other)).status_code == 403
     assert (await client.delete(f"{API}/dq-run-history/no-ws", headers=other)).status_code == 404
     assert (await client.delete(f"{API}/dq-run-history/in-ws", headers=admin)).status_code == 204
+
+
+async def test_a_check_key_is_unique_in_its_rule_set_and_survives_a_rename(client):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    rs_id = (await _rule_set(client, headers, ws))["id"]
+    first = await client.post(f"{API}/dq-custom-checks", headers=headers, json=_check(rs_id, "c1", name="Same"))
+    assert first.json()["checkKey"] == "same"
+    # Sent with no key, or with one already taken: the server picks a free one.
+    r = await client.post(f"{API}/dq-rule-sets/{rs_id}/checks", headers=headers, json=[
+        _check(rs_id, "c2", name="Same"), _check(rs_id, "c3", name="Other", checkKey="same"),
+    ])
+    assert [c["checkKey"] for c in r.json()] == ["same#2", "same#3"]
+
+    renamed = await client.patch(f"{API}/dq-custom-checks/c1", headers=headers, json={"name": "Renamed"})
+    assert renamed.json()["checkKey"] == "same"

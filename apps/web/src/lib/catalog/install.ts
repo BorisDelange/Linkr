@@ -85,6 +85,7 @@ export const META_FILE: Record<CatalogEntry['type'], string[]> = {
   'project': [MANIFEST.project],
   'data-catalog': [MANIFEST['data-catalog']],
   'dq-rule-set': [MANIFEST['dq-rule-set']],
+  'dq-profile': [ENTITY_MANIFEST],
   'schema-preset': [MANIFEST['schema-preset']],
   'database': [MANIFEST.database],
 }

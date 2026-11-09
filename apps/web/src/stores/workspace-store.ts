@@ -266,6 +266,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
       await storage.dqCustomChecks.deleteByRuleSet(rs.id).catch(() => {})
       await storage.dqRuleSets.delete(rs.id).catch(() => {})
     }
+    for (const profile of await storage.dqProfiles.getByWorkspace(id)) {
+      await storage.dqProfiles.delete(profile.id).catch(() => {})
+    }
 
     // Concept mapping
     phase('workspaces.delete_phase_mappings')
