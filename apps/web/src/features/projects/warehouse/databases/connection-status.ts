@@ -1,10 +1,14 @@
-import type { DataSource } from '@/types'
+import type { DatabaseConnectionConfig, DataSource } from '@/types'
 
-/** A rebuildable database is one that is not working and still holds the DDL it
- *  was built from. Not while it is being set up: a derivation job may be writing
- *  that file. */
+/** A rebuildable database is one Linkr built as an empty DuckDB from a DDL, that
+ *  is not working and still holds that DDL. Never a database Linkr only connects
+ *  to (Postgres, Oracle, a user's own file…): its schema mapping carries a DDL
+ *  too, and a rebuild would swap it for an empty file. Not while it is being set
+ *  up: a derivation job may be writing that file. */
 export function canRebuild(source: DataSource): boolean {
-  return source.status !== 'connected' && source.status !== 'configuring' && !!source.schemaMapping?.ddl
+  const config = source.connectionConfig as DatabaseConnectionConfig | undefined
+  const builtByLinkr = config?.engine === 'duckdb' && (!!config.managed || !!config.inMemory)
+  return builtByLinkr && source.status !== 'connected' && source.status !== 'configuring' && !!source.schemaMapping?.ddl
 }
 
 /**

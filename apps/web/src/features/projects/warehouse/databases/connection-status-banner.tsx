@@ -80,6 +80,7 @@ export function ConnectionStatusBanner({
         description={(
           <>
             <p className={cn(
+              'whitespace-pre-line',
               source.status === 'error' ? 'break-all font-mono text-destructive/80'
                 : configuring ? undefined : 'break-all text-warning-foreground/80',
             )}>

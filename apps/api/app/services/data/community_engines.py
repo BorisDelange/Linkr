@@ -216,7 +216,7 @@ def _require_read_only_oracle_login(con: duckdb.DuckDBPyConnection, secret: str)
         detail = ", ".join(held) or f"owns {owned} table(s)"
         raise ValueError(
             "Linkr only connects to Oracle with a read-only login that owns no table (CREATE "
-            f"SESSION and SELECT grants on another schema); this one {'holds ' if held else ''}{detail}"
+            f"SESSION and SELECT grants on another schema).\nThis one {'holds ' if held else ''}{detail}."
         )
 
 

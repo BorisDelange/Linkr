@@ -782,6 +782,11 @@ async def create_from_ddl(
     The browser builds the same schema in its own WASM database; in server mode
     the tables must exist on disk, or every later query hits an empty catalog."""
     source = await _load_source(db, source_id, user, "databases:write")
+    # Only a DuckDB file Linkr owns is built (or rebuilt) from a DDL: anything it
+    # merely connects to would be swapped for an empty file under the same name.
+    stored = source.connection_config or {}
+    if stored.get("engine") != "duckdb" or data_source_service.server_path(stored):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "only a DuckDB database created by Linkr is built from a schema")
     try:
         config, new_location = data_source_service.claim_managed_location(source, body.path)
     except ValueError as exc:

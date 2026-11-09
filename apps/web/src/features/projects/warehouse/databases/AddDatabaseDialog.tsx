@@ -1106,7 +1106,10 @@ export function AddDatabaseDialog({
                     ) : (
                       <>
                         <div className="space-y-2">
-                          <Label>{t(dbEngine === 'oracle' ? 'databases.field_service_name' : 'databases.field_database')}<RequiredMark /></Label>
+                          <Label className="flex items-center gap-1.5">
+                            {t(dbEngine === 'oracle' ? 'databases.field_service_name' : 'databases.field_database')}<RequiredMark />
+                            {dbEngine === 'oracle' && <FieldInfo text={t('databases.field_service_name_hint_oracle')} />}
+                          </Label>
                           <Input value={dbDatabase} onChange={(e) => setDbDatabase(e.target.value)} placeholder={dbEngine === 'oracle' ? 'FREEPDB1' : undefined} />
                         </div>
                         <div className="space-y-2">
@@ -1241,7 +1244,7 @@ export function AddDatabaseDialog({
         {step === 2 && submitError && (
           <div className="mt-4 shrink-0 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
             <p className="text-xs font-medium text-destructive">{t('databases.save_failed')}</p>
-            <p className="mt-1 break-all font-mono text-xs text-destructive/80">{submitError}</p>
+            <p className="mt-1 whitespace-pre-line break-all font-mono text-xs text-destructive/80">{submitError}</p>
           </div>
         )}
         {step === 2 && (

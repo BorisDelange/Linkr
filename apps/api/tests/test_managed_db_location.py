@@ -291,3 +291,16 @@ def test_only_what_linkr_created_is_offered_for_removal():
     # Provenance a client sent (or an import carried) is display only.
     forged = {"schemaName": "public"}
     assert created_data(DataSource(id="g", connection_config={**pg, "schema": "public"}, derived_from=forged)) is None
+
+
+async def test_refuses_to_build_a_connected_database_from_a_schema(client):
+    """Postgres, Oracle and the like are only connected to: a rebuild would turn
+    them into an empty DuckDB file under the same name."""
+    headers = await _headers(client)
+    source = await _source(client, headers, {"engine": "postgresql", "host": "localhost", "database": "cdm"})
+    r = await client.post(f"{API}/data-sources/{source['id']}/create-from-ddl", headers=headers, json={"ddl": DDL})
+    assert r.status_code == 400
+    fetched = (await client.get(f"{API}/data-sources/{source['id']}", headers=headers)).json()
+    assert fetched["connectionConfig"]["engine"] == "postgresql"
+    assert "managed" not in fetched["connectionConfig"]
+    assert not managed_db.path_for(source["id"]).exists()
