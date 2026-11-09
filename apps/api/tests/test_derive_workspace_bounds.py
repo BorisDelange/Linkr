@@ -89,7 +89,7 @@ async def _named_like_a_key(client, headers, ws: str, name: str, tmp_path, monke
     monkeypatch.setattr(settings, "fs_browse_roots", str(tmp_path))
     r = await client.post(f"{API}/data-sources", headers=headers, json={
         "id": name, "workspaceId": ws, "alias": "lookalike", "name": {"en": "l"}, "sourceType": "database",
-        "connectionConfig": {}, "schemaMapping": {"patientTable": {"table": "person", "idColumn": "person_id"}},
+        "connectionConfig": {"engine": "duckdb"}, "schemaMapping": {"patientTable": {"table": "person", "idColumn": "person_id"}},
     })
     assert r.status_code == 201, r.text
     r = await client.post(f"{API}/data-sources/{name}/create-from-ddl", headers=headers, json={
