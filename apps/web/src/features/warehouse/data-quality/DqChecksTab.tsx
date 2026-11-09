@@ -1178,10 +1178,19 @@ function DqCheckRow({
   const { ref: nameRef, overflows, triggerProps } = useOverflowTooltip()
 
   const dot = (
-    <span className={cn(
-      'inline-block h-2 w-2 shrink-0 rounded-full',
-      CATEGORY_DOT[category],
-    )} />
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={cn(
+          'inline-block h-2 w-2 shrink-0 rounded-full',
+          CATEGORY_DOT[category],
+        )} />
+      </TooltipTrigger>
+      <TooltipContent side="left" className="max-w-xs">
+        <span className="font-semibold">{t(`data_quality.category_${category}`)}</span>
+        {' — '}
+        {t(`data_quality.category_${category}_help`)}
+      </TooltipContent>
+    </Tooltip>
   )
 
   // A fixed height, not vertical padding: the rename field then fits inside the

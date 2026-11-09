@@ -4,6 +4,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
@@ -25,7 +26,12 @@ interface Props {
   /** Show a database icon in the trigger. For a toolbar control standing on its
    *  own; a form field is already named by its label, so it stays off there. */
   icon?: boolean
+  /** Offer a first "none" entry that clears the choice (onChange receives ''),
+   *  for a form where the database is optional. */
+  noneLabel?: string
 }
+
+const NONE = '__none__'
 
 /**
  * The "choose a database" control, shared by every picker.
@@ -45,6 +51,7 @@ export function DatabaseSelect({
   className,
   disabled,
   icon = false,
+  noneLabel,
 }: Props) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
@@ -58,12 +65,22 @@ export function DatabaseSelect({
     : t('databases.no_database')
 
   return (
-    <Select value={value ?? ''} onValueChange={onChange} disabled={disabled || empty}>
+    <Select
+      value={value ?? ''}
+      onValueChange={(v) => onChange(v === NONE ? '' : v)}
+      disabled={disabled || empty}
+    >
       <SelectTrigger size={size} className={cn(icon && 'gap-1.5', className)}>
         {icon && <Database size={12} className="shrink-0 text-muted-foreground" />}
         <SelectValue placeholder={empty ? emptyLabel : (placeholder ?? t('databases.select_database'))} />
       </SelectTrigger>
       <SelectContent>
+        {noneLabel && (
+          <>
+            <SelectItem value={NONE}>{noneLabel}</SelectItem>
+            <SelectSeparator />
+          </>
+        )}
         {sources.map((ds) => (
           <SelectItem key={ds.id} value={ds.id}>
             {localized(ds.name, language)}
