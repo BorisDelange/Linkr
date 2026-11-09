@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import Field, field_validator
 
@@ -168,6 +169,19 @@ class ImportEnvSpecRequest(CamelModel):
     files: list[EnvSpecFile]
 
 
+class JobStep(CamelModel):
+    """One step of a job, as the panel lists it under the job's row."""
+
+    key: str
+    label: str
+    status: Literal["pending", "active", "done"]
+    # In the step's own units (batches, concepts), for the hover.
+    done: int
+    total: int
+    # 0–1: how far the step is; its units may weigh unequally (a concept by its rows).
+    share: float
+
+
 class JobResponse(CamelModel):
     id: str
     project_uid: str | None = None
@@ -200,6 +214,7 @@ class JobResponse(CamelModel):
     entity_type: str | None = None
     entity_id: str | None = None
     entity_name: str | None = None
+    steps: list[JobStep] | None = None
 
 
 class AdminJobResponse(JobResponse):

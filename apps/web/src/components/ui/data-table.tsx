@@ -30,7 +30,7 @@ import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
 import { DebouncedInput } from '@/components/ui/debounced-input'
-import { ColumnResizeHandle, FILTER_INPUT_CLASS, FILTER_INPUT_CLASS_DENSE, SortIndicator } from '@/components/ui/table-primitives'
+import { ColumnResizeHandle, FILTER_INPUT_CLASS, FILTER_INPUT_CLASS_DENSE, PageField, SortIndicator } from '@/components/ui/table-primitives'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { CellContextMenu, useCellContextMenu } from '@/components/ui/cell-context-menu'
@@ -951,9 +951,7 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
             >
               <ChevronLeft size={14} />
             </Button>
-            <span className="text-[10px] tabular-nums text-muted-foreground">
-              {safePage + 1} / {pageCount}
-            </span>
+            <PageField page={safePage} pageCount={pageCount} onPageChange={goToPage} dense />
             <Button
               variant="ghost"
               size="icon-sm"

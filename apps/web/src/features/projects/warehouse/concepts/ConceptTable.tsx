@@ -33,7 +33,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
-import { ColumnResizeHandle, FILTER_INPUT_CLASS, SortIndicator } from '@/components/ui/table-primitives'
+import { ColumnResizeHandle, FILTER_INPUT_CLASS, PageField, SortIndicator } from '@/components/ui/table-primitives'
 import { DebouncedInput } from '@/components/ui/debounced-input'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -865,9 +865,7 @@ export function ConceptTable({
               <SelectItem value="100">100</SelectItem>
             </SelectContent>
           </Select>
-          <span className="text-xs text-muted-foreground">
-            {t('concepts.pagination_page', { page: page + 1, total: totalPages })}
-          </span>
+          <PageField page={page} pageCount={totalPages} onPageChange={onPageChange} />
           <Button
             variant="outline"
             size="icon"

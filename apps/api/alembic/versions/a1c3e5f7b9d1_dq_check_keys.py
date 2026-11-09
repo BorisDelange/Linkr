@@ -5,7 +5,7 @@ rename changed it. Quality profiles point at checks by key: existing checks get
 the key an export would have given them, and keep it from now on.
 
 Revision ID: a1c3e5f7b9d1
-Revises: e6a8c0e2b4d6
+Revises: f8b0c2d4e6a8
 Create Date: 2026-11-09 12:00:00.000000
 
 """
@@ -18,7 +18,7 @@ from alembic import op
 from app.services.dq_check_portable import check_keys
 
 revision: str = "a1c3e5f7b9d1"
-down_revision: Union[str, None] = "e6a8c0e2b4d6"
+down_revision: Union[str, None] = "f8b0c2d4e6a8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

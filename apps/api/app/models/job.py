@@ -59,3 +59,6 @@ class Job(Base, UUIDPKMixin, TimestampMixin):
     entity_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     entity_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     entity_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # The steps it goes through, for the panel to show under its row: each
+    # {key, label, status, done, total, share} (JobStep). NULL: a job of one step.
+    steps: Mapped[list | None] = mapped_column(PortableJSON, nullable=True)

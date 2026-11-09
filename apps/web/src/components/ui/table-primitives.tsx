@@ -1,6 +1,8 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import type { ColumnDef, Header } from '@tanstack/react-table'
+import { cn } from '@/lib/utils'
 
 /**
  * The dashed inline filter field every table puts under its column headers.
@@ -103,5 +105,64 @@ export function ColumnResizeHandle<T>({ header }: { header: Header<T, unknown> }
       onReset={() => header.column.resetSize()}
       active={header.column.getIsResizing()}
     />
+  )
+}
+
+/**
+ * The page shown, "Page [n] of N", its number typed to jump to another. Sent on
+ * Enter or on leaving the field, not per keystroke: a table paged in SQL would
+ * query every digit typed on the way. Escape puts the page back. `dense`: the
+ * footer's micro-chrome, "[n] / N".
+ */
+export function PageField({ page, pageCount, onPageChange, dense = false }: {
+  /** 0-based. */
+  page: number
+  pageCount: number
+  onPageChange: (page: number) => void
+  dense?: boolean
+}) {
+  const { t } = useTranslation()
+  const [draft, setDraft] = useState<string | null>(null)
+  const commit = () => {
+    const n = draft == null ? NaN : parseInt(draft, 10)
+    if (Number.isFinite(n)) {
+      const next = Math.min(pageCount, Math.max(1, n)) - 1
+      if (next !== page) onPageChange(next)
+    }
+    setDraft(null)
+  }
+  const field = (
+    <input
+      type="text"
+      inputMode="numeric"
+      aria-label={t('common.go_to_page')}
+      value={draft ?? String(page + 1)}
+      onChange={(e) => setDraft(e.target.value.replace(/\D/g, ''))}
+      onFocus={(e) => e.target.select()}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur()
+        else if (e.key === 'Escape') {
+          setDraft(null)
+          // Blurred once the draft is gone, so leaving does not send it.
+          requestAnimationFrame(() => (e.target as HTMLInputElement).blur())
+        }
+      }}
+      // Wide enough for the last page's number.
+      style={{ width: `calc(${String(pageCount).length}ch + ${dense ? 10 : 16}px)` }}
+      className={cn(
+        'rounded border bg-transparent text-center tabular-nums text-foreground outline-none focus:border-primary',
+        dense ? 'h-5 px-1 text-[10px]' : 'h-7 px-1.5 text-xs',
+      )}
+    />
+  )
+  return dense ? (
+    <span className="flex items-center gap-1 text-[10px] tabular-nums text-muted-foreground">
+      {field} / {pageCount}
+    </span>
+  ) : (
+    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      {t('common.page')} {field} {t('common.page_of', { total: pageCount })}
+    </span>
   )
 }

@@ -181,6 +181,46 @@ async def test_an_extraction_writes_its_project_csv(client, monkeypatch, tmp_pat
         assert len(await concept_profile_service.read(db, source, "concept", [p["conceptId"] for p in TWIN["expected"]])) == len(TWIN["expected"])
 
 
+STEPS = [{"key": "records", "label": "Rows per table"}, {"key": "patients", "label": "Patients"}, {"key": "stats", "label": "Statistics"}]
+
+
+def _executor_at(state: dict, steps: list[dict] = STEPS):
+    from types import SimpleNamespace
+
+    from app.schemas.concept_run import RunStepName
+    from app.services.server_runs.concepts.executor import ConceptExecutor
+
+    ex = ConceptExecutor.__new__(ConceptExecutor)
+    ex.spec = SimpleNamespace(steps=[RunStepName.model_validate(s) for s in steps])
+    ex.state = state
+    return ex
+
+
+def test_the_job_shows_each_step_and_their_mean():
+    ex = _executor_at({"stage": "counts", "counts": {"records": {"done": 3, "total": 3}, "patients": {"done": 5, "total": 21}}})
+    steps = ex.steps()
+    assert [(s["key"], s["status"], s["done"], s["total"]) for s in steps] == [
+        ("records", "done", 3, 3), ("patients", "active", 5, 21), ("stats", "pending", 0, 0),
+    ]
+    # Each step weighs a third, whatever its count of batches.
+    assert ex.percent() == int(100 * (1 + 5 / 21 + 0) / 3)
+
+
+def test_the_statistics_step_moves_by_weight_and_the_counts_stay_done():
+    ex = _executor_at({
+        "stage": "batches", "counts": {"records": {"done": 3, "total": 3}, "patients": {"done": 21, "total": 21}},
+        "done": 10, "total": 100, "doneWeight": 50, "totalWeight": 200,
+    })
+    assert [(s["status"], s["share"]) for s in ex.steps()] == [("done", 1.0), ("done", 1.0), ("active", 0.25)]
+    assert ex.percent() == 75
+
+
+def test_a_run_of_one_step_has_no_steps():
+    ex = _executor_at({"stage": "batches", "done": 1, "total": 4, "doneWeight": 1, "totalWeight": 4}, steps=STEPS[2:])
+    assert ex.steps() is None
+    assert ex.percent() == 25
+
+
 @pytest.mark.parametrize("ids_as_double", [False, True])
 async def test_the_counts_come_first_then_the_statistics(client, monkeypatch, tmp_path_factory, ids_as_double):
     headers, source = await _parquet_source(client, monkeypatch, tmp_path_factory, ids_as_double)
@@ -189,7 +229,7 @@ async def test_the_counts_come_first_then_the_statistics(client, monkeypatch, tm
     r = await client.put(f"{base}/run", headers=headers, json={"manifest": TWIN["countsManifest"], "reset": True})
     assert r.status_code == 204, r.text
     r = await client.post(f"{API}/server-runs", headers=headers,
-                          json={"kind": "stats", "scopeId": source, "spec": {**TWIN["spec"], "counts": TWIN["counts"]}})
+                          json={"kind": "stats", "scopeId": source, "spec": {**TWIN["spec"], "counts": TWIN["counts"], "steps": STEPS}})
     assert r.status_code == 202, r.text
     assert r.json()["state"]["stage"] == "counts"
     run = await _until(client, headers, source, {"done", "failed"})
@@ -205,6 +245,10 @@ async def test_the_counts_come_first_then_the_statistics(client, monkeypatch, tm
     assert f"{len(TWIN['expected'])} concepts to profile, by records" in log, log
     assert "Statistics of " in log and log.splitlines()[-1].endswith("Done"), log
     assert job["input"].startswith("-- Statistics of "), job["input"][:200]
+    assert [(st["key"], st["label"], st["status"], st["share"]) for st in job["steps"]] == [
+        ("records", "Rows per table", "done", 1.0), ("patients", "Patients", "done", 1.0), ("stats", "Statistics", "done", 1.0),
+    ]
+    assert job["progress"] == 100
 
     status = (await client.get(base, headers=headers)).json()
     assert sorted(status["run"]["doneUnits"]) == sorted(u["key"] for u in TWIN["countsManifest"]["units"])

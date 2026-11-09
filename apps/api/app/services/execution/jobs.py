@@ -398,6 +398,10 @@ class JobHandle:
     async def progress(self, pct: int) -> None:
         await _set(self.job_id, progress=max(0, min(100, pct)))
 
+    async def set_steps(self, steps: list[dict]) -> None:
+        """The job's steps and how far each is (`JobStep`)."""
+        await _set(self.job_id, steps=steps)
+
     async def set_input(self, text: str) -> None:
         """What the job runs now, for a job going through many queries."""
         await _set(self.job_id, input=capped_input(text))

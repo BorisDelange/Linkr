@@ -2,6 +2,7 @@
   "setup": "\nCREATE TABLE concept AS SELECT i AS concept_id, 'Concept ' || i AS concept_name FROM range(1, 13) t(i);\nCREATE TABLE person AS SELECT i AS person_id FROM range(1, 121) t(i);\nCREATE TABLE measurement AS\nSELECT\n  CASE WHEN i % 17 = 0 THEN 0 ELSE CAST((i * 7) % 10 + 1 AS INTEGER) END AS mc,\n  CASE i % 5 WHEN 0 THEN NULL WHEN 1 THEN 11 ELSE CAST((i * 7) % 10 + 1 AS INTEGER) END AS msc,\n  CASE WHEN i % 9 = 3 THEN NULL ELSE ROUND(((i * 37) % 1000) / 13.0, 2) END AS v,\n  CASE i % 6 WHEN 0 THEN NULL WHEN 1 THEN 'low' WHEN 2 THEN 'high' ELSE CAST((i * 7) % 12 AS VARCHAR) END AS vs,\n  -- One unit leading each concept: a tie would let either engine pick its own.\n  CASE WHEN i % 5 < 3 THEN 'mg' WHEN i % 5 = 3 THEN 'g' ELSE NULL END AS u,\n  CAST(CASE WHEN (i * 7) % 10 + 1 = 8 THEN i % 4 + 1 ELSE (i * 13) % 120 + 1 END AS INTEGER) AS person_id,\n  TIMESTAMP '2015-01-01 08:00:00' + to_days(CAST((i * 11) % 2000 AS INTEGER)) + to_hours(CAST(i % 24 AS INTEGER)) AS dt\nFROM range(1, 6001) t(i)\n",
   "spec": {
     "label": "Twin",
+    "steps": [],
     "fingerprint": "twin-fingerprint",
     "options": {
       "metadata": true,

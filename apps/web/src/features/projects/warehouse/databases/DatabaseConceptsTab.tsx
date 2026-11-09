@@ -287,7 +287,11 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
   const shownSteps = STEPS.filter((s) => progressOf[s].total > 0)
   // The statistics weigh their concepts by records: the busiest come first.
   const fraction = (s: Step) => (s === 'stats' && profiles.share != null ? profiles.share : progressOf[s].done / progressOf[s].total)
-  const percent = shownSteps.length > 0 ? (shownSteps.reduce((sum, s) => sum + fraction(s), 0) / shownSteps.length) * 100 : 0
+  // A server run of several steps says how far it is as its job does: each step a like share.
+  const runSteps = running ? profiles.server?.run?.state.steps : undefined
+  const percent = runSteps?.length
+    ? (runSteps.reduce((sum, s) => sum + s.share, 0) / runSteps.length) * 100
+    : shownSteps.length > 0 ? (shownSteps.reduce((sum, s) => sum + fraction(s), 0) / shownSteps.length) * 100 : 0
   const stale = profiles.stale != null && profiles.stale > 0 && (
     <span className="text-xs text-warning-foreground">{t('concepts.profiles_stale', { count: profiles.stale })}</span>
   )
@@ -349,7 +353,7 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
       {/* Not loaded: nothing to list, so the page is the choice of what to load. */}
       {notLoaded && !running && (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-2">
-          <Card className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
+          <Card className="flex w-full flex-col gap-6 p-6">
             <div className="flex items-start gap-3">
               <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-warning/15">
                 <AlertTriangle size={18} className="text-warning" />
@@ -471,6 +475,8 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
                   error={concepts.detailError}
                   statsDeferred={concepts.conceptStatsDeferred}
                   onLoadStats={concepts.loadSelectedStats}
+                  // Its queries would contend with the run's on the same database.
+                  loadStatsBlocked={running ? t('concepts.stats_load_busy') : null}
                   hasValueColumn={hasValueColumn}
                   excludeOutliers={concepts.excludeOutliers}
                   statsEnabled={concepts.statsEnabled}

@@ -132,6 +132,7 @@ class RunExecutor:
         self.workspace_id = run.workspace_id
         self.launched_by = launched_by
         self.last_pct = -1
+        self.last_steps: list[dict] | None = None
 
     @classmethod
     async def create(cls, db, run: ServerRun, attempt: int, spec, handle: jobs.JobHandle) -> "RunExecutor":
@@ -147,6 +148,11 @@ class RunExecutor:
     def percent(self) -> int:
         """How far the run is, for the job's progress."""
         return 0
+
+    def steps(self) -> list[dict] | None:
+        """Its steps and how far each is (`JobStep`), for a run of several:
+        the job lists them, the run's state keeps them for its page."""
+        return None
 
     def start_note(self) -> str:
         return "Started" if self.attempt == 1 else "Resumed"
@@ -165,12 +171,18 @@ class RunExecutor:
     # --- writes -------------------------------------------------------------
 
     async def save(self, **values) -> None:
+        steps = self.steps()
+        if steps is not None:
+            self.state["steps"] = steps
         async with database.async_session() as db:
             await state.write(db, self.run_id, self.attempt, state=dict(self.state), **values)
         pct = self.percent()
         if pct != self.last_pct:
             self.last_pct = pct
             await self.handle.progress(pct)
+        if steps is not None and steps != self.last_steps:
+            self.last_steps = steps
+            await self.handle.set_steps(steps)
 
     async def note(self, line: str) -> None:
         """A line of the job's output, timed."""

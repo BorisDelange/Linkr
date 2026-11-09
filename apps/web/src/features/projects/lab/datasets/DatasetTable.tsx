@@ -58,7 +58,7 @@ import {
 } from '@/components/ui/context-menu'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
 import { Separator } from '@/components/ui/separator'
-import { ResizeGrip } from '@/components/ui/table-primitives'
+import { PageField, ResizeGrip } from '@/components/ui/table-primitives'
 import { TypeBadge, renderTypeMenuItems } from './TypeBadge'
 import { ColumnFilterInput, applyColumnFilter, type ColumnFilterValue } from './ColumnFilterInput'
 import { useColumnDistinct } from './use-column-distinct'
@@ -1029,12 +1029,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
               ))}
             </SelectContent>
           </Select>
-          <span className="text-xs text-muted-foreground">
-            {t('files.table_page', {
-              page: clampedPage + 1,
-              total: totalPages,
-            })}
-          </span>
+          <PageField page={clampedPage} pageCount={totalPages} onPageChange={setPage} />
           <Button
             variant="outline"
             size="icon"

@@ -114,6 +114,9 @@ class ConceptExecutor(QueryingExecutor):
 
     def percent(self) -> int:
         st = self.state
+        steps = self.steps()
+        if steps:
+            return int(100 * sum(s["share"] for s in steps) / len(steps))
         if st.get("stage") == "counts":
             c = st.get("counts") or {}
             done = sum((c.get(s) or {}).get("done", 0) for s in ("records", "patients"))
@@ -121,6 +124,39 @@ class ConceptExecutor(QueryingExecutor):
             return int(100 * done / total) if total else 0
         total = st.get("totalWeight") or 0
         return int(100 * (st.get("doneWeight") or 0) / total) if total else 0
+
+    def steps(self) -> list[dict] | None:
+        named = self.spec.steps
+        if len(named) < 2:
+            return None
+        st = self.state
+        stage = st.get("stage")
+        counts = st.get("counts") or {}
+        # The counts run their steps in order: the first not over is the one going on.
+        counting = next(
+            (s.key for s in named if s.key != "stats" and not self._counted(counts.get(s.key) or {}, stage)),
+            None,
+        ) if stage == "counts" else None
+        out = []
+        for step in named:
+            if step.key == "stats":
+                done, total = st.get("done", 0), st.get("total", 0)
+                weight = st.get("totalWeight") or 0
+                over = stage == "done"
+                share = 1.0 if over else (st.get("doneWeight") or 0) / weight if weight else 0.0
+                status = "done" if over else "active" if stage in ("ranking", "batches") else "pending"
+            else:
+                c = counts.get(step.key) or {}
+                done, total = c.get("done", 0), c.get("total", 0)
+                over = self._counted(c, stage)
+                share = 1.0 if over else done / total if total else 0.0
+                status = "done" if over else "active" if step.key == counting else "pending"
+            out.append({"key": step.key, "label": step.label, "status": status, "done": done, "total": total, "share": share})
+        return out
+
+    @staticmethod
+    def _counted(c: dict, stage: str | None) -> bool:
+        return stage not in (None, "counts") or (c.get("total", 0) > 0 and c.get("done", 0) >= c["total"])
 
     def start_note(self) -> str:
         st = self.state

@@ -7,7 +7,7 @@ from tests.test_migration_projects_workspace import alembic_at  # noqa: F401  --
 
 def test_existing_checks_get_the_key_an_export_derived(alembic_at):  # noqa: F811
     upgrade, engine = alembic_at
-    upgrade("e6a8c0e2b4d6")
+    upgrade("f8b0c2d4e6a8")
     with engine.begin() as c:
         c.execute(sa.text("INSERT INTO workspaces (id, name, description, origin) VALUES ('w', '{}', '{}', 'user')"))
         for rs in ("rs1", "rs2"):

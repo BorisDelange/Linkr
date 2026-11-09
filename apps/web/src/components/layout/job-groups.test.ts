@@ -46,8 +46,8 @@ describe('groupJobs', () => {
 describe('groupJobs, jobs sent together', () => {
   it('folds a burst of jobs of no group into one row, named by their section', () => {
     const rows = groupJobs([
-      job('3', { label: 'test · list its tables and columns' }),
-      job('2', { label: 'test · list its tables and columns' }),
+      job('3', { label: 'test · List its tables and columns' }),
+      job('2', { label: 'test · List its tables and columns' }),
       job('1', { label: 'test · count patients' }),
     ])
     expect(rows).toHaveLength(1)
@@ -98,7 +98,7 @@ describe('groupJobs, by what the jobs are for', () => {
   it('calls the jobs of one entity sharing no section its queries', () => {
     const rows = groupJobs([
       job('2', { label: 'test · patient count', ...db('test') }),
-      job('1', { label: 'test · list its tables and columns', ...db('test') }),
+      job('1', { label: 'test · List its tables and columns', ...db('test') }),
     ])
     expect('group' in rows[0] && rows[0].group.label).toBe('Queries')
   })
@@ -122,12 +122,12 @@ describe('groupJobs, by what the jobs are for', () => {
 describe('splitEntityHead', () => {
   it('takes the entity a label starts by naming', () => {
     expect(splitEntityHead('Database “test” · Patient list · one page')).toEqual({ head: 'Database “test” · ', action: 'Patient list · one page' })
-    expect(splitEntityHead('Cohorte « test » · membres')).toEqual({ head: 'Cohorte « test » · ', action: 'membres' })
+    expect(splitEntityHead('Cohorte « test » · membres')).toEqual({ head: 'Cohorte « test » · ', action: 'Membres' })
   })
 
   it("takes the bare name of the job's entity a server label starts with", () => {
     const entity = { type: 'database', id: 'd', name: 'Test' }
-    expect(splitEntityHead('Test · patient count', entity)).toEqual({ head: 'Test · ', action: 'patient count' })
+    expect(splitEntityHead('Test · patient count', entity)).toEqual({ head: 'Test · ', action: 'Patient count' })
     expect(splitEntityHead('Test · patient count')).toEqual({ head: '', action: 'Test · patient count' })
   })
 

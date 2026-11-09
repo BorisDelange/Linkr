@@ -296,7 +296,9 @@ Two traps seen in the wild: omitting `px-2 py-1` on the cell silently inherits
 table still looks like the others: `FILTER_INPUT_CLASS` (and its `_DENSE`
 variant), `SortIndicator`, `nextSorting` (desc → asc → none), `columnLabel`, and
 `ColumnResizeHandle` / `ResizeGrip` — the latter headless, for the two tables
-that track widths themselves instead of through TanStack. Mark a header row
+that track widths themselves instead of through TanStack — and `PageField`, the
+pager's "Page [n] of N" whose number is typed to jump (sent on Enter or blur;
+`dense` gives the footer's "[n] / N", as `DataTable` shows it). Mark a header row
 `group/thead` and every `ResizeGrip` in it shows a faint column edge while the
 header is hovered (`PublicationTable` does).
 

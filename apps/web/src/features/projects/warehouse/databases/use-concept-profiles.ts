@@ -11,7 +11,7 @@ import { batchProfileStore, profileStore, type ProfileStoreSummary } from '@/lib
 import { dataFingerprint } from '@/lib/concept-profiles/fingerprint'
 import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
-import { buildRunSpec, type RunCountSpec } from '@/lib/concept-mapping/run-spec'
+import { buildRunSpec, type RunCountSpec, type RunStepName } from '@/lib/concept-mapping/run-spec'
 import { runShare, type ConceptRunState } from '@/lib/api/concept-runs'
 import { useServerRun, type ServerRunView } from '@/hooks/use-server-run'
 import { countedRecordsOf } from '@/features/projects/warehouse/concepts/counted-records'
@@ -192,8 +192,14 @@ export function useConceptProfiles(dataSourceId: string, schemaMapping: SchemaMa
       const planned = counts ? await counts() : null
       const prepare = (sql: string) => prepareQuerySql(dataSourceId, sql)
       const fingerprint = stats ? await dataFingerprint(schemaMapping, query) : ''
+      // Several steps: one job, its steps listed under it.
+      const steps: RunStepName[] = [
+        ...(planned?.steps ?? []).map(({ step }) => ({ key: step, label: t(`concepts.count_step_${step}`) })),
+        ...(stats ? [{ key: 'stats' as const, label: t('concepts.count_step_stats') }] : []),
+      ]
       const spec = await buildRunSpec({
-        label: t(planned ? 'concepts.run_job_label' : 'concepts.profiles_job_label', { name: localized(name, i18n.language) }),
+        label: t(planned ? 'concepts.job_group' : 'concepts.profiles_job_label', { name: localized(name, i18n.language) }),
+        steps,
         mapping: schemaMapping,
         sources: stats ? sources : [],
         options: exactOptions({ ...DEFAULT_PROFILE_OPTIONS, sections: sectionSet(sections) }),
