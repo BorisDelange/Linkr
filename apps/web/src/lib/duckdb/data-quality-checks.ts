@@ -29,6 +29,12 @@ export interface DqCheck {
   sql: string
   /** Lists the violating rows; null when the check has none. */
   exploreSql: string | null
+  /** Where the check comes from, set when a quality profile runs it: its
+   *  rule set (name and version at run time) and its key there. */
+  ruleSetId?: string
+  ruleSetName?: string
+  ruleSetVersion?: string
+  checkKey?: string
 }
 
 export interface DqCheckResult {
@@ -58,6 +64,16 @@ export interface DqReport {
   checks: DqCheck[]
   results: DqCheckResult[]
   summary: DqReportSummary
+}
+
+/** What a finished run records: its score (passed / applicable checks, %) and
+ *  the time its checks took. */
+export function runOutcome(report: DqReport): { score: number; durationMs: number } {
+  const applicable = report.summary.total - report.summary.notApplicable
+  return {
+    score: applicable > 0 ? Math.round((report.summary.passed / applicable) * 100) : 100,
+    durationMs: report.results.reduce((sum, r) => sum + r.executionTimeMs, 0),
+  }
 }
 
 /** The enabled checks of a rule set, in list order. */

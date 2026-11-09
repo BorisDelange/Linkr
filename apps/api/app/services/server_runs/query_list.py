@@ -70,7 +70,7 @@ class QueryListExecutor(QueryingExecutor):
             await self.save()
             started = asyncio.get_running_loop().time()
             try:
-                rows = await self._run(item.sql, what)
+                rows = await self._run(item.sql, what, item.pushdown)
             except (QueryFailed, QueryTimedOut, QueryStalled, WorkerDied) as e:
                 if not self.spec.keep_going:
                     raise
@@ -84,10 +84,10 @@ class QueryListExecutor(QueryingExecutor):
             st.pop("current", None)
             await self.save()
 
-    async def _run(self, sql: str, what: str) -> list[dict]:
+    async def _run(self, sql: str, what: str, pushdown: bool = True) -> list[dict]:
         for attempt in range(TRIES):
             try:
-                return await self.query(sql, what)
+                return await self.query(sql, what, pushdown=pushdown)
             except (QueryStalled, WorkerDied) as e:
                 if attempt == TRIES - 1:
                     raise

@@ -26,6 +26,7 @@ export type LayoutKind =
   | 'etl-pipeline'
   | 'schema-preset'
   | 'dq-rule-set'
+  | 'dq-profile'
   | 'data-catalog'
   | 'user-plugin'
   | 'database'
@@ -43,6 +44,8 @@ export const MANIFEST: Record<LayoutKind, string> = {
   'etl-pipeline': '_pipeline.json',
   'schema-preset': 'preset.json',
   'dq-rule-set': 'rule-set.json',
+  // Born after the move to entity.json: this name is never written, only tried.
+  'dq-profile': 'quality-profile.json',
   'data-catalog': 'catalog.json',
   'database': '_database.json',
   'project': 'project.json',
@@ -70,7 +73,7 @@ export const ENTITY_MANIFEST = 'entity.json'
  */
 export const ENTITY_TYPES: readonly LayoutKind[] = [
   'project', 'workspace', 'mapping-project', 'sql-collection', 'etl-pipeline',
-  'schema-preset', 'dq-rule-set', 'data-catalog', 'user-plugin', 'database',
+  'schema-preset', 'dq-rule-set', 'dq-profile', 'data-catalog', 'user-plugin', 'database',
 ] as const
 
 /** Whether a value is one of the declared entity types. */

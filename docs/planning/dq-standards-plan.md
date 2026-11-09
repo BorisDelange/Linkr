@@ -1,6 +1,9 @@
 # Data quality standards — DQD as public rule sets, multi-rule-set runs, DQV
 
-Status: 🔜 arbitrated (2026-09-30), ready to build. Nothing built.
+Status: 🚧 quality profiles in progress (2026-11-09, `feature/dq-profiles`); the rest arbitrated 2026-09-30, not built.
+
+Scope now (2026-11-09): §3 quality profiles and §4 stable check keys. Public
+rule sets (§2), DQV (§5) and the data catalog (§6) come later.
 
 ## Why
 
@@ -123,88 +126,82 @@ possibly for ranges.
 - **Cohort mode** (DQD restricts checks to a cohort): out of scope; derive the
   cohort into its own database instead.
 
-## 3. Quality profiles — a curated selection of checks, and its runs
+## 3. Quality profiles — a curated selection of checks, applied to a database
 
 Rule sets are **libraries of checks**: public ones (§2) and the workspace's own.
-What runs against a database is a **quality profile** (FR *profil qualité*): a
-saved, named selection of checks taken from any number of rule sets. It is
-edited over time as the rule sets release new versions.
+A **quality profile** (FR *profil qualité*) is a saved, named list of checks
+chosen from any number of rule sets, **applied to one database**. It is edited
+over time as the rule sets release new versions.
 
 ### Model
 
 A profile **references** checks and never copies them. Provenance is therefore
-always known: each entry names its rule set (by `lineageId`, portable) and the
-check's `checkKey` (§4).
+always known: each entry names its rule set (local id + portable pointer) and
+the check's `checkKey` (§4).
 
 ```
 DqProfile
-  name, description, dataSourceRef?        -- default database, optional
+  name, description, badges, version, readme, authoring, lineage
+  dataSourceId + dataSourceRef              -- the database, chosen at creation
   sources: [
-    { ruleSetRef, mode: 'all' | 'selected',
-      checkKeys?: [...],                    -- mode 'selected'
-      excludedKeys?: [...],                 -- mode 'all'
-      acknowledgedVersion }                 -- rule set version last reviewed
+    { ruleSetId, ruleSetRef,
+      mode: 'all' | 'selected',
+      checkKeys?: [...] }                   -- mode 'selected'
   ]
-  overrides?: { "<ruleSetLineage>#<checkKey>": { threshold?, severity? } }
 ```
 
-- **`all`**: the whole rule set, minus exclusions. New checks from a release
-  join automatically.
-- **`selected`**: only the listed checks. New checks from a release are
-  *offered*, never added silently.
-- **Overrides**: threshold and severity per check, stored in the profile. The
-  public rule set stays untouched, so its next release still applies cleanly.
-  This matters because DQD's thresholds are not ICU thresholds. Changing a
-  check's SQL is not an override: copy the check into one of your own rule sets
-  (the copy records the rule set and `checkKey` it was derived from).
+- **`all`**: the whole rule set. New checks join automatically.
+- **`selected`**: only the listed checks.
+- Disabled checks of a rule set stay out of the profile's runs.
 
-### Rule set releases
+Later (not in the first build): per-check **overrides** of threshold and
+severity, stored in the profile; and the **release review** below.
+
+### Rule set releases (later)
 
 When a referenced rule set is updated (catalog refresh or git pull), the profile
-compares it to `acknowledgedVersion` and shows a **review banner**:
-- **added** checks: tick to include (`selected`) or to exclude (`all`);
-- **removed** checks: listed as gone, then dropped from the profile;
-- **changed** checks: SQL or threshold differs, with a diff. The profile follows
-  the new version, and its overrides still apply.
+compares it to the version it last acknowledged and shows a **review banner**:
+added checks (offered in `selected` mode), removed checks (dropped), changed
+checks (with a diff). Until reviewed, the profile still runs.
 
-"Mark as reviewed" bumps `acknowledgedVersion`. Until then the profile still runs.
+### Layout
 
-### Runs
-
-The DQ page gets the **concept-mapping layout**: a home with one widget card
-per view, each view on its own URL (back button and shared links work):
+The DQ page gets the **concept-mapping layout**: a home with two
+`EntryPointCard`s, each view on its own URL.
 
 | Widget | URL | Content |
 |---|---|---|
-| Rule sets | `…/data-quality/rule-sets` | the current list; a rule set opens as today |
-| Quality profiles | `…/data-quality/profiles` | list; a profile opens on its check picker + release review |
-| Runs | `…/data-quality/runs` | every run in the workspace, across profiles and databases |
+| Rule sets | `…/data-quality/rule-sets` (a rule set: `…/data-quality/:ruleSetId`, unchanged) | the current list |
+| Quality profiles | `…/data-quality/profiles` (a profile: `…/data-quality/profiles/:profileId`) | list; a profile opens on Overview · Checks · Results · Investigate · Readme |
 
-The home cards are hand-built today in `MappingProjectListPage` (`view === 'home'`).
-Extract them into a shared component used by both pages rather than copying
-them, and add it to `docs/ui-patterns.md`.
+- **Checks** tab: a tree rule set › group › check with checkboxes; per rule set
+  "whole rule set" or "selection". The check itself is shown read-only, with a
+  link to its rule set.
+- **Results / Investigate**: the rule set's views, plus a filter by rule set.
 
-- A run = one profile (or an ad-hoc pick) on one database.
-- A run **snapshots** what it executed: for every check, its rule set lineage
-  and version, `checkKey`, effective threshold/severity, and the SQL. A past run
-  stays readable and reproducible after the rule sets move on, and its results
-  can always be filtered by source rule set.
-- A run can be **exported as DQV** (Turtle and JSON-LD, §5). QUANTUM's output
-  is DCAT + DQV too, so the file can go to the same places (e.g. a FAIR Data
-  Point). It is not a QUANTUM label: that is a questionnaire, see §7.
+### Runs
 
-### Consequences for rule sets
+- A run = a profile on its database. Same machinery as a rule set's run
+  (`dq-run.ts`): in server mode a server run (`dq_rule_set` / `dq_profile`) that
+  goes on with the page closed, pauses, resumes or starts over, and records its
+  history itself; in client-only mode DuckDB-WASM in the tab.
+- A run **snapshots** what it executed: for every check, its rule set and that
+  rule set's version, `checkKey`, threshold/severity and SQL. A past run stays
+  readable after the rule sets move on, and its results can be filtered by rule set.
+- Run history: `dq_run_history` gains a `profileId`.
 
-- A rule set stops being tied to a database: `dataSourceId` becomes optional
-  (the database is chosen by the profile or at run time). Running a single rule
-  set directly stays possible, as a run with no profile.
-- Rule-set `version` must be meaningful (bumped on every release), since profiles
-  and runs pin it.
+### Rule sets keep working as today
+
+A rule set keeps its database, its Run button, its results and history: that is
+where checks are written and **tested** — its tab reads *Test results* (2026-11-09),
+a profile's *Results*. Profiles are the curated runs on top; only their runs will
+feed the DQV export and the catalog.
+
+- Rule-set `version` must be meaningful (bumped on every release), since runs
+  record it.
 - A profile is a new exportable, versionable entity: `entity-io.ts` +
-  `packages/linkr-format` schema + golden, catalog type `dq-profile`, git link. An
-  exported profile carries its refs. On import, a referenced rule set that is
-  missing is reported and can be installed from the catalog, like a mapping
-  project's concept-set refs.
+  `packages/linkr-format` schema + golden, git link. An exported profile carries
+  its refs. On import, a referenced rule set that is missing is reported.
 
 ## 4. Stable check identifiers
 
@@ -298,24 +295,31 @@ assessment asks for, and the DQV is the measured counterpart of its declared val
 6. ✅ **DQV granularity**: dimensions always; per check opt-in on run export; the
    catalog publishes dimensions only.
 7. ✅ **Saved selections**: DQ profiles (§3), at check granularity, referencing rule
-   sets (provenance kept), with a review step on each rule set release.
-8. ✅ Profile **overrides**: threshold and severity per check; changing SQL = copy
-   the check into an own rule set (derived-from recorded).
+   sets (provenance kept), with a review step on each rule set release (later).
+8. ✅ Profile **overrides**: threshold and severity per check (later); changing
+   SQL = copy the check into an own rule set (derived-from recorded).
 9. ✅ Name: **quality profile** / *profil qualité*.
-10. ✅ Layout: concept-mapping style home with three widgets (§3).
+10. ✅ Layout (revised 2026-11-09): concept-mapping style home with **two**
+    widgets, Rule sets and Quality profiles; runs live inside a profile (§3).
+11. ✅ (2026-11-09) A profile **holds its database**, chosen at creation: a profile
+    is a list of checks from several rule sets applied to one database.
+12. ✅ (2026-11-09) Rule sets **keep working as today** (database, run, results,
+    history), to write and test checks.
 
 ## Steps
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | 1. Stable `checkKey` on checks (both homes + golden) + optional `kahnContext` | S |
-| 🔜 | 2. Rule sets not tied to a database; meaningful `version` | S |
-| 🔜 | 3a. DQ profiles: model, both homes + golden, Profiles tab, check picker across rule sets, overrides | M |
-| 🔜 | 3b. Runs tab: run a profile on a database, per-check snapshot, results filtered by rule set, re-run | M |
-| 🔜 | 3c. Release review: added / removed / changed checks against `acknowledgedVersion` | M |
+| ✅ | 1. Stable `checkKey` stored on checks (front, server + migration, `linkr-format`, golden) | S |
+| 🔜 | 2. ~~Rule sets not tied to a database~~ (dropped 2026-11-09: they keep theirs, §3) | — |
+| ✅ | 3a. DQ profiles: model + storage (IDB, API), DQ home with two widgets, profiles list, create dialog (database required), check picker across rule sets | M |
+| ✅ | 3b. Profile runs: per-check snapshot, Results / Investigate filtered by rule set, history | M |
+| ✅ | 3b'. Runs owned by the server (`dq_rule_set`, `dq_profile`): pause / resume / start over, survive a reload, history written by the server; rule set tab renamed *Test results* | M |
+| 🚧 | 3c. Profile export/import (`entity-io` + `linkr-format` + golden) and git link ✅; left: profiles in the workspace export / seed / catalog, MCP tools | M |
+| 💤 | 3d. Overrides; release review (added / removed / changed checks) | M |
 | 🔜 | 4. DQD generator + `omop-cdm-5.4-structure`, `omop-sex-plausibility`, `omop-measurement-units` repos + catalog entries; run them on the MIMIC demo | M |
 | 🔜 | 5. Published Linkr DQ vocabulary (Kahn dimensions) as JSON-LD | S |
 | 🔜 | 6. `dqRunToDqv()` + tests; run export as Turtle / JSON-LD | S |
 | 🔜 | 7. Catalog publish: DQV in the JSON-LD + "Data quality" section, stale warning | M |
 | 💤 | 8. Write `omop-lab-values`, `omop-vital-signs`, `omop-icu` (clinical input needed) | L |
-| 🔜 | 9. `docs/architecture.md` + user doc on linkr-website (DQ runs, DQV export, catalog quality section, QUANTUM mention §7) | S |
+| 🔜 | 9. `docs/architecture.md` + user doc (quality profiles first) on linkr-website (DQ runs, DQV export, catalog quality section, QUANTUM mention §7) | S |

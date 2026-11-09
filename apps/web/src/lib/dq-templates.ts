@@ -16,6 +16,7 @@
  */
 import type { SchemaMapping, RelationTable } from '@/types/schema-mapping'
 import type { DqCustomCheck } from '@/types'
+import { checkKeys } from '@/lib/dq-check-portable'
 import { indexTables, parseDdl, resolveTableRef, type ParsedTable } from '@/lib/ddl-parse'
 import { quoteIdent, quoteTableRef } from '@/lib/format-helpers'
 import { CLASS_CONTRACTS } from '@/lib/schema-classes/contracts'
@@ -418,6 +419,7 @@ export function makeCheck(ruleSetId: string, order: number, fields: CheckFields,
   return {
     id: crypto.randomUUID(),
     ruleSetId,
+    checkKey: checkKeys([fields])[0],
     name: fields.name,
     description: fields.description,
     category: fields.category,

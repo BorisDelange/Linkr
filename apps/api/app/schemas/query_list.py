@@ -12,6 +12,8 @@ class QueryItem(CamelModel):
     sql: str
     # What it computes, for the job's input and log.
     what: str = ""
+    # An external database may compute it (db_connect.query_external).
+    pushdown: bool = True
 
 
 class QueryListSpec(CamelModel):

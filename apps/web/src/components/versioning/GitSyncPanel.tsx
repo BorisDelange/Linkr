@@ -26,7 +26,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 
 /** Scopes pulled through the shared 3-way pull (plan §9.2). */
 const THREE_WAY_SCOPES: GitScope[] = [
-  'workspaces', 'projects', 'sql-script-collections', 'etl-pipelines', 'data-catalogs', 'dq-rule-sets', 'schema-presets', 'databases',
+  'workspaces', 'projects', 'sql-script-collections', 'etl-pipelines', 'data-catalogs', 'dq-rule-sets', 'dq-profiles', 'schema-presets', 'databases',
   'user-plugins', 'settings',
 ]
 import { GitFileRow } from './GitFileRow'

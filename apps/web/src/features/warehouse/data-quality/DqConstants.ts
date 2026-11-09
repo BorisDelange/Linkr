@@ -37,6 +37,14 @@ export const STATUS_CONFIG: Record<DqCheckStatus, { icon: typeof CheckCircle2; c
   not_applicable: { icon: Minus, color: 'text-muted-foreground', label: 'status_not_applicable' },
 }
 
+/** A rule set's or profile's last score, as its list card colours it. */
+export function scoreColor(score?: number) {
+  if (score == null) return ''
+  if (score >= 95) return 'text-emerald-600 dark:text-emerald-400'
+  if (score >= 80) return 'text-amber-600 dark:text-amber-400'
+  return 'text-red-600 dark:text-red-400'
+}
+
 export const SEVERITY_CONFIG: Record<DqSeverity, { icon: typeof ShieldAlert; color: string }> = {
   error: { icon: ShieldX, color: 'text-red-600 dark:text-red-400' },
   warning: { icon: ShieldAlert, color: 'text-warning-foreground' },

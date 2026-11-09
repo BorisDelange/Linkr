@@ -1797,6 +1797,7 @@ def _register_all_entity_git_routes() -> None:
     from app.services import (
         data_catalog_service,
         data_source_service,
+        dq_profile_service,
         dq_rule_set_service,
         etl_pipeline_service,
         schema_preset_service,
@@ -1805,6 +1806,7 @@ def _register_all_entity_git_routes() -> None:
     from app.services.workspace_export_assemble import (
         assemble_data_catalog_zip,
         assemble_database_zip,
+        assemble_dq_profile_zip,
         assemble_dq_rule_set_zip,
         assemble_etl_pipeline_zip,
         assemble_schema_preset_zip,
@@ -1837,6 +1839,15 @@ def _register_all_entity_git_routes() -> None:
         write_perm="data-quality:write",
         not_found="DQ rule set not found",
         assemble_fn=assemble_dq_rule_set_zip,
+    )
+    _register_entity_git_routes(
+        prefix="dq-profiles",
+        get_fn=dq_profile_service.get,
+        repo_getter=git_service.dq_profile_repo_getter,
+        read_perm="data-quality:read",
+        write_perm="data-quality:write",
+        not_found="Quality profile not found",
+        assemble_fn=assemble_dq_profile_zip,
     )
     _register_entity_git_routes(
         prefix="user-plugins",

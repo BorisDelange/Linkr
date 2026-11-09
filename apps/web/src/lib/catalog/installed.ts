@@ -50,6 +50,7 @@ async function rowsOf(type: CatalogEntryType, storage: Storage): Promise<LocalRo
       case 'etl-pipeline': return storage.etlPipelines.getAll()
       case 'data-catalog': return storage.dataCatalogs.getAll()
       case 'dq-rule-set': return storage.dqRuleSets.getAll()
+      case 'dq-profile': return storage.dqProfiles.getAll()
       case 'mapping-project': return storage.mappingProjects.getAll()
       case 'project': return storage.projects.getAll()
       case 'schema-preset': return storage.schemaPresets.getAll()

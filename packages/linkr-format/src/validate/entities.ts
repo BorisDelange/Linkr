@@ -15,7 +15,7 @@ import {
 } from '../layout.js'
 import { readJson, type EntityTree } from '../tree.js'
 import { validateFileTree } from './file-tree.js'
-import { validateCohortBoardFiles, validateCohortFiles, validateDataCatalog, validateDqRuleSet, validateMappingProject } from './records.js'
+import { validateCohortBoardFiles, validateCohortFiles, validateDataCatalog, validateDqProfile, validateDqRuleSet, validateMappingProject } from './records.js'
 
 /** Entity kinds that have their own tree, beyond `project`. */
 export type EntityKind =
@@ -23,6 +23,7 @@ export type EntityKind =
   | 'etl-pipeline'
   | 'schema-preset'
   | 'dq-rule-set'
+  | 'dq-profile'
   | 'data-catalog'
   | 'mapping-project'
   | 'database'
@@ -42,6 +43,7 @@ const METADATA_FILE: Record<EntityKind, string> = {
   'etl-pipeline': MANIFEST['etl-pipeline'],
   'schema-preset': MANIFEST['schema-preset'],
   'dq-rule-set': MANIFEST['dq-rule-set'],
+  'dq-profile': MANIFEST['dq-profile'],
   'data-catalog': MANIFEST['data-catalog'],
   'database': MANIFEST['database'],
 }
@@ -268,6 +270,9 @@ export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {
       break
     case 'dq-rule-set':
       validateDqRuleSet(tree, bag)
+      break
+    case 'dq-profile':
+      validateDqProfile(tree, bag)
       break
     case 'data-catalog':
       validateDataCatalog(tree, bag)

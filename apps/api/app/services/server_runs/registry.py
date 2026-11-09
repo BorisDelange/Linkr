@@ -12,12 +12,14 @@ from app.models.server_run import ServerRun
 from app.schemas.catalog_audit_run import CatalogAuditRunSpec
 from app.schemas.catalog_run import CatalogRunSpec
 from app.schemas.concept_run import RunSpec
+from app.schemas.dq_run import DqRunSpec
 from app.schemas.etl_run import EtlRunSpec
 from app.schemas.query_list import QueryListSpec
 from app.services.execution import jobs
 from app.services.server_runs.catalog.executor import CatalogExecutor
 from app.services.server_runs.catalog_audit.executor import CatalogAuditExecutor
 from app.services.server_runs.concepts.executor import ConceptExecutor
+from app.services.server_runs.dq import DqExecutor
 from app.services.server_runs.etl import EtlExecutor
 from app.services.server_runs.executor import RunExecutor
 from app.services.server_runs.query_list import QueryListExecutor
@@ -93,6 +95,24 @@ async def _cohort_entity(db, run: ServerRun) -> jobs.Entity | None:
     return jobs.Entity("cohort", cohort.id, jobs._name_of(cohort.name))
 
 
+async def _dq_rule_set_entity(db, run: ServerRun) -> jobs.Entity | None:
+    from app.models.dq_rule_set import DqRuleSet
+
+    rule_set = await db.get(DqRuleSet, run.scope_id)
+    if rule_set is None:
+        return await _database_entity(db, run)
+    return jobs.Entity("dq_rule_set", rule_set.id, jobs._name_of(rule_set.name))
+
+
+async def _dq_profile_entity(db, run: ServerRun) -> jobs.Entity | None:
+    from app.models.dq_rule_set import DqProfile
+
+    profile = await db.get(DqProfile, run.scope_id)
+    if profile is None:
+        return await _database_entity(db, run)
+    return jobs.Entity("dq_profile", profile.id, jobs._name_of(profile.name))
+
+
 def _query_list_initial(spec: QueryListSpec) -> dict:
     return {"next": 0, "meta": spec.meta}
 
@@ -131,6 +151,10 @@ KINDS: dict[str, Kind] = {
         initial=lambda spec: {"next": 0, "meta": spec.meta.model_dump(by_alias=True)},
     ),
     # A cohort's members, count and attrition: scope the cohort.
+    # A rule set's checks, its test run, and a quality profile's: scope the rule set
+    # or the profile, which reads its own database.
+    "dq_rule_set": Kind(DqRunSpec, DqExecutor, entity=_dq_rule_set_entity, initial=_query_list_initial),
+    "dq_profile": Kind(DqRunSpec, DqExecutor, entity=_dq_profile_entity, initial=_query_list_initial),
     "cohort_run": Kind(QueryListSpec, QueryListExecutor, entity=_cohort_entity, initial=_query_list_initial),
     # Its report's and its Statistics tab's figures: scope the cohort.
     "cohort_figures": Kind(QueryListSpec, QueryListExecutor, entity=_cohort_entity, initial=_query_list_initial),

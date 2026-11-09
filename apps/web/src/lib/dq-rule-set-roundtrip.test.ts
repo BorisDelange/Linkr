@@ -15,7 +15,7 @@ const RULE_SET = {
 } as unknown as DqRuleSet
 
 const CHECK: DqCustomCheck = {
-  id: 'chk-1', ruleSetId: 'rs-1', name: 'person.person_id not null', description: 'never empty',
+  id: 'chk-1', ruleSetId: 'rs-1', checkKey: 'ddl.not_null:person.person_id', name: 'person.person_id not null', description: 'never empty',
   category: 'conformance', subcategory: 'relational', severity: 'error', threshold: 0,
   sql: 'SELECT 0 AS violated_rows, 1 AS total_rows', exploreSql: 'SELECT * FROM person WHERE person_id IS NULL',
   order: 3, origin: 'ddl', templateKey: 'ddl.not_null:person.person_id', tableName: 'my group', disabled: true,

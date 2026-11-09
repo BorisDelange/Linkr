@@ -70,8 +70,6 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
   const [entityId, setEntityId] = useState('')
   const [dataSourceId, setDataSourceId] = useState('')
   const [presetId, setPresetId] = useState(NO_SCHEMA)
-  // Picking a database proposes its schema, until the user picks one themselves.
-  const [presetTouched, setPresetTouched] = useState(false)
   const [badges, setBadges] = useState<ProjectBadge[]>([])
   const [version, setVersion] = useState('0.1.0')
   const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
@@ -88,7 +86,6 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
 
   useEffect(() => {
     setPresetId(NO_SCHEMA)
-    setPresetTouched(false)
     if (editingRuleSet) {
       setName(localized(editingRuleSet.name, language))
       setDescription(localized(editingRuleSet.description, language))
@@ -108,7 +105,14 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
     }
   }, [editingRuleSet, open])
 
-  const preset = presets.find((p) => p.id === presetId)
+  // A database already has its schema: once one is chosen, the only choice left
+  // is whether to generate its checks or start empty.
+  const databasePreset = useMemo(() => {
+    const source = dataSources.find((ds) => ds.id === dataSourceId)
+    return source ? findSourcePreset(source, presets) : undefined
+  }, [dataSources, dataSourceId, presets])
+  const presetOptions = dataSourceId ? (databasePreset ? [databasePreset] : []) : presets
+  const preset = presetOptions.find((p) => p.id === presetId)
   const templates = useMemo(
     () => (preset ? schemaCheckTemplates(preset.mapping, (key, vars) => t(key, vars ?? {})) : []),
     [preset, t],
@@ -121,10 +125,9 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
 
   const handleDatabaseChange = (id: string) => {
     setDataSourceId(id)
-    if (isEdit || presetTouched) return
+    if (isEdit) return
     const source = dataSources.find((ds) => ds.id === id)
-    const match = source ? findSourcePreset(source, presets) : undefined
-    if (match) setPresetId(match.id)
+    setPresetId((source && findSourcePreset(source, presets)?.id) || NO_SCHEMA)
   }
 
   const handleSubmit = async () => {
@@ -233,6 +236,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
                 value={dataSourceId}
                 onChange={handleDatabaseChange}
                 placeholder={t('data_quality.select_database')}
+                noneLabel={t('data_quality.rs_database_none')}
               />
             </div>
             <div className="space-y-2">
@@ -240,14 +244,14 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
               {isEdit ? (
                 <Input value={editingPresetLabel || t('data_quality.rs_schema_none')} disabled />
               ) : (
-                <Select value={presetId} onValueChange={(v) => { setPresetId(v); setPresetTouched(true) }}>
+                <Select value={preset ? presetId : NO_SCHEMA} onValueChange={setPresetId}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={NO_SCHEMA}>{t('data_quality.rs_schema_none')}</SelectItem>
-                    {presets.length > 0 && <SelectSeparator />}
-                    {presets.map((p) => (
+                    {presetOptions.length > 0 && <SelectSeparator />}
+                    {presetOptions.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
                         {localized(p.mapping.presetLabel, language) || p.entityId}
                       </SelectItem>
@@ -260,7 +264,9 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
                   ? t('data_quality.rs_schema_edit_hint')
                   : preset
                     ? t('data_quality.rs_schema_hint', { count: templates.length, ddl: templateCounts.ddl, mapping: templateCounts.mapping })
-                    : t('data_quality.rs_schema_none_hint')}
+                    : dataSourceId && !databasePreset
+                      ? t('data_quality.rs_schema_database_unknown_hint')
+                      : t('data_quality.rs_schema_none_hint')}
               </p>
             </div>
           </>

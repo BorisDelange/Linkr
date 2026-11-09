@@ -115,3 +115,29 @@ export function widgetKey(
 export function tabKey(parentKey: string, name: NameInput): string {
   return `${parentKey}/${slugify(readLocalized(name, 'en') || '')}`
 }
+
+export interface DqCheckKeyInput {
+  checkKey?: string | null
+  templateKey?: string | null
+  name?: string
+}
+
+/**
+ * Each data-quality check's portable key (`checkKey`), in the order given: the
+ * one it carries, else its template key, else the slug of its name — `#<n>` when
+ * another check, or one of `taken` (the keys its rule set already holds), has it.
+ *
+ * Set once at creation and kept after: a quality profile points at a check by
+ * this key, so a rename must not move it. Python twin: `check_keys` in
+ * apps/api/app/services/dq_check_portable.py.
+ */
+export function dqCheckKeys(checks: DqCheckKeyInput[], taken: Iterable<string> = []): string[] {
+  const seen = new Set(taken)
+  return checks.map((c) => {
+    const base = c.checkKey || c.templateKey || slugify(c.name || 'check')
+    let key = base
+    for (let n = 2; seen.has(key); n++) key = `${base}#${n}`
+    seen.add(key)
+    return key
+  })
+}

@@ -2545,6 +2545,10 @@ def dq_rule_set_repo_getter(uid: str) -> Path:
     return _entity_repo("dq-rule-sets", uid)
 
 
+def dq_profile_repo_getter(uid: str) -> Path:
+    return _entity_repo("dq-profiles", uid)
+
+
 def schema_preset_repo_getter(uid: str) -> Path:
     return _entity_repo("schema-presets", uid)
 

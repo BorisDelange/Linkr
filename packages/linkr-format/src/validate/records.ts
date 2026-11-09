@@ -30,6 +30,48 @@ const DQ_ORIGINS = ['ddl', 'mapping', 'manual'] as const
 const COHORT_LEVELS = ['patient', 'visit', 'visit_detail', 'event'] as const
 const MAPPING_STATUSES = ['approved', 'pending', 'rejected', 'draft'] as const
 
+const DQ_PROFILE_MODES = ['all', 'selected'] as const
+
+/**
+ * A quality profile's manifest: a name, and the rule sets it draws from as
+ * portable pointers — `{ ruleSetRef, mode: 'all' | 'selected', checkKeys? }`.
+ * A local `ruleSetId` must not travel: it addresses nothing on another instance.
+ */
+export function validateDqProfile(tree: EntityTree, bag: IssueBag): void {
+  const path = manifestPath(tree, 'dq-profile')
+  const parsed = readJson(tree, path)
+  if (!parsed.ok) {
+    bag.error(path, '', parsed.error === 'missing' ? 'missing-file' : 'invalid-json',
+      parsed.error === 'missing'
+        ? 'entity.json is required at the root of a quality profile.'
+        : `Cannot parse JSON: ${parsed.error}`)
+    return
+  }
+  if (!isObject(parsed.value)) {
+    bag.error(path, '', 'wrong-type', 'entity.json must be an object.')
+    return
+  }
+  checkLocalized(bag, path, '/name', parsed.value.name, { required: true })
+  if (parsed.value.sources == null) return
+  if (!checkArray(bag, path, '/sources', parsed.value.sources, { label: 'sources' })) return
+  parsed.value.sources.forEach((source, i) => {
+    const pointer = `/sources/${i}`
+    if (!isObject(source)) {
+      bag.error(path, pointer, 'wrong-type', 'Each source must be an object.')
+      return
+    }
+    checkEnum(bag, path, `${pointer}/mode`, source.mode, DQ_PROFILE_MODES, { label: 'mode', required: true })
+    if (source.mode === 'selected') {
+      checkArray(bag, path, `${pointer}/checkKeys`, source.checkKeys, { required: true, label: 'checkKeys' })
+    }
+    if (!isObject(source.ruleSetRef) || (source.ruleSetRef.lineageId == null && source.ruleSetRef.entityId == null)) {
+      bag.error(path, `${pointer}/ruleSetRef`, 'missing-field',
+        'A source names its rule set by ruleSetRef ({ lineageId?, entityId? }).',
+        'Without it the import cannot tell which local rule set the checks come from.')
+    }
+  })
+}
+
 /** `rule-set.json` + `checks.json`. */
 export function validateDqRuleSet(tree: EntityTree, bag: IssueBag): void {
   const path = manifestPath(tree, 'dq-rule-set')
@@ -62,6 +104,7 @@ export function validateDqRuleSet(tree: EntityTree, bag: IssueBag): void {
   if (!checkArray(bag, checksPath, '', checks.value, { required: true, label: 'checks.json' })) return
 
   const seen = new Set<string>()
+  const seenKeys = new Set<string>()
   checks.value.forEach((check, i) => {
     const pointer = `/${i}`
     if (!isObject(check)) {
@@ -98,6 +141,16 @@ export function validateDqRuleSet(tree: EntityTree, bag: IssueBag): void {
       bag.error(checksPath, `${pointer}/threshold`, 'wrong-type',
         `threshold ${check.threshold} is out of range.`,
         'A percentage of violated rows, between 0 and 100.')
+    }
+
+    // Optional: an export from before keys were stored derives them on import.
+    if (check.checkKey != null
+      && checkString(bag, checksPath, `${pointer}/checkKey`, check.checkKey, { label: 'checkKey' })) {
+      if (seenKeys.has(check.checkKey)) {
+        bag.error(checksPath, `${pointer}/checkKey`, 'duplicate-key', `Duplicate checkKey "${check.checkKey}".`,
+          'Quality profiles point at a check by its key: each must be unique in the rule set.')
+      }
+      seenKeys.add(check.checkKey)
     }
 
     if (typeof check.id === 'string') {

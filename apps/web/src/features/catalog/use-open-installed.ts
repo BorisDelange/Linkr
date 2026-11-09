@@ -28,6 +28,8 @@ function detailPath(type: CatalogEntry['type'], wsId: string, id: string): strin
       return paths.warehouseEtlPipeline(wsId, id)
     case 'dq-rule-set':
       return paths.warehouseDqRuleSet(wsId, id)
+    case 'dq-profile':
+      return paths.warehouseDqProfile(wsId, id)
     case 'schema-preset':
       return paths.warehouseSchema(wsId, id)
     case 'database':

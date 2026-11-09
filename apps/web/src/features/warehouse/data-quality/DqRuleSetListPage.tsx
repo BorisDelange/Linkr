@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { ShieldCheck, Database } from 'lucide-react'
+import { paths } from '@/lib/paths'
+import { DqBackToHome } from './DqBackToHome'
+import { scoreColor } from './DqConstants'
 import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { usePersistedSort } from '@/lib/use-persisted-sort'
@@ -30,13 +33,6 @@ import { CreateDqRuleSetDialog } from './CreateDqRuleSetDialog'
 import { useDqRuleSetActions } from './use-dq-rule-set-actions'
 import { importedChecks } from '@/lib/dq-check-portable'
 import type { DqRuleSet } from '@/types'
-
-function scoreColor(score?: number) {
-  if (score == null) return ''
-  if (score >= 95) return 'text-emerald-600 dark:text-emerald-400'
-  if (score >= 80) return 'text-amber-600 dark:text-amber-400'
-  return 'text-red-600 dark:text-red-400'
-}
 
 export function DqRuleSetListPage() {
   const { t, i18n } = useTranslation()
@@ -219,7 +215,8 @@ export function DqRuleSetListPage() {
           />
         ) : undefined
       }
-      onNavigate={(id) => navigate(id)}
+      backAction={activeWorkspaceId ? <DqBackToHome workspaceId={activeWorkspaceId} /> : undefined}
+      onNavigate={(id) => activeWorkspaceId && navigate(paths.warehouseDqRuleSet(activeWorkspaceId, id))}
       onDelete={dqActions.onDelete}
       onDuplicate={handleDuplicate}
       onExport={dqActions.onExport}
@@ -227,8 +224,8 @@ export function DqRuleSetListPage() {
       docs={dqActions.docs}
       // The rule set page owns these as tabs, so open it there rather than
       // stacking a dialog over the list.
-      onOpenDocs={(item, tab) => navigate(`${item.id}?tab=${tab}`)}
-      onVersioningOverride={(item) => navigate(`${item.id}?tab=versioning`)}
+      onOpenDocs={(item, tab) => navigate(`${paths.warehouseDqRuleSet(item.workspaceId, item.id)}?tab=${tab}`)}
+      onVersioningOverride={(item) => navigate(`${paths.warehouseDqRuleSet(item.workspaceId, item.id)}?tab=versioning`)}
       onSaveGitRemote={dqActions.onSaveGitRemote}
       exportSupportsIncludeData={dqActions.exportSupportsIncludeData}
       syncScope="dq-rule-sets"

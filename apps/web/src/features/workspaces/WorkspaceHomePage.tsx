@@ -268,7 +268,7 @@ export function WorkspaceHomePage() {
       key: 'dq-rule-set',
       icon: ShieldCheck,
       titleKey: 'app_warehouse.nav_data_quality',
-      listPath: paths.warehouseDataQuality(ws),
+      listPath: paths.warehouseDqRuleSets(ws),
       total: wsDqRuleSets.length,
       items: byUpdatedAt(wsDqRuleSets).slice(0, MAX_RECENT).map((r) => ({
         id: r.id,

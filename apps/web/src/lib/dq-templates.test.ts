@@ -140,7 +140,7 @@ describe('schema checks as stored checks', () => {
     expect(checks.map((c) => c.order)).toEqual(tpls.map((_, i) => i))
     // Key order is the server's response order: exports must be byte-identical.
     expect(Object.keys(checks[0])).toEqual([
-      'id', 'ruleSetId', 'name', 'description', 'category', 'subcategory', 'severity', 'threshold',
+      'id', 'ruleSetId', 'checkKey', 'name', 'description', 'category', 'subcategory', 'severity', 'threshold',
       'sql', 'exploreSql', 'order', 'origin', 'templateKey', 'tableName', 'disabled', 'createdAt', 'updatedAt',
     ])
   })

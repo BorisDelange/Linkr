@@ -1,0 +1,448 @@
+{
+  "dataSourceId": "ds-1",
+  "computedAt": "2026-11-09T12:00:00.000Z",
+  "cases": [
+    {
+      "check": {
+        "id": "pass-zero",
+        "name": "Check pass-zero",
+        "description": "",
+        "category": "completeness",
+        "subcategory": null,
+        "severity": "error",
+        "origin": "ddl",
+        "tableName": "person",
+        "threshold": 0,
+        "sql": "SELECT /* pass-zero */ 1",
+        "exploreSql": null
+      },
+      "rows": [
+        {
+          "violated_rows": 0,
+          "total_rows": 10
+        }
+      ],
+      "ms": 12.4
+    },
+    {
+      "check": {
+        "id": "fail-zero",
+        "name": "Check fail-zero",
+        "description": "",
+        "category": "completeness",
+        "subcategory": null,
+        "severity": "warning",
+        "origin": "ddl",
+        "tableName": "person",
+        "threshold": 0,
+        "sql": "SELECT /* fail-zero */ 1",
+        "exploreSql": null
+      },
+      "rows": [
+        {
+          "violated_rows": 1,
+          "total_rows": 10
+        }
+      ],
+      "ms": 12.5
+    },
+    {
+      "check": {
+        "id": "pass-threshold",
+        "name": "Check pass-threshold",
+        "description": "",
+        "category": "plausibility",
+        "subcategory": null,
+        "severity": "error",
+        "origin": "ddl",
+        "tableName": "person",
+        "threshold": 5,
+        "sql": "SELECT /* pass-threshold */ 1",
+        "exploreSql": null
+      },
+      "rows": [
+        {
+          "violated_rows": 1,
+          "total_rows": 50
+        }
+      ],
+      "ms": 3
+    },
+    {
+      "check": {
+        "id": "fail-threshold",
+        "name": "Check fail-threshold",
+        "description": "",
+        "category": "conformance",
+        "subcategory": null,
+        "severity": "notice",
+        "origin": "ddl",
+        "tableName": "person",
+        "threshold": 5,
+        "sql": "SELECT /* fail-threshold */ 1",
+        "exploreSql": null
+      },
+      "rows": [
+        {
+          "violated_rows": 3,
+          "total_rows": 50
+        }
+      ],
+      "ms": 0.49
+    },
+    {
+      "check": {
+        "id": "third",
+        "name": "Check third",
+        "description": "",
+        "category": "completeness",
+        "subcategory": null,
+        "severity": "error",
+        "origin": "ddl",
+        "tableName": "person",
+        "threshold": 50,
+        "sql": "SELECT /* third */ 1",
+        "exploreSql": null
+      },
+      "rows": [
+        {
+          "violated_rows": 1,
+          "total_rows": 3
+        }
+      ],
+      "ms": 1999.5
+    },
+    {
+      "check": {
+        "id": "no-rows-counted",
+        "name": "Check no-rows-counted",
+        "description": "",
+        "category": "completeness",
+        "subcategory": null,
+        "severity": "error",
+        "origin": "ddl",
+        "tableName": "person",
+        "threshold": 0,
+        "sql": "SELECT /* no-rows-counted */ 1",
+        "exploreSql": null
+      },
+      "rows": [
+        {
+          "violated_rows": 0,
+          "total_rows": 0
+        }
+      ],
+      "ms": 1
+    },
+    {
+      "check": {
+        "id": "no-row",
+        "name": "Check no-row",
+        "description": "",
+        "category": "completeness",
+        "subcategory": null,
+        "severity": "error",
+        "origin": "manual",
+        "tableName": null,
+        "threshold": 0,
+        "sql": "SELECT /* no-row */ 1",
+        "exploreSql": null
+      },
+      "rows": [],
+      "ms": 2
+    },
+    {
+      "check": {
+        "id": "null-count",
+        "name": "Check null-count",
+        "description": "",
+        "category": "plausibility",
+        "subcategory": null,
+        "severity": "error",
+        "origin": "ddl",
+        "tableName": "person",
+        "threshold": 0,
+        "sql": "SELECT /* null-count */ 1",
+        "exploreSql": null
+      },
+      "rows": [
+        {
+          "violated_rows": null,
+          "total_rows": 5
+        }
+      ],
+      "ms": 4
+    },
+    {
+      "check": {
+        "id": "broken",
+        "name": "Check broken",
+        "description": "",
+        "category": "completeness",
+        "subcategory": null,
+        "severity": "error",
+        "origin": "manual",
+        "tableName": "person",
+        "threshold": 0,
+        "sql": "SELECT /* broken */ 1",
+        "exploreSql": null
+      },
+      "error": "Catalog Error: Table with name missing does not exist!",
+      "ms": 7
+    }
+  ],
+  "expected": {
+    "report": {
+      "dataSourceId": "ds-1",
+      "computedAt": "2026-11-09T12:00:00.000Z",
+      "checks": [
+        {
+          "id": "pass-zero",
+          "name": "Check pass-zero",
+          "description": "",
+          "category": "completeness",
+          "subcategory": null,
+          "severity": "error",
+          "origin": "ddl",
+          "tableName": "person",
+          "threshold": 0,
+          "sql": "SELECT /* pass-zero */ 1",
+          "exploreSql": null
+        },
+        {
+          "id": "fail-zero",
+          "name": "Check fail-zero",
+          "description": "",
+          "category": "completeness",
+          "subcategory": null,
+          "severity": "warning",
+          "origin": "ddl",
+          "tableName": "person",
+          "threshold": 0,
+          "sql": "SELECT /* fail-zero */ 1",
+          "exploreSql": null
+        },
+        {
+          "id": "pass-threshold",
+          "name": "Check pass-threshold",
+          "description": "",
+          "category": "plausibility",
+          "subcategory": null,
+          "severity": "error",
+          "origin": "ddl",
+          "tableName": "person",
+          "threshold": 5,
+          "sql": "SELECT /* pass-threshold */ 1",
+          "exploreSql": null
+        },
+        {
+          "id": "fail-threshold",
+          "name": "Check fail-threshold",
+          "description": "",
+          "category": "conformance",
+          "subcategory": null,
+          "severity": "notice",
+          "origin": "ddl",
+          "tableName": "person",
+          "threshold": 5,
+          "sql": "SELECT /* fail-threshold */ 1",
+          "exploreSql": null
+        },
+        {
+          "id": "third",
+          "name": "Check third",
+          "description": "",
+          "category": "completeness",
+          "subcategory": null,
+          "severity": "error",
+          "origin": "ddl",
+          "tableName": "person",
+          "threshold": 50,
+          "sql": "SELECT /* third */ 1",
+          "exploreSql": null
+        },
+        {
+          "id": "no-rows-counted",
+          "name": "Check no-rows-counted",
+          "description": "",
+          "category": "completeness",
+          "subcategory": null,
+          "severity": "error",
+          "origin": "ddl",
+          "tableName": "person",
+          "threshold": 0,
+          "sql": "SELECT /* no-rows-counted */ 1",
+          "exploreSql": null
+        },
+        {
+          "id": "no-row",
+          "name": "Check no-row",
+          "description": "",
+          "category": "completeness",
+          "subcategory": null,
+          "severity": "error",
+          "origin": "manual",
+          "tableName": null,
+          "threshold": 0,
+          "sql": "SELECT /* no-row */ 1",
+          "exploreSql": null
+        },
+        {
+          "id": "null-count",
+          "name": "Check null-count",
+          "description": "",
+          "category": "plausibility",
+          "subcategory": null,
+          "severity": "error",
+          "origin": "ddl",
+          "tableName": "person",
+          "threshold": 0,
+          "sql": "SELECT /* null-count */ 1",
+          "exploreSql": null
+        },
+        {
+          "id": "broken",
+          "name": "Check broken",
+          "description": "",
+          "category": "completeness",
+          "subcategory": null,
+          "severity": "error",
+          "origin": "manual",
+          "tableName": "person",
+          "threshold": 0,
+          "sql": "SELECT /* broken */ 1",
+          "exploreSql": null
+        }
+      ],
+      "results": [
+        {
+          "checkId": "pass-zero",
+          "executionTimeMs": 12,
+          "sql": "SELECT /* pass-zero */ 1",
+          "status": "pass",
+          "violatedRows": 0,
+          "totalRows": 10,
+          "pctViolated": 0
+        },
+        {
+          "checkId": "fail-zero",
+          "executionTimeMs": 13,
+          "sql": "SELECT /* fail-zero */ 1",
+          "status": "fail",
+          "violatedRows": 1,
+          "totalRows": 10,
+          "pctViolated": 10
+        },
+        {
+          "checkId": "pass-threshold",
+          "executionTimeMs": 3,
+          "sql": "SELECT /* pass-threshold */ 1",
+          "status": "pass",
+          "violatedRows": 1,
+          "totalRows": 50,
+          "pctViolated": 2
+        },
+        {
+          "checkId": "fail-threshold",
+          "executionTimeMs": 0,
+          "sql": "SELECT /* fail-threshold */ 1",
+          "status": "fail",
+          "violatedRows": 3,
+          "totalRows": 50,
+          "pctViolated": 6
+        },
+        {
+          "checkId": "third",
+          "executionTimeMs": 2000,
+          "sql": "SELECT /* third */ 1",
+          "status": "pass",
+          "violatedRows": 1,
+          "totalRows": 3,
+          "pctViolated": 33.33333333333333
+        },
+        {
+          "checkId": "no-rows-counted",
+          "executionTimeMs": 1,
+          "sql": "SELECT /* no-rows-counted */ 1",
+          "status": "not_applicable",
+          "violatedRows": 0,
+          "totalRows": 0,
+          "pctViolated": 0
+        },
+        {
+          "checkId": "no-row",
+          "executionTimeMs": 2,
+          "sql": "SELECT /* no-row */ 1",
+          "status": "not_applicable",
+          "violatedRows": 0,
+          "totalRows": 0,
+          "pctViolated": 0
+        },
+        {
+          "checkId": "null-count",
+          "executionTimeMs": 4,
+          "sql": "SELECT /* null-count */ 1",
+          "status": "pass",
+          "violatedRows": 0,
+          "totalRows": 5,
+          "pctViolated": 0
+        },
+        {
+          "checkId": "broken",
+          "executionTimeMs": 7,
+          "sql": "SELECT /* broken */ 1",
+          "status": "error",
+          "violatedRows": 0,
+          "totalRows": 0,
+          "pctViolated": 0,
+          "errorMessage": "Catalog Error: Table with name missing does not exist!"
+        }
+      ],
+      "summary": {
+        "total": 9,
+        "passed": 4,
+        "failed": 2,
+        "errors": 1,
+        "notApplicable": 2,
+        "byCategory": {
+          "conformance": {
+            "total": 1,
+            "passed": 0,
+            "failed": 1
+          },
+          "completeness": {
+            "total": 6,
+            "passed": 2,
+            "failed": 1
+          },
+          "plausibility": {
+            "total": 2,
+            "passed": 2,
+            "failed": 0
+          }
+        },
+        "bySeverity": {
+          "error": {
+            "total": 7,
+            "passed": 4,
+            "failed": 0
+          },
+          "warning": {
+            "total": 1,
+            "passed": 0,
+            "failed": 1
+          },
+          "notice": {
+            "total": 1,
+            "passed": 0,
+            "failed": 1
+          }
+        }
+      }
+    },
+    "outcome": {
+      "score": 57,
+      "durationMs": 2042
+    }
+  }
+}

@@ -10,6 +10,7 @@
  * written here imports and then fills in the rest.
  */
 import { canonicalSchemaMapping } from '../schema-mapping.js'
+import { dqCheckKeys } from '../keys.js'
 import { withExtra } from './project.js'
 import type { LocalizedInput, Passthrough, WriteFile } from './project.js'
 import {
@@ -82,6 +83,9 @@ export interface EtlPipelineSpec extends EntityIdentity {
 }
 
 export interface DqCheckSpec {
+  /** Portable key, unique in the rule set; derived from the template key or the
+   *  name when absent (`dqCheckKeys`). Quality profiles point at it. */
+  checkKey?: string
   name: string
   /** The query the check runs. Without it the check scores nothing. */
   sql: string
@@ -373,6 +377,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
 
     case 'dq-rule-set': {
       const s = spec as DqRuleSetSpec
+      const checkKeys = dqCheckKeys(s.checks)
       return [
         {
           path: ENTITY_MANIFEST,
@@ -388,6 +393,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
         {
           path: CONTENT_FILE.dqChecks,
           content: json(s.checks.map((check, i) => ({
+            checkKey: checkKeys[i],
             name: check.name,
             ...(check.description ? { description: check.description } : {}),
             category: check.category ?? 'completeness',

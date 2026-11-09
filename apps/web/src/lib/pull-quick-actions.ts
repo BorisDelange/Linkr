@@ -53,6 +53,7 @@ export const PULL_CARDS: Partial<Record<GitScope, PullCardDef[]>> = {
   'sql-script-collections': [INFO, { id: 'scripts', patterns: [/^scripts\//] }],
   'etl-pipelines': [INFO, { id: 'scripts', patterns: [/^scripts\//] }, { id: 'mapping_files', patterns: [/^mapping\//] }],
   'dq-rule-sets': [INFO, { id: 'checks', patterns: [/^checks\.json$/] }],
+  'dq-profiles': [INFO],
   'schema-presets': [INFO, { id: 'schema', patterns: [/^schema\.ddl$/, /^mapping\.json$/] }],
   databases: [INFO, { id: 'schema', patterns: [/^schema\.ddl$/, /^mapping(-overrides)?\.json$/] }, { id: 'cohorts', patterns: [/^cohorts\//, /^cohort-boards\//] }],
   'data-catalogs': [INFO],

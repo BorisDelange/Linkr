@@ -32,8 +32,8 @@ export {
 } from './layout.js'
 export type { LayoutKind } from './layout.js'
 
-export { buildTabKeyMap, buildWidgetKeyMap, dashboardKey, tabKey, widgetKey } from './keys.js'
-export type { TabKeyInput, WidgetKeyInput } from './keys.js'
+export { buildTabKeyMap, buildWidgetKeyMap, dashboardKey, dqCheckKeys, tabKey, widgetKey } from './keys.js'
+export type { DqCheckKeyInput, TabKeyInput, WidgetKeyInput } from './keys.js'
 
 export {
   CONCEPT_SETS_DIR, DICTIONARIES_DIR, DICTIONARIES_INDEX, isDictionaryFile, isWorkspaceDictionaryFile,

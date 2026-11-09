@@ -8,7 +8,7 @@ from app.core.path_ids import SegmentId
 from app.core.permissions import check_project_permission, check_workspace_permission
 from app.models.data_catalog import DataCatalog
 from app.models.data_source import DataSource
-from app.models.dq_rule_set import DqRuleSet
+from app.models.dq_rule_set import DqProfile, DqRuleSet
 from app.models.etl_pipeline import EtlPipeline
 from app.models.mapping_project import MappingProject
 from app.models.project import Project
@@ -29,6 +29,7 @@ _OWNER_MODELS: dict[str, tuple[type, str]] = {
     "sql-collection": (SqlScriptCollection, "sql-scripts"),
     "etl-pipeline": (EtlPipeline, "etl"),
     "dq-rule-set": (DqRuleSet, "data-quality"),
+    "dq-profile": (DqProfile, "data-quality"),
     "data-catalog": (DataCatalog, "catalog"),
     # The rendered GitLab/GitHub Pages site of a catalog (file_name = repo path).
     "data-catalog-site": (DataCatalog, "catalog"),

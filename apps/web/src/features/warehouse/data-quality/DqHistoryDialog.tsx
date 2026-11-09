@@ -22,13 +22,15 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
-import { useDqStore, type DqRunHistoryEntry } from '@/stores/dq-store'
+import type { DqRunHistoryEntry } from '@/types'
 
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** History is scoped to this rule set. */
-  ruleSetId: string
+  /** The rule set's or the profile's runs, newest first. */
+  entries: DqRunHistoryEntry[]
+  onDelete: (id: string) => void
+  onClear: () => void
   /** Reopen a past run's report in the results table. */
   onRestore: (entry: DqRunHistoryEntry) => void
 }
@@ -39,15 +41,10 @@ const STATUS_STYLE: Record<DqRunHistoryEntry['status'], { icon: typeof CheckCirc
   error: { icon: XCircle, color: 'text-red-600 dark:text-red-400', label: 'data_quality.rs_status_error' },
 }
 
-export function DqHistoryDialog({ open, onOpenChange, ruleSetId, onRestore }: Props) {
+export function DqHistoryDialog({ open, onOpenChange, entries, onDelete, onClear, onRestore }: Props) {
   const { t } = useTranslation()
-  const runHistory = useDqStore((s) => s.runHistory)
-  const clearRunHistory = useDqStore((s) => s.clearRunHistory)
-  const deleteRunHistory = useDqStore((s) => s.deleteRunHistory)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
-
-  const entries = runHistory.filter((e) => e.ruleSetId === ruleSetId)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -137,7 +134,7 @@ export function DqHistoryDialog({ open, onOpenChange, ruleSetId, onRestore }: Pr
               <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
               <AlertDialogAction
                 className="bg-destructive text-white hover:bg-destructive/90"
-                onClick={() => { void clearRunHistory(ruleSetId); setConfirmOpen(false) }}
+                onClick={() => { onClear(); setConfirmOpen(false) }}
               >
                 {t('data_quality.clear_history')}
               </AlertDialogAction>
@@ -155,7 +152,7 @@ export function DqHistoryDialog({ open, onOpenChange, ruleSetId, onRestore }: Pr
               <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
               <AlertDialogAction
                 className="bg-destructive text-white hover:bg-destructive/90"
-                onClick={() => { if (deleteId) void deleteRunHistory(deleteId); setDeleteId(null) }}
+                onClick={() => { if (deleteId) onDelete(deleteId); setDeleteId(null) }}
               >
                 {t('common.delete')}
               </AlertDialogAction>

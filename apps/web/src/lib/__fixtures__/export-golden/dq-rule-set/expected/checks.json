@@ -1,5 +1,6 @@
 [
   {
+    "checkKey": "non-null-person-id",
     "name": "Non-null person id",
     "description": "person_id must be present",
     "category": "completeness",
@@ -16,6 +17,7 @@
     "createdAt": "2026-01-02T03:04:05.000Z"
   },
   {
+    "checkKey": "valid-birth-year",
     "name": "Valid birth year",
     "description": "year_of_birth in range",
     "category": "plausibility",

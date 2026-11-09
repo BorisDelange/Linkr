@@ -63,6 +63,11 @@ describe('dq rule set', () => {
     expect(issues.some((i) => i.code === 'missing-field')).toBe(true)
   })
 
+  it('refuses two checks with one checkKey — a quality profile would not know which', () => {
+    const issues = validateEntity(ruleSet([{ ...CHECK, checkKey: 'k' }, { ...CHECK, checkKey: 'k' }]), 'dq-rule-set')
+    expect(issues.some((i) => i.code === 'duplicate-key' && i.pointer === '/1/checkKey')).toBe(true)
+  })
+
   it('rejects an unknown severity', () => {
     const issues = validateEntity(ruleSet([{ ...CHECK, severity: 'critical' }]), 'dq-rule-set')
     const wrong = issues.find((i) => i.code === 'wrong-type')
@@ -100,6 +105,30 @@ describe('dq rule set', () => {
     const none = validateEntity(ruleSet([{ ...CHECK, category: 'completeness', subcategory: 'value' }]), 'dq-rule-set')
     expect(none.some((i) => i.pointer === '/0/subcategory')).toBe(true)
     expect(validateEntity(ruleSet([{ ...CHECK, category: 'validity', subcategory: 'temporal' }]), 'dq-rule-set')).toEqual([])
+  })
+})
+
+describe('quality profile', () => {
+  const profile = (sources: unknown[]) => new MemoryTree({
+    'entity.json': JSON.stringify({ type: 'dq-profile', name: { en: 'ICU' }, sources }),
+  })
+
+  it('accepts rule sets named by pointer, whole or by check key', () => {
+    const tree = profile([
+      { ruleSetRef: { lineageId: 'lin' }, mode: 'all' },
+      { ruleSetRef: { entityId: 'icu-dq' }, mode: 'selected', checkKeys: ['a'] },
+    ])
+    expect(detectTreeKind(tree)).toBe('dq-profile')
+    expect(validateEntity(tree, 'dq-profile')).toEqual([])
+  })
+
+  it('refuses a source with no pointer, an unknown mode, or a selection without keys', () => {
+    const issues = validateEntity(profile([
+      { ruleSetId: 'local-only', mode: 'all' },
+      { ruleSetRef: { lineageId: 'lin' }, mode: 'some' },
+      { ruleSetRef: { lineageId: 'lin' }, mode: 'selected' },
+    ]), 'dq-profile')
+    expect(issues.map((i) => i.pointer)).toEqual(['/sources/0/ruleSetRef', '/sources/1/mode', '/sources/2/checkKeys'])
   })
 })
 

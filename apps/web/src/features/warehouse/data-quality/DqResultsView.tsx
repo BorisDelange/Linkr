@@ -1,10 +1,15 @@
-import { useState, useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { ShieldCheck, Play, Loader2, PanelRight, BarChart3, History, X, AlertTriangle, Square } from 'lucide-react'
+import { ShieldCheck, Play, Loader2, PanelRight, BarChart3, History, X, AlertTriangle, Square, Pause, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { useServerRun } from '@/hooks/use-server-run'
 import {
   Tooltip,
   TooltipContent,
@@ -12,10 +17,10 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
-import { runnableChecks } from '@/lib/duckdb/data-quality'
 import { isServerMode } from '@/lib/api-client'
+import { formatDuration } from '@/lib/format-helpers'
 import type { DqCheck, DqCheckResult, DqReport } from '@/lib/duckdb/data-quality'
-import type { DqCustomCheck } from '@/types'
+import type { DqRunHistoryEntry } from '@/types'
 import { cn } from '@/lib/utils'
 import { normalizeDqCheck } from '@/lib/dq-taxonomy'
 import { DqScoreBadge } from './DqScoreBadge'
@@ -23,18 +28,31 @@ import { DqCheckDetailPanel } from './DqCheckDetailPanel'
 import { DqCategoryCharts } from './DqCategoryCharts'
 import { DqHistoryDialog } from './DqHistoryDialog'
 import { CATEGORY_COLORS, STATUS_CONFIG, SEVERITY_CONFIG } from './DqConstants'
-import { clearDqRunError, dqJobName, getDqRun, lastDqReport, startDqRun, stopDqRun, watchDqRun } from './dq-run'
-import { hasRememberedJob } from '@/lib/duckdb/run-query-job'
+import {
+  clearDqRunError, compileDqRun, dqRunEta, dqRunReport, dqRunSignature, getDqRun, lastDqReport, startDqRun, stopDqRun,
+  watchDqRun, type DqRunKind, type DqRunState,
+} from './dq-run'
 
 interface Props {
-  /** Rule set the history modal is scoped to. */
-  ruleSetId?: string
+  /** A rule set's run or a quality profile's (server mode). */
+  runKind: DqRunKind
+  /** The rule set's or the profile's id: the run's scope. */
+  runKey: string
   /** The run's name in the jobs panel (server mode). */
   runLabel?: string
   dataSourceId: string
-  customChecks?: DqCustomCheck[]
-  /** Called after a successful scan with the full report. */
+  /** What a run executes (`runnableChecks`, or a profile's `profileRunChecks`). */
+  checks: DqCheck[]
+  /** The past runs, for the History dialog; the newest is shown until a run starts. */
+  history?: {
+    entries: DqRunHistoryEntry[]
+    onDelete: (id: string) => void
+    onClear: () => void
+  }
+  /** Front-only mode: called after a scan with the full report, to record it. */
   onScanComplete?: (report: DqReport) => void
+  /** Server mode: a run ended, recorded by the server — the history and the last score to read again. */
+  onServerRunDone?: () => void
   /** Mount function to call before scanning (e.g. mountProjectSources). */
   onBeforeScan?: () => Promise<void>
   /** Opens the rule set's investigation console with this query. */
@@ -46,59 +64,115 @@ interface Row {
   result: DqCheckResult
 }
 
-export function DqResultsView({ ruleSetId, runLabel, dataSourceId, customChecks, onScanComplete, onBeforeScan, onInvestigate }: Props) {
+/** A stored run's report, its checks named as today (a run saved before the Kahn categories). */
+function storedReport(entry: { report?: unknown }): DqReport | null {
+  if (!entry.report) return null
+  const past = entry.report as DqReport
+  return { ...past, checks: past.checks.map((c) => normalizeDqCheck({ ...c, subcategory: c.subcategory ?? null })) }
+}
+
+export function DqResultsView({
+  runKind, runKey, runLabel, dataSourceId, checks, history, onScanComplete, onServerRunDone, onBeforeScan, onInvestigate,
+}: Props) {
   const { t } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('data-quality:write')
+  const serverMode = isServerMode()
 
-  // The run outlives this view (dq-run.ts): it is read from there.
-  const runKey = ruleSetId ?? dataSourceId
-  const run = useSyncExternalStore(
+  // Front-only mode: the run outlives this view (dq-run.ts), it is read from there.
+  const local = useSyncExternalStore(
     useCallback((notify: () => void) => watchDqRun(runKey, notify), [runKey]),
     () => getDqRun(runKey),
   )
-  const loading = run.running
-  const scanError = run.error
+  // Server mode: the server's run, read again while it goes on.
+  const server = useServerRun<DqRunState>(runKind, runKey, serverMode && !!runKey)
+  const serverRun = server.run
+  const signature = useMemo(() => dqRunSignature(checks), [checks])
+  const sameChecks = serverRun?.state.meta?.signature === signature
+
+  const loading = serverMode ? server.active : local.running
+  const pausing = serverRun?.status === 'pausing'
+  const paused = serverMode && server.resumable
+  const scanError = serverMode
+    ? server.error ?? (serverRun?.status === 'failed' ? serverRun.error : null)
+    : local.error
+  const [errorClosed, setErrorClosed] = useState<string | null>(null)
+
   // A past run picked from the history, shown until closed or a new run starts.
   const [restored, setRestored] = useState<DqReport | null>(null)
   const [selectedCheckId, setSelectedCheckId] = useState<string | null>(null)
   const [detailVisible, setDetailVisible] = useState(true)
   const [chartsVisible, setChartsVisible] = useState(true)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [confirmRestart, setConfirmRestart] = useState(false)
   // Set when the displayed report comes from a past run (not a fresh scan) —
   // drives the "viewing a historical run" banner. Cleared on a new scan.
   const [viewedRunAt, setViewedRunAt] = useState<string | null>(null)
-  const runInput = useCallback((resumeOnly: boolean) => ({
-    ruleSetId: runKey,
-    dataSourceId,
-    checks: runnableChecks(customChecks ?? []),
-    label: runLabel ?? t('data_quality.run_scan'),
-    prepare: onBeforeScan ?? (async () => {}),
-    onComplete: (r: DqReport) => onScanComplete?.(r),
-    resumeOnly,
-  }), [runKey, dataSourceId, customChecks, runLabel, onBeforeScan, onScanComplete, t])
 
-  const handleRunScan = useCallback(() => {
-    if (loading) return
+  const newest = useMemo(
+    () => (history?.entries ?? []).reduce<DqRunHistoryEntry | null>((a, b) => (!a || b.startedAt > a.startedAt ? b : a), null),
+    [history?.entries],
+  )
+  const newestReport = useMemo(() => (newest ? storedReport(newest) : null), [newest])
+
+  // A server run that ended while this view showed it: the server recorded it.
+  const wasActive = useRef(false)
+  useEffect(() => {
+    if (wasActive.current && !server.active && serverRun?.status === 'done') onServerRunDone?.()
+    wasActive.current = server.active
+  }, [server.active, serverRun?.status, onServerRunDone])
+
+  const startRun = useCallback(async () => {
     setRestored(null)
     setSelectedCheckId(null)
     setViewedRunAt(null)
-    startDqRun(runInput(false))
-  }, [loading, runInput])
+    setErrorClosed(null)
+    const label = runLabel ?? t('data_quality.run_scan')
+    if (!serverMode) {
+      startDqRun({
+        runKey, dataSourceId, checks,
+        prepare: onBeforeScan ?? (async () => {}),
+        onComplete: (r: DqReport) => onScanComplete?.(r),
+      })
+      return
+    }
+    try {
+      await onBeforeScan?.()
+      await server.start(await compileDqRun(dataSourceId, checks, label))
+    } catch {
+      // The view shows the request's error (`server.error`).
+    }
+  }, [serverMode, runKey, dataSourceId, checks, runLabel, onBeforeScan, onScanComplete, server, t])
 
-  // A run a closed tab left on the server: follow it rather than lose it — once
-  // the checks are loaded, which tell whether it is still this rule set's run.
-  useEffect(() => {
-    if (isServerMode() && customChecks?.length && hasRememberedJob(dqJobName(runKey)) && !getDqRun(runKey).running) startDqRun(runInput(true))
-  }, [runKey, customChecks, runInput])
+  const handleRunScan = () => {
+    if (!loading) void startRun()
+  }
+  const handleResume = () => {
+    setRestored(null)
+    setViewedRunAt(null)
+    setErrorClosed(null)
+    void server.resume().catch(() => {})
+  }
+  const handleStop = () => (serverMode ? void server.pause().catch(() => {}) : stopDqRun(runKey))
 
-  // The last run's report, even one this view did not see start.
-  const report = restored ?? (run.running ? null : lastDqReport(runKey))
+  // The run going on or paused, as far as it went — when it runs the checks shown.
+  const serverReport = useMemo(
+    () => (serverRun && sameChecks && serverRun.status !== 'cancelled'
+      ? dqRunReport(dataSourceId, checks, serverRun.state, serverRun.finishedAt ?? serverRun.updatedAt)
+      : null),
+    [serverRun, sameChecks, dataSourceId, checks],
+  )
+  const report = restored ?? (serverMode
+    ? serverReport ?? (loading || paused ? null : newestReport)
+    : (local.running ? null : lastDqReport(runKey) ?? newestReport))
+
+  const done = serverMode ? serverRun?.state.next ?? 0 : local.done
+  const total = serverMode ? serverRun?.state.total ?? checks.length : local.total
+  const eta = serverMode && loading && sameChecks && serverRun ? dqRunEta(checks, serverRun.state, newestReport) : null
 
   const handleRestore = useCallback((entry: { report?: unknown; startedAt: string }) => {
-    if (!entry.report) return
-    const past = entry.report as DqReport
-    // A run saved before the Kahn categories still names the old ones.
-    setRestored({ ...past, checks: past.checks.map((c) => normalizeDqCheck({ ...c, subcategory: c.subcategory ?? null })) })
+    const past = storedReport(entry)
+    if (!past) return
+    setRestored(past)
     setSelectedCheckId(null)
     setViewedRunAt(entry.startedAt)
   }, [])
@@ -114,7 +188,18 @@ export function DqResultsView({ ruleSetId, runLabel, dataSourceId, customChecks,
     return out
   }, [report])
 
+  // A profile's run draws from several rule sets: say which one each check is from.
+  const fromSeveralRuleSets = !!report?.checks.some((c) => c.ruleSetName)
+
   const columns = useMemo<DataTableColumn<Row>[]>(() => [
+    ...(fromSeveralRuleSets ? [{
+      id: 'ruleSet',
+      header: t('data_quality.col_rule_set'),
+      accessor: (r: Row) => r.check.ruleSetName ?? '',
+      filter: 'select' as const,
+      size: 150, minSize: 80,
+      tooltip: true as const,
+    }] : []),
     {
       id: 'status',
       header: t('data_quality.col_status'),
@@ -209,7 +294,7 @@ export function DqResultsView({ ruleSetId, runLabel, dataSourceId, customChecks,
         )
       },
     },
-  ], [t])
+  ], [t, fromSeveralRuleSets])
 
   const selectedItem = selectedCheckId
     ? rows.find((f) => f.check.id === selectedCheckId) ?? null
@@ -220,18 +305,30 @@ export function DqResultsView({ ruleSetId, runLabel, dataSourceId, customChecks,
       <div className="flex h-full flex-col">
         {/* Toolbar */}
         <div className="flex items-center gap-2 border-b px-3 py-1.5">
-          <Button
-            size="sm"
-            variant="default"
-            onClick={handleRunScan}
-            disabled={loading || !canWrite}
-            className="h-6 gap-1 px-2 text-xs"
-          >
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-            {loading ? t('data_quality.scanning') : t('data_quality.run_scan')}
-          </Button>
+          {loading ? (
+            <Button size="sm" variant="outline" onClick={handleStop} disabled={pausing || !canWrite} className="h-6 gap-1 px-2 text-xs">
+              {pausing ? <Loader2 size={12} className="animate-spin" /> : serverMode ? <Pause size={12} /> : <Square size={12} />}
+              {serverMode ? (pausing ? t('data_quality.pausing_scan') : t('data_quality.pause_scan')) : t('data_quality.stop_scan')}
+            </Button>
+          ) : paused ? (
+            <>
+              <Button size="sm" onClick={handleResume} disabled={!canWrite} className="h-6 gap-1 px-2 text-xs">
+                <Play size={14} />
+                {t('data_quality.resume_scan')}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setConfirmRestart(true)} disabled={!canWrite} className="h-6 gap-1 px-2 text-xs">
+                <RotateCcw size={12} />
+                {t('data_quality.restart_scan')}
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" onClick={handleRunScan} disabled={!canWrite || !checks.length || !dataSourceId} className="h-6 gap-1 px-2 text-xs">
+              <Play size={14} />
+              {t('data_quality.run_scan')}
+            </Button>
+          )}
 
-          {ruleSetId && (
+          {history && (
             <Button
               size="sm"
               variant="outline"
@@ -243,23 +340,26 @@ export function DqResultsView({ ruleSetId, runLabel, dataSourceId, customChecks,
             </Button>
           )}
 
-          {loading && (
-            <Button size="sm" variant="outline" onClick={() => stopDqRun(runKey)} className="h-6 gap-1 px-2 text-xs">
-              <Square size={12} />
-              {t('data_quality.stop_scan')}
-            </Button>
-          )}
-
-          {loading && run.total > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {t('data_quality.progress', { done: run.done, total: run.total })}
-              {run.reading != null && ` · ${t('run_steps.reading', { pct: run.reading })}`}
+          {loading && total > 0 && (
+            <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+              <Loader2 size={12} className="shrink-0 animate-spin" />
+              <span className="shrink-0 tabular-nums">{t('data_quality.progress', { done, total })}</span>
+              {serverRun?.state.current && (
+                <span className="min-w-0 truncate" title={serverRun.state.current.what}>· {serverRun.state.current.what}</span>
+              )}
+              {eta != null && <span className="shrink-0">· {t('run_steps.eta', { time: formatDuration(eta) })}</span>}
             </span>
           )}
 
-          {report && !loading && <DqScoreBadge report={report} />}
+          {paused && serverRun && (
+            <span className="text-xs text-muted-foreground">
+              {t(serverRun.status === 'interrupted' ? 'data_quality.scan_interrupted' : 'data_quality.scan_paused', { done, total })}
+            </span>
+          )}
 
-          {report && !loading && (
+          {report && !loading && !paused && <DqScoreBadge report={report} />}
+
+          {report && !loading && !paused && (
             <span className="text-xs text-muted-foreground">
               {t('data_quality.checks_passed', { passed: report.summary.passed, total: report.summary.total - report.summary.notApplicable })}
             </span>
@@ -295,6 +395,14 @@ export function DqResultsView({ ruleSetId, runLabel, dataSourceId, customChecks,
           </div>
         </div>
 
+        {/* A paused run of other checks than these resumes as it started. */}
+        {paused && !sameChecks && (
+          <div className="flex items-center gap-2 border-b bg-warning/10 px-3 py-1.5 text-xs text-warning-foreground">
+            <AlertTriangle size={13} className="shrink-0" />
+            <span>{t('data_quality.scan_checks_changed')}</span>
+          </div>
+        )}
+
         {/* Historical-run banner — shown when the table displays a past run. */}
         {viewedRunAt && !loading && (
           <div className="flex items-center gap-2 border-b bg-warning/10 px-3 py-1.5 text-xs text-warning-foreground">
@@ -313,7 +421,7 @@ export function DqResultsView({ ruleSetId, runLabel, dataSourceId, customChecks,
         )}
 
         {/* Scan-failure banner — surfaces an error that would otherwise be silent. */}
-        {scanError && !loading && (
+        {scanError && scanError !== errorClosed && !loading && (
           <div className="flex items-center gap-2 border-b bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
             <AlertTriangle size={13} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate" title={scanError}>{t('data_quality.scan_failed', { message: scanError })}</span>
@@ -321,7 +429,7 @@ export function DqResultsView({ ruleSetId, runLabel, dataSourceId, customChecks,
               variant="ghost"
               size="icon-xs"
               className="ml-auto h-5 w-5 text-destructive"
-              onClick={() => clearDqRunError(runKey)}
+              onClick={() => (serverMode ? setErrorClosed(scanError) : clearDqRunError(runKey))}
               title={t('common.close')}
             >
               <X size={13} />
@@ -375,11 +483,26 @@ export function DqResultsView({ ruleSetId, runLabel, dataSourceId, customChecks,
         </div>
       </div>
 
-      {ruleSetId && (
+      <AlertDialog open={confirmRestart} onOpenChange={setConfirmRestart}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('data_quality.restart_scan_title')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('data_quality.restart_scan_description')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => { setConfirmRestart(false); void startRun() }}>
+              {t('data_quality.restart_scan')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {history && (
         <DqHistoryDialog
           open={historyOpen}
           onOpenChange={setHistoryOpen}
-          ruleSetId={ruleSetId}
+          {...history}
           onRestore={handleRestore}
         />
       )}

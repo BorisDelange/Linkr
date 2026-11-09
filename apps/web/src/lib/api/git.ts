@@ -17,6 +17,7 @@ export type GitScope =
   | 'etl-pipelines'
   | 'data-catalogs'
   | 'dq-rule-sets'
+  | 'dq-profiles'
   | 'schema-presets'
   | 'databases'
   | 'user-plugins'
@@ -438,6 +439,7 @@ export const scopeForLinkedType: Record<string, GitScope> = {
   'etl-pipeline': 'etl-pipelines',
   'data-catalog': 'data-catalogs',
   'dq-rule-set': 'dq-rule-sets',
+  'dq-profile': 'dq-profiles',
   'schema-preset': 'schema-presets',
   'database': 'databases',
 }

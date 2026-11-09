@@ -6,7 +6,7 @@ describe('REINSTALLABLE', () => {
   // cannot rebuild would offer a Reinstall button that always fails.
   const REBUILDABLE = [
     'project', 'mapping-project', 'sql-collection', 'etl-pipeline',
-    'data-catalog', 'dq-rule-set', 'schema-preset', 'database',
+    'data-catalog', 'dq-rule-set', 'dq-profile', 'schema-preset', 'database',
   ]
 
   it('maps every scope to a type applyClonedEntity can rebuild', () => {
@@ -29,7 +29,7 @@ describe('REINSTALLABLE', () => {
     expect(REINSTALLABLE).not.toHaveProperty('settings')
   })
 
-  it('covers the eight rebuildable kinds', () => {
-    expect(Object.keys(REINSTALLABLE)).toHaveLength(8)
+  it('covers the nine rebuildable kinds', () => {
+    expect(Object.keys(REINSTALLABLE)).toHaveLength(9)
   })
 })

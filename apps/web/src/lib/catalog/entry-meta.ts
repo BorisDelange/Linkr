@@ -10,6 +10,7 @@
 import {
   ArrowRightLeft,
   BookOpen,
+  ClipboardCheck,
   Database,
   FolderOpen,
   LayoutGrid,
@@ -41,6 +42,7 @@ const ENTRY_ICONS: Record<CatalogEntryType, { icon: LucideIcon; labelKey: string
   'etl-pipeline': { icon: Workflow, labelKey: 'catalog.type_etl_pipeline' },
   'data-catalog': { icon: BookOpen, labelKey: 'catalog.type_data_catalog' },
   'dq-rule-set': { icon: ShieldCheck, labelKey: 'catalog.type_dq_rule_set' },
+  'dq-profile': { icon: ClipboardCheck, labelKey: 'catalog.type_dq_profile' },
   'schema-preset': { icon: Database, labelKey: 'catalog.type_schema_preset' },
   'database': { icon: Database, labelKey: 'catalog.type_database' },
 }

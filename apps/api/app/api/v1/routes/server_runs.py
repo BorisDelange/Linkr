@@ -33,6 +33,8 @@ from app.services import (
     data_catalog_service,
     data_source_service,
     database_binding,
+    dq_profile_service,
+    dq_rule_set_service,
     mapping_project_service,
 )
 from app.services.server_runs import query_list, registry, runs, state
@@ -175,6 +177,33 @@ async def _catalog_audit_scope(db: AsyncSession, user: User, scope_id: str, writ
     return Scope(None, catalog.workspace_id)
 
 
+async def _dq_scope(db: AsyncSession, user: User, owner, label: str, write: bool, spec: dict | None) -> Scope:
+    """A rule set's or a profile's run stores its history and outcome, as the
+    data-quality writers may, from its own database read as the user — one of
+    its workspace, as storing results requires."""
+    if owner is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    await check_workspace_permission(db, owner.workspace_id, user, "data-quality:write" if write else "data-quality:read")
+    if not write:
+        return Scope(None, owner.workspace_id)
+    if not owner.data_source_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"This {label} has no database")
+    if spec is not None and spec.get("dataSourceId") != owner.data_source_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"A {label} runs on its own database")
+    await check_workspace_permission(db, owner.workspace_id, user, "databases:read")
+    await database_binding.require_stored_local(db, owner.workspace_id, owner.data_source_id)
+    source = await _load_source(db, owner.data_source_id, user, "databases:read")
+    return Scope(source, owner.workspace_id)
+
+
+async def _dq_rule_set_scope(db: AsyncSession, user: User, scope_id: str, write: bool, spec: dict | None) -> Scope:
+    return await _dq_scope(db, user, await dq_rule_set_service.get(db, scope_id), "rule set", write, spec)
+
+
+async def _dq_profile_scope(db: AsyncSession, user: User, scope_id: str, write: bool, spec: dict | None) -> Scope:
+    return await _dq_scope(db, user, await dq_profile_service.get(db, scope_id), "profile", write, spec)
+
+
 _SCOPES: dict[str, Callable[[AsyncSession, User, str, bool, dict | None], Awaitable[Scope]]] = {
     "stats": _stats_scope,
     "extraction": _extraction_scope,
@@ -186,6 +215,8 @@ _SCOPES: dict[str, Callable[[AsyncSession, User, str, bool, dict | None], Awaita
     "catalog": _catalog_scope,
     "catalog_estimate": _catalog_estimate_scope,
     "catalog_audit": _catalog_audit_scope,
+    "dq_rule_set": _dq_rule_set_scope,
+    "dq_profile": _dq_profile_scope,
 }
 
 # What a kind's spec must say for its kind — beyond its model.

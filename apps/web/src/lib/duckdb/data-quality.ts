@@ -22,6 +22,16 @@ export function checkResult(check: DqCheck, rows: readonly Record<string, unknow
   return { ...base, status: checkStatus(violatedRows, totalRows, check.threshold), violatedRows, totalRows, pctViolated }
 }
 
+/** What a server run keeps of a check (apps/api services/server_runs/dq.py `entry_of`). */
+export type DqRunEntry = { ms: number } & ({ violated: number; total: number } | { empty: true } | { error: string })
+
+/** A check's verdict from what a server run kept of it: the rows checkResult reads, rebuilt. */
+export function entryResult(check: DqCheck, entry: DqRunEntry): DqCheckResult {
+  if ('error' in entry) return checkResult(check, [], entry.ms, entry.error)
+  if ('empty' in entry) return checkResult(check, [], entry.ms)
+  return checkResult(check, [{ violated_rows: entry.violated, total_rows: entry.total }], entry.ms)
+}
+
 export function checkReport(dataSourceId: string, checks: DqCheck[], results: DqCheckResult[]): DqReport {
   return {
     dataSourceId,

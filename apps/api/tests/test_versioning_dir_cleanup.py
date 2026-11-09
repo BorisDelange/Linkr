@@ -5,7 +5,7 @@ import pytest
 
 from app.config import settings
 from app.models.data_catalog import DataCatalog
-from app.models.dq_rule_set import DqRuleSet
+from app.models.dq_rule_set import DqProfile, DqRuleSet
 from app.models.etl_pipeline import EtlPipeline
 from app.models.mapping_project import MappingProject
 from app.models.schema_preset import SchemaPreset
@@ -14,6 +14,7 @@ from app.models.user_plugin import UserPlugin
 from app.models.workspace import Workspace
 from app.services import (
     data_catalog_service,
+    dq_profile_service,
     dq_rule_set_service,
     etl_pipeline_service,
     git_service,
@@ -95,6 +96,13 @@ _SCOPES = [
             id=eid, workspace_id=wid, name={"en": "R"}, data_source_id="ds1"
         ),
         dq_rule_set_service,
+    ),
+    (
+        "dq-profiles",
+        lambda wid, eid: DqProfile(
+            id=eid, workspace_id=wid, name={"en": "Q"}, data_source_id="ds1"
+        ),
+        dq_profile_service,
     ),
     (
         "schema-presets",

@@ -36,6 +36,7 @@ export const ENTITY_TYPE: Partial<Record<GitScope, GitLinkedEntity['type']>> = {
   'etl-pipelines': 'etl-pipeline',
   'data-catalogs': 'data-catalog',
   'dq-rule-sets': 'dq-rule-set',
+  'dq-profiles': 'dq-profile',
   'schema-presets': 'schema-preset',
   databases: 'database',
 }
@@ -353,6 +354,7 @@ async function inlineEntities(type: InlineKind, workspaceId: string, storage: St
     case 'sql-collection': return storage.sqlScriptCollections.getByWorkspace(workspaceId) as Promise<Portable[]>
     case 'etl-pipeline': return storage.etlPipelines.getByWorkspace(workspaceId) as Promise<Portable[]>
     case 'dq-rule-set': return storage.dqRuleSets.getByWorkspace(workspaceId) as Promise<Portable[]>
+    case 'dq-profile': return storage.dqProfiles.getByWorkspace(workspaceId) as Promise<Portable[]>
     case 'mapping-project': return storage.mappingProjects.getByWorkspace(workspaceId) as Promise<Portable[]>
     case 'data-catalog': return storage.dataCatalogs.getByWorkspace(workspaceId) as Promise<Portable[]>
     case 'schema-preset': return storage.schemaPresets.getByWorkspace(workspaceId) as Promise<Portable[]>

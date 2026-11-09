@@ -123,6 +123,14 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
       excludeForeign: true,
     },
   ],
+  'dq-profiles': [
+    {
+      labelKey: 'versioning.quick_sync_all',
+      descriptionKey: 'versioning.quick_desc_all_dq_profile',
+      messageKey: 'versioning.quick_msg_all_dq_profile',
+      excludeForeign: true,
+    },
+  ],
   'schema-presets': [
     {
       labelKey: 'versioning.quick_sync_all',
@@ -192,7 +200,7 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
  * mappings.json and must not leave without it.
  */
 const SUBJECT_SCOPES: GitScope[] = [
-  'workspaces', 'projects', 'sql-script-collections', 'etl-pipelines', 'data-catalogs', 'dq-rule-sets', 'schema-presets', 'databases',
+  'workspaces', 'projects', 'sql-script-collections', 'etl-pipelines', 'data-catalogs', 'dq-rule-sets', 'dq-profiles', 'schema-presets', 'databases',
 ]
 
 export function buildQuickActions(
