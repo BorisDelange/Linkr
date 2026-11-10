@@ -702,6 +702,7 @@
     "count_restart": "Start over",
     "count_restart_title": "Reload from scratch?",
     "count_restart_description": "The concepts are loaded again and the counts and statistics asked for computed again; what was computed so far is dropped. The current list stays as it is until the new one is ready.",
+    "count_restarting": "Starting over — preparing the new run…",
     "count_records_done": "Rows counted — patients not yet.",
     "count_scope_records": "Rows",
     "count_scope_patients": "Patients",

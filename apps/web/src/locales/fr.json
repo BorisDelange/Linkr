@@ -702,6 +702,7 @@
     "count_restart": "Recommencer",
     "count_restart_title": "Tout recharger ?",
     "count_restart_description": "Les concepts sont rechargés, et les comptages et statistiques demandés recalculés ; ce qui a été calculé jusqu’ici est supprimé. La liste actuelle reste affichée jusqu’à ce que la nouvelle soit prête.",
+    "count_restarting": "Remise à zéro — préparation du nouveau chargement…",
     "count_records_done": "Lignes décomptées — les patients ne le sont pas encore.",
     "count_scope_records": "Lignes",
     "count_scope_patients": "Patients",
