@@ -36,8 +36,6 @@ export interface ConceptProfilesView {
   /** The share of the work done (0 to 1), the concepts weighed by their
    *  records; null when not known (not running, or unranked). */
   share: number | null
-  /** The seconds it has left, as the server estimates them; null until known. */
-  eta: number | null
   /** The last run reached its end. */
   finished: boolean
   /** It did, for the sections asked now: nothing to compute. */
@@ -233,7 +231,6 @@ export function useConceptProfiles(dataSourceId: string, schemaMapping: SchemaMa
     share: onServer
       ? running && serverRun.run && runState?.stage === 'batches' ? runShare(serverRun.run) : null
       : running && snapshot.work ? workDone(snapshot.work, done) : null,
-    eta: onServer && running && runState?.stage === 'batches' ? runState.etaSeconds ?? null : null,
     finished,
     current: finished && sameSections,
     // Begun, even with nothing saved yet: resuming it keeps its order.

@@ -26,7 +26,6 @@ from app.services.data import concept_cache_fs, query_cancel
 from app.services.execution import jobs
 from app.services.server_runs import state
 from app.services.server_runs.concepts import profiles
-from app.services.server_runs.eta import Eta
 from app.services.server_runs.executor import (
     QueryingExecutor,
     now_iso,
@@ -103,10 +102,7 @@ class ConceptExecutor(QueryingExecutor):
         self.options = spec.options
         self.variant = profiles.variant_of(spec.options)
         self.failed_in_a_row = 0
-        self.page_done = self.page_weight = self.page_batches = 0
-        self.eta = Eta()
-        self.rows_left = self.batches_left = 0
-        self.dicts: list[dict] = []
+        self.page_done = self.page_weight = 0
         # What the attempts before learnt of the batches: nor batches the database chokes on.
         self.batch_cap = int(learnt.get("batchCap", BATCH_CONCEPTS))
         self.batch_ceiling = int(learnt.get("batchCeiling", BATCH_CONCEPTS + 1))
@@ -336,9 +332,6 @@ class ConceptExecutor(QueryingExecutor):
         ranking = await asyncio.to_thread(read_json, ranking_path(self.run_id))
         dicts = ranking["dicts"]
         st = self.state
-        self.dicts = dicts
-        if self.spec.metadata:
-            self._plan_left(dicts)
         while st["dict"] < len(dicts):
             d_spec = self.spec.dictionaries[st["dict"]]
             d = dicts[st["dict"]]
@@ -352,7 +345,7 @@ class ConceptExecutor(QueryingExecutor):
             # its start, the profiles it already stored read back, not computed,
             # and the progress waits there until the page passes it.
             start = st.setdefault("pageStart", {"done": st.get("done", 0), "doneWeight": st.get("doneWeight", 0)})
-            self.page_done = self.page_weight = self.page_batches = 0
+            self.page_done = self.page_weight = 0
             await self._page(d_spec, d, page_ids)
             st["offset"] += len(page_ids)
             records = d["records"] or {}
@@ -363,23 +356,6 @@ class ConceptExecutor(QueryingExecutor):
             if self.spec.extraction is None:
                 await self._save_stats_run()
         st["stage"] = "done"
-
-    def _plan_left(self, dicts: list[dict]) -> None:
-        """The rows and the batches the walk has left, for its ETA: the pages
-        packed as `_profile` packs them, all their concepts still to compute."""
-        st = self.state
-        rows = batches = 0
-        for n in range(st["dict"], len(dicts)):
-            d = dicts[n]
-            ids = d["ids"][st["offset"]:] if n == st["dict"] else d["ids"]
-            records = d["records"]
-            rows_of = (lambda i, r=records: r.get(str(i), 0)) if records is not None else (lambda i: None)
-            most = self._most(records)
-            for at in range(0, len(ids), PAGE_SIZE):
-                batches += len(profiles.pack_profile_batches(ids[at:at + PAGE_SIZE], rows_of, BATCH_ROWS, most))
-            if records is not None:
-                rows += sum(records.get(str(i), 0) for i in ids)
-        self.rows_left, self.batches_left = rows, batches
 
     async def _page(self, d_spec, d: dict, page_ids: list[int]) -> None:
         first = self.state["pageStart"]["done"] + 1
@@ -438,15 +414,6 @@ class ConceptExecutor(QueryingExecutor):
                 started = asyncio.get_running_loop().time()
                 done = await self._batch(event, batch, expected, names, profiles.section_set(event.sections), exact, what)
                 await self.note(f"{what}: {took(started)}")
-                self.eta.observe(expected, asyncio.get_running_loop().time() - started)
-                self.rows_left = max(0, self.rows_left - (expected or 0))
-                self.batches_left = max(0, self.batches_left - 1)
-                self.page_batches += 1
-                left = self.eta.seconds_left(self.rows_left, self.batches_left)
-                if left is None:
-                    self.state.pop("etaSeconds", None)
-                else:
-                    self.state["etaSeconds"] = round(left)
                 kept: list[dict] = []
                 for cid, outcome in done.items():
                     if outcome is None:
@@ -478,11 +445,6 @@ class ConceptExecutor(QueryingExecutor):
             return
         self.batch_cap = cap
         await self.note(f"{why}: batches of up to {cap} concepts from now on")
-        if self.spec.metadata and self.dicts:
-            # Planned again from the page's start: less what the page has done.
-            self._plan_left(self.dicts)
-            self.rows_left = max(0, self.rows_left - (self.page_weight - QUERY_COST_ROWS * self.page_done))
-            self.batches_left = max(0, self.batches_left - self.page_batches)
 
     async def _quick(self) -> None:
         self.quick_in_a_row += 1

@@ -728,7 +728,6 @@
     "profiles_stale_one": "{{count}} computed on data that has changed since",
     "profiles_stale_other": "{{count}} computed on data that has changed since",
     "profiles_share_hint": "The percentage counts rows, not concepts: what each concept costs to compute. The largest concepts come first, so it runs ahead of the count of concepts.",
-    "profiles_eta_hint": "The time left is estimated from the batches done so far, each batch costing a scan of its table plus its rows.",
     "profiles_job_label": "Database “{{name}}” · Concept statistics",
     "profiles_up_to_date": "Up to date with the data",
     "profiles_check": "Check the data",

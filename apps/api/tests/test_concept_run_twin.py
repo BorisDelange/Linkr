@@ -236,7 +236,6 @@ async def test_the_counts_come_first_then_the_statistics(client, monkeypatch, tm
     assert run["status"] == "done", run["error"]
     assert run["state"]["counts"] == {"records": {"done": 2, "total": 2}, "patients": {"done": 1, "total": 1}}
     assert run["state"]["assembled"] >= 2
-    assert "etaSeconds" not in run["state"]
 
     # The job says what the run computed, step by step, and what it ran last.
     job = (await client.get(f"{API}/jobs/{run['jobId']}?withInput=true", headers=headers)).json()

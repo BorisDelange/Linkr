@@ -18,8 +18,6 @@ export interface RunStepItem {
   share?: number | null
   /** What its percent counts, on hover: said when it is not its units. */
   shareHint?: ReactNode
-  /** Seconds it has left, as last estimated: counted down until the next. */
-  eta?: number | null
   /** What the step is on right now, shown under an active step. */
   detail?: ReactNode
   /** When the active step began (epoch ms): its elapsed time ticks beside it. */
@@ -40,27 +38,10 @@ function useNow(on: boolean): number {
   return now
 }
 
-/** A time left, as rough as an estimate is: minutes, hours. */
-function roughDuration(ms: number): string {
-  const minutes = Math.ceil(ms / 60_000)
-  if (minutes <= 1) return '< 1 min'
-  if (minutes < 60) return `${minutes} min`
-  return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')}`
-}
-
-/** A step's percent and the time it has left — counted down from its last
- *  estimate until the next — with what they count on hover. */
-function StepShare({ pct, eta, hint }: { pct: number; eta: number | null; hint?: ReactNode }) {
+/** A step's percent, with what it counts on hover. */
+function StepShare({ pct, hint }: { pct: number; hint?: ReactNode }) {
   const { t } = useTranslation()
-  const now = useNow(eta != null)
-  const [mark, setMark] = useState<{ eta: number; at: number } | null>(null)
-  if ((mark?.eta ?? null) !== eta) setMark(eta == null ? null : { eta, at: now })
-  const left = mark ? Math.max(0, mark.eta * 1000 - (now - mark.at)) : null
-  const text = [
-    t('run_steps.percent', { pct: Math.floor(pct) }),
-    left != null ? t('run_steps.eta', { time: roughDuration(left) }) : null,
-  ].filter(Boolean).join(' · ')
-  const shown = <span className="text-[10px] tabular-nums text-muted-foreground">{text}</span>
+  const shown = <span className="text-[10px] tabular-nums text-muted-foreground">{t('run_steps.percent', { pct: Math.floor(pct) })}</span>
   if (!hint) return shown
   return (
     <Tooltip>
@@ -121,7 +102,7 @@ export function RunSteps({ steps, className }: { steps: readonly RunStepItem[]; 
                     {`${step.progress.done.toLocaleString()} / ${step.progress.total!.toLocaleString()}`}
                   </span>
                 )}
-                {active && pct != null && units && <StepShare pct={pct} eta={step.eta ?? null} hint={step.shareHint} />}
+                {active && pct != null && units && <StepShare pct={pct} hint={step.shareHint} />}
               </div>
               {active && (pct ?? reading) != null && (
                 // Units done when the step has several; else the share of data read.

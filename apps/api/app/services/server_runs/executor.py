@@ -214,7 +214,6 @@ class RunExecutor:
             with contextlib.suppress(Exception):
                 await asyncio.shield(self.teardown())
             if outcome:
-                self.state.pop("etaSeconds", None)
                 with contextlib.suppress(Exception):
                     await asyncio.shield(self.note(_ENDED_AS.get(outcome["status"]) or f"Failed: {outcome.get('error')}"))
                 self.state.pop("current", None)

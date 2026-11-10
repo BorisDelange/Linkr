@@ -13,8 +13,6 @@ export interface ConceptRunState {
   total?: number
   doneWeight?: number
   totalWeight?: number
-  /** The seconds the statistics have left, once a few batches tell. */
-  etaSeconds?: number
   current?: { conceptCode: string; conceptName: string }
   failedCount?: number
   failed?: { conceptId: number; error: string }[]

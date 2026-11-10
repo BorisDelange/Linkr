@@ -31,7 +31,7 @@ Python twin of its planning (the server runs it end to end, page open or not).
   `catalog_audit`), `scope_id` (the database, project, pipeline target, catalog,
   cohort…), `data_source_id` nullable. One active run per `(kind, scope_id)`.
 - **`services/server_runs/`**: the shared part — `state.py` (single-flight, fencing,
-  lease), `runs.py` (start/pause/resume/recover), `worker.py`, `watchdog.py`, `eta.py`,
+  lease), `runs.py` (start/pause/resume/recover), `worker.py`, `watchdog.py`,
   a base executor (heartbeat, boundary, `_query` in the `heavy_query` lane, `_note`,
   `save`, stall handling) — and one module per kind (`concepts/`, `etl/`, `catalog/`,
   `query_list.py`, `catalog_audit.py`). A registry maps a kind to its spec model, its

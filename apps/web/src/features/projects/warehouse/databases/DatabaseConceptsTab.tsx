@@ -134,7 +134,7 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
     progress: progressOf[s],
     ...(s === 'stats' && profiles.preparing ? { detail: t('concepts.profiles_preparing') } : {}),
     ...(s === 'stats' && profiles.share != null
-      ? { share: profiles.share, eta: profiles.eta, shareHint: [t('concepts.profiles_share_hint'), profiles.eta != null ? t('concepts.profiles_eta_hint') : null].filter(Boolean).join(' ') }
+      ? { share: profiles.share, shareHint: t('concepts.profiles_share_hint') }
       : {}),
     ...(counting && live.phase === s ? { startedAt: live.phaseStartedAt, reading: live.reading } : {}),
   }))
