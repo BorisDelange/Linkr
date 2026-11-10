@@ -3,14 +3,14 @@ import type { DqCustomCheck } from '@/types'
 import { checkKeys, importedChecks, portableChecks, withCheckKeys } from './dq-check-portable'
 
 const check = (id: string, name: string, order: number, templateKey: string | null = null) =>
-  ({ id, ruleSetId: 'rs', name, order, templateKey, updatedAt: 'x', createdAt: 'c' }) as unknown as DqCustomCheck
+  ({ id, ruleSetId: 'rs', name: { en: name }, order, templateKey, updatedAt: 'x', createdAt: 'c' }) as unknown as DqCustomCheck
 
 describe('dq-check-portable', () => {
   it('writes checks in display order, key first, without their local fields', () => {
     const out = portableChecks([check('b', 'Two', 1), check('a', 'One', 0)])
     expect(out).toEqual([
-      { checkKey: 'one', name: 'One', order: 0, templateKey: null, createdAt: 'c' },
-      { checkKey: 'two', name: 'Two', order: 1, templateKey: null, createdAt: 'c' },
+      { checkKey: 'one', name: { en: 'One' }, order: 0, templateKey: null, createdAt: 'c' },
+      { checkKey: 'two', name: { en: 'Two' }, order: 1, templateKey: null, createdAt: 'c' },
     ])
     expect(Object.keys(out[0])[0]).toBe('checkKey')
   })
@@ -19,21 +19,22 @@ describe('dq-check-portable', () => {
     const renamed = { ...check('a', 'Renamed', 0), checkKey: 'original-name' }
     const [imported] = importedChecks(portableChecks([renamed]), 'rs')
     expect(imported.checkKey).toBe('original-name')
-    expect(imported.id).toBe(importedChecks(portableChecks([{ ...renamed, name: 'Again' }]), 'rs')[0].id)
+    expect(imported.id).toBe(importedChecks(portableChecks([{ ...renamed, name: { en: 'Again' } }]), 'rs')[0].id)
   })
 
   it('keys new checks apart from the ones their rule set holds', () => {
-    const existing = [{ name: 'Same', templateKey: null, checkKey: 'same' }]
-    expect(withCheckKeys([{ name: 'Same', templateKey: null }], existing)[0].checkKey).toBe('same#2')
-    expect(withCheckKeys([{ name: 'Other', templateKey: null, checkKey: 'kept' }], existing)[0].checkKey).toBe('kept')
+    const existing = [{ name: { en: 'Same' }, templateKey: null, checkKey: 'same' }]
+    expect(withCheckKeys([{ name: { en: 'Same', fr: 'Pareil' }, templateKey: null }], existing)[0].checkKey).toBe('same#2')
+    expect(withCheckKeys([{ name: { en: 'Other' }, templateKey: null, checkKey: 'kept' }], existing)[0].checkKey).toBe('kept')
   })
 
   it('keys a check by its template key, else its name, disambiguating duplicates', () => {
     expect(checkKeys([
-      { name: 'Not null', templateKey: 'ddl.not_null:person.id' },
+      { name: { en: 'Not null' }, templateKey: 'ddl.not_null:person.id' },
+      { name: { fr: 'Même nom', en: 'Same name' }, templateKey: null },
+      // A name stored before checks were multilingual keys the same way.
       { name: 'Same name', templateKey: null },
-      { name: 'Same name', templateKey: null },
-    ] as DqCustomCheck[])).toEqual(['ddl.not_null:person.id', 'same-name', 'same-name#2'])
+    ] as unknown as DqCustomCheck[])).toEqual(['ddl.not_null:person.id', 'same-name', 'same-name#2'])
   })
 
   it('lands the same check on the same id every time, and on another id in another rule set', () => {

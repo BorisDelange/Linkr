@@ -32,6 +32,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { checksFromTemplates, schemaCheckTemplates } from '@/lib/dq-templates'
 import { findSourcePreset } from '@/lib/find-source-preset'
 import type { CustomSchemaPreset, DqRuleSet, EntityRef, ProjectBadge } from '@/types'
+import { checkNames } from './check-names'
 
 const NO_SCHEMA = '__none__'
 
@@ -114,8 +115,8 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
   const presetOptions = dataSourceId ? (databasePreset ? [databasePreset] : []) : presets
   const preset = presetOptions.find((p) => p.id === presetId)
   const templates = useMemo(
-    () => (preset ? schemaCheckTemplates(preset.mapping, (key, vars) => t(key, vars ?? {})) : []),
-    [preset, t],
+    () => (preset ? schemaCheckTemplates(preset.mapping, checkNames()) : []),
+    [preset],
   )
   const templateCounts = useMemo(() => ({
     ddl: templates.filter((c) => c.origin === 'ddl').length,

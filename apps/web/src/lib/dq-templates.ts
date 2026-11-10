@@ -15,7 +15,7 @@
  * dialect DuckDB and PostgreSQL share.
  */
 import type { SchemaMapping, RelationTable } from '@/types/schema-mapping'
-import type { DqCustomCheck } from '@/types'
+import type { DqCustomCheck, LocalizedString } from '@/types'
 import { checkKeys } from '@/lib/dq-check-portable'
 import { indexTables, parseDdl, resolveTableRef, type ParsedTable } from '@/lib/ddl-parse'
 import { quoteIdent, quoteTableRef } from '@/lib/format-helpers'
@@ -27,18 +27,28 @@ import type { DqCategory, DqCheckOrigin, DqSeverity, DqSubcategory } from '@/lib
 export interface DqCheckTemplate {
   templateKey: string
   origin: Exclude<DqCheckOrigin, 'manual'>
-  name: string
-  description: string
+  name: LocalizedString
+  description: LocalizedString
   category: DqCategory
   subcategory: DqSubcategory | null
   severity: DqSeverity
   threshold: number
-  tableName: string
+  /** The table or relation it reads: its category until someone moves it. */
+  groupKey: string
   sql: string
   exploreSql: string
 }
 
-export type Translate = (key: string, vars?: Record<string, unknown>) => string
+/** A message in every language a check is named in (`bilingual` builds one). */
+export type Translate = (key: string, vars?: Record<string, unknown>) => LocalizedString
+
+/** `Translate` from one translator per language: generated checks are named in
+ *  English and French alike, whatever language created them. */
+export function bilingual(
+  translators: Record<'en' | 'fr', (key: string, vars?: Record<string, unknown>) => string>,
+): Translate {
+  return (key, vars) => ({ en: translators.en(key, vars ?? {}), fr: translators.fr(key, vars ?? {}) })
+}
 
 const DAYS_AFTER_DEATH = 60
 
@@ -97,7 +107,7 @@ export function ddlCheckTemplates(ddl: string, t: Translate): DqCheckTemplate[] 
         subcategory: 'relational',
         severity: 'error',
         threshold: 0,
-        tableName: table.name,
+        groupKey: table.name,
         // Selecting every column binds them all; a missing one fails the query.
         sql: `SELECT\n  0::BIGINT AS violated_rows,\n  1::BIGINT AS total_rows\nFROM (SELECT COUNT(*) AS n FROM (SELECT ${table.columns.map((c) => quoteIdent(c.name)).join(', ')} FROM ${from} LIMIT 0) AS cols) AS bound`,
         // A failure is a missing column: its error names it. The table as it is shows the rest.
@@ -114,7 +124,7 @@ export function ddlCheckTemplates(ddl: string, t: Translate): DqCheckTemplate[] 
         subcategory: 'relational',
         severity: 'error',
         threshold: 0,
-        tableName: table.name,
+        groupKey: table.name,
         ...rowsBreaking(from, `${quoteIdent(col.name)} IS NULL`),
       })
     }
@@ -128,7 +138,7 @@ export function ddlCheckTemplates(ddl: string, t: Translate): DqCheckTemplate[] 
         subcategory: 'relational',
         severity: 'error',
         threshold: 0,
-        tableName: table.name,
+        groupKey: table.name,
         ...duplicatedKeys(from, table.pkColumns.map(quoteIdent)),
       })
     }
@@ -145,7 +155,7 @@ export function ddlCheckTemplates(ddl: string, t: Translate): DqCheckTemplate[] 
         subcategory: 'relational',
         severity: 'error',
         threshold: 0,
-        tableName: table.name,
+        groupKey: table.name,
         ...rowsBreaking(
           `${from} t\nLEFT JOIN (SELECT DISTINCT ${fk.refColumns.map(quoteIdent).join(', ')} FROM ${quoteTableRef(target.name)}) r ON ${on}`,
           `r.${quoteIdent(fk.refColumns[0])} IS NULL`,
@@ -218,8 +228,8 @@ const GRAIN_ID: Partial<Record<ClassRelation['cls'], string>> = {
 export function mappingCheckTemplates(mapping: SchemaMapping, t: Translate): DqCheckTemplate[] {
   const ddl = new DdlFacts(mapping.ddl)
   const out: DqCheckTemplate[] = []
-  const push = (rel: ClassRelation, tpl: Omit<DqCheckTemplate, 'origin' | 'tableName'>) =>
-    out.push({ ...tpl, origin: 'mapping', tableName: rel.name })
+  const push = (rel: ClassRelation, tpl: Omit<DqCheckTemplate, 'origin' | 'groupKey'>) =>
+    out.push({ ...tpl, origin: 'mapping', groupKey: rel.name })
 
   const patient = classRelation(mapping, 'patient')
   const visit = classRelation(mapping, 'visit')
@@ -412,7 +422,7 @@ export function schemaCheckTemplates(mapping: SchemaMapping, t: Translate): DqCh
 // Stored checks
 // ---------------------------------------------------------------------------
 
-type CheckFields = Pick<DqCustomCheck, 'name' | 'description' | 'category' | 'subcategory' | 'severity' | 'threshold' | 'sql' | 'exploreSql' | 'origin' | 'templateKey' | 'tableName'>
+type CheckFields = Pick<DqCustomCheck, 'name' | 'description' | 'category' | 'subcategory' | 'severity' | 'threshold' | 'sql' | 'exploreSql' | 'origin' | 'templateKey' | 'groupKey'>
 
 /** A stored check, keys in the order the server's response has them. */
 export function makeCheck(ruleSetId: string, order: number, fields: CheckFields, now = new Date().toISOString()): DqCustomCheck {
@@ -431,7 +441,7 @@ export function makeCheck(ruleSetId: string, order: number, fields: CheckFields,
     order,
     origin: fields.origin,
     templateKey: fields.templateKey,
-    tableName: fields.tableName,
+    groupKey: fields.groupKey,
     disabled: false,
     createdAt: now,
     updatedAt: now,

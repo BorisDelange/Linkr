@@ -23,18 +23,21 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { usableExploreSql } from '@/lib/duckdb/data-quality'
 import { DQ_CATEGORIES, type DqCategory, type DqCheckOrigin } from '@/lib/dq-taxonomy'
 import { profileGaps, setChecks, setWholeRuleSet, takenChecks, type ProfileRuleSet } from '@/lib/dq-profile'
-import { localized } from '@/lib/localized'
+import { hasLocalizedContent, localized } from '@/lib/localized'
+import { groupLabel, groupPath, groupTree, nodeChecks, readCheckGroups, type DqGroupNode } from '@/lib/dq-groups'
 import { paths } from '@/lib/paths'
 import { cn } from '@/lib/utils'
 import { useDqProfileStore } from '@/stores/dq-profile-store'
 import type { DqCustomCheck, DqProfile, DqProfileSource, DqRuleSet } from '@/types'
 import { AddProfileChecksDialog } from './AddProfileChecksDialog'
 import { DqCheckRow } from './DqCheckRow'
+import { DqCheckTree } from './DqCheckTree'
+import { foldLevels, groupFoldKey } from './check-tree'
 import { CATEGORY_COLORS, SEVERITY_CONFIG } from './DqConstants'
 import { DqTestResult } from './DqTestResult'
 import { FoldLevelButton } from './FoldLevelButton'
 import { useCheckTest } from './use-check-test'
-import { OPEN_GROUPS_UP_TO, useFoldState } from './use-fold-state'
+import { OPEN_GROUPS_UP_TO, useFoldState, type FoldNode } from './use-fold-state'
 
 interface Props {
   profile: DqProfile
@@ -50,35 +53,27 @@ type OriginFilter = 'all' | DqCheckOrigin
 type CategoryFilter = 'all' | DqCategory
 const ORIGINS: DqCheckOrigin[] = ['ddl', 'mapping', 'manual']
 
-interface TableGroup {
-  /** `''` gathers the checks that name no table. */
-  table: string
-  checks: DqCustomCheck[]
-}
-
-/**
- * One rule set's checks by table, as its own Checks tab groups them: list
- * order, the checks naming no table last. Null when none names a table.
- */
-function byTable(checks: DqCustomCheck[]): TableGroup[] | null {
-  if (!checks.some((c) => c.tableName)) return null
-  const groups = new Map<string, TableGroup>()
-  for (const check of checks) {
-    const table = check.tableName ?? ''
-    let group = groups.get(table)
-    if (!group) {
-      group = { table, checks: [] }
-      groups.set(table, group)
-    }
-    group.checks.push(check)
-  }
-  const other = groups.get('')
-  groups.delete('')
-  return other ? [...groups.values(), other] : [...groups.values()]
-}
-
 const ruleSetKey = (ruleSetId: string) => `rs:${ruleSetId}`
-const tableKey = (ruleSetId: string, table: string) => `table:${ruleSetId}:${table}`
+/** Fold-key scope of one rule set's groups. */
+const groupScope = (ruleSetId: string) => `rs:${ruleSetId}:`
+
+const groupsOf = (ruleSet: DqRuleSet) => readCheckGroups(ruleSet.checkGroups)
+
+/** Rule sets, then their groups level by level, for `FoldLevelButton`. */
+function foldLevelsOf(groups: { ruleSet: DqRuleSet; tree: { roots: DqGroupNode<DqCustomCheck>[]; ungrouped: DqCustomCheck[] } }[]): FoldNode[][] {
+  const below = groups.map((g) => {
+    const scope = groupScope(g.ruleSet.id)
+    const parent = ruleSetKey(g.ruleSet.id)
+    const levels = foldLevels(g.tree.roots, scope, parent)
+    const other = g.tree.ungrouped.length ? [{ key: groupFoldKey(scope, ''), parent }] : []
+    return levels.length ? [[...levels[0], ...other], ...levels.slice(1)] : other.length ? [other] : []
+  })
+  const depth = Math.max(0, ...below.map((l) => l.length))
+  return [
+    groups.map((g) => ({ key: ruleSetKey(g.ruleSet.id) })),
+    ...Array.from({ length: depth }, (_, i) => below.flatMap((l) => l[i] ?? [])),
+  ]
+}
 
 /**
  * The checks a profile takes, grouped by rule set, laid out like a rule set's
@@ -123,11 +118,12 @@ export function DqProfileChecksTab({ profile, ruleSets, dataSourceId, onInvestig
       const checks = g.checks.filter((c) =>
         (originFilter === 'all' || c.origin === originFilter)
         && (categoryFilter === 'all' || c.category === categoryFilter)
-        && (matchesSidebarSearch(c.name, search.query) || matchesSidebarSearch(c.tableName ?? '', search.query)))
-      return { ...g, checks, tables: byTable(checks) }
+        && (matchesSidebarSearch(localized(c.name, i18n.language), search.query)
+          || matchesSidebarSearch(groupPath(groupsOf(g.ruleSet), c.groupKey).map((step) => groupLabel(step, i18n.language)).join(' '), search.query)))
+      return { ...g, checks, tree: groupTree(readCheckGroups(g.ruleSet.checkGroups), checks, { keepEmpty: false }) }
     })
     .filter((g) => g.checks.length > 0 || (!filtered && !search.query)),
-  [taken, originFilter, categoryFilter, search.query, filtered])
+  [taken, originFilter, categoryFilter, search.query, filtered, i18n.language])
   const visibleChecks = groups.flatMap((g) => g.checks)
 
   const selectedGroup = taken.find((g) => g.checks.some((c) => c.id === selectedId))
@@ -195,7 +191,7 @@ export function DqProfileChecksTab({ profile, ruleSets, dataSourceId, onInvestig
     <DqCheckRow
       key={check.id}
       id={check.id}
-      name={check.name}
+      name={localized(check.name, i18n.language)}
       category={check.category}
       disabled={check.disabled}
       selected={selectedId === check.id && !editMode}
@@ -332,13 +328,7 @@ export function DqProfileChecksTab({ profile, ruleSets, dataSourceId, onInvestig
                       </Tooltip>
                     )}
                     <FoldLevelButton
-                      levels={[
-                        groups.map((g) => ({ key: ruleSetKey(g.ruleSet.id) })),
-                        groups.flatMap((g) => (g.tables ?? []).map((tb) => ({
-                          key: tableKey(g.ruleSet.id, tb.table),
-                          parent: ruleSetKey(g.ruleSet.id),
-                        }))),
-                      ]}
+                      levels={foldLevelsOf(groups)}
                       isOpen={fold.isOpen}
                       onFold={fold.setOpen}
                       disabled={!!search.query}
@@ -457,39 +447,24 @@ export function DqProfileChecksTab({ profile, ruleSets, dataSourceId, onInvestig
                           </ContextMenu>
                           {open && (
                             <div className="space-y-0.5 pl-3">
-                              {g.tables ? g.tables.map((tb) => {
-                                const tableOpen = isOpen(tableKey(g.ruleSet.id, tb.table))
-                                return (
-                                  <div key={tb.table || '__other__'}>
-                                    <ContextMenu>
-                                      <ContextMenuTrigger asChild disabled={!canWrite}>
-                                        <button
-                                          type="button"
-                                          onClick={() => fold.toggle(tableKey(g.ruleSet.id, tb.table))}
-                                          className="flex h-6 w-full items-center gap-1 rounded px-1 text-left text-[10px] font-semibold text-muted-foreground hover:bg-accent/50"
-                                        >
-                                          {tableOpen ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
-                                          <span className={cn('min-w-0 flex-1 truncate', tb.table && 'font-mono')}>
-                                            {tb.table || t('data_quality.group_other')}
-                                          </span>
-                                          <span className="shrink-0 font-normal tabular-nums text-muted-foreground/70">{tb.checks.length}</span>
-                                        </button>
-                                      </ContextMenuTrigger>
-                                      <ContextMenuContent>
-                                        <ContextMenuItem variant="destructive" onClick={() => void removeChecks(tb.checks)}>
-                                          <ListMinus size={14} />
-                                          {t('data_quality.profile_remove_group')}
-                                        </ContextMenuItem>
-                                      </ContextMenuContent>
-                                    </ContextMenu>
-                                    {tableOpen && (
-                                      <div className="space-y-0.5 pl-3">
-                                        {tb.checks.map((check) => checkRow(check, g.ruleSet))}
-                                      </div>
-                                    )}
-                                  </div>
-                                )
-                              }) : g.checks.map((check) => checkRow(check, g.ruleSet))}
+                              <DqCheckTree
+                                roots={g.tree.roots}
+                                ungrouped={g.tree.ungrouped}
+                                scope={groupScope(g.ruleSet.id)}
+                                isOpen={isOpen}
+                                onToggle={fold.toggle}
+                                isDisabled={(c) => c.disabled}
+                                renderCheck={(check) => checkRow(check, g.ruleSet)}
+                                groupMenu={canWrite ? (_key, node) => (
+                                  <ContextMenuItem
+                                    variant="destructive"
+                                    onClick={() => void removeChecks(node ? nodeChecks(node) : g.tree.ungrouped)}
+                                  >
+                                    <ListMinus size={14} />
+                                    {t('data_quality.profile_remove_group')}
+                                  </ContextMenuItem>
+                                ) : undefined}
+                              />
                             </div>
                           )}
                         </div>
@@ -525,9 +500,9 @@ export function DqProfileChecksTab({ profile, ruleSets, dataSourceId, onInvestig
                       </TooltipContent>
                     </Tooltip>
                   </div>
-                  {(selected.check.description || selected.check.disabled) && (
+                  {(hasLocalizedContent(selected.check.description) || selected.check.disabled) && (
                     <div className="space-y-0.5 border-b px-3 py-1.5 text-xs text-muted-foreground">
-                      {selected.check.description && <p>{selected.check.description}</p>}
+                      {hasLocalizedContent(selected.check.description) && <p>{localized(selected.check.description, i18n.language)}</p>}
                       {selected.check.disabled && (
                         <p className="flex items-center gap-1.5">
                           <AlertTriangle size={12} className="shrink-0" />

@@ -22,6 +22,7 @@ import { useSchemaPresetStore } from '@/stores/schema-preset-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { findSourcePreset } from '@/lib/find-source-preset'
 import { CATEGORY_DOT } from './DqConstants'
+import { checkNames } from './check-names'
 
 interface Props {
   open: boolean
@@ -76,21 +77,21 @@ export function AddSchemaChecksDialog({ open, onOpenChange, ruleSetId, origin }:
   )
   const { missing, presentCount } = useMemo(() => {
     if (!preset) return { missing: [] as DqCheckTemplate[], presentCount: 0 }
-    const translate = (key: string, vars?: Record<string, unknown>) => t(key, vars ?? {})
+    const translate = checkNames()
     const all = origin === 'ddl'
       ? (preset.mapping.ddl ? ddlCheckTemplates(preset.mapping.ddl, translate) : [])
       : mappingCheckTemplates(preset.mapping, translate)
     const fresh = all.filter((c) => !existingKeys.has(c.templateKey))
     return { missing: fresh, presentCount: all.length - fresh.length }
-  }, [preset, origin, existingKeys, t])
+  }, [preset, origin, existingKeys])
 
   const visible = useMemo(
-    () => missing.filter((c) => matchesSidebarSearch(c.name, query) || matchesSidebarSearch(c.tableName, query)),
-    [missing, query],
+    () => missing.filter((c) => matchesSidebarSearch(localized(c.name, i18n.language), query) || matchesSidebarSearch(c.groupKey, query)),
+    [missing, query, i18n.language],
   )
   const groups = useMemo(() => {
     const byTable = new Map<string, DqCheckTemplate[]>()
-    for (const c of visible) byTable.set(c.tableName, [...(byTable.get(c.tableName) ?? []), c])
+    for (const c of visible) byTable.set(c.groupKey, [...(byTable.get(c.groupKey) ?? []), c])
     return [...byTable.entries()]
   }, [visible])
 
@@ -224,7 +225,7 @@ export function AddSchemaChecksDialog({ open, onOpenChange, ruleSetId, origin }:
                       <label
                         key={c.templateKey}
                         className="flex h-7 cursor-pointer items-center gap-2 rounded pl-7 pr-1 text-xs hover:bg-accent/50"
-                        title={c.description}
+                        title={localized(c.description, i18n.language)}
                       >
                         <Checkbox
                           checked={selected.has(c.templateKey)}
@@ -232,7 +233,7 @@ export function AddSchemaChecksDialog({ open, onOpenChange, ruleSetId, origin }:
                           className="size-3.5"
                         />
                         <span className={cn('inline-block size-2 shrink-0 rounded-full', CATEGORY_DOT[c.category])} />
-                        <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                        <span className="min-w-0 flex-1 truncate">{localized(c.name, i18n.language)}</span>
                         <span className="shrink-0 text-[10px] text-muted-foreground">
                           {t(`data_quality.severity_${c.severity}`)}
                         </span>

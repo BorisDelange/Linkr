@@ -58,6 +58,8 @@ import {
 } from '@/lib/wiki/wiki-tree'
 import { readWikiPageMeta } from '@/lib/wiki-page-meta'
 import { importedChecks, portableChecks } from '@/lib/dq-check-portable'
+import { readCheckGroups } from '@/lib/dq-groups'
+import { readStoredCheck } from '@/lib/duckdb/data-quality-checks'
 import { buildCohortKeyMap, cohortKey } from '@/lib/cohort-key'
 import { README_FILE_RE } from '@/lib/entity-tree'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
@@ -3341,11 +3343,12 @@ export async function buildDqRuleSetFolder(
   storage: Storage,
 ): Promise<void> {
   const portable = { ...stripInstanceFields(ruleSet), dataSourceId: '' } as DqRuleSet
-  // Only a rule set that has empty groups carries the key, as on the server.
-  if (!portable.checkGroups?.length) delete portable.checkGroups
+  // Only a rule set that declares categories carries the key, as on the server.
+  if (portable.checkGroups?.length) portable.checkGroups = readCheckGroups(portable.checkGroups)
+  else delete portable.checkGroups
   zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(portable), 'dq-rule-set')))
   await writeEntityDocs(zip, prefix, ruleSet, storage, 'dq-rule-set', ruleSet.id)
-  const checks = await storage.dqCustomChecks.getByRuleSet(ruleSet.id)
+  const checks = (await storage.dqCustomChecks.getByRuleSet(ruleSet.id)).map(readStoredCheck)
   if (checks.length > 0) zip.file(`${prefix}${CONTENT_FILE.dqChecks}`, json(portableChecks(checks)))
 }
 

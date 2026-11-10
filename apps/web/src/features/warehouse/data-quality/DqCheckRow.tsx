@@ -8,6 +8,7 @@ import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import type { DqCategory } from '@/lib/dq-taxonomy'
 import { cn } from '@/lib/utils'
 import { CATEGORY_DOT } from './DqConstants'
+import { DRAG_CHECKS } from './check-tree'
 
 /**
  * One check in a checks sidebar (a rule set's, a quality profile's). Its actions
@@ -30,6 +31,7 @@ export function DqCheckRow({
   onRename,
   onCancelRename,
   menu,
+  dragIds,
 }: {
   id: string
   name: string
@@ -47,6 +49,8 @@ export function DqCheckRow({
   onCancelRename?: () => void
   /** The right-click menu's items; none, no menu. Hidden while selecting several. */
   menu?: ReactNode
+  /** Makes the row draggable onto a category: the ids it carries (itself, or the selection it is in). */
+  dragIds?: () => string[]
 }) {
   const { t } = useTranslation()
   const { ref: nameRef, overflows, triggerProps } = useOverflowTooltip()
@@ -94,7 +98,15 @@ export function DqCheckRow({
     <Tooltip>
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <div className={cn(rowClass, 'group')} data-check-id={id}>
+          <div
+            className={cn(rowClass, 'group')}
+            data-check-id={id}
+            draggable={!!dragIds}
+            onDragStart={dragIds ? (e) => {
+              e.dataTransfer.setData(DRAG_CHECKS, JSON.stringify(dragIds()))
+              e.dataTransfer.effectAllowed = 'move'
+            } : undefined}
+          >
             {editMode && (
               <Checkbox
                 checked={checked}

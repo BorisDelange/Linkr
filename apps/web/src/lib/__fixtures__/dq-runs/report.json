@@ -5,13 +5,23 @@
     {
       "check": {
         "id": "pass-zero",
-        "name": "Check pass-zero",
-        "description": "",
+        "name": {
+          "en": "Check pass-zero",
+          "fr": "Contrôle pass-zero"
+        },
+        "description": {},
         "category": "completeness",
         "subcategory": null,
         "severity": "error",
         "origin": "ddl",
-        "tableName": "person",
+        "groupPath": [
+          {
+            "key": "person",
+            "name": {
+              "en": "Patients"
+            }
+          }
+        ],
         "threshold": 0,
         "sql": "SELECT /* pass-zero */ 1",
         "exploreSql": null
@@ -27,13 +37,23 @@
     {
       "check": {
         "id": "fail-zero",
-        "name": "Check fail-zero",
-        "description": "",
+        "name": {
+          "en": "Check fail-zero",
+          "fr": "Contrôle fail-zero"
+        },
+        "description": {},
         "category": "completeness",
         "subcategory": null,
         "severity": "warning",
         "origin": "ddl",
-        "tableName": "person",
+        "groupPath": [
+          {
+            "key": "person",
+            "name": {
+              "en": "Patients"
+            }
+          }
+        ],
         "threshold": 0,
         "sql": "SELECT /* fail-zero */ 1",
         "exploreSql": null
@@ -49,13 +69,23 @@
     {
       "check": {
         "id": "pass-threshold",
-        "name": "Check pass-threshold",
-        "description": "",
+        "name": {
+          "en": "Check pass-threshold",
+          "fr": "Contrôle pass-threshold"
+        },
+        "description": {},
         "category": "plausibility",
         "subcategory": null,
         "severity": "error",
         "origin": "ddl",
-        "tableName": "person",
+        "groupPath": [
+          {
+            "key": "person",
+            "name": {
+              "en": "Patients"
+            }
+          }
+        ],
         "threshold": 5,
         "sql": "SELECT /* pass-threshold */ 1",
         "exploreSql": null
@@ -71,13 +101,23 @@
     {
       "check": {
         "id": "fail-threshold",
-        "name": "Check fail-threshold",
-        "description": "",
+        "name": {
+          "en": "Check fail-threshold",
+          "fr": "Contrôle fail-threshold"
+        },
+        "description": {},
         "category": "conformance",
         "subcategory": null,
         "severity": "notice",
         "origin": "ddl",
-        "tableName": "person",
+        "groupPath": [
+          {
+            "key": "person",
+            "name": {
+              "en": "Patients"
+            }
+          }
+        ],
         "threshold": 5,
         "sql": "SELECT /* fail-threshold */ 1",
         "exploreSql": null
@@ -93,13 +133,23 @@
     {
       "check": {
         "id": "third",
-        "name": "Check third",
-        "description": "",
+        "name": {
+          "en": "Check third",
+          "fr": "Contrôle third"
+        },
+        "description": {},
         "category": "completeness",
         "subcategory": null,
         "severity": "error",
         "origin": "ddl",
-        "tableName": "person",
+        "groupPath": [
+          {
+            "key": "person",
+            "name": {
+              "en": "Patients"
+            }
+          }
+        ],
         "threshold": 50,
         "sql": "SELECT /* third */ 1",
         "exploreSql": null
@@ -115,13 +165,23 @@
     {
       "check": {
         "id": "no-rows-counted",
-        "name": "Check no-rows-counted",
-        "description": "",
+        "name": {
+          "en": "Check no-rows-counted",
+          "fr": "Contrôle no-rows-counted"
+        },
+        "description": {},
         "category": "completeness",
         "subcategory": null,
         "severity": "error",
         "origin": "ddl",
-        "tableName": "person",
+        "groupPath": [
+          {
+            "key": "person",
+            "name": {
+              "en": "Patients"
+            }
+          }
+        ],
         "threshold": 0,
         "sql": "SELECT /* no-rows-counted */ 1",
         "exploreSql": null
@@ -137,13 +197,16 @@
     {
       "check": {
         "id": "no-row",
-        "name": "Check no-row",
-        "description": "",
+        "name": {
+          "en": "Check no-row",
+          "fr": "Contrôle no-row"
+        },
+        "description": {},
         "category": "completeness",
         "subcategory": null,
         "severity": "error",
         "origin": "manual",
-        "tableName": null,
+        "groupPath": [],
         "threshold": 0,
         "sql": "SELECT /* no-row */ 1",
         "exploreSql": null
@@ -154,13 +217,23 @@
     {
       "check": {
         "id": "null-count",
-        "name": "Check null-count",
-        "description": "",
+        "name": {
+          "en": "Check null-count",
+          "fr": "Contrôle null-count"
+        },
+        "description": {},
         "category": "plausibility",
         "subcategory": null,
         "severity": "error",
         "origin": "ddl",
-        "tableName": "person",
+        "groupPath": [
+          {
+            "key": "person",
+            "name": {
+              "en": "Patients"
+            }
+          }
+        ],
         "threshold": 0,
         "sql": "SELECT /* null-count */ 1",
         "exploreSql": null
@@ -176,13 +249,23 @@
     {
       "check": {
         "id": "broken",
-        "name": "Check broken",
-        "description": "",
+        "name": {
+          "en": "Check broken",
+          "fr": "Contrôle broken"
+        },
+        "description": {},
         "category": "completeness",
         "subcategory": null,
         "severity": "error",
         "origin": "manual",
-        "tableName": "person",
+        "groupPath": [
+          {
+            "key": "person",
+            "name": {
+              "en": "Patients"
+            }
+          }
+        ],
         "threshold": 0,
         "sql": "SELECT /* broken */ 1",
         "exploreSql": null
@@ -198,117 +281,200 @@
       "checks": [
         {
           "id": "pass-zero",
-          "name": "Check pass-zero",
-          "description": "",
+          "name": {
+            "en": "Check pass-zero",
+            "fr": "Contrôle pass-zero"
+          },
+          "description": {},
           "category": "completeness",
           "subcategory": null,
           "severity": "error",
           "origin": "ddl",
-          "tableName": "person",
+          "groupPath": [
+            {
+              "key": "person",
+              "name": {
+                "en": "Patients"
+              }
+            }
+          ],
           "threshold": 0,
           "sql": "SELECT /* pass-zero */ 1",
           "exploreSql": null
         },
         {
           "id": "fail-zero",
-          "name": "Check fail-zero",
-          "description": "",
+          "name": {
+            "en": "Check fail-zero",
+            "fr": "Contrôle fail-zero"
+          },
+          "description": {},
           "category": "completeness",
           "subcategory": null,
           "severity": "warning",
           "origin": "ddl",
-          "tableName": "person",
+          "groupPath": [
+            {
+              "key": "person",
+              "name": {
+                "en": "Patients"
+              }
+            }
+          ],
           "threshold": 0,
           "sql": "SELECT /* fail-zero */ 1",
           "exploreSql": null
         },
         {
           "id": "pass-threshold",
-          "name": "Check pass-threshold",
-          "description": "",
+          "name": {
+            "en": "Check pass-threshold",
+            "fr": "Contrôle pass-threshold"
+          },
+          "description": {},
           "category": "plausibility",
           "subcategory": null,
           "severity": "error",
           "origin": "ddl",
-          "tableName": "person",
+          "groupPath": [
+            {
+              "key": "person",
+              "name": {
+                "en": "Patients"
+              }
+            }
+          ],
           "threshold": 5,
           "sql": "SELECT /* pass-threshold */ 1",
           "exploreSql": null
         },
         {
           "id": "fail-threshold",
-          "name": "Check fail-threshold",
-          "description": "",
+          "name": {
+            "en": "Check fail-threshold",
+            "fr": "Contrôle fail-threshold"
+          },
+          "description": {},
           "category": "conformance",
           "subcategory": null,
           "severity": "notice",
           "origin": "ddl",
-          "tableName": "person",
+          "groupPath": [
+            {
+              "key": "person",
+              "name": {
+                "en": "Patients"
+              }
+            }
+          ],
           "threshold": 5,
           "sql": "SELECT /* fail-threshold */ 1",
           "exploreSql": null
         },
         {
           "id": "third",
-          "name": "Check third",
-          "description": "",
+          "name": {
+            "en": "Check third",
+            "fr": "Contrôle third"
+          },
+          "description": {},
           "category": "completeness",
           "subcategory": null,
           "severity": "error",
           "origin": "ddl",
-          "tableName": "person",
+          "groupPath": [
+            {
+              "key": "person",
+              "name": {
+                "en": "Patients"
+              }
+            }
+          ],
           "threshold": 50,
           "sql": "SELECT /* third */ 1",
           "exploreSql": null
         },
         {
           "id": "no-rows-counted",
-          "name": "Check no-rows-counted",
-          "description": "",
+          "name": {
+            "en": "Check no-rows-counted",
+            "fr": "Contrôle no-rows-counted"
+          },
+          "description": {},
           "category": "completeness",
           "subcategory": null,
           "severity": "error",
           "origin": "ddl",
-          "tableName": "person",
+          "groupPath": [
+            {
+              "key": "person",
+              "name": {
+                "en": "Patients"
+              }
+            }
+          ],
           "threshold": 0,
           "sql": "SELECT /* no-rows-counted */ 1",
           "exploreSql": null
         },
         {
           "id": "no-row",
-          "name": "Check no-row",
-          "description": "",
+          "name": {
+            "en": "Check no-row",
+            "fr": "Contrôle no-row"
+          },
+          "description": {},
           "category": "completeness",
           "subcategory": null,
           "severity": "error",
           "origin": "manual",
-          "tableName": null,
+          "groupPath": [],
           "threshold": 0,
           "sql": "SELECT /* no-row */ 1",
           "exploreSql": null
         },
         {
           "id": "null-count",
-          "name": "Check null-count",
-          "description": "",
+          "name": {
+            "en": "Check null-count",
+            "fr": "Contrôle null-count"
+          },
+          "description": {},
           "category": "plausibility",
           "subcategory": null,
           "severity": "error",
           "origin": "ddl",
-          "tableName": "person",
+          "groupPath": [
+            {
+              "key": "person",
+              "name": {
+                "en": "Patients"
+              }
+            }
+          ],
           "threshold": 0,
           "sql": "SELECT /* null-count */ 1",
           "exploreSql": null
         },
         {
           "id": "broken",
-          "name": "Check broken",
-          "description": "",
+          "name": {
+            "en": "Check broken",
+            "fr": "Contrôle broken"
+          },
+          "description": {},
           "category": "completeness",
           "subcategory": null,
           "severity": "error",
           "origin": "manual",
-          "tableName": "person",
+          "groupPath": [
+            {
+              "key": "person",
+              "name": {
+                "en": "Patients"
+              }
+            }
+          ],
           "threshold": 0,
           "sql": "SELECT /* broken */ 1",
           "exploreSql": null

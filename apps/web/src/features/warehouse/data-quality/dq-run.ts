@@ -11,6 +11,8 @@
  * while the page is not shown (`lib/run-registry`); the page records the report.
  */
 
+import i18n from '@/lib/i18n'
+import { localized } from '@/lib/localized'
 import { createRunRegistry, type RunSnapshotBase } from '@/lib/run-registry'
 import { preparePlan, signatureOf } from '@/lib/server-runs/query-plan'
 import {
@@ -49,7 +51,7 @@ export function dqRunSignature(checks: readonly DqCheck[]): string {
 export async function compileDqRun(dataSourceId: string, checks: DqCheck[], label: string) {
   const plan = await preparePlan(dataSourceId, {
     label,
-    items: checks.map((c, i) => ({ key: dqRunKey(i), sql: c.sql, what: c.name })),
+    items: checks.map((c, i) => ({ key: dqRunKey(i), sql: c.sql, what: localized(c.name, i18n.language) })),
   })
   return {
     label,

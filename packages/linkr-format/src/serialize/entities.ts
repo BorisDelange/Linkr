@@ -86,12 +86,13 @@ export interface DqCheckSpec {
   /** Portable key, unique in the rule set; derived from the template key or the
    *  name when absent (`dqCheckKeys`). Quality profiles point at it. */
   checkKey?: string
-  name: string
+  /** Plain text is taken as English. */
+  name: LocalizedInput | string
   /** The query the check runs. Without it the check scores nothing. */
   sql: string
   /** Lists the rows breaking the rule, to investigate a failure. */
   exploreSql?: string | null
-  description?: string
+  description?: LocalizedInput | string
   /** Kahn et al. (2016): conformance | completeness | plausibility. */
   category?: 'conformance' | 'completeness' | 'plausibility'
   /** Conformance: value | relational | computational. Plausibility: uniqueness | atemporal | temporal. */
@@ -102,14 +103,24 @@ export interface DqCheckSpec {
   origin?: 'ddl' | 'mapping' | 'manual'
   /** Schema rule that generated the check, null when written by hand. */
   templateKey?: string | null
-  /** Table or relation the check is about. */
-  tableName?: string | null
+  /** The category it is filed under (`DqCheckGroupSpec.key`); null: none. */
+  groupKey?: string | null
   disabled?: boolean
+}
+
+/** A category of checks; `parentKey` nests it in another. */
+export interface DqCheckGroupSpec {
+  key: string
+  name: LocalizedInput
+  parentKey?: string | null
 }
 
 export interface DqRuleSetSpec extends EntityIdentity {
   name: LocalizedInput
   description?: LocalizedInput
+  /** Declared categories, in display order. A check may name an undeclared key:
+   *  it then sits in a top-level category of that name. */
+  checkGroups?: DqCheckGroupSpec[]
   checks: DqCheckSpec[]
 }
 
@@ -235,6 +246,12 @@ export type SerializableEntityKind = keyof EntitySpecMap
  */
 function json(value: unknown): string {
   return JSON.stringify(value, null, 2)
+}
+
+/** A check's name or description: plain text, as written before checks were multilingual, is English. */
+function checkText(value: LocalizedInput | string | undefined): Record<string, string> {
+  if (typeof value === 'string') return value ? { en: value } : {}
+  return value ? localized(value) : {}
 }
 
 function localized(value: LocalizedInput): Record<string, string> {
@@ -388,14 +405,17 @@ export function serializeEntity<K extends SerializableEntityKind>(
             ...badgesField(s),
             status: 'draft',
             ...provenanceTail(s),
+            ...(s.checkGroups?.length
+              ? { checkGroups: s.checkGroups.map((g) => ({ key: g.key, name: localized(g.name), parentKey: g.parentKey ?? null })) }
+              : {}),
           }, s.extra)),
         },
         {
           path: CONTENT_FILE.dqChecks,
           content: json(s.checks.map((check, i) => ({
             checkKey: checkKeys[i],
-            name: check.name,
-            ...(check.description ? { description: check.description } : {}),
+            name: checkText(check.name),
+            description: checkText(check.description),
             category: check.category ?? 'completeness',
             subcategory: check.subcategory ?? null,
             severity: check.severity ?? 'error',
@@ -405,7 +425,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             order: i,
             origin: check.origin ?? 'manual',
             templateKey: check.templateKey ?? null,
-            tableName: check.tableName ?? null,
+            groupKey: check.groupKey ?? null,
             disabled: check.disabled ?? false,
           }))),
         },

@@ -45,6 +45,7 @@ Built, and beyond what the automated journeys can check.
 | Vocabularies and dictionaries: ATHENA import (full, subset, a second release), legacy vocabulary databases, dictionary sync + update, resolution, SQL tab | both | M |
 | Data catalog: variables and crossings, a resumed run, Pause/Stop, anonymization audit, Publish (Pages) | both | M |
 | Quality profiles: home → create (database required) → pick a whole rule set and some checks of another → run → History; rename a check in its rule set and see the profile keep it; delete a rule set and remove it from the profile; a reload mid-run, then Pause → reload → Resume, and Start over (server); close the tab mid-run and find it recorded in the History ([dq-standards-plan.md](dq-standards-plan.md) §3) | both | S |
+| DQ groups and bilingual checks: a manual check's name and description in EN and FR; groups created with both names, nested, dragged (checks and groups, several checks in Select mode), deleted keeping their checks; an existing rule set after the migration (names under EN, table groups intact); a profile's Checks tab and *By group* results showing the nesting; a profile Report in HTML, PDF and Word, with and without the passed checks and the SQL | both | S |
 | Derive a cohort through the UI → new DuckDB, and → new schema (Linkr-owned DuckDB, Postgres with writes allowed) | server | S |
 | SPC widget added to a dashboard, server mode | server | S |
 | Server file picker end to end ([server-file-picker-plan.md](server-file-picker-plan.md) §6) | server | S |

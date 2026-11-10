@@ -179,7 +179,7 @@ async def test_create_checks_in_one_request(client):
             "id": f"c{i}", "ruleSetId": rs_id, "name": f"check {i}", "category": "conformance",
             "subcategory": "relational", "severity": "error",
             "sql": "SELECT 0 AS violated_rows, 1 AS total_rows",
-            "order": i, "origin": "ddl", "templateKey": f"ddl.not_null:t.c{i}", "tableName": "t",
+            "order": i, "origin": "ddl", "templateKey": f"ddl.not_null:t.c{i}", "groupKey": "t",
         }
         for i in range(3)
     ]
@@ -193,10 +193,10 @@ async def test_create_checks_in_one_request(client):
     assert p.json()["disabled"] is True
 
     # Moving a check to another group, then out of every group.
-    p = await client.patch(f"{API}/dq-custom-checks/c1", headers=headers, json={"tableName": "renamed"})
-    assert p.json()["tableName"] == "renamed"
-    p = await client.patch(f"{API}/dq-custom-checks/c1", headers=headers, json={"tableName": None})
-    assert p.json()["tableName"] is None
+    p = await client.patch(f"{API}/dq-custom-checks/c1", headers=headers, json={"groupKey": "renamed"})
+    assert p.json()["groupKey"] == "renamed"
+    p = await client.patch(f"{API}/dq-custom-checks/c1", headers=headers, json={"groupKey": None})
+    assert p.json()["groupKey"] is None
     p = await client.patch(
         f"{API}/dq-custom-checks/c2", headers=headers,
         json={"exploreSql": "SELECT 1", "subcategory": None, "category": "completeness"},
@@ -240,7 +240,7 @@ async def test_check_update_refuses_null_and_refits_the_subcategory(client):
 
     for field in ("category", "severity", "threshold", "sql", "disabled"):
         assert (await patch({field: None})).status_code == 422, field
-    assert (await patch({"tableName": None})).status_code == 200  # nullable: "Other checks"
+    assert (await patch({"groupKey": None})).status_code == 200  # nullable: "Other checks"
 
     moved = (await patch({"category": "conformance"})).json()
     assert (moved["category"], moved["subcategory"]) == ("conformance", "value")
@@ -248,13 +248,42 @@ async def test_check_update_refuses_null_and_refits_the_subcategory(client):
     assert (await patch({"category": "completeness"})).json()["subcategory"] is None
 
 
-async def test_rule_set_keeps_its_empty_check_groups(client):
+async def test_rule_set_keeps_its_nested_check_groups(client):
     headers = await _admin_headers(client)
     r = await _rule_set(client, headers, await _workspace(client, headers))
     assert r["checkGroups"] is None
+    groups = [
+        {"key": "vitals", "name": {"en": "Vitals", "fr": "Constantes"}, "parentKey": None},
+        {"key": "bp", "name": {"en": "Blood pressure"}, "parentKey": "vitals"},
+    ]
+    p = await client.patch(f"{API}/dq-rule-sets/{r['id']}", headers=headers, json={"checkGroups": groups})
+    assert p.json()["checkGroups"] == groups
+    assert (await client.get(f"{API}/dq-rule-sets/{r['id']}", headers=headers)).json()["checkGroups"] == groups
+
+
+async def test_rule_set_reads_the_bare_group_keys_of_older_clients(client):
+    headers = await _admin_headers(client)
+    r = await _rule_set(client, headers, await _workspace(client, headers))
     p = await client.patch(f"{API}/dq-rule-sets/{r['id']}", headers=headers, json={"checkGroups": ["Vitals"]})
-    assert p.json()["checkGroups"] == ["Vitals"]
-    assert (await client.get(f"{API}/dq-rule-sets/{r['id']}", headers=headers)).json()["checkGroups"] == ["Vitals"]
+    assert p.json()["checkGroups"] == [{"key": "Vitals", "name": {"en": "Vitals"}, "parentKey": None}]
+    bad = await client.patch(f"{API}/dq-rule-sets/{r['id']}", headers=headers, json={"checkGroups": [{"name": {}}]})
+    assert bad.status_code == 422
+
+
+async def test_check_name_and_description_are_localized(client):
+    headers = await _admin_headers(client)
+    r = await _rule_set(client, headers, await _workspace(client, headers))
+    c = (await client.post(f"{API}/dq-custom-checks", headers=headers, json=_check(
+        r["id"], name={"en": "Plausible age", "fr": "Âge plausible"}, description={"fr": "Entre 0 et 130"},
+    ))).json()
+    assert c["name"] == {"en": "Plausible age", "fr": "Âge plausible"}
+    assert c["description"] == {"fr": "Entre 0 et 130"}
+    assert c["checkKey"] == "plausible-age"
+    # Plain text from an older client is filed under English.
+    legacy = (await client.post(f"{API}/dq-custom-checks", headers=headers, json=_check(r["id"], "c2", name="Old", description=""))).json()
+    assert (legacy["name"], legacy["description"]) == ({"en": "Old"}, {})
+    p = await client.patch(f"{API}/dq-custom-checks/c2", headers=headers, json={"name": {"en": "Old", "fr": "Ancien"}})
+    assert p.json()["name"] == {"en": "Old", "fr": "Ancien"}
 
 
 async def test_create_checks_refuses_taken_and_duplicate_ids(client):
@@ -317,22 +346,22 @@ async def test_update_and_delete_checks_in_one_request(client):
     rs_id = (await _rule_set(client, headers, ws))["id"]
     other = (await _rule_set(client, headers, ws, rid="r2"))["id"]
     url = f"{API}/dq-rule-sets/{rs_id}/checks"
-    await client.post(url, headers=headers, json=[_check(rs_id, f"c{i}", tableName="g") for i in range(3)])
+    await client.post(url, headers=headers, json=[_check(rs_id, f"c{i}", groupKey="g") for i in range(3)])
     await client.post(f"{API}/dq-rule-sets/{other}/checks", headers=headers, json=[_check(other, "theirs")])
 
     r = await client.patch(url, headers=headers, json=[
-        {"id": "c0", "tableName": "renamed"}, {"id": "c1", "tableName": "renamed"},
+        {"id": "c0", "groupKey": "renamed"}, {"id": "c1", "groupKey": "renamed"},
     ])
     assert r.status_code == 200, r.text
-    assert {c["id"]: c["tableName"] for c in r.json()} == {"c0": "renamed", "c1": "renamed"}
+    assert {c["id"]: c["groupKey"] for c in r.json()} == {"c0": "renamed", "c1": "renamed"}
 
     def groups(listed):
-        return {c["id"]: c["tableName"] for c in listed}
+        return {c["id"]: c["groupKey"] for c in listed}
 
     # One change that does not fit, or a check of another rule set: none applied.
-    bad = [{"id": "c0", "tableName": "x"}, {"id": "c1", "category": "accuracy"}]
+    bad = [{"id": "c0", "groupKey": "x"}, {"id": "c1", "category": "accuracy"}]
     assert (await client.patch(url, headers=headers, json=bad)).status_code == 422
-    stray = [{"id": "c0", "tableName": "x"}, {"id": "theirs", "tableName": "x"}]
+    stray = [{"id": "c0", "groupKey": "x"}, {"id": "theirs", "groupKey": "x"}]
     assert (await client.patch(url, headers=headers, json=stray)).status_code == 404
     assert groups((await client.get(url, headers=headers)).json()) == {"c0": "renamed", "c1": "renamed", "c2": "g"}
 

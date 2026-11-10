@@ -49,7 +49,7 @@ async def test_dq_rule_set_writes_by_an_agent_are_notified(client):
     await client.post(f"{API}/dq-custom-checks", headers=agent, json=_check("c1", "Birth before death"))
     one = (await _list(client, headers))[0]
     assert one["entityId"] == "r1" and one["detail"] == {
-        "workspaceId": ws, "part": "check", "action": "created", "name": "Birth before death",
+        "workspaceId": ws, "part": "check", "action": "created", "name": {"en": "Birth before death"},
     }
 
     batch = [_check("c2", "A"), _check("c3", "B")]
@@ -68,7 +68,7 @@ async def test_dq_rule_set_writes_by_an_agent_are_notified(client):
     await client.post(f"{API}/dq-rule-sets/r1/checks/batch-delete", headers=agent, json={"ids": ["c2", "c3"]})
     assert (await _list(client, headers))[0]["detail"]["count"] == 2
     await client.delete(f"{API}/dq-custom-checks/c1", headers=agent)
-    assert (await _list(client, headers))[0]["detail"]["name"] == "Birth before death"
+    assert (await _list(client, headers))[0]["detail"]["name"] == {"en": "Birth before death"}
 
     await client.delete(f"{API}/dq-rule-sets/r1", headers=agent)
     deleted = (await _list(client, headers))[0]

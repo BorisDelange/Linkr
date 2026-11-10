@@ -8,6 +8,7 @@
  * every run, as they are from the rule set's own.
  */
 import { runnableChecks, type DqCheck } from '@/lib/duckdb/data-quality-checks'
+import { readCheckGroups } from '@/lib/dq-groups'
 import type { DqCustomCheck, DqProfileSource, DqRuleSet, EntityRef } from '@/types'
 
 /** A rule set as a profile points at it: its local row and its portable identity. */
@@ -85,7 +86,7 @@ export function profileRunChecks(
     const checks = checksByRuleSet[source.ruleSetId]
     if (!ruleSet || !checks) return []
     const keyOf = new Map(checks.map((c) => [c.id, c.checkKey]))
-    return runnableChecks(takenChecks(source, checks)).map((check) => ({
+    return runnableChecks(takenChecks(source, checks), readCheckGroups(ruleSet.checkGroups)).map((check) => ({
       ...check,
       ruleSetId: ruleSet.id,
       ruleSetName: ruleSetName(ruleSet),

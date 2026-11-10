@@ -4,9 +4,9 @@ import { profileGaps, profileRunChecks, setChecks, setWholeRuleSet, takenChecks 
 
 const check = (ruleSetId: string, checkKey: string, order: number, disabled = false) =>
   ({
-    id: `${ruleSetId}:${checkKey}`, ruleSetId, checkKey, name: checkKey, description: '', category: 'plausibility',
+    id: `${ruleSetId}:${checkKey}`, ruleSetId, checkKey, name: { en: checkKey }, description: {}, category: 'plausibility',
     subcategory: null, severity: 'warning', threshold: 0, sql: 'SELECT 1', exploreSql: null, order,
-    origin: 'manual', templateKey: null, tableName: null, disabled, createdAt: '', updatedAt: '',
+    origin: 'manual', templateKey: null, groupKey: null, disabled, createdAt: '', updatedAt: '',
   }) as DqCustomCheck
 
 const ruleSet = (id: string, version = '1.0.0') => ({ id, version, name: { en: id } }) as unknown as DqRuleSet

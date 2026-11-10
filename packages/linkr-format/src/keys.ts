@@ -18,7 +18,7 @@ import { slugify } from './ids.js'
 import { readLocalized } from './check.js'
 
 /** Name in any accepted form; the English value is what a key is built from. */
-type NameInput = string | Record<string, string> | undefined
+type NameInput = string | Record<string, string | undefined> | undefined
 
 export interface TabKeyInput {
   id: string
@@ -119,12 +119,12 @@ export function tabKey(parentKey: string, name: NameInput): string {
 export interface DqCheckKeyInput {
   checkKey?: string | null
   templateKey?: string | null
-  name?: string
+  name?: NameInput
 }
 
 /**
  * Each data-quality check's portable key (`checkKey`), in the order given: the
- * one it carries, else its template key, else the slug of its name — `#<n>` when
+ * one it carries, else its template key, else the slug of its (English) name — `#<n>` when
  * another check, or one of `taken` (the keys its rule set already holds), has it.
  *
  * Set once at creation and kept after: a quality profile points at a check by
@@ -134,7 +134,7 @@ export interface DqCheckKeyInput {
 export function dqCheckKeys(checks: DqCheckKeyInput[], taken: Iterable<string> = []): string[] {
   const seen = new Set(taken)
   return checks.map((c) => {
-    const base = c.checkKey || c.templateKey || slugify(c.name || 'check')
+    const base = c.checkKey || c.templateKey || slugify(readLocalized(c.name, 'en') || 'check')
     let key = base
     for (let n = 2; seen.has(key); n++) key = `${base}#${n}`
     seen.add(key)

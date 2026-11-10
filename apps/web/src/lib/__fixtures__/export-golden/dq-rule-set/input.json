@@ -31,6 +31,24 @@
         "en": "OMOP CDM 5.4"
       }
     },
+    "checkGroups": [
+      {
+        "key": "person",
+        "name": {
+          "en": "Patients",
+          "fr": "Patients"
+        },
+        "parentKey": null
+      },
+      {
+        "key": "demographics",
+        "name": {
+          "en": "Demographics",
+          "fr": "Démographie"
+        },
+        "parentKey": "person"
+      }
+    ],
     "status": "draft",
     "lastRunAt": null,
     "lastRunDurationMs": null,
@@ -61,8 +79,13 @@
     {
       "id": "chk-1",
       "ruleSetId": "rs-1",
-      "name": "Non-null person id",
-      "description": "person_id must be present",
+      "name": {
+        "en": "Non-null person id",
+        "fr": "person_id non nul"
+      },
+      "description": {
+        "en": "person_id must be present"
+      },
       "category": "completeness",
       "subcategory": null,
       "severity": "error",
@@ -72,7 +95,7 @@
       "order": 0,
       "origin": "manual",
       "templateKey": null,
-      "tableName": "person",
+      "groupKey": "person",
       "disabled": false,
       "createdAt": "2026-01-02T03:04:05.000Z",
       "updatedAt": "2026-01-02T03:04:05.000Z"
@@ -80,8 +103,12 @@
     {
       "id": "chk-2",
       "ruleSetId": "rs-1",
-      "name": "Valid birth year",
-      "description": "year_of_birth in range",
+      "name": {
+        "en": "Valid birth year"
+      },
+      "description": {
+        "en": "year_of_birth in range"
+      },
       "category": "plausibility",
       "subcategory": "atemporal",
       "severity": "warning",
@@ -91,7 +118,7 @@
       "order": 1,
       "origin": "manual",
       "templateKey": null,
-      "tableName": "person",
+      "groupKey": "demographics",
       "disabled": false,
       "createdAt": "2026-01-02T03:04:05.000Z",
       "updatedAt": "2026-01-02T03:04:05.000Z"

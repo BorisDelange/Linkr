@@ -3,7 +3,7 @@ import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import { checksFromTemplates, ddlCheckTemplates, mappingCheckTemplates, schemaCheckTemplates } from './dq-templates'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
-const t = (key: string) => key
+const t = (key: string) => ({ en: key, fr: key })
 
 const DDL = `
 CREATE TABLE person (
@@ -76,7 +76,7 @@ describe('checks from the DDL', () => {
     const fk = tpls.find((c) => c.templateKey.startsWith('ddl.foreign_key:measurement'))!
     expect(fk.sql).toContain('LEFT JOIN (SELECT DISTINCT "person_id" FROM "person") r ON t."person_id" = r."person_id"')
     expect(fk.sql).toContain('WHERE t."person_id" IS NOT NULL')
-    expect(fk).toMatchObject({ category: 'conformance', subcategory: 'relational', origin: 'ddl', tableName: 'measurement' })
+    expect(fk).toMatchObject({ category: 'conformance', subcategory: 'relational', origin: 'ddl', groupKey: 'measurement' })
   })
 
   it('lists the rows it counts, so a failure can be investigated', () => {
@@ -141,7 +141,7 @@ describe('schema checks as stored checks', () => {
     // Key order is the server's response order: exports must be byte-identical.
     expect(Object.keys(checks[0])).toEqual([
       'id', 'ruleSetId', 'checkKey', 'name', 'description', 'category', 'subcategory', 'severity', 'threshold',
-      'sql', 'exploreSql', 'order', 'origin', 'templateKey', 'tableName', 'disabled', 'createdAt', 'updatedAt',
+      'sql', 'exploreSql', 'order', 'origin', 'templateKey', 'groupKey', 'disabled', 'createdAt', 'updatedAt',
     ])
   })
 })

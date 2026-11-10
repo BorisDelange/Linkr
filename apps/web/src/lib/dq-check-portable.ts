@@ -15,6 +15,7 @@
  */
 import { dqCheckKeys as checkKeys } from '@linkr/format'
 import { deterministicId } from '@/lib/deterministic-id'
+import { readStoredCheck } from '@/lib/duckdb/data-quality-checks'
 import type { DqCustomCheck } from '@/types'
 
 /** Fields that belong to this instance or to the last edit, never to the check. */
@@ -58,6 +59,6 @@ export function importedChecks(checks: Partial<DqCustomCheck>[], ruleSetId: stri
   const keys = checkKeys(ordered as DqCustomCheck[])
   return ordered.map((c, i) => {
     const { id: _id, ruleSetId: _rs, ...rest } = c
-    return { ...rest, checkKey: keys[i], order: i, id: deterministicId(ruleSetId, keys[i]), ruleSetId } as DqCustomCheck
+    return readStoredCheck({ ...rest, checkKey: keys[i], order: i, id: deterministicId(ruleSetId, keys[i]), ruleSetId } as DqCustomCheck)
   })
 }

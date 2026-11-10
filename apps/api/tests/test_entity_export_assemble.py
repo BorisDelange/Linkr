@@ -246,6 +246,7 @@ async def test_dq_rule_set_matches_golden(db):
         id=r["id"], workspace_id=r["workspaceId"], entity_id=r["entityId"],
         name=r["name"], description=r["description"], data_source_id=r["dataSourceId"],
         data_source_ref=r.get("dataSourceRef"), schema_preset_ref=r.get("schemaPresetRef"),
+        check_groups=r.get("checkGroups"),
         status=r["status"], last_run_at=r["lastRunAt"],
         last_run_duration_ms=r["lastRunDurationMs"], last_score=r["lastScore"],
         origin=r["origin"], created_by_id=r["createdById"], created_by=r["createdBy"],
@@ -263,7 +264,7 @@ async def test_dq_rule_set_matches_golden(db):
             description=c["description"], category=c["category"],
             subcategory=c["subcategory"], severity=c["severity"],
             threshold=c["threshold"], sql=c["sql"], explore_sql=c["exploreSql"],
-            order=c["order"], origin=c["origin"], template_key=c["templateKey"], table_name=c["tableName"],
+            order=c["order"], origin=c["origin"], template_key=c["templateKey"], group_key=c["groupKey"],
             disabled=c["disabled"],
             created_at=_dt(c["createdAt"]), updated_at=_dt(c["updatedAt"]),
         ))

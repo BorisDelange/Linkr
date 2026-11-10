@@ -291,6 +291,12 @@ export function DqProfileDetailPage({ profileId }: { profileId: string }) {
               onServerRunDone={handleServerRunDone}
               onBeforeScan={() => ensureMounted(runnableSourceId)}
               onInvestigate={handleInvestigate}
+              reportMeta={{
+                title: localized(profile.name, i18n.language),
+                description: localized(profile.description, i18n.language),
+                version: profile.version,
+                databaseName: databaseName || t('data_quality.profile_database_missing'),
+              }}
             />
           </div>
         </div>

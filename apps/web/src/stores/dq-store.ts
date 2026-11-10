@@ -4,8 +4,8 @@ import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
 import type { DqRuleSet, DqCustomCheck, DqRunHistoryEntry } from '@/types'
 import type { DqReport } from '@/lib/duckdb/data-quality'
-import { normalizeDqCheck } from '@/lib/dq-taxonomy'
-import { usableExploreSql } from '@/lib/duckdb/data-quality-checks'
+import { readStoredCheck as readCheck, usableExploreSql } from '@/lib/duckdb/data-quality-checks'
+import { readCheckGroups } from '@/lib/dq-groups'
 import { checkKeys, withCheckKeys } from '@/lib/dq-check-portable'
 
 // Re-exported so existing imports (`from '@/stores/dq-store'`) keep working; the
@@ -14,20 +14,6 @@ export type { DqRunHistoryEntry }
 
 export type CheckQueryField = 'sql' | 'exploreSql'
 type SavedQueries = Pick<DqCustomCheck, CheckQueryField>
-
-/** A stored check with every field filled: rows written before the Kahn
- *  categories and the generated checks lack some. */
-function readCheck(check: DqCustomCheck): DqCustomCheck {
-  return normalizeDqCheck({
-    ...check,
-    subcategory: check.subcategory ?? null,
-    exploreSql: check.exploreSql ?? null,
-    origin: check.origin ?? 'manual',
-    templateKey: check.templateKey ?? null,
-    tableName: check.tableName ?? null,
-    disabled: check.disabled ?? false,
-  })
-}
 
 /**
  * A rule set's checks, in display order, each with its `checkKey`.
@@ -125,6 +111,7 @@ export const useDqStore = create<DqState>((set, get) => ({
     for (const r of migrateEntityIds(all, e => localized(e.name, 'en'))) {
       storage.dqRuleSets.update(r.id, { entityId: r.entityId }).catch(() => {})
     }
+    for (const r of all) r.checkGroups = readCheckGroups(r.checkGroups)
     // Backfill legacy plain-string name/description into LocalizedString.
     for (const r of all) {
       if (typeof r.name === 'string' || typeof r.description === 'string') {

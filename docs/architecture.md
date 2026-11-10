@@ -544,6 +544,23 @@ and from then on they are ordinary checks — editable, disableable, deletable.
   create, free of the keys the rule set holds). Checks stored before it got
   theirs from migration `a1c3e5f7b9d1` (server) or on first load
   (`loadKeyedChecks`, IndexedDB); an export from before it derives it on import.
+- **Names in two languages**: a check's `name` and `description` are
+  LocalizedStrings, edited EN and FR side by side (`LocalizedFields`); generated
+  checks are named in both from the app's own wording (`Translate` →
+  `bilingual`, `checkNames()`). Plain strings from before (migration
+  `d6f8a0c2e4b6`, IndexedDB, older exports) are read as English
+  (`readStoredCheck`, `readStoredReport`).
+- **Groups**: a check points at its group by `groupKey`; the rule set declares
+  its groups in `checkGroups: [{key, name, parentKey}]`, a tree by `parentKey`.
+  A key no group declares is a top-level group named by its key — generated
+  checks use their table, so they need no declaration. Keys never change:
+  renaming touches the name, moving the `parentKey`, so neither touches a check.
+  Logic in `lib/dq-groups.ts` (pure, tested); the sidebar is `DqCheckTree`
+  (shared with a profile's Checks tab), where checks and groups are dragged
+  onto a group (or the empty space below: back to the top). Deleting a group
+  keeps its checks by moving them, and its sub-groups, up one level. A run
+  snapshots each check's group path (`DqCheck.groupPath`), so a past run keeps
+  the names it had.
 
 ## Data quality profiles (as-built)
 
@@ -572,6 +589,15 @@ where checks are written and tested on the rule set's own database, and
   carries `ruleSetId`, `ruleSetName`, `ruleSetVersion`, `checkKey` in the report,
   so a past run says which rule set (and version) each result came from; the
   Results table then shows a Rule set column. Disabled checks are left out.
+- **Results** (`DqResultsView`, shared with a rule set's Test results): a
+  summary (score, checks by status, bars per Kahn dimension and severity,
+  `results/DqResultsSummary`), then *By group* (the run's group paths as a
+  tree, rule set on top for a profile, failures first, `results/DqResultsTree`)
+  or *Table*. Counting lives in `lib/dq-report/tally.ts`.
+- **Report** (profiles): *Report* in the Results toolbar reports the run shown
+  (latest or picked in History) — HTML, PDF (print) or Word, with or without the
+  passed checks and the SQL (`results/DqReportDialog`, model and renderers in
+  `lib/dq-report/`, on the cohort report's stylesheet and helpers).
   History: `dq_run_history.profile_id` (a run belongs to exactly one rule set or
   one profile, `DqRunHistoryCreate`), `GET/DELETE /dq-profiles/{id}/runs`.
 - **Export / versioning**: kind `dq-profile` in `@linkr/format` (validated:

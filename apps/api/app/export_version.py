@@ -61,11 +61,15 @@ MIN_APP_VERSION: dict[str, str] = {
     "project": "2.4.6",
     # 2.4.6: checks.json carries no check id; a 2.4.5 importing a workspace or a
     # rule-set file writes checks with no id.
-    "dq-rule-set": "2.4.6",
+    # 2.4.7: a check's name and description are LocalizedStrings, its group a
+    # groupKey into the rule set's named, nested checkGroups; a 2.4.6 renders the
+    # names as objects and drops every check into one group.
+    "dq-rule-set": "2.4.7",
     # 2.4.6 too: wiki/_tree.json names pages by entityId (no id/parentId) and the
     # attachments by page + file name; a 2.4.5 writes pages with no id and
     # drops the attachments.
-    "workspace": "2.4.6",
+    # 2.4.7: the rule sets it carries (see dq-rule-set).
+    "workspace": "2.4.7",
 }
 
 

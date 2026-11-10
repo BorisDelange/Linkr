@@ -82,7 +82,7 @@ _SET_SIDE_FIELDS = {"status", "last_run_at", "last_run_duration_ms", "last_score
 _CHECK_SIDE_FIELDS = {"order"}
 _CHECK_FIELDS = (
     "name", "description", "category", "subcategory", "severity", "threshold", "sql",
-    "explore_sql", "order", "table_name", "disabled",
+    "explore_sql", "order", "group_key", "disabled",
 )
 
 

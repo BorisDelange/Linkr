@@ -2,7 +2,7 @@ from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text
 from sqlalchemy import false as sa_false
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import PortableJSON, Base, TimestampMixin
+from app.models.base import PortableJSON, Base, LocalizedText, TimestampMixin
 
 
 class DqRuleSet(Base, TimestampMixin):
@@ -53,8 +53,9 @@ class DqRuleSet(Base, TimestampMixin):
     lineage_id: Mapped[str | None] = mapped_column(String(36))
     parent_lineage_id: Mapped[str | None] = mapped_column(String(36))
     git_remote_config: Mapped[dict | None] = mapped_column(PortableJSON)
-    # Check groups with no check yet (a group is otherwise the table_name its
-    # checks share, so an empty one has nowhere else to live). Null when none.
+    # The groups its checks are filed under, in display order: [{key, name
+    # (LocalizedString), parentKey}], a tree by parentKey. A check naming a key
+    # declared nowhere sits in a top-level group of that name. Null when none.
     check_groups: Mapped[list | None] = mapped_column(PortableJSON)
 
 
@@ -126,8 +127,8 @@ class DqRunHistory(Base):
 
 class DqCustomCheck(Base, TimestampMixin):
     """A single SQL data-quality check within a rule set, generated from a schema
-    or written by hand. Plain-string name/description (not localized). Category
-    and subcategory follow Kahn et al. (2016)."""
+    or written by hand. Name and description are LocalizedStrings. Category and
+    subcategory follow Kahn et al. (2016)."""
 
     __tablename__ = "dq_custom_checks"
 
@@ -138,8 +139,8 @@ class DqCustomCheck(Base, TimestampMixin):
     # Portable key, unique in the rule set, set at creation and never changed (a
     # rename keeps it): what an export and a quality profile point at.
     check_key: Mapped[str | None] = mapped_column(Text)
-    name: Mapped[str] = mapped_column(String(255), default="")
-    description: Mapped[str] = mapped_column(Text, default="")
+    name: Mapped[dict] = mapped_column(LocalizedText, default=dict)
+    description: Mapped[dict] = mapped_column(LocalizedText, default=dict)
     category: Mapped[str] = mapped_column(String(20))
     subcategory: Mapped[str | None] = mapped_column(String(20))
     severity: Mapped[str] = mapped_column(String(10))
@@ -151,5 +152,6 @@ class DqCustomCheck(Base, TimestampMixin):
     # ddl | mapping | manual
     origin: Mapped[str] = mapped_column(String(10), default="manual", server_default="manual")
     template_key: Mapped[str | None] = mapped_column(Text)
-    table_name: Mapped[str | None] = mapped_column(String(255))
+    # The group it is filed under (a check_groups key); null: "Other checks".
+    group_key: Mapped[str | None] = mapped_column(String(255))
     disabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false())

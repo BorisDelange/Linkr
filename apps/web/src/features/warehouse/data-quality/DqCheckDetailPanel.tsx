@@ -14,6 +14,8 @@ import { cn } from '@/lib/utils'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { copyText } from '@/lib/clipboard'
 import { CodeEditor } from '@/components/editor/CodeEditor'
+import { localized } from '@/lib/localized'
+import { groupPathLabel } from '@/lib/dq-report/tally'
 import { CATEGORY_COLORS, STATUS_CONFIG } from './DqConstants'
 import { usableExploreSql, type DqCheck, type DqCheckResult } from '@/lib/duckdb/data-quality'
 
@@ -24,7 +26,7 @@ interface Props {
 }
 
 export function DqCheckDetailPanel({ item, onInvestigate }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [sqlDialogOpen, setSqlDialogOpen] = useState(false)
   const [dialogQuery, setDialogQuery] = useState<'sql' | 'exploreSql'>('sql')
   const [copied, setCopied] = useState(false)
@@ -39,6 +41,8 @@ export function DqCheckDetailPanel({ item, onInvestigate }: Props) {
   }
 
   const { check, result } = item
+  const description = localized(check.description, i18n.language)
+  const group = groupPathLabel(check, i18n.language)
   const statusCfg = STATUS_CONFIG[result.status]
   const StatusIcon = statusCfg.icon
 
@@ -60,8 +64,8 @@ export function DqCheckDetailPanel({ item, onInvestigate }: Props) {
           <StatusIcon size={14} className={statusCfg.color} />
           <span className="text-xs font-medium">{t(`data_quality.status_${result.status}`)}</span>
         </div>
-        <p className="mt-1 text-xs font-medium text-foreground">{check.name}</p>
-        {check.description && <p className="mt-0.5 text-xs text-muted-foreground">{check.description}</p>}
+        <p className="mt-1 text-xs font-medium text-foreground">{localized(check.name, i18n.language)}</p>
+        {description && <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>}
       </div>
 
       {/* Content */}
@@ -105,7 +109,7 @@ export function DqCheckDetailPanel({ item, onInvestigate }: Props) {
             <StatRow label={t('data_quality.detail_violated_rows')} value={result.violatedRows.toLocaleString()} />
             <StatRow label={t('data_quality.detail_total_rows')} value={result.totalRows.toLocaleString()} />
             <StatRow label={t('data_quality.detail_execution_time')} value={formatDuration(result.executionTimeMs)} />
-            {check.tableName && <StatRow label={t('data_quality.col_table')} value={check.tableName} />}
+            {group && <StatRow label={t('data_quality.col_group')} value={group} />}
           </div>
 
           {/* Error message */}

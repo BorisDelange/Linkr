@@ -72,6 +72,43 @@ export function validateDqProfile(tree: EntityTree, bag: IssueBag): void {
   })
 }
 
+/**
+ * The categories checks are filed under: `{ key, name, parentKey }`, a tree by
+ * `parentKey`. Before categories had names the list held bare keys, which
+ * still read (as a category named by its key).
+ */
+function validateCheckGroups(bag: IssueBag, path: string, groups: unknown): void {
+  if (!checkArray(bag, path, '/checkGroups', groups, { label: 'checkGroups' })) return
+  const keys = new Set<string>()
+  groups.forEach((group, i) => {
+    const pointer = `/checkGroups/${i}`
+    if (typeof group === 'string') {
+      bag.warn(path, pointer, 'legacy-format', 'A category is a bare key; the current format names it.',
+        'Write {"key": "…", "name": {"en": "…", "fr": "…"}, "parentKey": null}.')
+      keys.add(group)
+      return
+    }
+    if (!isObject(group)) {
+      bag.error(path, pointer, 'wrong-type', 'Each category must be an object.')
+      return
+    }
+    if (!checkString(bag, path, `${pointer}/key`, group.key, { required: true, label: 'key' })) return
+    if (keys.has(group.key)) {
+      bag.error(path, `${pointer}/key`, 'duplicate-key', `Duplicate category key "${group.key}".`,
+        'Checks point at their category by its key: each must be unique in the rule set.')
+    }
+    keys.add(group.key)
+    checkLocalized(bag, path, `${pointer}/name`, group.name, { label: 'name' })
+    if (group.parentKey != null) checkString(bag, path, `${pointer}/parentKey`, group.parentKey, { label: 'parentKey' })
+  })
+  groups.forEach((group, i) => {
+    if (isObject(group) && typeof group.parentKey === 'string' && !keys.has(group.parentKey)) {
+      bag.warn(path, `/checkGroups/${i}/parentKey`, 'unknown-reference',
+        `parentKey "${group.parentKey}" names no category of the rule set.`, 'The category is shown at the top.')
+    }
+  })
+}
+
 /** `rule-set.json` + `checks.json`. */
 export function validateDqRuleSet(tree: EntityTree, bag: IssueBag): void {
   const path = manifestPath(tree, 'dq-rule-set')
@@ -92,6 +129,8 @@ export function validateDqRuleSet(tree: EntityTree, bag: IssueBag): void {
     checkLocalized(bag, path, '/description', parsed.value.description, { label: 'description' })
   }
 
+  if (parsed.value.checkGroups != null) validateCheckGroups(bag, path, parsed.value.checkGroups)
+
   const checksPath = CONTENT_FILE.dqChecks
   const checks = readJson(tree, checksPath)
   if (!checks.ok) {
@@ -111,7 +150,13 @@ export function validateDqRuleSet(tree: EntityTree, bag: IssueBag): void {
       bag.error(checksPath, pointer, 'wrong-type', 'Each check must be an object.')
       return
     }
-    checkString(bag, checksPath, `${pointer}/name`, check.name, { required: true, label: 'name' })
+    checkLocalized(bag, checksPath, `${pointer}/name`, check.name, { required: true, label: 'name' })
+    if (check.description != null) {
+      checkLocalized(bag, checksPath, `${pointer}/description`, check.description, { label: 'description' })
+    }
+    if (check.groupKey != null) {
+      checkString(bag, checksPath, `${pointer}/groupKey`, check.groupKey, { label: 'groupKey' })
+    }
     // Without SQL the check runs nothing and silently scores nothing.
     checkString(bag, checksPath, `${pointer}/sql`, check.sql, { required: true, label: 'sql' })
 

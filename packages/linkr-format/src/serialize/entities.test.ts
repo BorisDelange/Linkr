@@ -160,12 +160,17 @@ describe('serializeEntity', () => {
     const tree = treeOf('dq-rule-set', {
       name: { en: 'DQ' },
       checks: [
-        { name: 'first', sql: 'SELECT 1;' },
+        { name: { en: 'first', fr: 'premier' }, sql: 'SELECT 1;', groupKey: 'g' },
         { name: 'second', sql: 'SELECT 2;' },
       ],
+      checkGroups: [{ key: 'g', name: { en: 'G' } }],
     })
-    const checks = JSON.parse(tree.read('checks.json')!) as { name: string; order: number }[]
-    expect(checks.map((c) => [c.name, c.order])).toEqual([['first', 0], ['second', 1]])
+    const checks = JSON.parse(tree.read('checks.json')!) as { name: Record<string, string>; order: number; groupKey: string | null }[]
+    expect(checks.map((c) => [c.name, c.order, c.groupKey])).toEqual([
+      [{ en: 'first', fr: 'premier' }, 0, 'g'], [{ en: 'second' }, 1, null],
+    ])
+    expect(JSON.parse(tree.read('entity.json')!).checkGroups).toEqual([{ key: 'g', name: { en: 'G' }, parentKey: null }])
+    expect(validateEntity(tree, 'dq-rule-set')).toEqual([])
   })
 
   it('refuses a kind it cannot serialize', () => {

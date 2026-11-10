@@ -734,6 +734,7 @@ Check this table before writing any form field.
 | `PasswordInput` | Any secret input (reveal toggle). |
 | `OutputPaneToggle` + `useOutputPane` | **The Output toggle of a plugin editor** (patient widget, warehouse plugin, dashboard widget, dataset analysis): at the far right of the Config / Code row, shows or hides the output pane, remembered per editor kind. Never let it hide the output while the left pane is hidden too (`disabled`). |
 | `SqlFormSelect` | **Any view of a generated query**: picks the *Linkr version* (on the `linkr_*` relations) or the *Source database version* (on the database's own tables), with the same names and hints everywhere. Never add a third form. |
+| `LocalizedFields` | **Text that must exist in every content language** (EN + FR): one input per language, tagged with its code, `layout="stack"` in a dialog, `"row"` in a dense editor bar. The app's usual edit forms touch only the UI language (`setLocalized`); use this where both must be filled, as for a DQ check's name and description and a check group's name. `trimLocalized` drops the empty ones. |
 | `RequiredMark` | The required-field asterisk. |
 | `GatedButton` | An action the user may lack permission for: renders disabled with an explanatory tooltip. **UX only — real enforcement is server-side.** |
 | `ExecuteNotPermitted` | Placeholder in place of a code-backed widget the user can't execute. |

@@ -15,17 +15,17 @@ const RULE_SET = {
 } as unknown as DqRuleSet
 
 const CHECK: DqCustomCheck = {
-  id: 'chk-1', ruleSetId: 'rs-1', checkKey: 'ddl.not_null:person.person_id', name: 'person.person_id not null', description: 'never empty',
+  id: 'chk-1', ruleSetId: 'rs-1', checkKey: 'ddl.not_null:person.person_id', name: { en: 'person.person_id not null', fr: 'person.person_id non nul' }, description: { en: 'never empty' },
   category: 'conformance', subcategory: 'relational', severity: 'error', threshold: 0,
   sql: 'SELECT 0 AS violated_rows, 1 AS total_rows', exploreSql: 'SELECT * FROM person WHERE person_id IS NULL',
-  order: 3, origin: 'ddl', templateKey: 'ddl.not_null:person.person_id', tableName: 'my group', disabled: true,
+  order: 3, origin: 'ddl', templateKey: 'ddl.not_null:person.person_id', groupKey: 'my-group', disabled: true,
   createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z',
 }
 
 const PORTABLE = {
   name: CHECK.name, description: CHECK.description, category: 'conformance', subcategory: 'relational',
   severity: 'error', threshold: 0, sql: CHECK.sql, exploreSql: CHECK.exploreSql, order: 3,
-  origin: 'ddl', templateKey: CHECK.templateKey, tableName: 'my group', disabled: true,
+  origin: 'ddl', templateKey: CHECK.templateKey, groupKey: 'my-group', disabled: true,
 }
 
 const exportStore = new Proxy({}, {

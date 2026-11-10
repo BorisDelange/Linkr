@@ -1,24 +1,25 @@
 import { describe, expect, it } from 'vitest'
 import { McpServer } from '@modelcontextprotocol/server'
 import type { DqCheckTemplate } from '@/lib/dq-templates'
-import type { DqCustomCheck } from '@/types'
+import type { DqCheckGroup, DqCustomCheck } from '@/types'
 import {
-  boundedQuery, checkTestProblem, evaluateRows, errorResult, formatCheckList, formatReport, groupChecks, groupKey,
-  makeReport, missingTemplates, nextEmptyGroups, nextOrder, readCheck, resolveSubcategory, runChecks, runRecord, runnableChecks,
+  boundedQuery, checkTestProblem, evaluateRows, errorResult, findGroup, formatCheckList, formatReport, isOtherGroup,
+  makeReport, missingTemplates, nextOrder, readCheck, resolveSubcategory, ruleSetGroups, runChecks, runRecord, runnableChecks,
   selectChecks, summarizeRows, testRunOutcome, unboundedExplore, validateCheckFields,
 } from './dq'
 import { registerDqTools } from './tools-dq'
 
-const check = (over: Partial<DqCustomCheck>): DqCustomCheck => ({
-  id: 'c1', ruleSetId: 'rs', checkKey: 'negative-values', name: 'Negative values', description: '', category: 'plausibility', subcategory: 'atemporal',
+const check = (over: Omit<Partial<DqCustomCheck>, 'name'> & { name?: string }): DqCustomCheck => ({
+  id: 'c1', ruleSetId: 'rs', checkKey: 'negative-values', description: {}, category: 'plausibility', subcategory: 'atemporal',
   severity: 'warning', threshold: 0, sql: 'SELECT 0 AS violated_rows, 1 AS total_rows', exploreSql: null, order: 0,
-  origin: 'manual', templateKey: null, tableName: null, disabled: false, createdAt: '', updatedAt: '', ...over,
+  origin: 'manual', templateKey: null, groupKey: null, disabled: false, createdAt: '', updatedAt: '', ...over,
+  name: { en: over.name ?? 'Negative values' },
 })
 
 const CHECKS = [
-  check({ id: 'nn', name: 'person.person_id not null', category: 'conformance', subcategory: 'relational', origin: 'ddl', tableName: 'person', order: 0, templateKey: 'ddl.not_null:person.person_id' }),
-  check({ id: 'orph', name: 'linkr_visit orphans', category: 'conformance', subcategory: 'relational', origin: 'mapping', tableName: 'linkr_visit', order: 2 }),
-  check({ id: 'pk', name: 'person primary key', category: 'conformance', subcategory: 'relational', origin: 'ddl', tableName: 'person', order: 1, disabled: true }),
+  check({ id: 'nn', name: 'person.person_id not null', category: 'conformance', subcategory: 'relational', origin: 'ddl', groupKey: 'person', order: 0, templateKey: 'ddl.not_null:person.person_id' }),
+  check({ id: 'orph', name: 'linkr_visit orphans', category: 'conformance', subcategory: 'relational', origin: 'mapping', groupKey: 'linkr_visit', order: 2 }),
+  check({ id: 'pk', name: 'person primary key', category: 'conformance', subcategory: 'relational', origin: 'ddl', groupKey: 'person', order: 1, disabled: true }),
   check({ id: 'man', name: 'Negative doses', order: 3 }),
 ]
 
@@ -29,31 +30,43 @@ describe('readCheck', () => {
   })
 })
 
+// "Clinical" holds the (undeclared) table group linkr_visit; person stays a table group.
+const DECLARED: DqCheckGroup[] = [
+  { key: 'clinical', name: { en: 'Clinical', fr: 'Clinique' }, parentKey: null },
+  { key: 'linkr_visit', name: { en: 'Visits', fr: 'Séjours' }, parentKey: 'clinical' },
+]
+const GROUPS = ruleSetGroups({ checkGroups: DECLARED }, CHECKS)
+
 describe('groups and filters', () => {
-  it('groups by table in list order, ungrouped last', () => {
-    expect(groupChecks(CHECKS).map((g) => [g.name, g.checks.map((c) => c.id)])).toEqual([
-      ['person', ['nn', 'pk']], ['linkr_visit', ['orph']], ['', ['man']],
-    ])
-    expect(groupKey('Other checks')).toBe('')
-    expect(groupKey(null)).toBe('')
+  it('finds a group by key or by name in either language', () => {
+    expect(findGroup(GROUPS, 'linkr_visit')?.key).toBe('linkr_visit')
+    expect(findGroup(GROUPS, 'séjours')?.key).toBe('linkr_visit')
+    expect(findGroup(GROUPS, 'PERSON')?.key).toBe('person')
+    expect(isOtherGroup('Other checks') && isOtherGroup('') && isOtherGroup(null)).toBe(true)
   })
 
-  it('filters by origin, group, state and reports unknown ids', () => {
-    expect(selectChecks(CHECKS, { origins: ['ddl'] }).checks.map((c) => c.id)).toEqual(['nn', 'pk'])
-    expect(selectChecks(CHECKS, { groups: ['PERSON'], state: 'enabled' }).checks.map((c) => c.id)).toEqual(['nn'])
-    expect(selectChecks(CHECKS, { groups: ['Other checks'] }).checks.map((c) => c.id)).toEqual(['man'])
-    expect(selectChecks(CHECKS, { checkIds: ['man', 'nope'] }).unknownIds).toEqual(['nope'])
+  it('filters by origin, group (sub-groups included), state and reports unknown ids and groups', () => {
+    expect(selectChecks(CHECKS, GROUPS, { origins: ['ddl'] }).checks.map((c) => c.id)).toEqual(['nn', 'pk'])
+    expect(selectChecks(CHECKS, GROUPS, { groups: ['person'], state: 'enabled' }).checks.map((c) => c.id)).toEqual(['nn'])
+    expect(selectChecks(CHECKS, GROUPS, { groups: ['Clinique'] }).checks.map((c) => c.id)).toEqual(['orph'])
+    expect(selectChecks(CHECKS, GROUPS, { groups: ['Other checks'] }).checks.map((c) => c.id)).toEqual(['man'])
+    expect(selectChecks(CHECKS, GROUPS, { checkIds: ['man', 'nope'] }).unknownIds).toEqual(['nope'])
+    expect(selectChecks(CHECKS, GROUPS, { groups: ['nowhere'] }).unknownGroups).toEqual(['nowhere'])
   })
 
-  it('runs the enabled checks only, in order', () => {
-    expect(runnableChecks(CHECKS).map((c) => c.id)).toEqual(['nn', 'orph', 'man'])
+  it('runs the enabled checks only, in order, with their group path', () => {
+    const run = runnableChecks(CHECKS, DECLARED)
+    expect(run.map((c) => c.id)).toEqual(['nn', 'orph', 'man'])
+    expect(run[1].groupPath.map((s) => s.key)).toEqual(['clinical', 'linkr_visit'])
     expect(nextOrder(CHECKS)).toBe(4)
   })
 
-  it('lists checks under their group with the disabled count', () => {
-    const out = formatCheckList(CHECKS)
-    expect(out).toContain('person (1/2 enabled)')
-    expect(out).toContain('person primary key (disabled)')
+  it('lists checks under their nested groups with the disabled count', () => {
+    const out = formatCheckList(CHECKS, GROUPS)
+    expect(out).toContain('"Clinical" / fr "Clinique" — group key: clinical (1)')
+    expect(out).toContain('  "Visits" / fr "Séjours" — group key: linkr_visit (1)')
+    expect(out).toContain('"person" — group key: person (1/2 enabled)')
+    expect(out).toContain('"person primary key" (disabled)')
     expect(out).toContain('Other checks (1)')
   })
 })
@@ -90,7 +103,7 @@ describe('validateCheckFields', () => {
 })
 
 describe('a run', () => {
-  const checks = runnableChecks([check({ id: 'a', threshold: 10 }), check({ id: 'b', order: 1, severity: 'error' }), check({ id: 'c', order: 2 }), check({ id: 'd', order: 3 })])
+  const checks = runnableChecks([check({ id: 'a', threshold: 10 }), check({ id: 'b', order: 1, severity: 'error' }), check({ id: 'c', order: 2 }), check({ id: 'd', order: 3 })], [])
   const results = [
     evaluateRows(checks[0], [{ violated_rows: 5, total_rows: 10 }], 3),
     evaluateRows(checks[1], [{ violated_rows: 0, total_rows: 10 }], 2),
@@ -122,7 +135,7 @@ describe('a run', () => {
 })
 
 describe('running checks', () => {
-  const checks = runnableChecks(['a', 'b', 'c', 'd', 'e'].map((id, order) => check({ id, order, sql: `SELECT ${id}` })))
+  const checks = runnableChecks(['a', 'b', 'c', 'd', 'e'].map((id, order) => check({ id, order, sql: `SELECT ${id}` })), [])
 
   it('keeps the checks\' order, a few queries at a time, and records a failed query as an error', async () => {
     let running = 0
@@ -151,8 +164,8 @@ describe('running checks', () => {
 
 describe('schema checks', () => {
   const tpl = (templateKey: string): DqCheckTemplate => ({
-    templateKey, origin: 'ddl', name: templateKey, description: '', category: 'conformance', subcategory: 'relational',
-    severity: 'error', threshold: 0, tableName: 'person', sql: '', exploreSql: '',
+    templateKey, origin: 'ddl', name: { en: templateKey }, description: {}, category: 'conformance', subcategory: 'relational',
+    severity: 'error', threshold: 0, groupKey: 'person', sql: '', exploreSql: '',
   })
   it('offers only the templates the rule set does not hold', () => {
     const { missing, presentCount } = missingTemplates([tpl('ddl.not_null:person.person_id'), tpl('ddl.primary_key:person')], CHECKS)
@@ -183,16 +196,5 @@ describe('investigation', () => {
 describe('registerDqTools', () => {
   it('registers every tool with a valid schema', () => {
     expect(() => registerDqTools(new McpServer({ name: 't', version: '0' }))).not.toThrow()
-  })
-})
-
-describe('nextEmptyGroups', () => {
-  const checks = [{ tableName: 'Vitals' }] as DqCustomCheck[]
-
-  it('adds, renames and removes, keeping only groups that hold no check', () => {
-    expect(nextEmptyGroups(null, checks, { add: 'Labs' })).toEqual(['Labs'])
-    expect(nextEmptyGroups(['Labs'], checks, { rename: ['Labs', 'Biology'] })).toEqual(['Biology'])
-    expect(nextEmptyGroups(['Labs', 'Vitals'], checks, {})).toEqual(['Labs'])
-    expect(nextEmptyGroups(['Labs'], checks, { remove: 'Labs' })).toBeNull()
   })
 })

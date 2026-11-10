@@ -11,6 +11,34 @@ from app.schemas.dq_taxonomy import (
 )
 
 
+def _read_check_groups(value):
+    """A rule set's check groups as stored: [{key, name, parentKey}], camelCase
+    like the rest of the stored JSON. Before groups had names the list held the
+    bare keys of the empty ones, which read as groups named by their key."""
+    if not isinstance(value, list):
+        return value
+    groups = []
+    for g in value:
+        if isinstance(g, str):
+            g = {"key": g, "name": {"en": g}, "parentKey": None}
+        if not isinstance(g, dict) or not isinstance(g.get("key"), str) or not g["key"]:
+            raise ValueError("a check group is {key, name, parentKey} with a non-empty key")
+        name = g.get("name") or {}
+        parent = g.get("parentKey", g.get("parent_key"))
+        if not isinstance(name, dict) or (parent is not None and not isinstance(parent, str)):
+            raise ValueError(f"check group {g['key']!r}: name is a localized object, parentKey a key or null")
+        groups.append({"key": g["key"], "name": name, "parentKey": parent})
+    return groups
+
+
+def _read_text(value):
+    """A check name or description sent as plain text (an older client or
+    export): filed under English, its real language unknown."""
+    if isinstance(value, str):
+        return {"en": value} if value else {}
+    return value
+
+
 class DqRuleSetCreate(CamelModel):
     id: SafeId
     workspace_id: str
@@ -30,8 +58,8 @@ class DqRuleSetCreate(CamelModel):
     # Portable pointer to the database; the import resolves it to a local id.
     data_source_ref: dict | None = None
     schema_preset_ref: dict | None = None
-    # Groups holding no check yet; null when none.
-    check_groups: list[str] | None = None
+    # Its check groups, a tree by parentKey; null when none.
+    check_groups: list[dict] | None = None
     status: str = "draft"
     last_run_at: str | None = None
     last_run_duration_ms: int | None = None
@@ -47,6 +75,11 @@ class DqRuleSetCreate(CamelModel):
     created_at: datetime | None = None
     version: str = "0.1.0"
 
+    @field_validator("check_groups", mode="before")
+    @classmethod
+    def _groups(cls, v):
+        return _read_check_groups(v)
+
 
 class DqRuleSetUpdate(CamelModel):
     entity_id: str | None = None
@@ -60,7 +93,7 @@ class DqRuleSetUpdate(CamelModel):
     # Portable pointer to the database; the import resolves it to a local id.
     data_source_ref: dict | None = None
     schema_preset_ref: dict | None = None
-    check_groups: list[str] | None = None
+    check_groups: list[dict] | None = None
     status: str | None = None
     last_run_at: str | None = None
     last_run_duration_ms: int | None = None
@@ -77,6 +110,11 @@ class DqRuleSetUpdate(CamelModel):
     # round-trip; a normal PATCH never sends it (exclude_unset leaves it alone).
     created_at: datetime | None = None
 
+    @field_validator("check_groups", mode="before")
+    @classmethod
+    def _groups(cls, v):
+        return _read_check_groups(v)
+
 
 class DqRuleSetResponse(CamelModel):
     id: str
@@ -92,7 +130,7 @@ class DqRuleSetResponse(CamelModel):
     # Portable pointer to the database; the import resolves it to a local id.
     data_source_ref: dict | None = None
     schema_preset_ref: dict | None = None
-    check_groups: list[str] | None = None
+    check_groups: list[dict] | None = None
     status: str
     last_run_at: str | None = None
     last_run_duration_ms: int | None = None
@@ -108,14 +146,19 @@ class DqRuleSetResponse(CamelModel):
     updated_at: datetime
     version: str
 
+    @field_validator("check_groups", mode="before")
+    @classmethod
+    def _groups(cls, v):
+        return _read_check_groups(v)
+
 
 class DqCustomCheckCreate(CamelModel):
     id: SegmentId
     rule_set_id: str
     # Assigned by the server when missing or already taken in the rule set.
     check_key: str | None = None
-    name: str = ""
-    description: str = ""
+    name: dict = {}
+    description: dict = {}
     category: str
     subcategory: str | None = None
     severity: str
@@ -125,8 +168,13 @@ class DqCustomCheckCreate(CamelModel):
     order: int = 0
     origin: str = "manual"
     template_key: str | None = None
-    table_name: str | None = None
+    group_key: str | None = None
     disabled: bool = False
+
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def _text(cls, v):
+        return _read_text(v)
 
     @model_validator(mode="after")
     def _taxonomy(self):
@@ -137,8 +185,8 @@ class DqCustomCheckCreate(CamelModel):
 
 
 class DqCustomCheckUpdate(CamelModel):
-    name: str | None = None
-    description: str | None = None
+    name: dict | None = None
+    description: dict | None = None
     category: str | None = None
     subcategory: str | None = None
     severity: str | None = None
@@ -147,8 +195,13 @@ class DqCustomCheckUpdate(CamelModel):
     explore_sql: str | None = None
     order: int | None = None
     # The check's group in the list; null moves it to "Other checks".
-    table_name: str | None = None
+    group_key: str | None = None
     disabled: bool | None = None
+
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def _text(cls, v):
+        return _read_text(v)
 
     @model_validator(mode="after")
     def _no_null_on_required(self):
@@ -183,8 +236,8 @@ class DqCustomCheckResponse(CamelModel):
     id: str
     rule_set_id: str
     check_key: str | None = None
-    name: str
-    description: str
+    name: dict
+    description: dict
     category: str
     subcategory: str | None = None
     severity: str
@@ -194,9 +247,15 @@ class DqCustomCheckResponse(CamelModel):
     order: int
     origin: str
     template_key: str | None = None
-    table_name: str | None = None
+    group_key: str | None = None
     disabled: bool
     created_at: datetime
+
+    # A row the migration missed, or written empty, still reads as a LocalizedString.
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def _text(cls, v):
+        return {} if v is None else _read_text(v)
     updated_at: datetime
 
 

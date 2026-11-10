@@ -6,7 +6,7 @@ and the checks in display order, ties broken by id, `checkKey` first. Both
 builders must write the same bytes.
 
 `checkKey` is set once at creation (the template key of a generated check, else
-the slug of its name, `#<n>` on a collision) and never changed: a renamed check
+the slug of its English name, `#<n>` on a collision) and never changed: a renamed check
 keeps it, so the quality profiles pointing at it still find it.
 """
 
@@ -15,8 +15,20 @@ from collections.abc import Iterable
 _LOCAL_FIELDS = ("id", "ruleSetId", "updatedAt", "checkKey")
 
 
+def _name_text(name: dict | str | None) -> str:
+    """A check name's English text, else its first non-blank one (readLocalized)."""
+    if isinstance(name, str):
+        return name
+    if not isinstance(name, dict):
+        return ""
+    preferred = name.get("en")
+    if isinstance(preferred, str) and preferred.strip():
+        return preferred
+    return next((v for v in name.values() if isinstance(v, str) and v.strip()), "")
+
+
 def check_keys(
-    checks: Iterable[tuple[str | None, str | None, str | None]],
+    checks: Iterable[tuple[str | None, str | None, dict | str | None]],
     taken: Iterable[str] = (),
 ) -> list[str]:
     """Each check's key, from (check_key, template_key, name), in the order given:
@@ -28,7 +40,7 @@ def check_keys(
     seen = set(taken)
     keys: list[str] = []
     for check_key, template_key, name in checks:
-        base = check_key or template_key or _slugify(name or "check")
+        base = check_key or template_key or _slugify(_name_text(name) or "check")
         key = base
         n = 2
         while key in seen:

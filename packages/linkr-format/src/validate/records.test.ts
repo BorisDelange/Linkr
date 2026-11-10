@@ -6,7 +6,7 @@ import { validateCohort } from './records.js'
 
 const CHECK = {
   id: 'chk-1',
-  name: 'Non-null person id',
+  name: { en: 'Non-null person id', fr: 'person_id non nul' },
   category: 'completeness',
   severity: 'error',
   threshold: 0.02,
@@ -14,9 +14,9 @@ const CHECK = {
   order: 0,
 }
 
-const ruleSet = (checks: unknown[] = [CHECK]) =>
+const ruleSet = (checks: unknown[] = [CHECK], extra: Record<string, unknown> = {}) =>
   new MemoryTree({
-    'entity.json': JSON.stringify({ type: 'dq-rule-set', name: { en: 'ICU DQ' } }),
+    'entity.json': JSON.stringify({ type: 'dq-rule-set', name: { en: 'ICU DQ' }, ...extra }),
     'checks.json': JSON.stringify(checks),
   })
 
@@ -50,6 +50,27 @@ describe('detectTreeKind', () => {
 describe('dq rule set', () => {
   it('accepts a well-formed rule set', () => {
     expect(validateEntity(ruleSet(), 'dq-rule-set')).toEqual([])
+  })
+
+  it('reads a plain-text check name as legacy, not as an error', () => {
+    const issues = validateEntity(ruleSet([{ ...CHECK, name: 'Old name', description: 'old' }]), 'dq-rule-set')
+    expect(issues.map((i) => [i.severity, i.code, i.pointer])).toEqual([
+      ['warning', 'legacy-format', '/0/name'], ['warning', 'legacy-format', '/0/description'],
+    ])
+  })
+
+  it('checks the nested groups: unique keys, a parent that exists', () => {
+    const groups = [
+      { key: 'vitals', name: { en: 'Vitals', fr: 'Constantes' }, parentKey: null },
+      { key: 'bp', name: { en: 'Blood pressure' }, parentKey: 'vitals' },
+    ]
+    expect(validateEntity(ruleSet([{ ...CHECK, groupKey: 'bp' }], { checkGroups: groups }), 'dq-rule-set')).toEqual([])
+    const issues = validateEntity(ruleSet([CHECK], { checkGroups: [...groups, { key: 'bp', name: {} }, { key: 'x', parentKey: 'gone' }, 'legacy'] }), 'dq-rule-set')
+    expect(issues.map((i) => [i.code, i.pointer])).toEqual([
+      ['duplicate-key', '/checkGroups/2/key'],
+      ['legacy-format', '/checkGroups/4'],
+      ['unknown-reference', '/checkGroups/3/parentKey'],
+    ])
   })
 
   it('accepts a rule set with no checks yet', () => {

@@ -16,8 +16,6 @@ import {
   EyeOff,
   ListChecks,
   X,
-  ChevronDown,
-  ChevronRight,
   AlertTriangle,
   Info,
   Undo2,
@@ -27,6 +25,7 @@ import {
   SquarePen,
   FolderPlus,
   FolderInput,
+  Languages,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DatabaseSelect } from '@/components/ui/database-select'
@@ -67,22 +66,17 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
-  ContextMenu,
-  ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
-  ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { Badge } from '@/components/ui/badge'
 import { SectionLabel } from '@/components/ui/section-label'
-import { InlineRenameField } from '@/components/InlineRenameField'
 import {
   SidebarSearchField,
   SidebarSearchToggle,
   matchesSidebarSearch,
   useSidebarSearch,
 } from '@/components/SidebarSearch'
-import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { usableExploreSql } from '@/lib/duckdb/data-quality'
 import {
@@ -104,10 +98,19 @@ import { AddSchemaChecksDialog } from './AddSchemaChecksDialog'
 import { DqCheckRow } from './DqCheckRow'
 import { DqTestResult } from './DqTestResult'
 import { useCheckTest } from './use-check-test'
-import { DeleteGroupDialog, MoveChecksDialog, NewGroupDialog } from './DqCheckGroupDialogs'
+import { DeleteGroupDialog, GroupDialog, MoveChecksDialog } from './DqCheckGroupDialogs'
+import { DqCheckTree, type DqCheckTreeDnd } from './DqCheckTree'
+import { foldLevels, groupFoldKey } from './check-tree'
+import { checkNames } from './check-names'
 import { FoldLevelButton } from './FoldLevelButton'
 import { OPEN_GROUPS_UP_TO, useFoldState } from './use-fold-state'
-import type { DqCustomCheck } from '@/types'
+import {
+  allGroups, canMoveGroup, groupLabel, groupPath, groupTree, moveGroup, newGroupKey, readCheckGroups,
+  removeGroup, removeSubtree, renameGroup, subtreeKeys,
+} from '@/lib/dq-groups'
+import { localized, setLocalized } from '@/lib/localized'
+import { LocalizedFields, trimLocalized } from '@/components/ui/localized-fields'
+import type { DqCheckGroup, DqCustomCheck, LocalizedString } from '@/types'
 
 interface Props {
   ruleSetId: string
@@ -135,14 +138,27 @@ function readGroupSort(): GroupSort {
 const ORIGINS: DqCheckOrigin[] = ['ddl', 'mapping', 'manual']
 const NO_SUBCATEGORY = '__none__'
 
-interface CheckGroup {
-  key: string
-  label: string
-  checks: DqCustomCheck[]
+type Tree = ReturnType<typeof groupTree<DqCustomCheck>>
+
+const nullIfEmpty = (groups: DqCheckGroup[]) => (groups.length ? groups : null)
+
+/** `moveGroup` only when the parent changes: moving puts a category last among its siblings. */
+function moveGroupIfChanged(groups: DqCheckGroup[], key: string, parentKey: string | null): DqCheckGroup[] {
+  const current = groups.find((g) => g.key === key)?.parentKey ?? null
+  return current === parentKey ? groups : moveGroup(groups, key, parentKey)
+}
+
+/** The tree with each level sorted by name, when the list is not in its own order. */
+function sortTree(nodes: Tree['roots'], sort: GroupSort, lang: string): Tree['roots'] {
+  const sorted = nodes.map((n) => ({ ...n, children: sortTree(n.children, sort, lang) }))
+  if (sort === 'list') return sorted
+  sorted.sort((a, b) => groupLabel(a, lang).localeCompare(groupLabel(b, lang), undefined, { numeric: true, sensitivity: 'base' }))
+  return sort === 'desc' ? sorted.reverse() : sorted
 }
 
 export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language
   const canWrite = useMyWorkspaceRole().can('data-quality:write')
   const {
     customChecks,
@@ -183,11 +199,11 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
   // Set when a run is asked for with no database picked; cleared by picking one.
   const [databaseMissing, setDatabaseMissing] = useState(false)
   const [addFromSchema, setAddFromSchema] = useState<'ddl' | 'mapping' | null>(null)
-  // A group is the `tableName` its checks share; one with no check yet is kept
-  // on the rule set (`checkGroups`) until a check is moved into it.
-  const storedEmptyGroups = useDqStore((s) => s.dqRuleSets.find((rs) => rs.id === ruleSetId)?.checkGroups)
-  const emptyGroups = useMemo(() => storedEmptyGroups ?? [], [storedEmptyGroups])
-  // Why the last change to the list (a group renamed, checks moved, deleted,
+  const storedGroupsRaw = useDqStore((s) => s.dqRuleSets.find((rs) => rs.id === ruleSetId)?.checkGroups)
+  const storedGroups = useMemo(() => readCheckGroups(storedGroupsRaw), [storedGroupsRaw])
+  // The declared categories and the ones only checks name (a generated check's table).
+  const everyGroup = useMemo(() => allGroups(storedGroups, customChecks), [storedGroups, customChecks])
+  // Why the last change to the list (a category renamed, checks moved, deleted,
   // enabled) failed; every such change is all-or-nothing, so the list is as it was.
   const [opError, setOpError] = useState<string | null>(null)
   const runOp = useCallback(async (op: () => Promise<unknown>): Promise<boolean> => {
@@ -200,12 +216,10 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
       return false
     }
   }, [])
-  const setEmptyGroups = (update: (prev: string[]) => string[]) => {
-    const next = update(emptyGroups)
-    if (next.length === emptyGroups.length && next.every((g, i) => g === emptyGroups[i])) return
-    void runOp(() => updateRuleSet(ruleSetId, { checkGroups: next.length ? next : null }))
-  }
-  const [newGroupOpen, setNewGroupOpen] = useState(false)
+  const saveGroups = (next: DqCheckGroup[]) =>
+    runOp(() => updateRuleSet(ruleSetId, { checkGroups: next.length ? next : null }))
+  // The category dialog: a new one (under `parent`) or one being edited.
+  const [groupDialog, setGroupDialog] = useState<{ editing?: DqCheckGroup; parent?: string | null } | null>(null)
   const [renamingGroup, setRenamingGroup] = useState<string | null>(null)
   const [deletingGroup, setDeletingGroup] = useState<string | null>(null)
   const [moving, setMoving] = useState<string[] | null>(null)
@@ -222,88 +236,97 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
   void _dirtyVersion
 
   const selectedCheck = customChecks.find((c) => c.id === selectedCheckId)
+  const groupName = useCallback((key: string) => {
+    const group = everyGroup.find((g) => g.key === key)
+    return group ? groupLabel(group, lang) : key
+  }, [everyGroup, lang])
 
   const filteredChecks = useMemo(() => customChecks.filter((c) =>
     (originFilter === 'all' || c.origin === originFilter)
     && (categoryFilter === 'all' || c.category === categoryFilter)
-    && (matchesSidebarSearch(c.name, search.query) || matchesSidebarSearch(c.tableName ?? '', search.query)),
-  ), [customChecks, originFilter, categoryFilter, search.query])
+    && (matchesSidebarSearch(localized(c.name, lang), search.query)
+      || groupPath(everyGroup, c.groupKey).some((step) => matchesSidebarSearch(groupLabel(step, lang), search.query))),
+  ), [customChecks, originFilter, categoryFilter, search.query, everyGroup, lang])
 
-  // One group per table or relation, in list order; hand-written checks that
-  // name none share a last group.
-  const groups = useMemo<CheckGroup[]>(() => {
-    const byKey = new Map<string, CheckGroup>()
-    for (const check of filteredChecks) {
-      const key = check.tableName ?? ''
-      let group = byKey.get(key)
-      if (!group) {
-        group = { key, label: check.tableName ?? t('data_quality.group_other'), checks: [] }
-        byKey.set(key, group)
-      }
-      group.checks.push(check)
-    }
-    if (!search.query && originFilter === 'all' && categoryFilter === 'all') {
-      for (const name of emptyGroups) {
-        if (!byKey.has(name)) byKey.set(name, { key: name, label: name, checks: [] })
-      }
-    }
-    const other = byKey.get('')
-    byKey.delete('')
-    const named = [...byKey.values()]
-    if (groupSort !== 'list') {
-      named.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }))
-      if (groupSort === 'desc') named.reverse()
-    }
-    return other ? [...named, other] : named
-  }, [filteredChecks, emptyGroups, search.query, originFilter, categoryFilter, groupSort, t])
+  const filtered = originFilter !== 'all' || categoryFilter !== 'all'
+  const tree = useMemo(() => {
+    const { roots, ungrouped } = groupTree(storedGroups, filteredChecks, { keepEmpty: !filtered && !search.query })
+    return { roots: sortTree(roots, groupSort, lang), ungrouped }
+  }, [storedGroups, filteredChecks, filtered, search.query, groupSort, lang])
 
-  const groupNames = useMemo(() => {
-    const names = new Set(customChecks.map((c) => c.tableName).filter((n): n is string => !!n))
-    for (const name of emptyGroups) names.add(name)
-    return [...names]
-  }, [customChecks, emptyGroups])
-  // Always shown, "Other checks" included: a header is where a group is renamed or deleted.
-  const showGroupHeaders = groups.length > 0
-  /** `''` is "Other checks", the checks with no group. */
-  const idsInGroup = (name: string) => customChecks.filter((c) => (c.tableName ?? '') === name).map((c) => c.id)
+  /** The checks filed under `key` or one of its sub-categories; `''` is "Other checks". */
+  const idsUnder = (key: string) => {
+    if (!key) return customChecks.filter((c) => !c.groupKey || !everyGroup.some((g) => g.key === c.groupKey)).map((c) => c.id)
+    const keys = subtreeKeys(everyGroup, key)
+    return customChecks.filter((c) => c.groupKey && keys.has(c.groupKey)).map((c) => c.id)
+  }
 
-  const renameGroup = async (from: string, to: string) => {
-    if (to === from) {
+  const createGroup = (name: LocalizedString, parentKey: string | null) => {
+    const key = newGroupKey(name, everyGroup.map((g) => g.key))
+    return saveGroups([...storedGroups, { key, name, parentKey }]).then((ok) => (ok ? key : null))
+  }
+
+  const editGroup = (key: string, name: LocalizedString, parentKey: string | null) =>
+    saveGroups(moveGroupIfChanged(renameGroup(storedGroups, key, name), key, parentKey))
+
+  const renameGroupInline = async (key: string, text: string) => {
+    const current = everyGroup.find((g) => g.key === key)
+    if (!current || text === groupLabel(current, lang)) {
       setRenamingGroup(null)
       return
     }
     // The field stays open on failure, with the name typed.
-    if (!(await runOp(() => updateChecks(idsInGroup(from), { tableName: to })))) return
-    setRenamingGroup(null)
-    setEmptyGroups((prev) => prev.map((g) => (g === from ? to : g)))
-    fold.rename(from, to)
+    if (await saveGroups(renameGroup(storedGroups, key, setLocalized(current.name, lang, text)))) setRenamingGroup(null)
   }
 
-  const deleteGroup = async (name: string, withChecks: boolean): Promise<boolean> => {
-    const ids = idsInGroup(name)
-    const ok = await runOp(() => (withChecks ? deleteCustomChecks(ids) : updateChecks(ids, { tableName: null })))
-    if (!ok) return false
-    setEmptyGroups((prev) => prev.filter((g) => g !== name))
-    setDeletingGroup(null)
-    return true
+  const deleteGroup = async (key: string, withChecks: boolean): Promise<boolean> => {
+    const ids = idsUnder(key)
+    if (!key) {
+      if (!(await runOp(() => deleteCustomChecks(ids)))) return false
+      setDeletingGroup(null)
+      return true
+    }
+    // Kept checks of the category itself go up to its parent; those of its
+    // sub-categories stay in them, which move up too.
+    const parentKey = everyGroup.find((g) => g.key === key)?.parentKey ?? null
+    const own = customChecks.filter((c) => c.groupKey === key).map((c) => c.id)
+    const ok = await runOp(async () => {
+      if (withChecks) await deleteCustomChecks(ids)
+      else await updateChecks(own, { groupKey: parentKey })
+      await updateRuleSet(ruleSetId, { checkGroups: nullIfEmpty(withChecks ? removeSubtree(storedGroups, key) : removeGroup(storedGroups, key)) })
+    })
+    if (ok) setDeletingGroup(null)
+    return ok
   }
 
-  const moveChecks = async (ids: string[], group: string | null): Promise<boolean> => {
-    if (!(await runOp(() => updateChecks(ids, { tableName: group })))) return false
-    setEmptyGroups((prev) => prev.filter((g) => g !== group))
+  const moveChecks = async (ids: string[], key: string | null): Promise<boolean> => {
+    if (!(await runOp(() => updateChecks(ids, { groupKey: key })))) return false
     setMoving(null)
     return true
   }
-  const movingFrom = moving && new Set(customChecks.filter((c) => moving.includes(c.id)).map((c) => c.tableName)).size === 1
-    ? customChecks.find((c) => c.id === moving[0])?.tableName ?? null
+
+  const dnd: DqCheckTreeDnd | undefined = canWrite ? {
+    onDropChecks: (ids, key) => {
+      const moved = ids.filter((id) => customChecks.find((c) => c.id === id)?.groupKey !== key)
+      if (moved.length) void moveChecks(moved, key)
+    },
+    onDropGroup: (key, parentKey) => {
+      if ((everyGroup.find((g) => g.key === key)?.parentKey ?? null) === parentKey) return
+      void saveGroups(moveGroup(storedGroups, key, parentKey))
+    },
+    canMoveGroup: (key, parentKey) => canMoveGroup(everyGroup, key, parentKey),
+  } : undefined
+
+  const movingFrom = moving && new Set(customChecks.filter((c) => moving.includes(c.id)).map((c) => c.groupKey)).size === 1
+    ? customChecks.find((c) => c.id === moving[0])?.groupKey ?? null
     : undefined
 
-  const isGroupOpen = (key: string) => !!search.query || !showGroupHeaders || fold.isOpen(key)
+  const isGroupOpen = (foldKey: string) => !!search.query || fold.isOpen(foldKey)
 
-  const handleNewCheck = useCallback(async () => {
+  const handleNewCheck = useCallback(async (groupKey: string | null = null) => {
     const check = makeCheck(ruleSetId, customChecks.reduce((max, c) => Math.max(max, c.order + 1), 0), {
-      name: t('data_quality.new_check_name', { n: customChecks.filter((c) => c.origin === 'manual').length + 1 }),
-      description: '',
+      name: checkNames()('data_quality.new_check_name', { n: customChecks.filter((c) => c.origin === 'manual').length + 1 }),
+      description: {},
       category: 'plausibility',
       subcategory: 'atemporal',
       severity: 'warning',
@@ -312,19 +335,21 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
       exploreSql: t('data_quality.new_check_explore_sql'),
       origin: 'manual',
       templateKey: null,
-      tableName: null,
+      groupKey,
     })
     await createCustomCheck(check)
     selectCheck(check.id)
+    if (groupKey) fold.setOpen([...groupPath(everyGroup, groupKey).map((step) => groupFoldKey('', step.key))], true)
     setOriginFilter((f) => (f === 'all' || f === 'manual' ? f : 'all'))
     setCategoryFilter((f) => (f === 'all' || f === check.category ? f : 'all'))
-  }, [ruleSetId, customChecks, createCustomCheck, selectCheck, t])
+  }, [ruleSetId, customChecks, createCustomCheck, selectCheck, t, fold, everyGroup])
 
   const commitRename = useCallback((name: string) => {
-    if (!renamingId || !name) return
-    void updateCustomCheck(renamingId, { name })
+    const check = customChecks.find((c) => c.id === renamingId)
+    if (!check || !name) return
+    void updateCustomCheck(check.id, { name: setLocalized(check.name, lang, name) })
     setRenamingId(null)
-  }, [renamingId, updateCustomCheck])
+  }, [renamingId, customChecks, updateCustomCheck, lang])
 
   // --- Multi-select (edit mode) ---
   const allVisibleIds = useMemo(() => filteredChecks.map((c) => c.id), [filteredChecks])
@@ -387,7 +412,52 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
     })
   }
 
-  const filtered = originFilter !== 'all' || categoryFilter !== 'all'
+
+  const foldLevelsWithOther = useMemo(() => {
+    const levels = foldLevels(tree.roots, '')
+    const other = { key: groupFoldKey('', '') }
+    return tree.ungrouped.length ? [[...(levels[0] ?? []), other], ...levels.slice(1)] : levels
+  }, [tree])
+
+  const groupMenu = (key: string | null) => {
+    if (key === null) {
+      return tree.ungrouped.length ? (
+        <ContextMenuItem variant="destructive" onClick={() => setDeletingGroup('')}>
+          <Trash2 size={14} />
+          {t('data_quality.delete_group')}
+        </ContextMenuItem>
+      ) : null
+    }
+    const group = everyGroup.find((g) => g.key === key)
+    return (
+      <>
+        <ContextMenuItem onClick={() => void handleNewCheck(key)}>
+          <SquarePen size={14} />
+          {t('data_quality.new_check_here')}
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => setGroupDialog({ parent: key })}>
+          <FolderPlus size={14} />
+          {t('data_quality.new_subgroup')}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={() => setRenamingGroup(key)}>
+          <Pencil size={14} />
+          {t('common.rename')}
+        </ContextMenuItem>
+        {group && (
+          <ContextMenuItem onClick={() => setGroupDialog({ editing: group })}>
+            <Languages size={14} />
+            {t('data_quality.edit_group')}
+          </ContextMenuItem>
+        )}
+        <ContextMenuSeparator />
+        <ContextMenuItem variant="destructive" onClick={() => setDeletingGroup(key)}>
+          <Trash2 size={14} />
+          {t('data_quality.delete_group')}
+        </ContextMenuItem>
+      </>
+    )
+  }
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -531,10 +601,10 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                       </Tooltip>
                     )}
                     <FoldLevelButton
-                      levels={[groups.map((g) => ({ key: g.key }))]}
+                      levels={foldLevelsWithOther}
                       isOpen={fold.isOpen}
                       onFold={fold.setOpen}
-                      disabled={!showGroupHeaders || !!search.query}
+                      disabled={!!search.query}
                     />
                     <SidebarSearchToggle
                       open={search.open}
@@ -567,7 +637,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                           {t('data_quality.add_from_mapping')}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => setNewGroupOpen(true)}>
+                        <DropdownMenuItem onClick={() => setGroupDialog({})}>
                           <FolderPlus />
                           {t('data_quality.new_group')}
                         </DropdownMenuItem>
@@ -651,111 +721,69 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                   </div>
                 )}
 
-                {/* Radix wraps viewport children in a shrink-to-fit `display:table` div;
-                    force it to a full-width block so rows can't grow past the sidebar
-                    (and thus truncate + pin their action cluster to the visible edge). */}
                 <ScrollArea className="min-h-0 flex-1 overflow-hidden">
                   <div className="p-1.5">
-                    {filteredChecks.length === 0 ? (
+                    {filteredChecks.length === 0 && tree.roots.length === 0 ? (
                       <div className="py-8 text-center">
                         <ShieldCheck size={20} className="mx-auto text-muted-foreground/50" />
                         <p className="mt-2 text-[10px] text-muted-foreground">
                           {search.query || filtered ? t('common.no_results') : t('data_quality.no_checks')}
                         </p>
                       </div>
-                    ) : groups.map((group) => {
-                      const open = isGroupOpen(group.key)
-                      const disabledCount = group.checks.filter((c) => c.disabled).length
-                      return (
-                        <div key={group.key || '__other__'} className="mb-0.5">
-                          {showGroupHeaders && (renamingGroup === group.key ? (
-                            <div className="flex h-6 w-full items-center gap-1 rounded px-1 text-[10px] font-semibold text-muted-foreground">
-                              <ChevronDown size={12} className="shrink-0" />
-                              <InlineRenameField
-                                initialValue={group.key || group.label}
-                                onSubmit={(next) => void renameGroup(group.key, next)}
-                                onCancel={() => setRenamingGroup(null)}
-                                hasClash={(candidate) => groupNames.some((g) => g !== group.key && g.toLowerCase() === candidate.toLowerCase())}
-                                className="-ml-0.5 h-5 font-mono"
-                              />
-                            </div>
-                          ) : (
-                            <ContextMenu>
-                              <ContextMenuTrigger asChild disabled={!canWrite}>
-                                <button
-                                  type="button"
-                                  onClick={() => fold.toggle(group.key)}
-                                  className="flex h-6 w-full items-center gap-1 rounded px-1 text-left text-[10px] font-semibold text-muted-foreground hover:bg-accent/50"
-                                >
-                                  {open ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
-                                  <span className={cn('min-w-0 flex-1 truncate', group.key && 'font-mono')}>{group.label}</span>
-                                  <span className="shrink-0 font-normal tabular-nums text-muted-foreground/70">
-                                    {disabledCount ? `${group.checks.length - disabledCount}/${group.checks.length}` : group.checks.length}
-                                  </span>
-                                </button>
-                              </ContextMenuTrigger>
-                              <ContextMenuContent>
-                                <ContextMenuItem onClick={() => setRenamingGroup(group.key)}>
+                    ) : (
+                      <DqCheckTree
+                        roots={tree.roots}
+                        ungrouped={tree.ungrouped}
+                        isOpen={isGroupOpen}
+                        onToggle={fold.toggle}
+                        isDisabled={(c) => c.disabled}
+                        renaming={renamingGroup}
+                        onRename={(key, name) => void renameGroupInline(key, name)}
+                        onCancelRename={() => setRenamingGroup(null)}
+                        dnd={dnd}
+                        groupMenu={canWrite ? groupMenu : undefined}
+                        renderCheck={(check) => (
+                          <DqCheckRow
+                            key={check.id}
+                            id={check.id}
+                            name={localized(check.name, lang)}
+                            category={check.category}
+                            dirty={isCheckDirty(check.id)}
+                            disabled={check.disabled}
+                            selected={selectedCheckId === check.id && !editMode}
+                            editMode={editMode}
+                            checked={selectedIds.has(check.id)}
+                            renaming={renamingId === check.id}
+                            onSelect={() => (editMode ? toggleSelected(check.id) : selectCheck(check.id))}
+                            onToggleSelected={() => toggleSelected(check.id)}
+                            onRename={commitRename}
+                            onCancelRename={() => setRenamingId(null)}
+                            dragIds={dnd ? () => (selectedIds.has(check.id) ? [...selectedIds] : [check.id]) : undefined}
+                            menu={canWrite && (
+                              <>
+                                <ContextMenuItem onClick={() => setRenamingId(check.id)}>
                                   <Pencil size={14} />
                                   {t('common.rename')}
                                 </ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem variant="destructive" onClick={() => setDeletingGroup(group.key)}>
-                                  <Trash2 size={14} />
-                                  {t('data_quality.delete_group')}
+                                <ContextMenuItem onClick={() => void runOp(() => setChecksDisabled([check.id], !check.disabled))}>
+                                  {check.disabled ? <Eye size={14} /> : <EyeOff size={14} />}
+                                  {check.disabled ? t('data_quality.enable_check') : t('data_quality.disable_check')}
                                 </ContextMenuItem>
-                              </ContextMenuContent>
-                            </ContextMenu>
-                          ))}
-                          {open && group.checks.length === 0 && (
-                            <p className="py-1 pl-7 pr-2 text-[10px] text-muted-foreground/70">{t('data_quality.group_empty')}</p>
-                          )}
-                          {open && (
-                            <div className={cn('space-y-0.5', showGroupHeaders && 'pl-3')}>
-                              {group.checks.map((check) => (
-                                <DqCheckRow
-                                  key={check.id}
-                                  id={check.id}
-                                  name={check.name}
-                                  category={check.category}
-                                  dirty={isCheckDirty(check.id)}
-                                  disabled={check.disabled}
-                                  selected={selectedCheckId === check.id && !editMode}
-                                  editMode={editMode}
-                                  checked={selectedIds.has(check.id)}
-                                  renaming={renamingId === check.id}
-                                  onSelect={() => (editMode ? toggleSelected(check.id) : selectCheck(check.id))}
-                                  onToggleSelected={() => toggleSelected(check.id)}
-                                  onRename={commitRename}
-                                  onCancelRename={() => setRenamingId(null)}
-                                  menu={canWrite && (
-                                    <>
-                                      <ContextMenuItem onClick={() => setRenamingId(check.id)}>
-                                        <Pencil size={14} />
-                                        {t('common.rename')}
-                                      </ContextMenuItem>
-                                      <ContextMenuItem onClick={() => void runOp(() => setChecksDisabled([check.id], !check.disabled))}>
-                                        {check.disabled ? <Eye size={14} /> : <EyeOff size={14} />}
-                                        {check.disabled ? t('data_quality.enable_check') : t('data_quality.disable_check')}
-                                      </ContextMenuItem>
-                                      <ContextMenuItem onClick={() => setMoving([check.id])}>
-                                        <FolderInput size={14} />
-                                        {t('data_quality.move_to')}
-                                      </ContextMenuItem>
-                                      <ContextMenuSeparator />
-                                      <ContextMenuItem variant="destructive" onClick={() => setDeleteTarget(check.id)}>
-                                        <Trash2 size={14} />
-                                        {t('common.delete')}
-                                      </ContextMenuItem>
-                                    </>
-                                  )}
-                                />
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
+                                <ContextMenuItem onClick={() => setMoving([check.id])}>
+                                  <FolderInput size={14} />
+                                  {t('data_quality.move_to')}
+                                </ContextMenuItem>
+                                <ContextMenuSeparator />
+                                <ContextMenuItem variant="destructive" onClick={() => setDeleteTarget(check.id)}>
+                                  <Trash2 size={14} />
+                                  {t('common.delete')}
+                                </ContextMenuItem>
+                              </>
+                            )}
+                          />
+                        )}
+                      />
+                    )}
                   </div>
                 </ScrollArea>
               </div>
@@ -855,19 +883,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                       </TooltipContent>
                     </Tooltip>
                   </div>
-                  <div className="border-b px-3 py-1">
-                    <Input
-                      key={selectedCheck.id}
-                      defaultValue={selectedCheck.description}
-                      placeholder={t('data_quality.check_description_placeholder')}
-                      disabled={!canWrite}
-                      onBlur={(e) => {
-                        const description = e.target.value.trim()
-                        if (description !== selectedCheck.description) void updateCustomCheck(selectedCheck.id, { description })
-                      }}
-                      className="h-6 border-0 px-0 text-xs text-muted-foreground shadow-none focus-visible:ring-0"
-                    />
-                  </div>
+                  <CheckTextFields key={selectedCheck.id} check={selectedCheck} disabled={!canWrite} onCommit={(changes) => void updateCustomCheck(selectedCheck.id, changes)} />
 
                   {/* The two queries of a check, one editor; Save and Cancel cover both. */}
                   <div className="flex items-center gap-1 border-b px-3 py-1">
@@ -943,7 +959,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                     <p className="mt-1 max-w-xs text-xs text-muted-foreground">
                       {customChecks.length ? t('data_quality.select_check_description') : t('data_quality.no_checks_description')}
                     </p>
-                    <Button variant="outline" size="sm" className="mt-4 gap-1.5" disabled={!canWrite} onClick={handleNewCheck}>
+                    <Button variant="outline" size="sm" className="mt-4 gap-1.5" disabled={!canWrite} onClick={() => void handleNewCheck()}>
                       <Plus size={14} />
                       {t('data_quality.new_check')}
                     </Button>
@@ -955,28 +971,41 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
         </div>
       </div>
 
-      <NewGroupDialog
-        open={newGroupOpen}
-        onOpenChange={setNewGroupOpen}
-        groups={groupNames}
-        onCreate={(name) => {
-          setEmptyGroups((prev) => [...prev, name])
+      <GroupDialog
+        open={groupDialog !== null}
+        onOpenChange={(open) => { if (!open) setGroupDialog(null) }}
+        groups={everyGroup}
+        editing={groupDialog?.editing}
+        defaultParent={groupDialog?.parent ?? null}
+        onSave={async (name, parentKey) => {
+          const editing = groupDialog?.editing
+          if (editing) return editGroup(editing.key, name, parentKey)
+          const key = await createGroup(name, parentKey)
+          if (!key) return false
           setOriginFilter('all')
           setCategoryFilter('all')
+          if (parentKey) fold.setOpen(groupPath(everyGroup, parentKey).map((step) => groupFoldKey('', step.key)), true)
+          return true
         }}
       />
       <MoveChecksDialog
         open={moving !== null}
         onOpenChange={(open) => { if (!open) { setMoving(null); setOpError(null) } }}
         count={moving?.length ?? 0}
-        groups={groupNames}
+        groups={everyGroup}
         current={movingFrom}
         error={opError}
-        onMove={(group) => (moving ? moveChecks(moving, group) : Promise.resolve(true))}
+        onMove={async (target) => {
+          if (!moving) return true
+          const key = 'name' in target ? await createGroup(target.name, null) : target.key
+          if ('name' in target && !key) return false
+          return moveChecks(moving, key)
+        }}
       />
       <DeleteGroupDialog
-        group={deletingGroup === null ? null : deletingGroup || t('data_quality.group_other')}
-        count={deletingGroup === null ? 0 : idsInGroup(deletingGroup).length}
+        group={deletingGroup === null ? null : deletingGroup ? groupName(deletingGroup) : t('data_quality.group_other')}
+        count={deletingGroup === null ? 0 : idsUnder(deletingGroup).length}
+        hasChildren={!!deletingGroup && everyGroup.some((g) => g.parentKey === deletingGroup)}
         canKeepChecks={!!deletingGroup}
         onOpenChange={(open) => { if (!open) { setDeletingGroup(null); setOpError(null) } }}
         error={opError}
@@ -998,7 +1027,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
               {deleteTarget === 'bulk'
                 ? t('data_quality.delete_checks_confirm', { count: selectedIds.size })
                 : t('data_quality.delete_check_confirm', {
-                    name: customChecks.find((c) => c.id === deleteTarget)?.name ?? '',
+                    name: localized(customChecks.find((c) => c.id === deleteTarget)?.name, lang),
                   })}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1059,6 +1088,58 @@ function ThresholdField({ value, disabled, onCommit }: {
           {error}
         </span>
       )}
+    </div>
+  )
+}
+
+/**
+ * A check's name and description, in English and French side by side. Saved
+ * when a field is left; a name emptied in every language is not saved.
+ */
+function CheckTextFields({ check, disabled, onCommit }: {
+  check: DqCustomCheck
+  disabled: boolean
+  onCommit: (changes: Partial<Pick<DqCustomCheck, 'name' | 'description'>>) => void
+}) {
+  const { t } = useTranslation()
+  const [name, setName] = useState<LocalizedString>(check.name)
+  const [description, setDescription] = useState<LocalizedString>(check.description)
+  // A rename from the sidebar lands here too; resetting during render, not on
+  // a remount, keeps the focus of the field being typed in.
+  const [saved, setSaved] = useState({ name: check.name, description: check.description })
+  if (saved.name !== check.name || saved.description !== check.description) {
+    setSaved({ name: check.name, description: check.description })
+    setName(check.name)
+    setDescription(check.description)
+  }
+  const same = (a: LocalizedString, b: LocalizedString) => JSON.stringify(trimLocalized(a)) === JSON.stringify(trimLocalized(b))
+  return (
+    <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 border-b px-3 py-1.5">
+      <Label className="text-[10px] text-muted-foreground">{t('data_quality.check_name')}</Label>
+      <LocalizedFields
+        layout="row"
+        size="xs"
+        value={name}
+        disabled={disabled}
+        onChange={setName}
+        onCommit={(next) => {
+          const trimmed = trimLocalized(next)
+          if (!Object.keys(trimmed).length) setName(check.name)
+          else if (!same(trimmed, check.name)) onCommit({ name: trimmed })
+        }}
+      />
+      <Label className="text-[10px] text-muted-foreground">{t('data_quality.check_description')}</Label>
+      <LocalizedFields
+        layout="row"
+        size="xs"
+        value={description}
+        disabled={disabled}
+        placeholder={t('data_quality.check_description_placeholder')}
+        onChange={setDescription}
+        onCommit={(next) => {
+          if (!same(next, check.description)) onCommit({ description: trimLocalized(next) })
+        }}
+      />
     </div>
   )
 }

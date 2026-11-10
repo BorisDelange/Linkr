@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef, useSyncExternalStore
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { ShieldCheck, Play, Loader2, PanelRight, BarChart3, History, X, AlertTriangle, Square, Pause, RotateCcw } from 'lucide-react'
+import { ShieldCheck, Play, Loader2, PanelRight, BarChart3, History, X, AlertTriangle, Square, Pause, RotateCcw, FileText, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -19,14 +19,21 @@ import {
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { isServerMode } from '@/lib/api-client'
 import { formatDuration } from '@/lib/format-helpers'
-import type { DqCheck, DqCheckResult, DqReport } from '@/lib/duckdb/data-quality'
+import { readStoredReport, type DqCheck, type DqReport } from '@/lib/duckdb/data-quality'
 import type { DqRunHistoryEntry } from '@/types'
 import { cn } from '@/lib/utils'
-import { normalizeDqCheck } from '@/lib/dq-taxonomy'
+import { localized } from '@/lib/localized'
+import {
+  failuresFirst, groupPathLabel, isProblem, nodeKeys, pruneTree, resultRows, resultTree, type DqResultRow,
+} from '@/lib/dq-report/tally'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DqScoreBadge } from './DqScoreBadge'
 import { DqCheckDetailPanel } from './DqCheckDetailPanel'
-import { DqCategoryCharts } from './DqCategoryCharts'
 import { DqHistoryDialog } from './DqHistoryDialog'
+import { DqResultsSummary } from './results/DqResultsSummary'
+import { DqResultsTree } from './results/DqResultsTree'
+import { DqReportDialog } from './results/DqReportDialog'
+import { useFoldState } from './use-fold-state'
 import { CATEGORY_COLORS, STATUS_CONFIG, SEVERITY_CONFIG } from './DqConstants'
 import {
   clearDqRunError, compileDqRun, dqRunEta, dqRunReport, dqRunSignature, getDqRun, lastDqReport, startDqRun, stopDqRun,
@@ -57,24 +64,40 @@ interface Props {
   onBeforeScan?: () => Promise<void>
   /** Opens the rule set's investigation console with this query. */
   onInvestigate?: (sql: string) => void
+  /** A quality profile's: what its report is titled and run on; offers the Report button. */
+  reportMeta?: { title: string; description?: string; version?: string; databaseName: string }
 }
 
-interface Row {
-  check: DqCheck
-  result: DqCheckResult
+type Row = DqResultRow
+type ResultsView = 'tree' | 'table'
+type StatusFilter = 'all' | 'problems' | 'pass' | 'not_applicable'
+
+const VIEW_KEY = 'dq:results-view'
+// Up to this many results every group starts open; beyond, only those with a failure.
+const OPEN_ALL_UP_TO = 60
+
+function readView(): ResultsView {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'table' ? 'table' : 'tree'
+  } catch {
+    return 'tree'
+  }
 }
 
-/** A stored run's report, its checks named as today (a run saved before the Kahn categories). */
-function storedReport(entry: { report?: unknown }): DqReport | null {
-  if (!entry.report) return null
-  const past = entry.report as DqReport
-  return { ...past, checks: past.checks.map((c) => normalizeDqCheck({ ...c, subcategory: c.subcategory ?? null })) }
+const storedReport = (entry: { report?: unknown }) => readStoredReport(entry.report)
+
+const keepStatus: Record<StatusFilter, (row: Row) => boolean> = {
+  all: () => true,
+  problems: (r) => isProblem(r.result.status),
+  pass: (r) => r.result.status === 'pass',
+  not_applicable: (r) => r.result.status === 'not_applicable',
 }
 
 export function DqResultsView({
-  runKind, runKey, runLabel, dataSourceId, checks, history, onScanComplete, onServerRunDone, onBeforeScan, onInvestigate,
+  runKind, runKey, runLabel, dataSourceId, checks, history, onScanComplete, onServerRunDone, onBeforeScan, onInvestigate, reportMeta,
 }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language
   const canWrite = useMyWorkspaceRole().can('data-quality:write')
   const serverMode = isServerMode()
 
@@ -101,7 +124,14 @@ export function DqResultsView({
   const [restored, setRestored] = useState<DqReport | null>(null)
   const [selectedCheckId, setSelectedCheckId] = useState<string | null>(null)
   const [detailVisible, setDetailVisible] = useState(true)
-  const [chartsVisible, setChartsVisible] = useState(true)
+  const [summaryVisible, setSummaryVisible] = useState(true)
+  const [view, setViewState] = useState<ResultsView>(readView)
+  const setView = (next: ResultsView) => {
+    setViewState(next)
+    try { localStorage.setItem(VIEW_KEY, next) } catch { /* private window: the choice just doesn't stick */ }
+  }
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [reportOpen, setReportOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [confirmRestart, setConfirmRestart] = useState(false)
   // Set when the displayed report comes from a past run (not a fresh scan) —
@@ -177,16 +207,26 @@ export function DqResultsView({
     setViewedRunAt(entry.startedAt)
   }, [])
 
-  const rows = useMemo<Row[]>(() => {
-    if (!report) return []
-    const checkMap = new Map(report.checks.map((c) => [c.id, c]))
-    const out: Row[] = []
-    for (const r of report.results) {
-      const check = checkMap.get(r.checkId)
-      if (check) out.push({ check, result: r })
+  const rows = useMemo<Row[]>(() => (report ? resultRows(report.checks, report.results) : []), [report])
+
+  const tree = useMemo(() => failuresFirst(resultTree(rows, lang)), [rows, lang])
+  const shownTree = useMemo(() => (statusFilter === 'all' ? tree : pruneTree(tree, keepStatus[statusFilter])), [tree, statusFilter])
+  const openByDefault = useMemo(() => {
+    if (rows.length <= OPEN_ALL_UP_TO) return null
+    const open = new Set<string>()
+    const walk = (nodes: typeof tree) => {
+      for (const n of nodes) {
+        if (n.kind === 'ruleSet' || n.tally.failed + n.tally.errors > 0) open.add(n.key)
+        walk(n.children)
+      }
     }
-    return out
-  }, [report])
+    walk(tree)
+    return open
+  }, [rows.length, tree])
+  const fold = useFoldState((key) => !openByDefault || openByDefault.has(key))
+  const treeKeys = useMemo(() => nodeKeys(shownTree), [shownTree])
+  const allOpen = treeKeys.every((k) => fold.isOpen(k))
+  const allClosed = treeKeys.every((k) => !fold.isOpen(k))
 
   // A profile's run draws from several rule sets: say which one each check is from.
   const fromSeveralRuleSets = !!report?.checks.some((c) => c.ruleSetName)
@@ -225,7 +265,7 @@ export function DqResultsView({
     {
       id: 'check',
       header: t('data_quality.col_check'),
-      accessor: (r) => r.check.name || r.check.description,
+      accessor: (r) => localized(r.check.name, lang) || localized(r.check.description, lang),
       filter: 'text',
       size: 260, minSize: 120,
       tooltip: 'font-medium',
@@ -253,12 +293,12 @@ export function DqResultsView({
         : <span className="text-muted-foreground/50">—</span>),
     },
     {
-      id: 'table',
-      header: t('data_quality.col_table'),
-      accessor: (r) => r.check.tableName ?? '',
+      id: 'group',
+      header: t('data_quality.col_group'),
+      accessor: (r) => groupPathLabel(r.check, lang),
       filter: 'select',
-      size: 130, minSize: 70,
-      cell: (r) => <span className="font-mono text-muted-foreground">{r.check.tableName ?? '—'}</span>,
+      size: 160, minSize: 70,
+      tooltip: 'text-muted-foreground',
     },
     {
       id: 'violated',
@@ -294,7 +334,7 @@ export function DqResultsView({
         )
       },
     },
-  ], [t, fromSeveralRuleSets])
+  ], [t, lang, fromSeveralRuleSets])
 
   const selectedItem = selectedCheckId
     ? rows.find((f) => f.check.id === selectedCheckId) ?? null
@@ -340,6 +380,19 @@ export function DqResultsView({
             </Button>
           )}
 
+          {reportMeta && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setReportOpen(true)}
+              disabled={!report || loading}
+              className="h-6 gap-1 px-2 text-xs"
+            >
+              <FileText size={14} />
+              {t('dq_report.button')}
+            </Button>
+          )}
+
           {loading && total > 0 && (
             <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
               <Loader2 size={12} className="shrink-0 animate-spin" />
@@ -367,18 +420,63 @@ export function DqResultsView({
 
           <div className="ml-auto flex items-center gap-1">
             {report && !loading && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={chartsVisible ? 'secondary' : 'ghost'}
-                    size="icon-xs"
-                    onClick={() => setChartsVisible(!chartsVisible)}
-                  >
-                    <BarChart3 size={14} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t('data_quality.chart_toggle')}</TooltipContent>
-              </Tooltip>
+              <>
+                {view === 'tree' && (
+                  <>
+                    <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
+                      <SelectTrigger size="xs" className="w-36 px-2 text-xs data-[size=xs]:h-6" aria-label={t('data_quality.results_status_filter')}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent position="popper" align="end">
+                        {(['all', 'problems', 'pass', 'not_applicable'] as const).map((f) => (
+                          <SelectItem key={f} value={f}>{t(`data_quality.results_filter_${f}`)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon-xs" onClick={() => fold.setOpen(treeKeys, true)} disabled={!treeKeys.length || allOpen}>
+                          <ChevronsUpDown size={12} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t('common.expand_all')}</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon-xs" onClick={() => fold.setOpen(treeKeys, false)} disabled={!treeKeys.length || allClosed}>
+                          <ChevronsDownUp size={12} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t('common.collapse_all')}</TooltipContent>
+                    </Tooltip>
+                  </>
+                )}
+                <div className="flex items-center rounded-md border p-0.5">
+                  {(['tree', 'table'] as const).map((v) => (
+                    <Button
+                      key={v}
+                      variant={view === v ? 'secondary' : 'ghost'}
+                      size="sm"
+                      onClick={() => setView(v)}
+                      className="h-5 px-2 text-xs"
+                    >
+                      {t(`data_quality.results_view_${v}`)}
+                    </Button>
+                  ))}
+                </div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={summaryVisible ? 'secondary' : 'ghost'}
+                      size="icon-xs"
+                      onClick={() => setSummaryVisible(!summaryVisible)}
+                    >
+                      <BarChart3 size={14} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('data_quality.results_summary_toggle')}</TooltipContent>
+                </Tooltip>
+              </>
             )}
             <Tooltip>
               <TooltipTrigger asChild>
@@ -437,10 +535,9 @@ export function DqResultsView({
           </div>
         )}
 
-        {/* Category charts (collapsible) */}
-        {report && !loading && chartsVisible && (
+        {report && !loading && summaryVisible && (
           <div className="border-b">
-            <DqCategoryCharts checks={report.checks} results={report.results} />
+            <DqResultsSummary rows={rows} />
           </div>
         )}
 
@@ -461,18 +558,32 @@ export function DqResultsView({
           ) : (
             <Allotment proportionalLayout={false}>
               <Allotment.Pane minSize={400}>
-                <DataTable
-                  pageSize={100}
-                  data={rows}
-                  columns={columns}
-                  rowKey={(r) => r.check.id}
-                  emptyMessage={t('data_quality.no_results')}
-                  selectedRowKey={selectedCheckId}
-                  onRowClick={(r) => {
-                    setSelectedCheckId(r.check.id)
-                    setDetailVisible(true)
-                  }}
-                />
+                {view === 'tree' ? (
+                  <DqResultsTree
+                    nodes={shownTree}
+                    isOpen={fold.isOpen}
+                    onToggle={fold.toggle}
+                    selectedCheckId={selectedCheckId}
+                    onSelect={(id) => {
+                      setSelectedCheckId(id)
+                      setDetailVisible(true)
+                    }}
+                    emptyMessage={t('common.no_results')}
+                  />
+                ) : (
+                  <DataTable
+                    pageSize={100}
+                    data={rows}
+                    columns={columns}
+                    rowKey={(r) => r.check.id}
+                    emptyMessage={t('data_quality.no_results')}
+                    selectedRowKey={selectedCheckId}
+                    onRowClick={(r) => {
+                      setSelectedCheckId(r.check.id)
+                      setDetailVisible(true)
+                    }}
+                  />
+                )}
               </Allotment.Pane>
 
               <Allotment.Pane preferredSize={300} minSize={220} maxSize={500} visible={detailVisible}>
@@ -497,6 +608,10 @@ export function DqResultsView({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {reportMeta && report && (
+        <DqReportDialog open={reportOpen} onOpenChange={setReportOpen} report={report} {...reportMeta} />
+      )}
 
       {history && (
         <DqHistoryDialog

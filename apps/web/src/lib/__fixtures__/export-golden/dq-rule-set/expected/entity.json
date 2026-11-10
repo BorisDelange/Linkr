@@ -25,6 +25,24 @@
       "en": "OMOP CDM 5.4"
     }
   },
+  "checkGroups": [
+    {
+      "key": "person",
+      "name": {
+        "en": "Patients",
+        "fr": "Patients"
+      },
+      "parentKey": null
+    },
+    {
+      "key": "demographics",
+      "name": {
+        "en": "Demographics",
+        "fr": "Démographie"
+      },
+      "parentKey": "person"
+    }
+  ],
   "status": "draft",
   "lastRunAt": null,
   "lastRunDurationMs": null,

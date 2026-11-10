@@ -2,7 +2,11 @@
 import { fromJsonSchema } from '@modelcontextprotocol/server'
 import { randomUUID } from 'node:crypto'
 import type { DqCheckResult, DqReport } from '@/lib/duckdb/data-quality-checks'
-import { checksFromTemplates, ddlCheckTemplates, makeCheck, mappingCheckTemplates, schemaCheckTemplates, type DqCheckTemplate } from '@/lib/dq-templates'
+import {
+  bilingual as bilingualTemplates, checksFromTemplates, ddlCheckTemplates, makeCheck, mappingCheckTemplates, schemaCheckTemplates,
+  type DqCheckTemplate, type Translate,
+} from '@/lib/dq-templates'
+import { canMoveGroup, groupLabel, moveGroup, newGroupKey, readCheckGroups, removeGroup, removeSubtree, renameGroup, subtreeKeys } from '@/lib/dq-groups'
 import type { DqCategory, DqCheckOrigin } from '@/lib/dq-taxonomy'
 import { resolvePointer } from '@/lib/import-identity'
 import { setLocalized } from '@/lib/localized'
@@ -10,13 +14,14 @@ import { injectClassRelations } from '@/lib/schema-classes/inject'
 import { RELATION_PREFIX } from '@/lib/schema-classes/contracts'
 import { slugifyId, uniqueEntityId } from '@/lib/slugify-id'
 import { userToAuthorDetails } from '@/lib/user-identity'
-import type { CustomSchemaPreset, DqCustomCheck, DqRuleSet, DqRunHistoryEntry, EntityRef, SchemaMapping, User } from '@/types'
+import type { CustomSchemaPreset, DqCheckGroup, DqCustomCheck, DqRuleSet, DqRunHistoryEntry, EntityRef, SchemaMapping, User } from '@/types'
 import {
-  CATEGORIES, ORIGINS, OTHER_GROUP, SEVERITIES, SUBCATEGORIES, boundedQuery, checkCounts, describeCheck, evaluateRows,
-  formatCheckList, formatReport, formatTemplates, groupChecks, groupKey, groupOf, isFiltered, makeReport, missingTemplates,
-  nextEmptyGroups, nextOrder, readCheck, resolveSubcategory, runChecks, runRecord, runnableChecks, selectChecks,
+  CATEGORIES, ORIGINS, OTHER_GROUP, SEVERITIES, SUBCATEGORIES, boundedQuery, checkCounts, describeCheck, en, evaluateRows,
+  findGroup, formatCheckList, formatReport, formatTemplates, isFiltered, isOtherGroup, makeReport, missingTemplates,
+  nextOrder, pathLabel, readCheck, resolveSubcategory, ruleSetGroups, runChecks, runRecord, runnableChecks, selectChecks,
   summarizeRows, testRunOutcome, validateCheckFields, type CheckFields, type CheckFilter,
 } from './dq.js'
+import { bilingual, frenchParam, localizedChange } from './lab.js'
 import { reportTranslator, type ReportLanguage } from './report.js'
 import { DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, scopedWorkspace, text, type Server } from './shared.js'
 import { rest } from './workspace-rest.js'
@@ -57,7 +62,7 @@ const RULE_SET_NOTE = 'A data-quality rule set is a workspace-level list of stor
 type Lang = { language?: ReportLanguage }
 const LANGUAGE = {
   type: 'string', enum: ['en', 'fr'],
-  description: 'Language of the text written (names of generated checks, rule set name). Default en.',
+  description: 'Language of the rule set name and description written. Default en. (Generated checks are named in English and French.)',
 } as const
 
 async function ruleSetOrFail(id: string): Promise<DqRuleSet> {
@@ -110,9 +115,10 @@ async function presetFor(rs: DqRuleSet, presetId?: string): Promise<CustomSchema
   return preset
 }
 
-async function translator(language: ReportLanguage = 'en') {
-  const t = await reportTranslator(language)
-  return (key: string, vars?: Record<string, unknown>) => t(key, vars ?? {}) as string
+/** The app's wording in English and French, to name generated checks as the app does. */
+async function checkNames(): Promise<Translate> {
+  const [tEn, tFr] = await Promise.all([reportTranslator('en'), reportTranslator('fr')])
+  return bilingualTemplates({ en: (k, v) => tEn(k, v ?? {}) as string, fr: (k, v) => tFr(k, v ?? {}) as string })
 }
 
 const FOREIGN_DATABASE = 'This rule set points at a database of another workspace: nothing is run. '
@@ -179,6 +185,39 @@ async function updateMany(ids: string[], changes: Record<string, unknown>) {
   for (const id of ids) await dq.updateCheck(id, changes)
 }
 
+/** The rule set's declared groups after `next`, written only when they changed. */
+async function saveGroups(rs: DqRuleSet, next: DqCheckGroup[]) {
+  if (JSON.stringify(next) === JSON.stringify(readCheckGroups(rs.checkGroups))) return
+  await dq.updateRuleSet(rs.id, { checkGroups: next.length ? next : null })
+  rs.checkGroups = next
+}
+
+const groupPathOf = (rs: DqRuleSet, checks: DqCustomCheck[], key: string | null) => {
+  const groups = ruleSetGroups(rs, checks)
+  const keys: string[] = []
+  const seen = new Set<string>()
+  for (let k = key; k && !seen.has(k); k = groups.find((g) => g.key === k)?.parentKey ?? null) {
+    seen.add(k)
+    keys.unshift(k)
+  }
+  return pathLabel(keys.map((k) => ({ key: k, name: groups.find((g) => g.key === k)?.name ?? { en: k } })))
+}
+
+/**
+ * The group a check goes to: "" for "Other checks", an existing group by key or
+ * name, else a new top-level group of that name (declared on the rule set).
+ */
+async function groupFor(rs: DqRuleSet, checks: DqCustomCheck[], ref: string | null | undefined): Promise<{ key: string | null } | { error: string }> {
+  if (isOtherGroup(ref)) return { key: null }
+  const groups = ruleSetGroups(rs, checks)
+  const found = findGroup(groups, ref!)
+  if (found) return { key: found.key }
+  const name = { en: ref!.trim() }
+  const key = newGroupKey(name, groups.map((g) => g.key))
+  await saveGroups(rs, [...readCheckGroups(rs.checkGroups), { key, name, parentKey: null }])
+  return { key }
+}
+
 function unknownIds(all: DqCustomCheck[], ids: string[]): string | null {
   const known = new Set(all.map((c) => c.id))
   const unknown = ids.filter((id) => !known.has(id))
@@ -190,8 +229,10 @@ function unknownIds(all: DqCustomCheck[], ids: string[]): string | null {
 const RULE_SET_ID = { rule_set_id: { type: 'string' } } as const
 
 const CHECK_FIELDS = {
-  name: { type: 'string', description: 'Short name shown in the check list.' },
-  description: { type: 'string', description: 'What the check verifies (shown in results).' },
+  name: { type: 'string', description: 'Short name shown in the check list (English, see name_fr).' },
+  name_fr: frenchParam('name'),
+  description: { type: 'string', description: 'What the check verifies, shown in results and reports (English, see description_fr).' },
+  description_fr: frenchParam('description'),
   category: { type: 'string', enum: CATEGORIES, description: 'Kahn category. Default for a new check: plausibility.' },
   subcategory: {
     type: 'string', enum: [...SUBCATEGORIES, ''],
@@ -217,7 +258,8 @@ const CHECK_FIELDS = {
   },
   group: {
     type: 'string',
-    description: 'The group the check is listed under (usually its table or relation); "" = "Other checks".',
+    description: 'The group the check is listed under: a group key or name (list_dq_checks), a new name to create '
+      + 'it at the top level, or "" = "Other checks".',
   },
   skip_test: {
     type: 'boolean',
@@ -229,7 +271,10 @@ const FILTER_FIELDS = {
   check_ids: { type: 'array', items: { type: 'string' }, description: 'Only these checks (ids from list_dq_checks).' },
   origins: { type: 'array', items: { type: 'string', enum: ORIGINS }, description: 'ddl / mapping (generated from a schema) or manual.' },
   categories: { type: 'array', items: { type: 'string', enum: CATEGORIES } },
-  groups: { type: 'array', items: { type: 'string' }, description: `Only checks of these groups ("${OTHER_GROUP}" or "" for the ungrouped).` },
+  groups: {
+    type: 'array', items: { type: 'string' },
+    description: `Only checks of these groups, sub-groups included: key or name ("${OTHER_GROUP}" or "" for the ungrouped).`,
+  },
   search: { type: 'string', description: 'Substring of the check name or group.' },
 } as const
 
@@ -269,11 +314,11 @@ export function registerDqTools(server: Server): void {
   }, guard(async ({ rule_set_id }) => {
     const rs = await ruleSetOrFail(rule_set_id)
     const [checks, runs] = await Promise.all([dq.listChecks(rs.id), dq.listRuns(rs.id)])
-    const groups = groupChecks(checks, rs.checkGroups ?? [])
-    const out = [describeRuleSet(rs), '', `Checks: ${checkCounts(checks, rs.checkGroups ?? [])}`]
+    const groups = ruleSetGroups(rs, checks)
+    const out = [describeRuleSet(rs), '', `Checks: ${checkCounts(checks, groups)}`]
     if (groups.length) {
-      out.push(`Groups: ${groups.slice(0, 60).map((g) => `${g.name || OTHER_GROUP} ${g.checks.length}`).join(', ')}`
-        + `${groups.length > 60 ? `, … ${groups.length - 60} more` : ''}`)
+      const counted = groups.map((g) => `${groupLabel(g, 'en')} ${checks.filter((c) => c.groupKey && subtreeKeys(groups, g.key).has(c.groupKey)).length}`)
+      out.push(`Groups: ${counted.slice(0, 60).join(', ')}${groups.length > 60 ? `, … ${groups.length - 60} more` : ''}`)
     }
     const sorted = newestFirst(runs)
     out.push('', `Runs (${runs.length}):`, ...sorted.slice(0, 10).map(runLine))
@@ -338,7 +383,7 @@ export function registerDqTools(server: Server): void {
       }
     }
     const lang = args.language ?? 'en'
-    const templates = preset ? schemaCheckTemplates(preset.mapping, await translator(lang)) : []
+    const templates = preset ? schemaCheckTemplates(preset.mapping, await checkNames()) : []
     const me = await api.request<Partial<User> & { id: number; username: string }>('GET', '/auth/me')
     const now = new Date().toISOString()
     const pointer = ds ? pointerOf(ds) : undefined
@@ -437,14 +482,16 @@ export function registerDqTools(server: Server): void {
     const rs = await ruleSetOrFail(args.rule_set_id)
     const all = await dq.listChecks(rs.id)
     if (!all.length) return text(`"${loc(rs.name)}" has no check yet: add_dq_schema_checks or create_dq_check.`)
-    const { checks, unknownIds: unknown } = selectChecks(all, toFilter(args, args.state))
+    const groups = ruleSetGroups(rs, all)
+    const { checks, unknownIds: unknown, unknownGroups } = selectChecks(all, groups, toFilter(args, args.state))
+    if (unknownGroups.length) return failure(`No group ${unknownGroups.map((g) => `"${g}"`).join(', ')} in this rule set (list_dq_checks lists them).`)
     return text([
       `Checks of "${loc(rs.name)}" — ${checks.length} of ${all.length}${unknown.length ? ` (unknown ids: ${unknown.join(', ')})` : ''}.`,
       'A check fails when violated_rows > 0 (threshold 0) or its % of violated rows exceeds the threshold; '
         + 'disabled checks stay listed but are left out of runs and of the score.',
       '',
-      formatCheckList(checks, {
-        withSql: args.include_sql, max: args.limit, emptyGroups: isFiltered(toFilter(args, args.state)) ? [] : rs.checkGroups ?? [],
+      formatCheckList(checks, groups, {
+        withSql: args.include_sql, max: args.limit, keepEmpty: !isFiltered(toFilter(args, args.state)),
       }),
     ].join('\n'))
   }))
@@ -457,12 +504,14 @@ export function registerDqTools(server: Server): void {
       type: 'object', properties: { ...RULE_SET_ID, check_id: { type: 'string' } }, required: ['rule_set_id', 'check_id'],
     }),
   }, guard(async ({ rule_set_id, check_id }) => {
-    const { check: c } = await checkOrFail(await ruleSetOrFail(rule_set_id), check_id)
+    const rs = await ruleSetOrFail(rule_set_id)
+    const { check: c } = await checkOrFail(rs, check_id)
+    const path = groupPathOf(rs, await dq.listChecks(rs.id), c.groupKey)
     return text([
       describeCheck(c),
       `Key: ${c.checkKey} (quality profiles point at it; a rename keeps it)`,
-      `Group: ${c.tableName ?? OTHER_GROUP} · order ${c.order}${c.templateKey ? ` · generated by ${c.templateKey}` : ' · written by hand'}`,
-      ...(c.description ? [`Description: ${c.description}`] : []),
+      `Group: ${path || OTHER_GROUP}${c.groupKey ? ` (key ${c.groupKey})` : ''} · order ${c.order}${c.templateKey ? ` · generated by ${c.templateKey}` : ' · written by hand'}`,
+      ...(en(c.description) ? [`Description: ${en(c.description)}${c.description.fr && c.description.fr !== en(c.description) ? ` · fr: ${c.description.fr}` : ''}`] : []),
       '', 'SQL:', c.sql,
       '', 'Explore SQL:', c.exploreSql?.trim() ? c.exploreSql : '(none: investigating falls back to the SQL above)',
     ].join('\n'))
@@ -489,14 +538,13 @@ export function registerDqTools(server: Server): void {
         list_only: { type: 'boolean', description: 'List the missing checks without adding any.' },
         template_keys: { type: 'array', items: { type: 'string' }, description: 'Only these (keys from list_only).' },
         tables: { type: 'array', items: { type: 'string' }, description: 'Only the checks of these tables / relations.' },
-        language: LANGUAGE,
       },
       required: ['rule_set_id', 'origin'],
     }),
   }, guard(async (args) => {
     const rs = await ruleSetOrFail(args.rule_set_id)
     const preset = await presetFor(rs, args.schema_preset_id)
-    const t = await translator(args.language)
+    const t = await checkNames()
     const all: DqCheckTemplate[] = args.origin === 'ddl'
       ? (preset.mapping.ddl ? ddlCheckTemplates(preset.mapping.ddl, t) : [])
       : mappingCheckTemplates(preset.mapping, t)
@@ -506,7 +554,7 @@ export function registerDqTools(server: Server): void {
     if (args.origin === 'ddl' && !preset.mapping.ddl) return text(`${head} This preset has no DDL.`)
     const tables = args.tables?.length ? new Set(args.tables.map((x) => x.toLowerCase())) : null
     const keys = args.template_keys?.length ? new Set(args.template_keys) : null
-    const picked = missing.filter((c) => (!tables || tables.has(c.tableName.toLowerCase())) && (!keys || keys.has(c.templateKey)))
+    const picked = missing.filter((c) => (!tables || tables.has(c.groupKey.toLowerCase())) && (!keys || keys.has(c.templateKey)))
     if (keys) {
       const unknown = [...keys].filter((k) => !missing.some((c) => c.templateKey === k))
       if (unknown.length) return failure(`${head}\nNot among the missing checks: ${unknown.join(', ')} (list_only lists them).`)
@@ -541,10 +589,12 @@ export function registerDqTools(server: Server): void {
       tested = `\n${line}`
     }
     const stored = await dq.listChecks(rs.id)
+    const group = await groupFor(rs, stored, args.group)
+    if ('error' in group) return failure(`Not created — ${group.error}`)
     const category = (args.category ?? 'plausibility') as DqCategory
     const check = await dq.createCheck(makeCheck(rs.id, nextOrder(stored), {
-      name: args.name!.trim(),
-      description: args.description?.trim() ?? '',
+      name: bilingual(args.name!.trim(), args.name_fr?.trim()),
+      description: args.description?.trim() ? bilingual(args.description.trim(), args.description_fr?.trim()) : {},
       category,
       subcategory: args.category === undefined && args.subcategory === undefined ? 'atemporal' : resolveSubcategory(category, args.subcategory, null),
       severity: (args.severity ?? 'warning') as DqCustomCheck['severity'],
@@ -553,7 +603,7 @@ export function registerDqTools(server: Server): void {
       exploreSql: args.explore_sql?.trim() ? args.explore_sql : null,
       origin: 'manual',
       templateKey: null,
-      tableName: args.group?.trim() ? groupKey(args.group) || null : null,
+      groupKey: group.key,
     }))
     return text(`Created.\n${describeCheck(readCheck(check))}${tested}`)
   }))
@@ -574,8 +624,13 @@ export function registerDqTools(server: Server): void {
     const errors = validateCheckFields(args, check)
     if (errors.length) return failure(`Not updated:\n- ${errors.join('\n- ')}`)
     const changes: Record<string, unknown> = {}
-    if (args.name !== undefined) changes.name = args.name.trim()
-    if (args.description !== undefined) changes.description = args.description.trim()
+    const name = localizedChange(check.name, args.name?.trim(), args.name_fr?.trim())
+    if (name) changes.name = name
+    if (args.description !== undefined && !args.description.trim() && args.description_fr === undefined) changes.description = {}
+    else {
+      const description = localizedChange(check.description, args.description?.trim(), args.description_fr?.trim())
+      if (description) changes.description = description
+    }
     if (args.category !== undefined || args.subcategory !== undefined) {
       const category = (args.category ?? check.category) as DqCategory
       if (args.category !== undefined) changes.category = category
@@ -584,7 +639,11 @@ export function registerDqTools(server: Server): void {
     if (args.severity !== undefined) changes.severity = args.severity
     if (args.threshold !== undefined) changes.threshold = args.threshold
     if (args.explore_sql !== undefined) changes.exploreSql = args.explore_sql?.trim() ? args.explore_sql : null
-    if (args.group !== undefined) changes.tableName = groupKey(args.group) || null
+    if (args.group !== undefined) {
+      const group = await groupFor(rs, await dq.listChecks(rs.id), args.group)
+      if ('error' in group) return failure(`Not updated — ${group.error}`)
+      changes.groupKey = group.key
+    }
     let tested = ''
     if (args.sql !== undefined) {
       if (!args.skip_test) {
@@ -618,7 +677,7 @@ export function registerDqTools(server: Server): void {
     const query = sql ?? check?.sql
     if (!query?.trim()) return failure('Give check_id or sql.')
     const { problem, line } = await testCheck(rs, query, threshold ?? check?.threshold ?? 0)
-    return problem ? failure(problem) : text(`${check ? `${check.name}: ` : ''}${line}`)
+    return problem ? failure(problem) : text(`${check ? `${en(check.name)}: ` : ''}${line}`)
   }))
 
   server.registerTool('set_dq_checks_enabled', {
@@ -634,8 +693,9 @@ export function registerDqTools(server: Server): void {
     if (!isFiltered(toFilter(args))) return failure('Say which checks: check_ids, groups, origins, categories or search.')
     const rs = await ruleSetOrFail(args.rule_set_id)
     const all = await dq.listChecks(rs.id)
-    const { checks, unknownIds: unknown } = selectChecks(all, toFilter(args))
+    const { checks, unknownIds: unknown, unknownGroups } = selectChecks(all, ruleSetGroups(rs, all), toFilter(args))
     if (unknown.length) return failure(`Not checks of this rule set: ${unknown.join(', ')} (list_dq_checks lists them).`)
+    if (unknownGroups.length) return failure(`No group ${unknownGroups.map((g) => `"${g}"`).join(', ')} in this rule set (list_dq_checks lists them).`)
     const changing = checks.filter((c) => c.disabled === args.enabled)
     await updateMany(changing.map((c) => c.id), { disabled: !args.enabled })
     const enabled = all.filter((c) => (changing.includes(c) ? args.enabled : !c.disabled)).length
@@ -659,47 +719,57 @@ export function registerDqTools(server: Server): void {
     const problem = unknownIds(all, check_ids)
     if (problem) return failure(problem)
     for (const id of check_ids) await dq.deleteCheck(id)
-    const names = check_ids.map((id) => all.find((c) => c.id === id)!.name)
+    const names = check_ids.map((id) => en(all.find((c) => c.id === id)!.name))
     return text(`Deleted ${check_ids.length} check(s): ${names.slice(0, 30).join(', ')}${names.length > 30 ? ', …' : ''}.`)
   }))
 
-  // --- Groups — a group is the `tableName` its checks share ------------------
+  // --- Groups — named in English and French, nested by parent; checks point at a group key ---
 
-  /** Keep the rule set's empty groups in step after a group change. */
-  async function saveEmptyGroups(rs: DqRuleSet, checks: DqCustomCheck[], change: Parameters<typeof nextEmptyGroups>[2]) {
-    const next = nextEmptyGroups(rs.checkGroups, checks, change)
-    const same = JSON.stringify(next ?? []) === JSON.stringify(rs.checkGroups ?? [])
-    if (!same) await dq.updateRuleSet(rs.id, { checkGroups: next })
+  const GROUP_REF = { type: 'string', description: 'A group key or name (list_dq_checks).' } as const
+
+  /** The group an agent names, or why there is none. */
+  async function groupOrFail(rs: DqRuleSet, ref: string) {
+    const checks = await dq.listChecks(rs.id)
+    const groups = ruleSetGroups(rs, checks)
+    const group = findGroup(groups, ref)
+    if (!group) throw new Error(`No group "${ref}" in this rule set (list_dq_checks lists them).`)
+    return { group, groups, checks }
   }
 
   server.registerTool('create_dq_check_group', {
-    description: 'Create an empty group of checks in a data-quality rule set, as the sidebar\'s New group does; '
-      + 'move_dq_checks or create_dq_check (group) then fills it. It is kept while it holds no check.',
+    description: 'Create a group of checks in a data-quality rule set, at the top level or inside another group '
+      + '(parent), named in English and French like the sidebar\'s New group. move_dq_checks or create_dq_check '
+      + '(group) then fills it; an empty group is kept.',
     annotations: WRITE,
-    inputSchema: fromJsonSchema<{ rule_set_id: string; name: string }>({
-      type: 'object', properties: { ...RULE_SET_ID, name: { type: 'string' } }, required: ['rule_set_id', 'name'],
+    inputSchema: fromJsonSchema<{ rule_set_id: string; name: string; name_fr?: string; parent?: string }>({
+      type: 'object',
+      properties: { ...RULE_SET_ID, name: { type: 'string' }, name_fr: frenchParam('name'), parent: GROUP_REF },
+      required: ['rule_set_id', 'name'],
     }),
-  }, guard(async ({ rule_set_id, name }) => {
+  }, guard(async ({ rule_set_id, name, name_fr, parent }) => {
     const rs = await ruleSetOrFail(rule_set_id)
-    const group = groupKey(name)
-    if (!group) return failure(`name must be a name other than "${OTHER_GROUP}".`)
-    const checks = await dq.listChecks(rs.id)
-    const existing = [...checks.map(groupOf), ...(rs.checkGroups ?? [])].find((g) => g && g.toLowerCase() === group.toLowerCase())
-    if (existing) return failure(`A group "${existing}" already exists.`)
-    await saveEmptyGroups(rs, checks, { add: group })
-    return text(`Created the group "${group}" (empty).`)
+    if (isOtherGroup(name)) return failure(`name must be a name other than "${OTHER_GROUP}".`)
+    const parentKey = parent?.trim() ? (await groupOrFail(rs, parent)).group.key : null
+    const groups = ruleSetGroups(rs, await dq.listChecks(rs.id))
+    const label = bilingual(name.trim(), name_fr?.trim())
+    const clash = groups.find((g) => (g.parentKey ?? null) === parentKey
+      && Object.values(g.name).some((n) => Object.values(label).some((l) => l.toLowerCase() === n.toLowerCase())))
+    if (clash) return failure(`A group "${groupLabel(clash, 'en')}" (key ${clash.key}) already sits there.`)
+    const key = newGroupKey(label, groups.map((g) => g.key))
+    await saveGroups(rs, [...readCheckGroups(rs.checkGroups), { key, name: label, parentKey }])
+    return text(`Created the group "${label.en}" (key ${key})${parentKey ? ` inside ${parentKey}` : ''}.`)
   }))
 
   server.registerTool('move_dq_checks', {
-    description: 'Move checks of a data-quality rule set to a group (an existing one or a new name), or to "Other '
-      + 'checks" with group "".',
+    description: 'Move checks of a data-quality rule set to a group (key or name; a new name creates it at the '
+      + 'top level), or to "Other checks" with group "". The sidebar does it by drag and drop.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{ rule_set_id: string; check_ids: string[]; group: string | null }>({
       type: 'object',
       properties: {
         ...RULE_SET_ID,
         check_ids: { type: 'array', items: { type: 'string' }, minItems: 1 },
-        group: { type: 'string', description: '"" = "Other checks".' },
+        group: { type: 'string', description: 'Group key or name; "" = "Other checks".' },
       },
       required: ['rule_set_id', 'check_ids', 'group'],
     }),
@@ -708,69 +778,87 @@ export function registerDqTools(server: Server): void {
     const all = await dq.listChecks(rs.id)
     const problem = unknownIds(all, check_ids)
     if (problem) return failure(problem)
-    const target = groupKey(group)
-    // Same name, other case: the dialog refuses it as a clash, so it joins the existing group.
-    const existing = [...new Set(all.map(groupOf))].find((g) => g && g.toLowerCase() === target.toLowerCase())
-    const name = existing ?? target
-    await updateMany(check_ids, { tableName: name || null })
-    await saveEmptyGroups(rs, await dq.listChecks(rs.id), {})
-    return text(`Moved ${check_ids.length} check(s) to ${name ? `"${name}"${existing ? '' : ' (new group)'}` : `"${OTHER_GROUP}"`}.`)
+    const existed = isOtherGroup(group) || !!findGroup(ruleSetGroups(rs, all), group!)
+    const target = await groupFor(rs, all, group)
+    if ('error' in target) return failure(target.error)
+    await updateMany(check_ids, { groupKey: target.key })
+    const where = target.key ? `"${groupPathOf(rs, all, target.key)}"${existed ? '' : ' (new group)'}` : `"${OTHER_GROUP}"`
+    return text(`Moved ${check_ids.length} check(s) to ${where}.`)
   }))
 
   server.registerTool('rename_dq_check_group', {
-    description: 'Rename a group of checks in a data-quality rule set (all its checks move with it). The new name '
-      + 'must not be another group\'s.',
+    description: 'Rename a group of checks in a data-quality rule set, in English and/or French (name_fr alone '
+      + 'changes only the French name). Its key, and so its checks, stay as they are.',
     annotations: WRITE,
-    inputSchema: fromJsonSchema<{ rule_set_id: string; group: string; new_name: string }>({
+    inputSchema: fromJsonSchema<{ rule_set_id: string; group: string; new_name?: string; new_name_fr?: string }>({
       type: 'object',
-      properties: { ...RULE_SET_ID, group: { type: 'string' }, new_name: { type: 'string' } },
-      required: ['rule_set_id', 'group', 'new_name'],
+      properties: { ...RULE_SET_ID, group: GROUP_REF, new_name: { type: 'string' }, new_name_fr: frenchParam('new_name') },
+      required: ['rule_set_id', 'group'],
     }),
-  }, guard(async ({ rule_set_id, group, new_name }) => {
+  }, guard(async ({ rule_set_id, group, new_name, new_name_fr }) => {
     const rs = await ruleSetOrFail(rule_set_id)
-    const all = await dq.listChecks(rs.id)
-    const from = groupKey(group)
-    if (!from) return failure(`"${OTHER_GROUP}" cannot be renamed: move its checks with move_dq_checks.`)
-    const to = new_name.trim()
-    if (!to || !groupKey(to)) return failure(`new_name must be a name other than "${OTHER_GROUP}".`)
-    const ids = all.filter((c) => groupOf(c) === from).map((c) => c.id)
-    const empty = rs.checkGroups ?? []
-    if (!ids.length && !empty.includes(from)) return failure(`No group "${from}" in this rule set (list_dq_checks lists them).`)
-    if (to === from) return text('Same name: nothing to do.')
-    const others = [...all.map(groupOf), ...empty].filter((g) => g && g !== from)
-    if (others.some((g) => g.toLowerCase() === to.toLowerCase())) {
-      return failure(`A group "${to}" already exists: move the checks into it with move_dq_checks instead.`)
-    }
-    if (ids.length) await updateMany(ids, { tableName: to })
-    await saveEmptyGroups(rs, await dq.listChecks(rs.id), { rename: [from, to] })
-    return text(`Renamed "${from}" to "${to}" (${ids.length} check(s)).`)
+    if (isOtherGroup(group)) return failure(`"${OTHER_GROUP}" cannot be renamed: move its checks with move_dq_checks.`)
+    if (new_name !== undefined && isOtherGroup(new_name)) return failure(`new_name must be a name other than "${OTHER_GROUP}".`)
+    const { group: g } = await groupOrFail(rs, group)
+    const name = localizedChange(g.name, new_name?.trim(), new_name_fr?.trim())
+    if (!name) return failure('Give new_name and/or new_name_fr.')
+    await saveGroups(rs, renameGroup(readCheckGroups(rs.checkGroups), g.key, name))
+    return text(`Renamed the group ${g.key} to "${name.en ?? ''}"${name.fr ? ` / fr "${name.fr}"` : ''}.`)
+  }))
+
+  server.registerTool('move_dq_check_group', {
+    description: 'Move a group of checks of a data-quality rule set inside another group (parent), or back to the '
+      + 'top level with parent "". Its checks and sub-groups move with it. A group cannot go inside one of its own.',
+    annotations: WRITE,
+    inputSchema: fromJsonSchema<{ rule_set_id: string; group: string; parent: string }>({
+      type: 'object',
+      properties: { ...RULE_SET_ID, group: GROUP_REF, parent: { type: 'string', description: 'Group key or name; "" = the top level.' } },
+      required: ['rule_set_id', 'group', 'parent'],
+    }),
+  }, guard(async ({ rule_set_id, group, parent }) => {
+    const rs = await ruleSetOrFail(rule_set_id)
+    const { group: g, groups } = await groupOrFail(rs, group)
+    const parentKey = parent.trim() ? (findGroup(groups, parent)?.key ?? null) : null
+    if (parent.trim() && !parentKey) return failure(`No group "${parent}" in this rule set (list_dq_checks lists them).`)
+    if (!canMoveGroup(groups, g.key, parentKey)) return failure('A group cannot go inside itself or one of its sub-groups.')
+    if ((g.parentKey ?? null) === parentKey) return text('Already there: nothing to do.')
+    await saveGroups(rs, moveGroup(readCheckGroups(rs.checkGroups), g.key, parentKey))
+    return text(`Moved the group ${g.key} ${parentKey ? `inside ${parentKey}` : 'to the top level'}.`)
   }))
 
   server.registerTool('delete_dq_check_group', {
-    description: 'Delete a group of checks in a data-quality rule set: with its checks (with_checks true; cannot '
-      + 'be undone, ask the user first), or keeping them under "Other checks". Deleting "Other checks" deletes its checks.',
+    description: 'Delete a group of checks in a data-quality rule set: with its checks and sub-groups (with_checks '
+      + 'true; cannot be undone, ask the user first), or keeping them — its checks and sub-groups then move up to '
+      + 'the group above. Deleting "Other checks" deletes its checks.',
     annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{ rule_set_id: string; group: string; with_checks: boolean }>({
       type: 'object',
-      properties: { ...RULE_SET_ID, group: { type: 'string' }, with_checks: { type: 'boolean' } },
+      properties: { ...RULE_SET_ID, group: GROUP_REF, with_checks: { type: 'boolean' } },
       required: ['rule_set_id', 'group', 'with_checks'],
     }),
   }, guard(async ({ rule_set_id, group, with_checks }) => {
     const rs = await ruleSetOrFail(rule_set_id)
-    const name = groupKey(group)
-    const ids = (await dq.listChecks(rs.id)).filter((c) => groupOf(c) === name).map((c) => c.id)
-    if (!ids.length && (rs.checkGroups ?? []).includes(name)) {
-      await saveEmptyGroups(rs, [], { remove: name })
-      return text(`Deleted the empty group "${name}".`)
-    }
-    if (!ids.length) return failure(`No group "${group}" in this rule set (list_dq_checks lists them).`)
-    if (!name && !with_checks) return failure(`Keeping the checks of "${OTHER_GROUP}" would leave them where they are: pass with_checks true to delete them.`)
-    if (with_checks) {
+    if (isOtherGroup(group)) {
+      const ids = (await dq.listChecks(rs.id)).filter((c) => !c.groupKey).map((c) => c.id)
+      if (!with_checks) return failure(`Keeping the checks of "${OTHER_GROUP}" would leave them where they are: pass with_checks true to delete them.`)
       for (const id of ids) await dq.deleteCheck(id)
-      return text(`Deleted the group "${name || OTHER_GROUP}" and its ${ids.length} check(s).`)
+      return text(`Deleted the ${ids.length} check(s) of "${OTHER_GROUP}".`)
     }
-    await updateMany(ids, { tableName: null })
-    return text(`Deleted the group "${name}"; its ${ids.length} check(s) are now under "${OTHER_GROUP}".`)
+    const { group: g, groups, checks } = await groupOrFail(rs, group)
+    const label = groupLabel(g, 'en')
+    const declared = readCheckGroups(rs.checkGroups)
+    if (with_checks) {
+      const keys = subtreeKeys(groups, g.key)
+      const ids = checks.filter((c) => c.groupKey && keys.has(c.groupKey)).map((c) => c.id)
+      for (const id of ids) await dq.deleteCheck(id)
+      await saveGroups(rs, removeSubtree(declared, g.key))
+      return text(`Deleted the group "${label}", its sub-groups and their ${ids.length} check(s).`)
+    }
+    const ids = checks.filter((c) => c.groupKey === g.key).map((c) => c.id)
+    await updateMany(ids, { groupKey: g.parentKey ?? null })
+    await saveGroups(rs, removeGroup(declared, g.key))
+    const up = g.parentKey ? `"${groupPathOf(rs, checks, g.parentKey)}"` : `"${OTHER_GROUP}" (its sub-groups to the top level)`
+    return text(`Deleted the group "${label}"; its ${ids.length} check(s) moved up to ${up}.`)
   }))
 
   // --- Runs ------------------------------------------------------------------
@@ -798,10 +886,11 @@ export function registerDqTools(server: Server): void {
     const dataSourceId = needDatabase(rs)
     const stored = await dq.listChecks(rs.id)
     const filter = toFilter(args)
-    const { checks: picked, unknownIds: unknown } = selectChecks(stored, filter)
+    const { checks: picked, unknownIds: unknown, unknownGroups } = selectChecks(stored, ruleSetGroups(rs, stored), filter)
     if (unknown.length) return failure(`Unknown check id(s): ${unknown.join(', ')} (list_dq_checks lists them).`)
+    if (unknownGroups.length) return failure(`No group ${unknownGroups.map((g) => `"${g}"`).join(', ')} in this rule set (list_dq_checks lists them).`)
     const disabledAsked = args.check_ids?.length ? picked.filter((c) => c.disabled) : []
-    const checks = runnableChecks(picked)
+    const checks = runnableChecks(picked, readCheckGroups(rs.checkGroups))
     if (!checks.length) {
       return failure(disabledAsked.length
         ? `Only disabled checks picked (${disabledAsked.map((c) => c.id).join(', ')}): enable them with set_dq_checks_enabled.`
@@ -847,7 +936,7 @@ export function registerDqTools(server: Server): void {
     const out = [describeCheck(check)]
     const start = performance.now()
     try {
-      const r = evaluateRows(runnableChecks([{ ...check, disabled: false }])[0], await query(check.sql, check.origin !== 'manual'), Math.round(performance.now() - start))
+      const r = evaluateRows(runnableChecks([{ ...check, disabled: false }], readCheckGroups(rs.checkGroups))[0], await query(check.sql, check.origin !== 'manual'), Math.round(performance.now() - start))
       out.push(`Now: ${r.status} — ${r.violatedRows}/${r.totalRows} violated (${r.pctViolated.toFixed(2)}%, threshold ${check.threshold}%).`)
     } catch (e) {
       out.push(`The check's SQL fails: ${(e as Error).message}`)

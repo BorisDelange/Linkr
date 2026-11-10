@@ -2,14 +2,16 @@
  *  lists them, check validation, a run and its record, investigation summaries.
  *  The checks, their taxonomy and the run rules come from the app. */
 import {
-  buildSummary, checkStatus, runnableChecks, type DqCheck, type DqCheckResult, type DqReport, type DqReportSummary,
+  buildSummary, checkStatus, readStoredCheck, runnableChecks, type DqCheck, type DqCheckResult, type DqReport, type DqReportSummary,
 } from '@/lib/duckdb/data-quality-checks'
+import { allGroups, groupLabel, groupPath, groupTree, readCheckGroups, subtreeKeys, type DqGroupNode } from '@/lib/dq-groups'
+import { localized } from '@/lib/localized'
 import {
-  DQ_CATEGORIES, DQ_SEVERITIES, DQ_SUBCATEGORIES, normalizeDqCheck, subcategoryFor,
+  DQ_CATEGORIES, DQ_SEVERITIES, DQ_SUBCATEGORIES, subcategoryFor,
   type DqCategory, type DqCheckOrigin, type DqSeverity, type DqSubcategory,
 } from '@/lib/dq-taxonomy'
 import type { DqCheckTemplate } from '@/lib/dq-templates'
-import type { DqCustomCheck, DqRunHistoryEntry } from '@/types'
+import type { DqCheckGroup, DqCustomCheck, DqRuleSet, DqRunHistoryEntry, LocalizedString } from '@/types'
 
 export const CATEGORIES = [...DQ_CATEGORIES]
 export const SEVERITIES = [...DQ_SEVERITIES]
@@ -17,18 +19,16 @@ export const SUBCATEGORIES = [...new Set(Object.values(DQ_SUBCATEGORIES).flat())
 export const ORIGINS: DqCheckOrigin[] = ['ddl', 'mapping', 'manual']
 export const OTHER_GROUP = 'Other checks'
 
-/** A stored check with every field filled, as the store reads it: rows written
- *  before the Kahn categories and the generated checks lack some. */
-export function readCheck(check: DqCustomCheck): DqCustomCheck {
-  return normalizeDqCheck({
-    ...check,
-    subcategory: check.subcategory ?? null,
-    exploreSql: check.exploreSql ?? null,
-    origin: check.origin ?? 'manual',
-    templateKey: check.templateKey ?? null,
-    tableName: check.tableName ?? null,
-    disabled: check.disabled ?? false,
-  })
+/** A stored check with every field filled, as the store reads it. */
+export const readCheck = readStoredCheck
+
+/** A text as the agent reads it: English, else the first language given. */
+export const en = (v: LocalizedString | string | null | undefined) => localized(v, 'en')
+
+/** A check's or group's name, with its French one when it differs. */
+const bothNames = (v: LocalizedString | string | null | undefined) => {
+  const fr = typeof v === 'object' && v ? v.fr?.trim() : ''
+  return fr && fr !== en(v) ? `${en(v)}" / fr "${fr}` : en(v)
 }
 
 export const byOrder = (checks: DqCustomCheck[]) => [...checks].sort((a, b) => a.order - b.order)
@@ -36,24 +36,26 @@ export const byOrder = (checks: DqCustomCheck[]) => [...checks].sort((a, b) => a
 /** Where the next check goes: after every other one. */
 export const nextOrder = (checks: DqCustomCheck[]) => checks.reduce((max, c) => Math.max(max, c.order + 1), 0)
 
-/** A check's group is the `tableName` it shares with others; none is "Other checks". */
-export const groupOf = (c: Pick<DqCustomCheck, 'tableName'>) => c.tableName ?? ''
+/** The rule set's groups as the sidebar shows them: the declared ones and the
+ *  keys only checks name (a generated check's table). */
+export const ruleSetGroups = (rs: Pick<DqRuleSet, 'checkGroups'>, checks: DqCustomCheck[]) =>
+  allGroups(readCheckGroups(rs.checkGroups), checks)
 
-/** The sidebar's groups: named ones in list order, then the rule set's empty
- *  groups (`checkGroups`), "Other checks" last. */
-export function groupChecks(checks: DqCustomCheck[], emptyGroups: readonly string[] = []): { name: string; checks: DqCustomCheck[] }[] {
-  const byName = new Map<string, DqCustomCheck[]>()
-  for (const c of byOrder(checks)) byName.set(groupOf(c), [...(byName.get(groupOf(c)) ?? []), c])
-  for (const name of emptyGroups) if (name && !byName.has(name)) byName.set(name, [])
-  const other = byName.get('')
-  byName.delete('')
-  const named = [...byName].map(([name, list]) => ({ name, checks: list }))
-  return other ? [...named, { name: '', checks: other }] : named
+/** `""` or "Other checks": the checks filed under no group. */
+export const isOtherGroup = (ref: string | null | undefined) =>
+  !ref?.trim() || ref.trim().toLowerCase() === OTHER_GROUP.toLowerCase()
+
+/** The group an agent names: by its key, else by its name in any language (case aside). */
+export function findGroup(groups: DqCheckGroup[], ref: string): DqCheckGroup | undefined {
+  const r = ref.trim()
+  const lower = r.toLowerCase()
+  return groups.find((g) => g.key === r)
+    ?? groups.find((g) => Object.values(g.name).some((n) => n.trim().toLowerCase() === lower))
 }
 
-/** `""` or "Other checks" names the checks with no group. */
-export const groupKey = (name: string | null | undefined) =>
-  !name || name.trim().toLowerCase() === OTHER_GROUP.toLowerCase() ? '' : name.trim()
+/** A group's path as a line names it: `Labs › Blood`. */
+export const pathLabel = (steps: { key: string; name: LocalizedString }[]) =>
+  steps.map((step) => groupLabel(step, 'en')).join(' › ')
 
 export interface CheckFilter {
   checkIds?: string[]
@@ -69,26 +71,46 @@ export const isFiltered = (f: CheckFilter) =>
   !!(f.checkIds?.length || f.origins?.length || f.categories?.length || f.groups?.length || f.search?.trim()
     || (f.state && f.state !== 'all'))
 
-/** Checks kept by the filter, in list order; unknown `checkIds` are returned so the caller can say so. */
-export function selectChecks(checks: DqCustomCheck[], f: CheckFilter): { checks: DqCustomCheck[]; unknownIds: string[] } {
+/**
+ * Checks kept by the filter, in list order. A group keeps the checks of its
+ * sub-groups too. Unknown `checkIds` and groups are returned so the caller can say so.
+ */
+export function selectChecks(
+  checks: DqCustomCheck[], groups: DqCheckGroup[], f: CheckFilter,
+): { checks: DqCustomCheck[]; unknownIds: string[]; unknownGroups: string[] } {
   const ids = f.checkIds?.length ? new Set(f.checkIds) : null
-  const groups = f.groups?.length ? new Set(f.groups.map((g) => groupKey(g).toLowerCase())) : null
+  const unknownGroups: string[] = []
+  let keys: Set<string> | null = null
+  let other = false
+  if (f.groups?.length) {
+    keys = new Set()
+    for (const ref of f.groups) {
+      if (isOtherGroup(ref)) { other = true; continue }
+      const group = findGroup(groups, ref)
+      if (group) for (const k of subtreeKeys(groups, group.key)) keys.add(k)
+      else unknownGroups.push(ref)
+    }
+  }
+  const declared = new Set(groups.map((g) => g.key))
   const q = f.search?.trim().toLowerCase()
   const kept = byOrder(checks).filter((c) =>
     (!ids || ids.has(c.id))
     && (!f.origins?.length || f.origins.includes(c.origin))
     && (!f.categories?.length || f.categories.includes(c.category))
-    && (!groups || groups.has(groupOf(c).toLowerCase()))
+    && (!keys || (c.groupKey && keys.has(c.groupKey)) || (other && (!c.groupKey || !declared.has(c.groupKey))))
     && (!f.state || f.state === 'all' || (f.state === 'disabled') === c.disabled)
-    && (!q || c.name.toLowerCase().includes(q) || groupOf(c).toLowerCase().includes(q)),
+    && (!q || Object.values(c.name).some((n) => n.toLowerCase().includes(q))
+      || groupPath(groups, c.groupKey).some((step) => Object.values(step.name).some((n) => n.toLowerCase().includes(q)))),
   )
   const known = new Set(checks.map((c) => c.id))
-  return { checks: kept, unknownIds: (f.checkIds ?? []).filter((id) => !known.has(id)) }
+  return { checks: kept, unknownIds: (f.checkIds ?? []).filter((id) => !known.has(id)), unknownGroups }
 }
 
 export interface CheckFields {
   name?: string
+  name_fr?: string
   description?: string
+  description_fr?: string
   category?: string
   subcategory?: string | null
   severity?: string
@@ -111,6 +133,7 @@ export function validateCheckFields(f: CheckFields, current?: DqCustomCheck): st
   if (!current || f.name !== undefined) {
     if (!f.name?.trim()) errors.push('name must not be empty.')
   }
+  if (f.name_fr !== undefined && !f.name_fr.trim()) errors.push('name_fr must not be empty: leave it out to keep the French name.')
   if (f.category !== undefined && !CATEGORIES.includes(f.category as DqCategory)) {
     errors.push(`category must be one of ${CATEGORIES.join(', ')} (Kahn et al. 2016).`)
   }
@@ -133,9 +156,6 @@ export function validateCheckFields(f: CheckFields, current?: DqCustomCheck): st
     else if (!/\bviolated_rows\b/.test(sql) || !/\btotal_rows\b/.test(sql)) {
       errors.push(`sql must return one row with two columns named violated_rows and total_rows (e.g. ${SHAPE}).`)
     }
-  }
-  if (f.group != null && f.group.trim() && groupKey(f.group) === '') {
-    errors.push(`"${OTHER_GROUP}" is the checks with no group: pass group "" instead.`)
   }
   return errors
 }
@@ -273,11 +293,11 @@ export function missingTemplates(templates: DqCheckTemplate[], stored: DqCustomC
 
 export function formatTemplates(templates: DqCheckTemplate[], max = 200): string {
   const byTable = new Map<string, DqCheckTemplate[]>()
-  for (const tpl of templates) byTable.set(tpl.tableName, [...(byTable.get(tpl.tableName) ?? []), tpl])
+  for (const tpl of templates) byTable.set(tpl.groupKey, [...(byTable.get(tpl.groupKey) ?? []), tpl])
   const lines: string[] = []
   for (const [table, list] of byTable) {
     lines.push(`${table} (${list.length})`)
-    for (const tpl of list) lines.push(`  - ${tpl.templateKey} — ${tpl.name} [${tpl.category}${tpl.subcategory ? `/${tpl.subcategory}` : ''} · ${tpl.severity}]`)
+    for (const tpl of list) lines.push(`  - ${tpl.templateKey} — ${en(tpl.name)} [${tpl.category}${tpl.subcategory ? `/${tpl.subcategory}` : ''} · ${tpl.severity}]`)
   }
   const out = lines.slice(0, max)
   if (lines.length > max) out.push(`… ${lines.length - max} more lines (filter with tables).`)
@@ -292,43 +312,61 @@ const taxon = (c: { category: DqCategory; subcategory: DqSubcategory | null }) =
   `${c.category}${c.subcategory ? `/${c.subcategory}` : ''}`
 
 export function describeCheck(c: DqCustomCheck, withSql = false): string {
-  const head = `- ${c.name}${c.disabled ? ' (disabled)' : ''} — check_id: ${c.id} [${taxon(c)} · ${c.severity} · `
+  const head = `- "${bothNames(c.name)}"${c.disabled ? ' (disabled)' : ''} — check_id: ${c.id} [${taxon(c)} · ${c.severity} · `
     + `threshold ${c.threshold}% · ${c.origin}]`
   if (!withSql) return head
   return `${head}\n  SQL: ${oneLine(c.sql)}${c.exploreSql?.trim() ? `\n  Explore SQL: ${oneLine(c.exploreSql)}` : ''}`
 }
 
-/** The checks by group, as the sidebar lists them. */
+/** The checks by group, nested, as the sidebar lists them; "Other checks" last. */
 export function formatCheckList(
-  checks: DqCustomCheck[], opts: { withSql?: boolean; max?: number; emptyGroups?: readonly string[] } = {},
+  checks: DqCustomCheck[], groups: DqCheckGroup[], opts: { withSql?: boolean; max?: number; keepEmpty?: boolean } = {},
 ): string {
   const max = opts.max ?? 200
   const lines: string[] = []
   let shown = 0
-  for (const g of groupChecks(checks, opts.emptyGroups)) {
-    const disabled = g.checks.filter((c) => c.disabled).length
-    lines.push(`${g.name || OTHER_GROUP} (${disabled ? `${g.checks.length - disabled}/${g.checks.length} enabled` : g.checks.length})`)
-    for (const c of g.checks) {
+  const count = (list: DqCustomCheck[]) => {
+    const disabled = list.filter((c) => c.disabled).length
+    return disabled ? `${list.length - disabled}/${list.length} enabled` : String(list.length)
+  }
+  const listChecks = (list: DqCustomCheck[], indent: string) => {
+    for (const c of list) {
       if (shown++ >= max) continue
-      lines.push(`  ${describeCheck(c, opts.withSql).replace(/\n/g, '\n  ')}`)
+      lines.push(`${indent}${describeCheck(c, opts.withSql).replace(/\n/g, `\n${indent}`)}`)
     }
+  }
+  const walk = (nodes: DqGroupNode<DqCustomCheck>[], depth: number) => {
+    for (const n of nodes) {
+      const indent = '  '.repeat(depth)
+      lines.push(`${indent}"${bothNames(n.name) || n.key}" — group key: ${n.key} (${count(nodeChecksOf(n))})`)
+      walk(n.children, depth + 1)
+      listChecks(n.checks, `${indent}  `)
+    }
+  }
+  const { roots, ungrouped } = groupTree(groups, byOrder(checks), { keepEmpty: opts.keepEmpty ?? true })
+  walk(roots, 0)
+  if (ungrouped.length) {
+    lines.push(`${OTHER_GROUP} (${count(ungrouped)})`)
+    listChecks(ungrouped, '  ')
   }
   if (shown > max) lines.push(`… ${shown - max} more checks (filter by group, origin, category, or search).`)
   return lines.join('\n')
 }
 
+const nodeChecksOf = (n: DqGroupNode<DqCustomCheck>): DqCustomCheck[] => [...n.checks, ...n.children.flatMap(nodeChecksOf)]
+
 /** Counts a rule set's checks the way its overview does. */
-export function checkCounts(checks: DqCustomCheck[], emptyGroups: readonly string[] = []): string {
+export function checkCounts(checks: DqCustomCheck[], groups: DqCheckGroup[]): string {
   const count = <K extends string>(keys: readonly K[], of: (c: DqCustomCheck) => K) =>
     keys.map((k) => `${k} ${checks.filter((c) => of(c) === k).length}`).join(', ')
   const disabled = checks.filter((c) => c.disabled).length
   return `${checks.length} check(s), ${checks.length - disabled} enabled · by origin: ${count(ORIGINS, (c) => c.origin)} · `
-    + `by category: ${count(CATEGORIES, (c) => c.category)} · ${groupChecks(checks, emptyGroups).length} group(s)`
+    + `by category: ${count(CATEGORIES, (c) => c.category)} · ${groups.length} group(s)`
 }
 
 function resultLine(c: DqCheck | undefined, r: DqCheckResult, withSql: boolean): string {
-  const where = c?.tableName ? `${c.tableName} · ` : ''
-  const head = `- [${r.status}${c ? ` · ${c.severity}` : ''}] ${c?.name ?? r.checkId} — ${where}`
+  const where = c?.groupPath.length ? `${pathLabel(c.groupPath)} · ` : ''
+  const head = `- [${r.status}${c ? ` · ${c.severity}` : ''}] ${c ? en(c.name) : r.checkId} — ${where}`
     + (r.status === 'error'
       ? `error: ${(r.errorMessage ?? '').slice(0, 300)}`
       : `${r.violatedRows}/${r.totalRows} violated (${pct(r.pctViolated)}%, threshold ${c?.threshold ?? 0}%)`)
@@ -411,15 +449,3 @@ export function summarizeRows(rows: Record<string, unknown>[], topN = 5): string
   })
 }
 
-/** The rule set's empty groups after a change: stored only while they hold no check, null when none. */
-export function nextEmptyGroups(stored: readonly string[] | null | undefined, checks: DqCustomCheck[], change: {
-  add?: string; remove?: string; rename?: [string, string]
-}): string[] | null {
-  const inUse = new Set(checks.map(groupOf).filter(Boolean))
-  let next = [...(stored ?? [])]
-  if (change.rename) next = next.map((g) => (g === change.rename![0] ? change.rename![1] : g))
-  if (change.remove) next = next.filter((g) => g !== change.remove)
-  if (change.add && !next.includes(change.add)) next.push(change.add)
-  next = next.filter((g) => g && !inUse.has(g))
-  return next.length ? next : null
-}

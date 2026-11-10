@@ -1504,9 +1504,10 @@ export interface DqRuleSet extends Seedable, Authored, Lineaged {
    * resolved by lineage where it is shown rather than kept as a local id.
    */
   schemaPresetRef?: EntityRef
-  /** Check groups with no check yet — a group is otherwise the `tableName` its
-   *  checks share, so an empty one has nowhere else to live. */
-  checkGroups?: string[] | null
+  /** The categories its checks are filed under, in display order, a tree by
+   *  `parentKey`. A check naming a key declared nowhere sits in a top-level
+   *  category of that name (checks generated from a schema use the table). */
+  checkGroups?: DqCheckGroup[] | null
   status: DqRuleSetStatus
   lastRunAt?: string
   lastRunDurationMs?: number
@@ -1527,6 +1528,16 @@ export interface DqRuleSet extends Seedable, Authored, Lineaged {
   version?: string
   createdAt: string
   updatedAt: string
+}
+
+/** A category of a rule set's checks, possibly inside another. */
+export interface DqCheckGroup {
+  /** Set at creation, never changed (a rename keeps it): what a check's
+   *  `groupKey` and a child's `parentKey` name. */
+  key: string
+  name: LocalizedString
+  /** The category it sits in; null at the top. */
+  parentKey: string | null
 }
 
 /**
@@ -1590,8 +1601,8 @@ export interface DqCustomCheck {
   /** Portable key, unique in the rule set, set at creation and never changed
    *  (a rename keeps it): what an export and a quality profile point at. */
   checkKey: string
-  name: string
-  description: string
+  name: LocalizedString
+  description: LocalizedString
   category: import('@/lib/dq-taxonomy').DqCategory
   subcategory: import('@/lib/dq-taxonomy').DqSubcategory | null
   severity: import('@/lib/dq-taxonomy').DqSeverity
@@ -1604,8 +1615,9 @@ export interface DqCustomCheck {
   origin: import('@/lib/dq-taxonomy').DqCheckOrigin
   /** Which schema rule generated it (`ddl.not_null:person.person_id`); null when written by hand. */
   templateKey: string | null
-  /** Table or relation the check is about, to group the list; null when it spans several. */
-  tableName: string | null
+  /** The category it is filed under (`DqCheckGroup.key`); null: "Other checks".
+   *  Generated checks use their table or relation. */
+  groupKey: string | null
   /** Kept in the list, left out of runs and of the score. */
   disabled: boolean
   createdAt: string

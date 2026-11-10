@@ -17,8 +17,8 @@ import { checkReport, checkResult, entryResult, runOutcome, type DqCheck, type D
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), '../__fixtures__/dq-runs/report.json')
 
 const check = (id: string, over: Partial<DqCheck> = {}): DqCheck => ({
-  id, name: `Check ${id}`, description: '', category: 'completeness', subcategory: null, severity: 'error',
-  origin: 'ddl', tableName: 'person', threshold: 0, sql: `SELECT /* ${id} */ 1`, exploreSql: null, ...over,
+  id, name: { en: `Check ${id}`, fr: `Contrôle ${id}` }, description: {}, category: 'completeness', subcategory: null, severity: 'error',
+  origin: 'ddl', groupPath: [{ key: 'person', name: { en: 'Patients' } }], threshold: 0, sql: `SELECT /* ${id} */ 1`, exploreSql: null, ...over,
 })
 
 type Case = { check: DqCheck; ms: number } & ({ rows: Record<string, unknown>[] } | { error: string })
@@ -30,7 +30,7 @@ const CASES: Case[] = [
   { check: check('fail-threshold', { threshold: 5, category: 'conformance', severity: 'notice' }), rows: [{ violated_rows: 3, total_rows: 50 }], ms: 0.49 },
   { check: check('third', { threshold: 50 }), rows: [{ violated_rows: 1, total_rows: 3 }], ms: 1999.5 },
   { check: check('no-rows-counted'), rows: [{ violated_rows: 0, total_rows: 0 }], ms: 1 },
-  { check: check('no-row', { origin: 'manual', tableName: null }), rows: [], ms: 2 },
+  { check: check('no-row', { origin: 'manual', groupPath: [] }), rows: [], ms: 2 },
   { check: check('null-count', { category: 'plausibility' }), rows: [{ violated_rows: null, total_rows: 5 }], ms: 4 },
   { check: check('broken', { origin: 'manual' }), error: 'Catalog Error: Table with name missing does not exist!', ms: 7 },
 ]

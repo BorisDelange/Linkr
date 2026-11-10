@@ -14,7 +14,8 @@ export const LINKR_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="
 
 const esc = escapeXml
 
-const STYLE = `
+/** The report stylesheet: A4 page, masthead, tables, KPI tiles. The quality report reuses it. */
+export const STYLE = `
 :root{--ink:#0f1b2d;--text:#33445c;--muted:#667892;--line:#cdd7e3;--soft:#eef2f7;--blue:#004578;--blue2:#0084d8;--cyan:#00a7d8;}
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#dde4ec;font-family:system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;color:var(--text)}
@@ -64,7 +65,7 @@ footer a{color:var(--blue2);text-decoration:none}
 @media print{body{background:#fff}.page{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}}
 `
 
-function table(head: { label: string; right?: boolean }[], rows: string[][]): string {
+export function table(head: { label: string; right?: boolean }[], rows: string[][]): string {
   const th = head.map((h) => `<th${h.right ? ' class="r"' : ''}>${esc(h.label)}</th>`).join('')
   const body = rows
     .map((r) => `<tr>${r.map((c, i) => `<td${head[i]?.right ? ' class="r"' : ''}>${c}</td>`).join('')}</tr>`)
@@ -83,7 +84,7 @@ export function sexDonut(model: CohortReportModel, t: TFunction): string {
 }
 
 /** The query as coloured spans, escaped. */
-function highlightSql(sql: string): string {
+export function highlightSql(sql: string): string {
   return tokenizeSql(sql)
     .map((tok) => (tok.kind === 'plain' ? esc(tok.text) : `<span class="${tok.kind}">${esc(tok.text)}</span>`))
     .join('')

@@ -5,6 +5,7 @@ import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { setChecks, takesCheck, type ProfileRuleSet } from '@/lib/dq-profile'
 import { localized } from '@/lib/localized'
+import { groupLabel, groupPath, readCheckGroups } from '@/lib/dq-groups'
 import { cn } from '@/lib/utils'
 import type { DqCustomCheck, DqProfile, DqProfileSource, DqRuleSet } from '@/types'
 import { CATEGORY_COLORS, SEVERITY_CONFIG } from './DqConstants'
@@ -17,6 +18,10 @@ interface Props {
   checksByRuleSet: Record<string, DqCustomCheck[]>
   onAdd: (sources: DqProfileSource[]) => Promise<void>
 }
+
+/** A check's group and the ones above it, `A › B`; '' when in none. */
+const groupPathLabel = (r: Row, lang: string) =>
+  groupPath(readCheckGroups(r.ruleSet.checkGroups), r.check.groupKey).map((step) => groupLabel(step, lang)).join(' › ')
 
 interface Row {
   check: DqCustomCheck
@@ -90,18 +95,19 @@ export function AddProfileChecksDialog({ open, onOpenChange, profile, ruleSets, 
     {
       id: 'check',
       header: t('data_quality.col_check'),
-      accessor: (r) => r.check.name,
+      accessor: (r) => localized(r.check.name, i18n.language),
       filter: 'text',
       size: 260, minSize: 120,
       tooltip: 'font-medium',
     },
     {
       id: 'group',
-      header: t('data_quality.col_table'),
-      accessor: (r) => r.check.tableName ?? '',
+      header: t('data_quality.col_group'),
+      accessor: (r) => groupPathLabel(r, i18n.language),
       filter: 'select',
-      size: 130, minSize: 70,
-      cell: (r) => <span className="font-mono text-muted-foreground">{r.check.tableName ?? '—'}</span>,
+      size: 160, minSize: 70,
+      tooltip: true,
+      cell: (r) => <span className="text-muted-foreground">{groupPathLabel(r, i18n.language) || '—'}</span>,
     },
     {
       id: 'origin',
