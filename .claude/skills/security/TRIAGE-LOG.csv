@@ -14,6 +14,7 @@ date,package,ghsa_id,severity,alert_number,bucket,action,dismissed_reason,notes
 2026-10-21,@modelcontextprotocol/server,GHSA-rvq5-wwqv-78pq,medium,200,actionable,bumped,,npm update 2.0.0 -> 2.3.1 within ^2.0.0 (linkr-mcp); release v2.4.5
 2026-09-16,@vitest/mocker,GHSA-82fw-gwwq-j7x9,medium,169,false-positive,dismissed,not_used,dev-only; mockerPlugin/interceptorPlugin unused; no browser mode; fix needs vitest 4.x major
 2026-11-05,@vitest/mocker,GHSA-qxg6-89mg-rqv8,medium,,false-positive,none,not_used,dev-only; no browser mode; fix needs vitest major
+2026-10-09,Mako,GHSA-5639-2j2p-m4mx,medium,181,resolved-in-lockfile,pending-merge,,"apps/api/uv.lock 1.4.1 -> 1.4.3 (Windows-only vector); committed on feature/fastapi-backend (1310cf4a4), closes once merged on main"
 2026-08-01,ajv,GHSA-2g4f-4pwh-qvx6,medium,"6,7",resolved-in-lockfile,pending-merge,,installed 6.15.0/8.20.0 >= patched 6.14.0
 2026-09-18,baseline-browser-mapping,GHSA-w5vr-8v7q-w6rv,medium,170,resolved-in-lockfile,pending-rescan,,"lockfile 2.9.19 -> 2.11.24; verified on main 2026-09-18, awaiting Dependabot re-scan"
 2026-11-05,body-parser,GHSA-27r3-jxmh-p828,high,,actionable,bumped,,"lockfile 2.3.0 -> 2.4.0 (dev, via shadcn CLI)"
@@ -68,8 +69,12 @@ date,package,ghsa_id,severity,alert_number,bucket,action,dismissed_reason,notes
 2026-08-01,flatted,GHSA-rf6f-7fwh-wjgh,high,26,resolved-in-lockfile,pending-merge,,installed 3.4.4 >= patched 3.4.2
 2026-08-01,hono,GHSA-26pp-8wgv-hjvm,medium,47,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.12
 2026-08-01,hono,GHSA-2gcr-mfcq-wcc3,medium,84,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.21
+2026-11-16,hono,GHSA-3gg2-335m-rxc6,low,,actionable,bumped,,"lockfile 4.13.13 -> 4.13.19; dev-only (shadcn CLI -> @modelcontextprotocol/sdk), the Linkr MCP server uses @modelcontextprotocol/server v2 without hono"
 2026-08-01,hono,GHSA-3hrh-pfw6-9m5x,medium,82,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.21
 2026-08-01,hono,GHSA-458j-xx4x-4375,medium,50,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.14
+2026-11-16,hono,GHSA-46wx-v44x-9hh2,medium,,actionable,bumped,,"lockfile 4.13.13 -> 4.13.19; dev-only (shadcn CLI -> @modelcontextprotocol/sdk), the Linkr MCP server uses @modelcontextprotocol/server v2 without hono"
+2026-11-16,hono,GHSA-4h7h-rv7c-7m2v,medium,,actionable,bumped,,"lockfile 4.13.13 -> 4.13.19; dev-only (shadcn CLI -> @modelcontextprotocol/sdk), the Linkr MCP server uses @modelcontextprotocol/server v2 without hono"
+2026-11-16,hono,GHSA-4m76-xfj5-7975,medium,,actionable,bumped,,"lockfile 4.13.13 -> 4.13.19; dev-only (shadcn CLI -> @modelcontextprotocol/sdk), the Linkr MCP server uses @modelcontextprotocol/server v2 without hono"
 2026-09-18,hono,GHSA-54fx-42gc-7vw4,medium,154,resolved-in-lockfile,pending-rescan,,"lockfile 4.12.33 -> 4.13.8; verified on main 2026-09-18, awaiting Dependabot re-scan"
 2026-08-01,hono,GHSA-5pq2-9x2x-5p6w,medium,20,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.4
 2026-10-21,hono,GHSA-5r4p-p66f-jhc7,medium,204,actionable,bumped,,"npm update 4.13.8 -> 4.13.13 (transitive via shadcn > mcp sdk, dev-only); release v2.4.5"
@@ -82,6 +87,7 @@ date,package,ghsa_id,severity,alert_number,bucket,action,dismissed_reason,notes
 2026-08-01,hono,GHSA-f577-qrjj-4474,medium,81,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.21
 2026-08-01,hono,GHSA-gq3j-xvxp-8hrf,low,5,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.11.10
 2026-09-18,hono,GHSA-gqvv-2mrq-wpjv,medium,168,resolved-in-lockfile,pending-rescan,,"lockfile 4.12.33 -> 4.13.8; verified on main 2026-09-18, awaiting Dependabot re-scan"
+2026-11-16,hono,GHSA-h7mg-cq63-vhpq,medium,,actionable,bumped,,"lockfile 4.13.13 -> 4.13.19; dev-only (shadcn CLI -> @modelcontextprotocol/sdk), the Linkr MCP server uses @modelcontextprotocol/server v2 without hono"
 2026-08-01,hono,GHSA-hm8q-7f3q-5f36,low,63,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.18
 2026-08-01,hono,GHSA-hvrm-45r6-mjfj,medium,116,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.27
 2026-08-01,hono,GHSA-j6c9-x7qj-28xf,medium,99,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.25
@@ -111,7 +117,6 @@ date,package,ghsa_id,severity,alert_number,bucket,action,dismissed_reason,notes
 2026-10-09,katex,GHSA-238p-pmpm-9mq7,low,195,blocked-upstream,dismissed,tolerable_risk,needs pre-existing prototype pollution; fix 0.18.2 outside ^0.16 of mermaid + rehype-katex; revisit
 2026-08-01,lodash-es,GHSA-f23m-r3pf-42rh,medium,37,resolved-in-lockfile,pending-merge,,installed 4.18.1 >= patched 4.18.0
 2026-08-01,lodash-es,GHSA-r5fr-rjxr-66jc,high,38,resolved-in-lockfile,pending-merge,,installed 4.18.1 >= patched 4.18.0
-2026-10-09,Mako,GHSA-5639-2j2p-m4mx,medium,181,resolved-in-lockfile,pending-merge,,"apps/api/uv.lock 1.4.1 -> 1.4.3 (Windows-only vector); committed on feature/fastapi-backend (1310cf4a4), closes once merged on main"
 2026-09-18,mermaid,GHSA-2v8p-3f2j-5mp7,medium,139,resolved-in-lockfile,pending-rescan,,"lockfile 11.16.0 -> 11.17.2; verified on main 2026-09-18, awaiting Dependabot re-scan"
 2026-09-18,mermaid,GHSA-3rrr-jr9j-h3q3,medium,135,resolved-in-lockfile,pending-rescan,,"lockfile 11.16.0 -> 11.17.2; verified on main 2026-09-18, awaiting Dependabot re-scan"
 2026-08-01,mermaid,GHSA-6m6c-36f7-fhxh,medium,68,resolved-in-lockfile,pending-merge,,installed 11.16.0 >= patched 11.15.0
