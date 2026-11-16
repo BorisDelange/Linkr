@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
 import { Loader2, ShieldAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -28,9 +28,9 @@ export function InsecureSecretKey() {
   }
 
   const steps = [
-    { label: t('login.insecure_secret_key_step_generate'), command: GENERATE_KEY },
-    { label: t('login.insecure_secret_key_step_set') },
-    { label: t('login.insecure_secret_key_step_restart'), command: RESTART_DOCKER },
+    { key: 'login.insecure_secret_key_step_generate', command: GENERATE_KEY },
+    { key: 'login.insecure_secret_key_step_set' },
+    { key: 'login.insecure_secret_key_step_restart', command: RESTART_DOCKER },
   ]
 
   return (
@@ -46,7 +46,7 @@ export function InsecureSecretKey() {
                 <ShieldAlert size={32} />
               </div>
               <CardTitle>{t('login.insecure_secret_key_title')}</CardTitle>
-              <CardDescription>{t('login.insecure_secret_key_description')}</CardDescription>
+              <CardDescription className="text-justify">{t('login.insecure_secret_key_description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 text-sm">
               <ol className="space-y-3">
@@ -56,7 +56,7 @@ export function InsecureSecretKey() {
                       {i + 1}
                     </span>
                     <div className="min-w-0 flex-1 space-y-1.5">
-                      <p>{step.label}</p>
+                      <p><Trans i18nKey={step.key} components={{ b: <strong className="font-semibold" /> }} /></p>
                       {step.command && <CopyablePath value={step.command} size="xs" />}
                     </div>
                   </li>

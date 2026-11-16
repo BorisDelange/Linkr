@@ -4243,9 +4243,9 @@
     "server_unreachable_description": "Linkr can't reach its backend server. It may be starting up, offline, or misconfigured. Once it's available, retry.",
     "insecure_secret_key_title": "The server refuses to run on an example key",
     "insecure_secret_key_description": "This server's LINKR_SECRET_KEY is a value published in Linkr's example configuration (change-me, dev-secret-change-in-production…). That key signs every session, so anyone could sign in as any user, including an administrator. The server refuses every request until the key is replaced.",
-    "insecure_secret_key_step_generate": "On the server, generate a new key:",
-    "insecure_secret_key_step_set": "Put it in LINKR_SECRET_KEY: in the .env file next to the Compose file for a Docker install (docker/.env in a copy of the repository), otherwise in the server's environment (apps/api/.env for a manual install).",
-    "insecure_secret_key_step_restart": "Restart the server. With Docker, from the Compose file's folder (add -f docker-compose.hub.yml if that is its name):",
+    "insecure_secret_key_step_generate": "On the server, <b>generate a new key</b>:",
+    "insecure_secret_key_step_set": "Put it in <b>LINKR_SECRET_KEY</b>: in the <b>.env file next to the Compose file</b> for a Docker install (docker/.env in a copy of the repository), otherwise in the server's environment (<b>apps/api/.env</b> for a manual install).",
+    "insecure_secret_key_step_restart": "<b>Restart the server</b>. With Docker, from the Compose file's folder (add -f docker-compose.hub.yml if that is its name):",
     "insecure_secret_key_signed_out": "Everyone is signed out once: sessions signed with the old key end.",
     "insecure_secret_key_not_admin": "Not the administrator of this server? Send this page to whoever is.",
     "retry": "Retry"

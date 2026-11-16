@@ -4243,9 +4243,9 @@
     "server_unreachable_description": "Linkr ne parvient pas à joindre son serveur backend. Il est peut-être en cours de démarrage, hors ligne ou mal configuré. Réessayez une fois qu'il est disponible.",
     "insecure_secret_key_title": "Le serveur refuse de fonctionner avec une clé d'exemple",
     "insecure_secret_key_description": "La LINKR_SECRET_KEY de ce serveur est une valeur publiée dans la configuration d'exemple de Linkr (change-me, dev-secret-change-in-production…). Cette clé signe toutes les sessions : n'importe qui pourrait se connecter sous l'identité de n'importe quel utilisateur, administrateur compris. Le serveur refuse toute requête tant qu'elle n'est pas remplacée.",
-    "insecure_secret_key_step_generate": "Sur le serveur, générez une nouvelle clé :",
-    "insecure_secret_key_step_set": "Placez-la dans LINKR_SECRET_KEY : dans le fichier .env voisin du fichier Compose pour une installation Docker (docker/.env dans une copie du dépôt), sinon dans l'environnement du serveur (apps/api/.env pour une installation manuelle).",
-    "insecure_secret_key_step_restart": "Redémarrez le serveur. Avec Docker, depuis le dossier du fichier Compose (ajoutez -f docker-compose.hub.yml si c'est son nom) :",
+    "insecure_secret_key_step_generate": "Sur le serveur, <b>générez une nouvelle clé</b> :",
+    "insecure_secret_key_step_set": "Placez-la dans <b>LINKR_SECRET_KEY</b> : dans le <b>fichier .env voisin du fichier Compose</b> pour une installation Docker (docker/.env dans une copie du dépôt), sinon dans l'environnement du serveur (<b>apps/api/.env</b> pour une installation manuelle).",
+    "insecure_secret_key_step_restart": "<b>Redémarrez le serveur</b>. Avec Docker, depuis le dossier du fichier Compose (ajoutez -f docker-compose.hub.yml si c'est son nom) :",
     "insecure_secret_key_signed_out": "Tout le monde est déconnecté une fois : les sessions signées avec l'ancienne clé prennent fin.",
     "insecure_secret_key_not_admin": "Vous n'administrez pas ce serveur ? Transmettez cette page à la personne qui s'en charge.",
     "retry": "Réessayer"
