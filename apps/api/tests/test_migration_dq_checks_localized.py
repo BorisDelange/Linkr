@@ -5,8 +5,13 @@ groups."""
 import json
 
 import sqlalchemy as sa
+from alembic.config import Config
 
-from tests.test_migration_projects_workspace import alembic_at  # noqa: F401  -- fixture
+from alembic import command
+from tests.test_migration_projects_workspace import (
+    API_ROOT,
+    alembic_at,  # noqa: F401  -- fixture
+)
 
 
 def test_checks_become_multilingual_and_groups_named(alembic_at):  # noqa: F811
@@ -37,3 +42,32 @@ def test_checks_become_multilingual_and_groups_named(alembic_at):  # noqa: F811
     assert (json.loads(groups) if isinstance(groups, str) else groups) == [
         {"key": "Vitals", "name": {"en": "Vitals"}, "parentKey": None},
     ]
+
+
+def test_downgrade_keeps_each_rule_sets_empty_groups_and_fits_long_names(alembic_at):  # noqa: F811
+    upgrade, engine = alembic_at
+    upgrade("d6f8a0c2e4b6")
+    groups = json.dumps([{"key": "labs", "name": {"en": "Labs"}, "parentKey": None}])
+    with engine.begin() as c:
+        c.execute(sa.text("INSERT INTO workspaces (id, name, description, origin) VALUES ('w', '{}', '{}', 'user')"))
+        for rs in ("used", "empty"):
+            c.execute(sa.text(
+                "INSERT INTO dq_rule_sets (id, workspace_id, name, description, data_source_id, status, origin, version, "
+                "check_groups, created_at, updated_at) VALUES (:id, 'w', '{}', '{}', 'db', 'draft', 'user', '0.1.0', "
+                ":groups, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            ), {"id": rs, "groups": groups})
+        c.execute(sa.text(
+            'INSERT INTO dq_custom_checks (id, rule_set_id, check_key, name, description, category, severity, threshold, '
+            'sql, "order", origin, group_key, disabled, created_at, updated_at) VALUES (\'c\', \'used\', \'c\', :name, '
+            "'{}', 'conformance', 'error', 0, 'SELECT 1', 0, 'manual', 'labs', false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        ), {"name": json.dumps({"en": "x" * 300})})
+
+    cfg = Config(str(API_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(API_ROOT / "alembic"))
+    command.downgrade(cfg, "c5e7a9b1d3f5")
+
+    with engine.connect() as c:
+        kept = dict(c.execute(sa.text("SELECT id, check_groups FROM dq_rule_sets")).all())
+        name = c.execute(sa.text("SELECT name FROM dq_custom_checks")).scalar()
+    assert {k: v and json.loads(v) for k, v in kept.items()} == {"used": None, "empty": ["labs"]}
+    assert name == "x" * 255

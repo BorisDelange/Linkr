@@ -47,11 +47,12 @@ function validateConnectionFiles(tree: EntityTree, bag: IssueBag): void {
       bag.error(path, '/connectionConfig', 'wrong-type', '`connectionConfig` must be an object.')
       continue
     }
+    // Exports older than the allowlist carried them; the import drops them.
     const extra = Object.keys(config).filter((k) => !PORTABLE_CONNECTION_KEYS.has(k)).sort()
     if (extra.length > 0) {
-      bag.error(path, '/connectionConfig', 'wrong-type',
-        `A connection must not carry ${extra.map((k) => `\`${k}\``).join(', ')}: a tree would publish where it points and as whom.`,
-        'keep only `engine`, `inMemory` and `managed`; the importing instance supplies the rest')
+      bag.warn(path, '/connectionConfig', 'legacy-format',
+        `A connection carries ${extra.map((k) => `\`${k}\``).join(', ')}: the tree publishes where it points and as whom. The import drops them.`,
+        'export the project again to keep only `engine`, `inMemory` and `managed`; the importing instance supplies the rest')
     }
   }
 }

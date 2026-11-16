@@ -23,6 +23,7 @@ mode) and returns the file tree — the DB/disk/blob reads live in the caller
 import json
 import re
 import unicodedata
+from collections.abc import Callable
 from typing import Any
 
 # The export-format version stamped into project.json (``appVersion``) — see
@@ -633,12 +634,18 @@ def _readme_files(readme: Any) -> dict[str, bytes]:
 _CODE_EXTENSIONS = frozenset({
     ".sql", ".py", ".r", ".rmd", ".qmd", ".ipynb", ".rproj", ".jl", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ts",
     ".jsx", ".tsx", ".css", ".md", ".markdown", ".rst", ".tex", ".bib", ".yml", ".yaml", ".toml", ".ini",
-    ".cfg", ".lock",
+    ".cfg", ".lock", ".c", ".h", ".cc", ".cpp", ".hpp", ".java", ".scala", ".kt", ".go", ".rs", ".sas", ".do",
+    ".ado", ".m", ".pl", ".rb", ".php", ".lua", ".pgsql", ".psql", ".plsql", ".hql", ".ddl", ".ps1", ".bat",
+    ".cmd", ".zsh", ".smk",
 })
 _CODE_NAMES = frozenset({
     "makefile", "dockerfile", "license", "readme", "notice", ".gitignore", ".gitattributes", ".rprofile",
-    ".python-version", "requirements.txt",
+    ".python-version", "requirements.txt", ".dockerignore", ".editorconfig", "snakefile", ".gitkeep",
 })
+
+# What counted as data under scripts/ before the allowlist: any other file was
+# versioned by default, so a repository may already track it.
+_LEGACY_DATA_EXTENSIONS = (".csv", ".parquet", ".pq", ".xlsx", ".xls")
 
 
 def _is_data_ext(path: str) -> bool:
@@ -653,17 +660,7 @@ def _is_notebook(path: str) -> bool:
     return path.lower().endswith(".ipynb")
 
 
-def _notebook_without_outputs(content: str) -> str | None:
-    """Port of ``notebookWithoutOutputs`` (entity-io.ts): every code cell's
-    ``outputs`` emptied and ``execution_count`` cleared, the text unchanged when
-    there is nothing to clear, None when it is not a notebook that parses."""
-    try:
-        nb = json.loads(content)
-    except ValueError:
-        return None
-    cells = nb.get("cells") if isinstance(nb, dict) else None
-    if not isinstance(cells, list):
-        return None
+def _cleared_cells(cells: list) -> bool:
     changed = False
     for cell in cells:
         if not isinstance(cell, dict) or cell.get("cell_type") != "code":
@@ -671,10 +668,64 @@ def _notebook_without_outputs(content: str) -> str | None:
         if cell.get("outputs") != []:
             cell["outputs"] = []
             changed = True
-        if cell.get("execution_count") is not None:
-            cell["execution_count"] = None
-            changed = True
+        # `execution_count` in nbformat 4, `prompt_number` in nbformat 3.
+        for key in ("execution_count", "prompt_number"):
+            if cell.get(key) is not None:
+                cell[key] = None
+                changed = True
+    return changed
+
+
+def _notebook_without_outputs(content: str) -> str | None:
+    """Port of ``notebookWithoutOutputs`` (entity-io.ts): every code cell's
+    ``outputs`` emptied and its run counter cleared (nbformat 4 ``cells`` and
+    nbformat 3 ``worksheets``), the text unchanged when there is nothing to clear,
+    None when it is not a notebook that parses."""
+    try:
+        nb = json.loads(content)
+    except ValueError:
+        return None
+    if not isinstance(nb, dict):
+        return None
+    if isinstance(nb.get("cells"), list):
+        groups = [nb["cells"]]
+    elif isinstance(nb.get("worksheets"), list):
+        groups = [ws.get("cells") for ws in nb["worksheets"] if isinstance(ws, dict)]
+        if not all(isinstance(g, list) for g in groups):
+            return None
+    else:
+        return None
+    changed = False
+    for cells in groups:
+        changed = _cleared_cells(cells) or changed
     return _json(nb).decode("utf-8") if changed else content
+
+
+def tracked_files_to_adopt(
+    tracked: set[str],
+    marked: set[str],
+    excluded: set[str],
+    read: Callable[[str], str | None],
+) -> list[str]:
+    """The files of a project tree (paths under scripts/) a repository already
+    tracks that the export now leaves out unless marked: the non-code files the
+    allowlist made data, and notebooks whose outputs cannot be stripped. Marking
+    them keeps the next push from deleting committed files. ``read(path)`` gives a
+    file's text, None once it is gone from the project."""
+    adopt: list[str] = []
+    for path in sorted(tracked):
+        if not path.startswith("scripts/") or path in marked or path in excluded:
+            continue
+        if _is_data_ext(path):
+            if path.lower().endswith(_LEGACY_DATA_EXTENSIONS):
+                continue
+            if read(path) is not None:
+                adopt.append(path)
+        elif _is_notebook(path):
+            content = read(path)
+            if content is not None and _notebook_without_outputs(content) is None:
+                adopt.append(path)
+    return adopt
 
 
 def _gitignore_escape(p: str) -> str:

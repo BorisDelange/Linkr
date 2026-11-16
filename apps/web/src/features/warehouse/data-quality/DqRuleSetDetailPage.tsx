@@ -41,7 +41,7 @@ import { DatabaseSqlTab } from '@/features/projects/warehouse/databases/Database
 import { runnableChecks, runOutcome, type DqReport } from '@/lib/duckdb/data-quality'
 import type { DqRuleSet } from '@/types'
 import { localized } from '@/lib/localized'
-import { readCheckGroups } from '@/lib/dq-groups'
+import { allGroups, readCheckGroups } from '@/lib/dq-groups'
 import { EntityNotFound } from '@/components/layout/EntityNotFound'
 
 const TAB_IDS = ['overview', 'checks', 'results', 'investigate', 'readme', 'license', 'versioning'] as const
@@ -129,7 +129,7 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
   }, [fullRuleSetId, loadRunHistory])
 
   const checkGroups = ruleSet?.checkGroups
-  const runChecks = useMemo(() => runnableChecks(customChecks, readCheckGroups(checkGroups)), [customChecks, checkGroups])
+  const runChecks = useMemo(() => runnableChecks(customChecks, allGroups(readCheckGroups(checkGroups), customChecks)), [customChecks, checkGroups])
   const history = useMemo(() => fullRuleSetId ? {
     entries: runHistory.filter((e) => e.ruleSetId === fullRuleSetId),
     onDelete: (id: string) => void deleteRunHistory(id),

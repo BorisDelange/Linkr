@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.schemas.base import CamelModel
 
@@ -74,6 +74,20 @@ class RunStepName(CamelModel):
     label: str
 
 
+# What the profiles read of the options (`ProfileOptions` in concept-profile.ts):
+# a spec without one fails here, not halfway through its run.
+_OPTION_TYPES: dict[str, tuple[type, ...]] = {
+    "sections": (dict,),
+    "outlierMethod": (str,),
+    "outlierCoef": (int, float),
+    "bins": (int, str),
+    "minCategoryCount": (int, float),
+    "topN": (int, float),
+    "maxCategoryLength": (int, float),
+    "minPatients": (int, float),
+}
+
+
 class RunSpec(CamelModel):
     label: str
     # The steps the job shows under its row, in order, named in the app's
@@ -97,6 +111,16 @@ class RunSpec(CamelModel):
     extraction: ExtractionSpec | None = None
     # Start over: the database's stored profiles go first (the Concepts tab).
     fresh: bool = False
+
+    @field_validator("options")
+    @classmethod
+    def _options_the_profiles_read(cls, options: dict) -> dict:
+        for key, types in _OPTION_TYPES.items():
+            value = options.get(key)
+            if isinstance(value, bool) or not isinstance(value, types):
+                # A ValueError: pydantic reports it as the field's.
+                raise ValueError(f"options.{key} is missing or not a {' or '.join(t.__name__ for t in types)}")  # noqa: TRY004
+        return options
 
     @model_validator(mode="after")
     def _something_to_run(self):

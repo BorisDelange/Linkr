@@ -563,9 +563,16 @@ class DeriveRequest(CamelModel):
     pseudonymization: DerivePseudonymization | None = None
 
 
+class DeriveRebuildRef(CamelModel):
+    data_source_id: str
+    schema_name: str | None = None
+
+
 class DerivePlanRequest(CamelModel):
     level: str
     scope: str | None = None
+    # A rebuild of this derivation: each table it already holds is flagged `built`.
+    rebuild: DeriveRebuildRef | None = None
 
 
 

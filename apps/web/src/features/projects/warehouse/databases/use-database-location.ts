@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { isServerMode } from '@/lib/api-client'
 import { fetchDatabaseConnectionInfo, type DatabaseConnectionInfo } from '@/lib/api/data-sources'
 import type { DataSource } from '@/types'
@@ -14,6 +14,9 @@ export interface DatabaseLocation {
 
 /** A browser file handle whose file was moved or deleted throws a NotFoundError. */
 const HANDLE_NOT_FOUND = /NotFoundError|could not be found/i
+/** How often, and how many times, a database 'configuring' with no build is read again. */
+const CONFIGURING_RECHECK_MS = 3000
+const CONFIGURING_RECHECKS = 10
 
 /**
  * Whether a database's files are still where it points. Server mode asks the
@@ -40,6 +43,21 @@ export function useDatabaseLocation(source: DataSource | undefined): DatabaseLoc
       .catch(() => { if (!cancelled) setInfo(null) })
     return () => { cancelled = true }
   }, [id, status, managedPath, reloadKey])
+
+  // A database just derived can be read before its build is registered: it then
+  // reads as 'configuring' with no build behind it — a lost file — for its whole
+  // build. Read again a few times, until the build shows or the status moves on.
+  const rechecks = useRef(0)
+  useEffect(() => { rechecks.current = 0 }, [id, status])
+  const unbuilt = isServerMode() && status === 'configuring' && !!info && !info.building
+  useEffect(() => {
+    if (!unbuilt || rechecks.current >= CONFIGURING_RECHECKS) return
+    const timer = setTimeout(() => {
+      rechecks.current++
+      setReloadKey((k) => k + 1)
+    }, CONFIGURING_RECHECK_MS)
+    return () => clearTimeout(timer)
+  }, [unbuilt, info])
 
   // Refetch when another view (a compaction, a move) changed the files.
   useEffect(() => {

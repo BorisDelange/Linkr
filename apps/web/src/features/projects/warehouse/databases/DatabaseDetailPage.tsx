@@ -692,8 +692,8 @@ function DatabaseStatCards({
   cache: DatabaseStatsCache | null
   isLoading: boolean
   hasMappedSchema: boolean
-  /** The quick count the database card shows, taken on every opening: the
-   *  patients card reads it until the statistics are computed. */
+  /** The quick count the database card shows, taken once when the database has
+   *  none: the patients card reads it until the statistics are computed. */
   patientCount: number | undefined
   onSeeStatistics: () => void
 }) {

@@ -11,6 +11,7 @@ vi.mock('./engine', () => ({
 const followServerPlan = vi.fn()
 vi.mock('@/lib/server-runs/query-plan', () => ({
   preparePlan: async (_ds: string, plan: unknown) => plan,
+  signedPlan: (plan: { items: { key: string; sql: string }[] }) => ({ ...plan, meta: { signature: plan.items.map((i) => i.key + i.sql).join('|') } }),
   followServerPlan: (...args: unknown[]) => followServerPlan(...args),
 }))
 
@@ -56,13 +57,16 @@ describe('computeDatabaseStats', () => {
     expect(plan.label).toBe('Stats')
     expect(plan.items[0]).toMatchObject({ key: 'patientCount', sql: expect.stringContaining('linkr_patient') })
     expect(plan.keepGoing).toBe(true)
+    // Signed: a run of another mapping's queries is not joined.
+    expect(plan.meta.signature).toEqual(expect.any(String))
   })
 
   it('joins, after a reload, the run going on — and says when there is none', async () => {
     serverMode = true
     followServerPlan.mockResolvedValue(null)
     await expect(computeDatabaseStats('ds', mapping, { resumeOnly: true })).rejects.toMatchObject({ name: 'AbortError' })
-    expect(followServerPlan.mock.calls[0][4]).toMatchObject({ resumeOnly: true })
+    // One that ended since it was seen going on is still read.
+    expect(followServerPlan.mock.calls[0][4]).toMatchObject({ resumeOnly: true, finished: true })
   })
 })
 

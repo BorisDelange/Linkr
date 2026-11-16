@@ -157,7 +157,12 @@ export class LinkrApi {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     })
-    if (!res.ok) throw new ApiError(res.status, `Login failed (${res.status}).`)
+    if (!res.ok) {
+      // A server on an example LINKR_SECRET_KEY refuses the login too, and says what to do.
+      const detail = ((await res.json().catch(() => null)) as { detail?: { code?: unknown; message?: unknown } } | null)?.detail
+      const refusal = detail?.code === 'insecure_secret_key' && typeof detail.message === 'string' ? detail.message : null
+      throw new ApiError(res.status, refusal ?? `Login failed (${res.status}).`)
+    }
     const body = await res.json() as { access_token: string; refresh_token: string }
     this.accessToken = body.access_token
     this.refreshToken = body.refresh_token

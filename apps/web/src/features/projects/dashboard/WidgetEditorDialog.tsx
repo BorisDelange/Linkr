@@ -44,6 +44,7 @@ import type { DashboardEvent, DashboardWidget, DashboardWidgetSource, DatasetCol
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { PluginConfigField } from '@/types/plugin'
 import type * as Monaco from 'monaco-editor'
+import { templateSource } from '@/lib/plugins/acceptance-source'
 
 interface WidgetEditorDialogProps {
   widget: DashboardWidget | null
@@ -303,7 +304,7 @@ function WidgetEditorBody({
           // the plugin's template has been chosen, not read.
           review: activeTab === 'code' || editedCode.current
             ? { authored: true }
-            : { source: isCodeCustomized ? undefined : plugin?.templates?.[language] },
+            : { source: isCodeCustomized ? undefined : templateSource(plugin, language, config, columns) },
         })
       } else {
         if (_isPlugin && plugin) {
@@ -329,7 +330,7 @@ function WidgetEditorBody({
       setIsExecuting(false)
       setStatusMessage(null)
     }
-  }, [currentCode, filteredRows, columns, language, _isPlugin, plugin, datasetFileId, filters, projectUid, activeTab, isCodeCustomized])
+  }, [currentCode, filteredRows, columns, language, _isPlugin, plugin, datasetFileId, filters, projectUid, activeTab, isCodeCustomized, config])
 
   // Cmd/Ctrl+Shift+Enter: run the whole file.
   const handleRunFile = useCallback(() => { void handleRun() }, [handleRun])

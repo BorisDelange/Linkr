@@ -1,6 +1,6 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, Ban, CheckCircle2, ChevronRight, Circle, XCircle, Hourglass, Square, Trash2, ExternalLink, ScrollText } from 'lucide-react'
+import { Loader2, ChevronRight, Hourglass, Square, Trash2, ExternalLink, ScrollText } from 'lucide-react'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -12,13 +12,9 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { isServerMode } from '@/lib/api-client'
 import { CodeViewer } from '@/components/editor/CodeViewer'
-import { stripAnsi } from '@/lib/ansi'
 import { cn } from '@/lib/utils'
-import { formatDuration } from '@/lib/format-helpers'
-import { prettySql } from '@/lib/sql-pretty'
-import { sanitizeHtml } from '@/lib/sanitize'
 import { useProjectRouteUid } from '@/hooks/use-project-route'
-import { listJobs, listWorkspaceJobs, listRunningJobs, cancelJob, clearJobs, clearWorkspaceJobs, onJobsChanged, type InstanceJob, type Job, type JobStep } from '@/lib/api/environments'
+import { listJobs, listWorkspaceJobs, listRunningJobs, cancelJob, clearJobs, clearWorkspaceJobs, onJobsChanged, type InstanceJob, type Job } from '@/lib/api/environments'
 import { useAuthStore } from '@/stores/auth-store'
 import { getJob } from '@/lib/api/query-jobs'
 import { openWebAppWindow, webAppFrameUrl } from '@/lib/api/web-apps'
@@ -26,8 +22,10 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { clearLoggedQueries, stopLoggedQuery } from '@/lib/duckdb/query-log'
 import { QUERY_KIND, useLocalQueries } from './use-query-log'
-import { entityOf, groupJobs, splitEntityHead, type JobEntity, type JobGroupRow, type JobNames } from './job-groups'
-import type { TFunction } from 'i18next'
+import { entityOf, formatJobTime, groupJobs, type JobGroupRow, type JobNames } from './job-groups'
+import { JobDuration, JobFacts, JobLabel, JobStatusIcon, JobStepRow } from './job-parts'
+import { JobArtifacts, JobLogView, NoLog } from './job-output'
+import { usePrettySql } from './use-pretty-sql'
 
 const ACTIVE = new Set(['queued', 'running'])
 // One height whatever the count — about 13 rows, then a scroll — so the
@@ -140,7 +138,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
 
   // The input and the log travel only with the single job: fetched once the
   // modal opens, again while the job runs — a run's input is its query in flight.
-  const [detail, setDetail] = useState<{ jobId: string; input: string | null; logTail: string } | null>(null)
+  const [detail, setDetail] = useState<{ jobId: string; input: string | null; logTail: string; ownerError?: string } | null>(null)
   const [logTab, setLogTab] = useState<'output' | 'input'>('output')
   const openStatus = jobs.find((j) => j.id === logJobId)?.status
   const openActive = !!openStatus && ACTIVE.has(openStatus)
@@ -155,6 +153,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
           jobId: logJobId,
           input: withInput ? j.input ?? null : prev?.jobId === logJobId ? prev.input : null,
           logTail: j.logTail,
+          ownerError: j.result?.ownerError,
         }))
         if (openActive && ACTIVE.has(j.status)) timer = setTimeout(() => void read(true), 2000)
       })
@@ -194,7 +193,10 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
   // A front-only query carries its SQL; a server job's is fetched once opened.
   const opened = detail && detail.jobId === logJobId ? detail : null
   const jobInput = !server ? (logJob?.input ?? null) : opened?.input ?? null
-  const jobLog = !server ? (logJob?.logTail ?? '') : opened?.logTail ?? ''
+  const jobLog = !server
+    ? (logJob?.logTail ?? '')
+    : [opened?.logTail ?? '', opened?.ownerError ? `${t('jobs.owner_error')}\n${opened.ownerError}` : '']
+        .filter(Boolean).join('\n\n')
   const showInput = logTab === 'input' && !!jobInput
   const inputLanguage = logJob?.kind === 'run' ? 'plaintext' : 'sql'
   const shownInput = usePrettySql(jobInput, showInput && inputLanguage === 'sql')
@@ -602,217 +604,8 @@ function InstanceJobList({ jobs, onCancel, stopping }: {
   )
 }
 
-/** "Database “test”": what a job is for, as the panel names it. */
-function entityLabel(t: TFunction, entity: JobEntity): string {
-  const type = t(`jobs.entity_types.${entity.type}`, { defaultValue: entity.type })
-  return entity.name ? t('jobs.entity_label', { type, name: entity.name }) : type
-}
-
-/** A job's label, always `Type “name” · what it does`, what it is for in grey:
- *  the entity the label starts by naming, else the job's entity. */
-function JobLabel({ entity, label }: { entity: JobEntity | null; label: string }) {
-  const { t } = useTranslation()
-  const { head, action } = splitEntityHead(label, entity)
-  const prefix = entity && !/[“«]/.test(head) ? `${entityLabel(t, entity)} · ` : head
-  return (
-    <>
-      {prefix && <span className="text-muted-foreground">{prefix}</span>}
-      {action}
-    </>
-  )
-}
-
-/** A row on hover: what it is for, what it does, how it stands, since when. */
-function JobFacts({ entity, label, job, jobs }: {
-  entity: JobEntity | null
-  label: string
-  job: Pick<Job, 'status' | 'createdAt' | 'startedAt' | 'finishedAt'>
-  jobs?: number
-}) {
-  const { t, i18n } = useTranslation()
-  const at = (iso: string) => new Date(iso).toLocaleString(i18n.language)
-  const { action } = splitEntityHead(label, entity)
-  const facts: [string, string][] = [
-    ...(entity ? [[t('jobs.fact_type'), t(`jobs.entity_types.${entity.type}`, { defaultValue: entity.type })] as [string, string]] : []),
-    ...(entity?.name ? [[t('jobs.fact_name'), entity.name] as [string, string]] : []),
-    [t('jobs.fact_action'), action],
-    ...(jobs ? [[t('jobs.fact_jobs'), String(jobs)] as [string, string]] : []),
-    [t('jobs.fact_status'), t(`jobs.status.${job.status}`)],
-    [t('jobs.fact_started'), at(job.createdAt)],
-    ...(job.finishedAt ? [[t('jobs.fact_ended'), at(job.finishedAt)] as [string, string]] : []),
-    ...(job.finishedAt && job.startedAt
-      ? [[t('jobs.fact_duration'), formatDuration(Math.max(0, Date.parse(job.finishedAt) - Date.parse(job.startedAt)))] as [string, string]]
-      : []),
-  ]
-  return (
-    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
-      {facts.map(([term, value]) => (
-        <Fragment key={term}>
-          <dt className="opacity-70">{term}</dt>
-          <dd className="break-words">{value}</dd>
-        </Fragment>
-      ))}
-    </dl>
-  )
-}
-
 /** A web app's public path, which its job carries. */
 function webAppUrl(job: Job): string | null {
   const url = (job.result as { url?: unknown } | null | undefined)?.url
   return typeof url === 'string' ? url : null
-}
-
-function NoLog() {
-  const { t } = useTranslation()
-  return <p className="rounded bg-muted/60 p-3 text-xs text-muted-foreground">{t('jobs.no_log')}</p>
-}
-
-/** A job's captured log in the read-only editor. Monaco renders no SGR sequences,
- *  so ANSI is stripped rather than shown raw; 'shell' highlights the `$ …` command
- *  lines the build/install steps echo. */
-function JobLogView({ text, height }: { text: string; height: string | number }) {
-  const plain = useMemo(() => stripAnsi(text), [text])
-  return (
-    <div className={cn('overflow-hidden rounded border', height === '100%' && 'min-h-0 flex-1')}>
-      <CodeViewer value={plain} language="shell" height={height} followEnd />
-    </div>
-  )
-}
-
-/** Figures (inline SVG) + result table collected by a 'run' job, shown under its
- *  log. Rendered from the sanitized SVG string / JSON table the batch run produced. */
-function JobArtifacts({ result }: { result: NonNullable<Job['result']> }) {
-  const { t } = useTranslation()
-  const figures = result.figures ?? []
-  const table = result.table
-  const html = result.html
-  if (figures.length === 0 && !table && !html) return null
-  return (
-    <div className="flex flex-col gap-3">
-      {figures.map((fig, i) => (
-        <div key={fig.id ?? i} className="rounded border bg-background p-2">
-          {fig.label && <p className="mb-1 text-[11px] text-muted-foreground">{fig.label}</p>}
-          {fig.type === 'svg' ? (
-            <div className="overflow-auto [&_svg]:max-w-full" dangerouslySetInnerHTML={{ __html: sanitizeHtml(fig.data) }} />
-          ) : (
-            <img src={`data:image/png;base64,${fig.data}`} alt={fig.label ?? 'figure'} className="max-w-full" />
-          )}
-        </div>
-      ))}
-      {html && (
-        // A widget (plotly/leaflet/DT) — self-contained HTML in a sandboxed iframe.
-        // NO allow-same-origin: a srcDoc iframe inherits our origin, and combining it
-        // with allow-scripts would let untrusted widget JS reach the parent origin
-        // (cookies/session/DOM). Plotly/leaflet/DT run fine on allow-scripts alone.
-        <iframe
-          srcDoc={html}
-          className="h-[60vh] w-full rounded border"
-          sandbox="allow-scripts"
-          title="widget"
-        />
-      )}
-      {table && (
-        <div className="overflow-auto rounded border">
-          <table className="w-full text-xs">
-            <thead className="bg-muted/60">
-              <tr>
-                {table.headers.map((h, i) => (
-                  <th key={i} className="border-b px-2 py-1 text-left font-medium">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {table.rows.slice(0, 200).map((row, ri) => (
-                <tr key={ri} className="odd:bg-muted/20">
-                  {row.map((cell, ci) => (
-                    <td key={ci} className="border-b px-2 py-1">{cell}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {table.rows.length > 200 && (
-            <p className="px-2 py-1 text-[10px] text-muted-foreground">
-              {t('jobs.table_truncated', { shown: 200, total: table.rows.length })}
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/** Short local date+time for a job row, e.g. "07/31 14:22:05" — the seconds
- *  because a page sends several queries a minute. Falsy/bad input → ''. */
-function formatJobTime(iso: string): string {
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return ''
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
-}
-
-/** How long a job ran, or has been running (ticking). Nothing while queued. */
-function JobDuration({ job, className }: { job: Pick<Job, 'status' | 'startedAt' | 'finishedAt'>; className?: string }) {
-  const { t } = useTranslation()
-  const live = job.status === 'running' && !!job.startedAt && !job.finishedAt
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!live) return
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [live])
-  if (!job.startedAt) return null
-  const end = job.finishedAt ? new Date(job.finishedAt).getTime() : live ? now : null
-  if (end == null) return null
-  const ms = Math.max(0, end - new Date(job.startedAt).getTime())
-  return (
-    <span className={cn('tabular-nums', className)} title={t(job.finishedAt ? 'jobs.duration_done' : 'jobs.duration_running')}>
-      {formatDuration(ms)}
-    </span>
-  )
-}
-
-/** A step of a job: how far it is, or that it waits for the ones before it. */
-function JobStepRow({ step, jobStatus }: { step: JobStep; jobStatus: Job['status'] }) {
-  const { t } = useTranslation()
-  // A step the job left mid-way (stopped, failed) reads as the job ended.
-  const icon = step.status === 'done' ? <JobStatusIcon status="done" />
-    : step.status === 'active' ? <JobStatusIcon status={ACTIVE.has(jobStatus) ? 'running' : jobStatus} />
-      : <Circle size={12} className="text-muted-foreground/50" />
-  return (
-    <li className="flex items-center gap-1.5 rounded px-1.5 py-1">
-      <span className="flex shrink-0">{icon}</span>
-      <span className={cn('min-w-0 truncate', step.status === 'pending' && 'text-muted-foreground')}>{step.label}</span>
-      <span className="ml-auto shrink-0 tabular-nums text-[10px] text-muted-foreground">
-        {step.status === 'pending'
-          ? t('jobs.step_pending')
-          : step.status === 'active'
-            ? `${step.total > 0 ? `${step.done}/${step.total} · ` : ''}${Math.floor(step.share * 100)}%`
-            : null}
-      </span>
-    </li>
-  )
-}
-
-function JobStatusIcon({ status }: { status: Job['status'] }) {
-  if (status === 'running' || status === 'queued')
-    return <Loader2 size={12} className="animate-spin text-muted-foreground" />
-  if (status === 'done') return <CheckCircle2 size={12} className="text-emerald-500" />
-  if (status === 'cancelled') return <Ban size={12} className="text-muted-foreground" />
-  return <XCircle size={12} className="text-destructive" />
-}
-
-// Past this, the layout would cost more than it helps: shown as it came.
-const PRETTY_MAX = 100_000
-
-/** `sql` laid out for reading once `on`; the text as it came meanwhile. */
-function usePrettySql(sql: string | null, on: boolean): string | null {
-  const [pretty, setPretty] = useState<{ from: string; text: string } | null>(null)
-  useEffect(() => {
-    if (!on || !sql || sql.length > PRETTY_MAX) return
-    let live = true
-    void prettySql(sql).then((text) => { if (live) setPretty({ from: sql, text }) })
-    return () => { live = false }
-  }, [sql, on])
-  return sql && pretty?.from === sql ? pretty.text : sql
 }

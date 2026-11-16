@@ -14,6 +14,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
 import duckdb
+import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +29,8 @@ from app.services.data import cohort_derive, connection_pool, db_connect, manage
 from app.services.execution import jobs
 
 _SCHEMA_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+
+logger = structlog.get_logger()
 
 
 class DeriveError(ValueError):
@@ -45,11 +48,33 @@ async def _source_spec(db: AsyncSession, source: DataSource, user_id: int) -> co
     return cohort_derive.SourceSpec(specs["source"])
 
 
-async def plan(db: AsyncSession, source: DataSource, level: str, scope: str | None, user_id: int) -> list[dict]:
+async def plan(
+    db: AsyncSession, source: DataSource, level: str, scope: str | None, user_id: int,
+    rebuild: tuple[DataSource, str | None] | None = None,
+) -> list[dict]:
+    """What deriving a cohort of `source` would do with each table. With `rebuild`
+    (the target, and its schema for a schema derivation), each table the target
+    already holds is flagged `built`, so the rebuild can name what it now leaves out
+    — a derivation recorded before `copiedUnproven` says nothing of it."""
     spec = await _source_spec(db, source, user_id)
     connection_pool.invalidate(source.id)
     mapping = cohort_derive.effective_mapping(source.schema_mapping or {}, source.schema_overrides)
-    return await asyncio.to_thread(cohort_derive.plan, spec, mapping, level, scope)
+    planned = await asyncio.to_thread(cohort_derive.plan, spec, mapping, level, scope)
+    if rebuild is None:
+        return planned
+    target, schema = rebuild
+    try:
+        specs = await data_source_service.role_attachments(db, {"source": target}, user_id)
+        connection_pool.invalidate(target.id)
+        built = await asyncio.to_thread(
+            cohort_derive.built_tables, cohort_derive.SourceSpec(specs["source"]), schema,
+        )
+    except Exception:  # noqa: BLE001
+        # Best effort: a target the user cannot read now (no login, gone) only
+        # loses the warning, never the plan.
+        logger.info("derive_plan_built_tables_unreadable", target_id=target.id)
+        return planned
+    return cohort_derive.flag_built(planned, built)
 
 
 # The engines a derivation writes into with a login of its own (`write`): their
@@ -440,7 +465,7 @@ async def validate(
     queueing a job that fails."""
     _check_options(body)
     if database_binding.is_foreign(target, source.workspace_id):
-        raise DeriveError(database_binding.FOREIGN_DATABASE)
+        raise database_binding.foreign_database()
     await _own_key(db, source.workspace_id, derivation_id(target, body))
     if body.target.kind == "new-database" and not _created(target).get("file"):
         # A build replaces the database's content: never one others filled.
@@ -493,13 +518,15 @@ async def derive(
     target_spec, config, new_location = await _target_spec(source, target, body, target_login)
     pseudonyms = await _pseudonyms(db, source, target, body, user_id)
     first_build = may_remove and t.kind == "new-database" and not _created(target).get("file")
+    flagged = "building" in _created(target)
     target_id = target.id  # read now: a rollback expires the instance
     try:
         return await _derive(
             db, source, target, body, cohort, mapping, spec, target_spec, config, new_location, progress,
             user_id, target_login, pseudonyms,
         )
-    except BaseException:
+    except BaseException as exc:
+        removed = False
         if first_build:
             await db.rollback()
             fresh = await db.get(DataSource, target_id)
@@ -507,7 +534,25 @@ async def derive(
                 # The derivation's error is the one to report, not a cleanup's.
                 with contextlib.suppress(Exception):
                     await data_source_service.delete(db, fresh)
+                    removed = True
+        # A first build that failed, rather than one a restart cut (no exception
+        # reaches here then, or a CancelledError), is settled now: left flagged,
+        # the next start would say the server restarted.
+        if flagged and not removed and isinstance(exc, Exception):
+            with contextlib.suppress(Exception):
+                await _settle_failed_first_build(db, target_id)
         raise
+
+
+async def _settle_failed_first_build(db: AsyncSession, target_id: str) -> None:
+    await db.rollback()
+    row = await db.get(DataSource, target_id)
+    if row is None or "building" not in _created(row):
+        return
+    row.linkr_created = {k: v for k, v in _created(row).items() if k != "building"} or None
+    row.status = "error"
+    row.error_message = "The derivation failed before it finished: its job in the jobs panel says why."
+    await db.commit()
 
 
 async def _derive(

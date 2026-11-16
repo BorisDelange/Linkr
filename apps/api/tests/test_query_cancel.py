@@ -294,3 +294,15 @@ def test_a_query_stuck_past_its_interrupt_frees_its_database(monkeypatch, tmp_pa
         release.set()
         holder.join(5)
         connection_pool.clear()
+
+
+@pytest.mark.parametrize("limit, detail", [
+    (900, {"code": "query_time_limit", "minutes": 15}),
+    (60, {"code": "query_time_limit", "minutes": 1}),
+    (30, {"code": "query_time_limit_seconds", "seconds": 30}),
+    (90, {"code": "query_time_limit_seconds", "seconds": 90}),
+])
+def test_the_time_limit_is_said_in_the_unit_it_was_set_in(limit, detail):
+    timed_out = query_cancel.TimedOut(limit)
+    assert {k: timed_out.detail[k] for k in detail} == detail
+    assert f"{limit}-second" in str(timed_out) if "seconds" in detail else f"{limit // 60}-minute" in str(timed_out)

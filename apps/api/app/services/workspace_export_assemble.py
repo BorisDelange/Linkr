@@ -366,7 +366,7 @@ def _to_portable_ranges(ranges: list[dict]) -> list[dict]:
 # --- projects ---------------------------------------------------------------
 
 
-async def _list_workspace_projects(db: AsyncSession, workspace_id: str) -> list[Project]:
+async def list_workspace_projects(db: AsyncSession, workspace_id: str) -> list[Project]:
     result = await db.execute(select(Project).where(Project.workspace_id == workspace_id))
     return list(result.scalars().all())
 
@@ -376,7 +376,7 @@ async def unreadable_project_uids(db: AsyncSession, workspace_id: str, user: Use
     never carries their content, whatever the caller holds on the workspace."""
     return {
         project.uid
-        for project in await _list_workspace_projects(db, workspace_id)
+        for project in await list_workspace_projects(db, workspace_id)
         if not await has_project_permission(db, project, user, "project-settings:read")
         or await unreadable_project_tree_reads(db, project, user)
     }
@@ -409,7 +409,7 @@ async def unreadable_sections(
     ]
 
 
-def _project_folder(project: Project) -> str:
+def project_folder(project: Project) -> str:
     """Port of ``folder = project.entityId || project.projectId || slugify(name)``.
 
     Both slug names are read: `entity_id` is what a project written after the
@@ -430,14 +430,14 @@ async def _projects_section(
     workspace_org: dict | None,
 ) -> list[dict]:
     entries: list[dict] = []
-    for project in await _list_workspace_projects(db, workspace_id):
+    for project in await list_workspace_projects(db, workspace_id):
         if opts.exclude_entities.get(project.uid):
             continue
         git = _resolve_git_remote(project.git_remote_config)
         entry: dict = {
             "meta": _dump(ProjectResponse, project),
             "git": git,
-            "folder": _project_folder(project),
+            "folder": project_folder(project),
             "readme": project.readme,
         }
         if not git:
@@ -1369,6 +1369,9 @@ async def _data_source_sub_tree(db: AsyncSession, source, dumped: dict) -> dict[
     # holding the repo without its Parquet reports different numbers than one
     # that has them. Twin of DATA_SOURCE_LOCAL_FIELDS in entity-io.ts.
     stripped.pop("stats", None)
+    # The relations held back from THIS reader until they accept their SQL: per
+    # user, never the database's. Twin of DATA_SOURCE_LOCAL_FIELDS in entity-io.ts.
+    stripped.pop("unacceptedFreeSql", None)
     if isinstance(stripped.get("derivedFrom"), dict):
         stripped["derivedFrom"] = _portable_derived_from(stripped["derivedFrom"])
     connection_config = stripped.pop("connectionConfig", None)

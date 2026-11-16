@@ -20,10 +20,20 @@ def redact_secrets(text: str) -> str:
     return _URL_PASSWORD.sub(r"\1***", _DSN_PASSWORD.sub(r"\1***", text))
 
 
-# These classes quote what the statement names (a column, a table), never a row.
-_NAMES_ONLY = re.compile(r"\s*(?:Binder|Catalog|Parser|Syntax|Dependency|Permission)\b")
-# First quote to last: a value may hold quotes of its own, and an unclosed one
-# hides the rest. The text between two values says nothing the statement doesn't.
+# These classes quote what the statement or the code names (a table, a column, a
+# variable), never a row — and the statement is in the access log already.
+_NAMES_ONLY = re.compile(
+    r"(?:Binder|Catalog|Parser|Syntax|Dependency|Permission) Error\b"
+    r"|(?:NameError|UnboundLocalError|AttributeError|ModuleNotFoundError|ImportError):"
+)
+# Where such a class may open its part of the text: at the start, after a
+# wrapper's `: ` (`Script “x” failed: Binder Error: …`) or on a line of its own.
+_PART_START = re.compile(r"(?:^|(?<=: )|(?<=\n))[ \t]*")
+# The next error on a line of its own ends a names-only part.
+_NEXT_ERROR = re.compile(r"\n(?=[ \t]*[A-Za-z_][\w. ]{0,60}(?:Error|Exception)\b)")
+# First quote to last, within one part: DuckDB echoes a value without escaping
+# the quotes it holds (`'O'DUMMY'`), and an unclosed one hides the rest. The
+# text between two values says nothing the statement doesn't.
 _SINGLE_QUOTED = re.compile(r"'.*'|'.*", re.DOTALL)
 _DOUBLE_QUOTED = re.compile(r'".*"|".*', re.DOTALL)
 _UNQUOTED_VALUE = (
@@ -34,12 +44,37 @@ _UNQUOTED_VALUE = (
 )
 
 
+def _names_only_start(text: str, pos: int) -> int | None:
+    """Where the first names-only part after `pos` opens — only behind text whose
+    quotes all close, so a row value can't open one by quoting a class name."""
+    for start in _PART_START.finditer(text, pos):
+        at = start.end()
+        if _NAMES_ONLY.match(text, at):
+            even = text.count("'", pos, at) % 2 == 0 and text.count('"', pos, at) % 2 == 0
+            return at if even else None
+    return None
+
+
+def _scrub_quotes(text: str) -> str:
+    parts: list[str] = []
+    pos = 0
+    while (at := _names_only_start(text, pos)) is not None:
+        end = _NEXT_ERROR.search(text, at)
+        stop = end.start() if end else len(text)
+        parts += [_scrub_part(text[pos:at]), text[at:stop]]
+        pos = stop
+    return "".join(parts) + _scrub_part(text[pos:])
+
+
+def _scrub_part(text: str) -> str:
+    return _DOUBLE_QUOTED.sub('"***"', _SINGLE_QUOTED.sub("'***'", text))
+
+
 def scrub_row_values(text: str) -> str:
     """`text` fit for a log: no secret, and none of the row values a failed cast or
-    constraint quotes. Whoever ran the statement still gets the original in the reply."""
-    text = _SINGLE_QUOTED.sub("'***'", redact_secrets(text))
-    if not _NAMES_ONLY.match(text):
-        text = _DOUBLE_QUOTED.sub('"***"', text)
+    constraint quotes; the names a schema error quotes stay, wherever it sits in the
+    text. Whoever ran the statement still gets the original in the reply."""
+    text = _scrub_quotes(redact_secrets(text))
     for pattern, replacement in _UNQUOTED_VALUE:
         text = pattern.sub(replacement, text)
     return text

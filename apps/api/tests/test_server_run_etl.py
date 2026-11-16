@@ -171,3 +171,58 @@ async def test_a_restart_leaves_a_cut_pipeline_to_its_user(client):
     await runs.recover_on_startup()
     left = (await client.get(f"{API}/server-runs/latest?kind=etl&scopeId={ds}", headers=headers)).json()
     assert left["status"] == "interrupted"
+
+
+async def _paused(client, headers, ds, pid) -> dict:
+    run = (await client.post(f"{API}/server-runs", headers=headers, json={"kind": "etl", "scopeId": ds, "spec": _spec(pid, SLOW)})).json()
+    while ds not in _etl_runs:
+        await asyncio.sleep(0.05)
+    await client.post(f"{API}/server-runs/{run['id']}/pause", headers=headers)
+    return await _until(client, headers, ds, {"paused"})
+
+
+async def test_cancelling_a_paused_pipeline_closes_its_history(client):
+    headers = await _admin(client)
+    ws, ds = await _target(client, headers)
+    pid = await _pipeline(client, headers, ws, ds)
+    paused = await _paused(client, headers, ds, pid)
+    assert (await _history(paused["id"])).status == "running"
+    r = await client.post(f"{API}/server-runs/{paused['id']}/cancel", headers=headers)
+    assert r.status_code == 200 and r.json()["status"] == "cancelled"
+    history = await _history(paused["id"])
+    assert history.status == "error" and history.completed_at
+    # Nothing left to resume.
+    assert (await client.post(f"{API}/server-runs/{paused['id']}/resume", headers=headers)).status_code == 409
+
+
+async def test_a_new_run_closes_the_paused_one_it_replaces(client):
+    headers = await _admin(client)
+    ws, ds = await _target(client, headers)
+    pid = await _pipeline(client, headers, ws, ds)
+    paused = await _paused(client, headers, ds, pid)
+    await client.post(f"{API}/server-runs", headers=headers, json={"kind": "etl", "scopeId": ds, "spec": _spec(pid, "SELECT 1;")})
+    await _until(client, headers, ds, {"done"})
+    assert (await _history(paused["id"])).status == "error"
+
+
+async def test_a_server_shutting_down_leaves_its_runs_for_the_next_process(client, monkeypatch):
+    from app.services.server_runs import executor
+
+    headers = await _admin(client)
+    ws, ds = await _target(client, headers)
+    pid = await _pipeline(client, headers, ws, ds)
+    run = (await client.post(f"{API}/server-runs", headers=headers, json={"kind": "etl", "scopeId": ds, "spec": _spec(pid, SLOW)})).json()
+    while ds not in _etl_runs:
+        await asyncio.sleep(0.05)
+    monkeypatch.setattr(executor, "_shutting_down", True)
+    # As the event loop's end cancels every task.
+    task = executor._tasks[run["id"]]
+    task.cancel()
+    await asyncio.wait({task}, timeout=30)
+    async with database.async_session() as db:
+        row = await db.get(ServerRun, run["id"])
+    assert row.status == "running" and row.requested is None
+    assert (await _history(run["id"])).status == "running"
+    # Still here and no executor: read as cut, for its user to resume.
+    monkeypatch.setattr(executor, "_shutting_down", False)
+    assert (await _until(client, headers, ds, {"interrupted"}))["id"] == run["id"]

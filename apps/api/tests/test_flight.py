@@ -419,7 +419,7 @@ async def test_a_flight_failure_is_detailed_only_to_an_administrator(client, db,
         return None
 
     monkeypatch.setattr(data_source_service, "flight_status", status)
-    monkeypatch.setattr("app.api.v1.routes.data_sources._login", login)
+    monkeypatch.setattr("app.api.v1.routes.data_sources.user_login", login)
 
     told = (await client.get(f"{API}/data-sources/dor/flight", headers=admin)).json()
     assert "10.0.0.3" in told["detail"]

@@ -2179,6 +2179,14 @@ class IDBDqRuleSetStorage implements DqRuleSetStorage {
   }
 }
 
+/** Rows written before groups carry a `tableName` that reads as the group when
+ *  `groupKey` is absent; writing a group retires it. */
+function mergeDqCheck(existing: DqCustomCheck, changes: Partial<DqCustomCheck>, now: string): DqCustomCheck {
+  const merged = { ...existing, ...changes, updatedAt: now } as DqCustomCheck & { tableName?: unknown }
+  if ('groupKey' in changes) delete merged.tableName
+  return merged
+}
+
 class IDBDqCustomCheckStorage implements DqCustomCheckStorage {
   async getByRuleSet(ruleSetId: string): Promise<DqCustomCheck[]> {
     const db = await getDB()
@@ -2217,7 +2225,7 @@ class IDBDqCustomCheckStorage implements DqCustomCheckStorage {
     const db = await getDB()
     const existing = await db.get('dq_custom_checks', id)
     if (!existing) return
-    await db.put('dq_custom_checks', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+    await db.put('dq_custom_checks', mergeDqCheck(existing, changes, new Date().toISOString()))
   }
 
   async updateMany(ruleSetId: string, patches: { id: string; changes: Partial<DqCustomCheck> }[]): Promise<void> {
@@ -2228,7 +2236,7 @@ class IDBDqCustomCheckStorage implements DqCustomCheckStorage {
       for (const { id, changes } of patches) {
         const existing = await tx.store.get(id)
         if (!existing || existing.ruleSetId !== ruleSetId) continue
-        await tx.store.put({ ...existing, ...changes, updatedAt: now })
+        await tx.store.put(mergeDqCheck(existing, changes, now))
       }
     }
     await Promise.all([run(), tx.done])

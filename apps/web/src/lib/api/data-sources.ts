@@ -195,14 +195,22 @@ export interface DerivePlanTable {
   columns?: string[]
   /** The id columns a pseudonymised build replaces. */
   pseudonymized?: string[]
+  /** Asked for a rebuild: the target already holds this table. */
+  built?: boolean
 }
 
 /** What deriving a cohort of this database at `level`, keeping `scope`, would
- *  do with each table. */
-export function fetchDerivePlan(dataSourceId: string, level: CohortLevel, scope?: DeriveScope): Promise<DerivePlanTable[]> {
+ *  do with each table. With `rebuild`, each table that derivation's target already
+ *  holds comes back `built`. */
+export function fetchDerivePlan(
+  dataSourceId: string,
+  level: CohortLevel,
+  scope?: DeriveScope,
+  rebuild?: { dataSourceId: string; schemaName?: string | null },
+): Promise<DerivePlanTable[]> {
   return apiRequest(`/data-sources/${encodeURIComponent(dataSourceId)}/derive-plan`, {
     method: 'POST',
-    body: JSON.stringify({ level, ...(scope ? { scope } : {}) }),
+    body: JSON.stringify({ level, ...(scope ? { scope } : {}), ...(rebuild ? { rebuild } : {}) }),
   })
 }
 

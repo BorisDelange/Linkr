@@ -22,7 +22,8 @@ from pathlib import Path
 import pytest
 
 import engines
-from app.services.data import db_connect, pushdown
+from app.services.data import db_connect, pushdown, read_only_logins
+from app.services.data.community_engines import LoginNotReadOnly
 
 CORPUS = os.environ.get("MATRIX_CORPUS")
 DATA = Path(os.environ.get("MATRIX_DATA", ""))
@@ -145,3 +146,47 @@ def test_engine_answers_like_the_reference(engine: str, query: dict):
     else:
         entry["status"] = "same"
     assert got == want, f"{engine} answers {query['key']} differently from the Parquet reference: {entry['first_difference']}"
+
+
+# The login checks of read_only_logins, on the real servers: the matrix's reader
+# is proven read-only and keeps the text functions; the datamart's owner still
+# reads its tables but is refused them.
+_TEXT_FUNCTION = {"postgresql": "postgres_query", "mysql": "mysql_query"}
+_OWNER_LOGIN = {"postgresql": "linkr_reader", "mysql": "root"}
+
+
+def _attached_with(engine: str, username: str | None = None):
+    reach = engines.linkr_config(engine)
+    if engine not in ENGINES or reach is None:
+        pytest.skip(f"{engine} is not in this run")
+    config, password = reach
+    if username:
+        config = {**config, "username": username}
+    read_only_logins.forget(config)
+    con = db_connect._connect(db_connect._engine_spec(config)["extension"])
+    db_connect._attach(con, config, password)
+    return con
+
+
+@pytest.mark.parametrize("engine", ["postgresql", "mysql"])
+def test_the_matrix_reader_is_proven_read_only(engine: str):
+    con = _attached_with(engine)
+    try:
+        _, verdict = read_only_logins._attached[con]["ext"]
+        assert verdict.read_only, verdict
+        db_connect._statements_to_run(con, f"SELECT * FROM {_TEXT_FUNCTION[engine]}('ext', 'SELECT 1')")
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("engine", ["postgresql", "mysql"])
+def test_the_datamart_owner_attaches_but_is_refused_the_text_functions(engine: str):
+    con = _attached_with(engine, _OWNER_LOGIN[engine])
+    try:
+        _, verdict = read_only_logins._attached[con]["ext"]
+        assert verdict.verified and verdict.held, verdict
+        with pytest.raises(LoginNotReadOnly):
+            db_connect._statements_to_run(con, f"SELECT * FROM {_TEXT_FUNCTION[engine]}('ext', 'SELECT 1')")
+        assert con.execute(f"SELECT COUNT(*) FROM ext.{engines.SCHEMA}.person").fetchone()[0] > 0
+    finally:
+        con.close()

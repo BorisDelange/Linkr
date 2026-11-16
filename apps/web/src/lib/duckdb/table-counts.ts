@@ -1,5 +1,5 @@
 import * as duckdbEngine from '@/lib/duckdb/engine'
-import { followServerPlan, preparePlan } from '@/lib/server-runs/query-plan'
+import { followServerPlan, preparePlan, signedPlan } from '@/lib/server-runs/query-plan'
 import { isServerMode } from '@/lib/api-client'
 import i18n from '@/lib/i18n'
 import { getStorage } from '@/lib/storage'
@@ -124,11 +124,11 @@ export async function countAllTables(
     // timeout or runs beside another heavy query, a reload finds it going on, and
     // the jobs panel can stop it.
     let done = 0
-    const plan = await preparePlan(dataSourceId, {
+    const plan = signedPlan(await preparePlan(dataSourceId, {
       label: i18n.t('databases.count_tables_job'),
       items: tables.map((table, i) => ({ key: `t${i}`, sql: `SELECT COUNT(*) as cnt FROM ${quoteTableRef(table)}`, what: `Rows of ${table}` })),
       keepGoing: true,
-    })
+    }))
     await followServerPlan('database_stats', `${dataSourceId}:counts`, plan, (i, rows, error) => {
       if (error == null && rows) counts.set(tables[i], Number(rows[0]?.cnt ?? 0))
       options.onBatch?.(new Map(counts))

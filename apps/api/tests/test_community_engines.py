@@ -136,6 +136,18 @@ def test_the_sqlserver_login_check_reads_grants_on_objects_and_what_it_owns():
     assert "o.principal_id = DATABASE_PRINCIPAL_ID()" in query
 
 
+def test_execute_on_a_tsql_function_reads_on_a_procedure_it_does_not():
+    con = _FakeCon({"sysadmin": [(0,) * 9], "fn_my_permissions": [("SELECT",)]})
+    community_engines._require_read_only_sqlserver_login(con, "ext")
+    query = next(s for s in con.sql if "fn_my_permissions" in s)
+    # The object-level branch leaves out EXECUTE on T-SQL functions only:
+    # procedures (P, PC, X) and CLR functions (FS, FT) still count.
+    assert "dp.permission_name = ''EXECUTE'' AND o.type IN (''FN'', ''IF'', ''TF'')" in query
+    for kind in ("''P''", "''PC''", "''X''", "''FS''", "''FT''"):
+        assert kind not in query
+    assert community_engines._is_sqlserver_write_permission("EXECUTE")
+
+
 def test_a_refused_sqlserver_login_is_told_how_to_become_read_only():
     con = _FakeCon({
         "IS_SRVROLEMEMBER": [(0,) * 9],
@@ -266,3 +278,97 @@ def test_not_materialized_hints_are_dropped_for_sql_server():
     assert db_connect._materialization_left_to_duckdb(sql) == (
         "WITH x AS (SELECT 1), y AS (SELECT 2) SELECT 'NOT MATERIALIZED' FROM x, y"
     )
+
+
+def test_a_refused_sqlserver_login_is_a_coded_refusal():
+    con = _FakeCon({"IS_SRVROLEMEMBER": [(0,) * 9], "fn_my_permissions": [("SELECT",), ("EXECUTE",)]})
+    with pytest.raises(community_engines.LoginNotReadOnly) as refused:
+        community_engines.attach(con, "ext", SQLSERVER, "pw")
+    assert refused.value.detail == {
+        "code": "sqlserver_login_not_read_only_execute", "message": str(refused.value),
+        "held": "EXECUTE", "steps": "DENY EXECUTE TO [reader]",
+    }
+    con = _FakeCon({"IS_SRVROLEMEMBER": [(0, 0, 1, 0, 0, 0, 0, 0, 0)]})
+    with pytest.raises(community_engines.LoginNotReadOnly) as refused:
+        community_engines.attach(con, "ext", SQLSERVER, "pw")
+    assert refused.value.code == "sqlserver_login_not_read_only"
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM postgres_query('ext', 'SELECT a FROM t')",
+    "SELECT * FROM postgres_query('ext', '/* c */ (SELECT a FROM t WHERE b = ''DELETE; x'');')",
+    "SELECT * FROM postgres_query('ext', 'WITH d AS (SELECT 1) SELECT \"update\", updated_at FROM d')",
+    "SELECT * FROM mysql_query('ext', 'SHOW CREATE TABLE t')",
+    "SELECT * FROM mysql_query('ext', 'SELECT `delete` FROM t -- ; DELETE')",
+    "SELECT * FROM mysql_query('ext', 'EXPLAIN SELECT 1')",
+])
+def test_text_sent_to_the_database_may_read(sql):
+    db_connect._reject_passthrough_calls(sql)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM mysql_query('ext', 'COMMIT')",
+    "SELECT * FROM mysql_query('ext', 'DELETE FROM t')",
+    "SELECT * FROM mysql_query('ext', '  /* x */ SET autocommit = 1')",
+    "SELECT * FROM mysql_query('ext', 'SELECT 1; DELETE FROM t')",
+    "SELECT * FROM mysql_query('ext', 'SELECT * FROM t INTO OUTFILE ''/tmp/x''')",
+    "SELECT * FROM postgres_query('ext', 'WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d')",
+    "SELECT * FROM postgres_query('ext', 'SELECT * INTO t2 FROM t')",
+    "SELECT * FROM postgres_query('ext', 'EXPLAIN ANALYZE UPDATE t SET a = 1')",
+    "SELECT * FROM postgres_query('ext', 'SELECT 1 /* x */; DROP TABLE t')",
+    "SELECT * FROM postgres_query('ext', 'SELECT $$a$$; DROP TABLE t')",
+    "SELECT * FROM postgres_query('ext', 'SELECT ''a\\'' ; DROP TABLE t; --''')",
+    "SELECT * FROM postgres_query('ext', 'SELECT ' || 'DROP')",
+    "SELECT * FROM mysql_query('ext', getvariable('q'))",
+    "SELECT * FROM mysql_query('ext', 'SELECT 1', 'x')",
+    "SELECT * FROM query('SELECT * FROM mysql_query(''ext'', ''DELETE FROM t'')')",
+])
+def test_text_sent_to_the_database_must_be_one_read(sql):
+    with pytest.raises(ValueError):
+        db_connect._reject_passthrough_calls(sql)
+
+
+@pytest.mark.parametrize("sql", [
+    "WITH query(a, b) AS (SELECT 1, 2) SELECT * FROM query",
+    "WITH x AS (SELECT 1), query(a) AS MATERIALIZED (SELECT 2) SELECT * FROM query",
+    "INSERT INTO query (a) VALUES (1)",
+    "CREATE TABLE IF NOT EXISTS query(a INT)",
+])
+def test_a_relation_named_query_is_no_call(sql):
+    db_connect._reject_passthrough_calls(sql, dynamic_sql=True)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM (SELECT 1) x, query('SELECT 1') AS q",
+    "CREATE MACRO m(s) AS TABLE SELECT * FROM query(s)",
+])
+def test_a_call_of_query_is_still_one(sql):
+    with pytest.raises(ValueError, match="query"):
+        db_connect._reject_passthrough_calls(sql, dynamic_sql=True)
+
+
+def test_sqlite_functions_that_describe_the_library_may_stay_in_a_view():
+    db_connect._reject_passthrough_calls("SELECT sqlite_version(), sqlite_source_id()", dynamic_sql=True)
+    for call in ("sqlite_scan('x.db', 't')", "sqlite_attach('x.db')", "sqlite_query('x.db', 'SELECT 1')"):
+        with pytest.raises(ValueError, match="only the databases Linkr attached"):
+            db_connect._reject_passthrough_calls(f"SELECT * FROM {call}", dynamic_sql=True)
+
+
+def test_an_extension_is_loaded_before_any_install_is_tried():
+    class Con:
+        def __init__(self, installed):
+            self.installed, self.sql = installed, []
+
+        def execute(self, sql):
+            self.sql.append(sql)
+            if sql.startswith("LOAD") and not self.installed:
+                raise duckdb.IOException("Extension not found")
+            if sql.startswith("INSTALL"):
+                self.installed = True
+
+    present = Con(installed=True)
+    db_connect._load_or_install(present, "sqlite")
+    assert present.sql == ["LOAD sqlite"]
+    missing = Con(installed=False)
+    db_connect._load_or_install(missing, "sqlite")
+    assert missing.sql == ["LOAD sqlite", "INSTALL sqlite", "LOAD sqlite"]

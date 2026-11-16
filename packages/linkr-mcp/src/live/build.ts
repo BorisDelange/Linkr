@@ -8,6 +8,7 @@ import { registerContextTools } from './tools-context.js'
 import { registerDocsTools } from './tools-docs.js'
 import { registerDeriveTools } from './tools-derive.js'
 import { registerDqTools } from './tools-dq.js'
+import { registerDqGroupTools } from './tools-dq-groups.js'
 import { registerEtlTools } from './tools-etl.js'
 import { registerGatewayTools } from './tools-gateway.js'
 import { registerGitTools } from './tools-git.js'
@@ -32,7 +33,7 @@ export const TOOLSETS: Record<string, Register[]> = {
   context: [registerContextTools, registerDocsTools],
   workspace: [registerWorkspaceTools],
   warehouse: [registerWarehouseTools, registerCohortExtraTools, registerConceptTools, registerDeriveTools],
-  dq: [registerDqTools],
+  dq: [registerDqTools, registerDqGroupTools],
   lab: [
     registerLabTools, registerLabDatasetTools, registerPipelineTools, registerPatientBoardTools, registerDashboardExtraTools,
     registerUserPluginTools,

@@ -1,10 +1,12 @@
 import asyncio
 import fcntl
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
+import httpx
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -13,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 import app.models  # noqa: F401  -- populate Base.metadata
 from app.config import settings
-from app.core import audit, crypto
+from app.core import audit, crypto, setup_token
 from app.core.database import get_db
 from app.core.permissions import seed_default_roles
 from app.core.security import pwd_context
@@ -65,6 +67,30 @@ def _shared_r_cache(monkeypatch):
 
     for name in ("ensure_r_sandbox", "ensure_kernel_r_lib", "ensure_client_r_lib"):
         monkeypatch.setattr(renv_provisioner, name, _under_cache_lock(getattr(renv_provisioner, name)))
+
+
+# What the lifespan, which the tests do not run, checks and arms. The default key is
+# an example one, on which the API serves nothing (core/example_secret.py). Set once
+# here, not by a fixture's monkeypatch, which a test's monkeypatch.undo() would revert.
+settings.secret_key = "tests-only-signing-key-not-a-secret-0123456789"
+settings.setup_token = "tests-setup-token"
+setup_token.arm()
+
+
+class _SetupPageTransport(ASGITransport):
+    """Sends the setup token with a first-admin request that names none, as the setup
+    page does: only test_setup_auth.py is about the token."""
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path == "/api/v1/setup/initialize":
+            try:
+                body = json.loads(request.content)
+            except (httpx.RequestNotRead, ValueError):
+                body = None
+            if isinstance(body, dict) and "setup_token" not in body:
+                headers = [(k, v) for k, v in request.headers.multi_items() if k.lower() != "content-length"]
+                request = httpx.Request("POST", request.url, headers=headers, json={**body, "setup_token": setup_token.current()})
+        return await super().handle_async_request(request)
 
 
 @pytest.fixture(autouse=True)
@@ -305,7 +331,7 @@ async def client(engine, seed_roles, monkeypatch):
     app.dependency_overrides[get_db] = _override_get_db
     _route_sessions_to(maker, monkeypatch)
 
-    transport = ASGITransport(app=app)
+    transport = _SetupPageTransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.clear()

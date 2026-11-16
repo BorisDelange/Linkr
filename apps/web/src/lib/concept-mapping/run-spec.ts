@@ -2,7 +2,7 @@
  * What a server-owned concept run is given (apps/api schemas/concept_run.py):
  * its SQL compiled here, once, by the builders client-only mode runs itself —
  * the server fills in each batch's and each page's ids, and assembles the
- * profiles from the rows (services/concept_runs/profiles.py, a twin of this
+ * profiles from the rows (services/server_runs/concepts/profiles.py, a twin of this
  * folder's assembly).
  */
 

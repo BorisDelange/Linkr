@@ -1,6 +1,6 @@
 /**
  * Golden twin fixture for the pure half of a concept run, which the server runs
- * in Python (apps/api/app/services/concept_runs/profiles.py, checked against the
+ * in Python (apps/api/app/services/server_runs/concepts/profiles.py, checked against the
  * same file by apps/api/tests/test_concept_runs_profiles.py): ranking, batch
  * packing, the profiles read from a batch query's rows, the profile store's
  * merge and filter, the extracted CSV rows.

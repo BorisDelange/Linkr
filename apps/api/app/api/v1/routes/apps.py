@@ -37,6 +37,7 @@ from app.config import settings
 from app.core import audit, trusted_header
 from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
+from app.core.refusal import refusal_detail
 from app.core.security import predates_password_change
 from app.models.project import Project
 from app.models.user import User
@@ -103,7 +104,7 @@ async def start_app(
     try:
         file = project_fs._safe_join(project_fs.scripts_dir(body.project_uid), body.path)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
     if not file.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
 

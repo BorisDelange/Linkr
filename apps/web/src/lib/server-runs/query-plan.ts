@@ -8,6 +8,7 @@ import {
   type ServerRun,
   type ServerRunKind,
 } from '@/lib/api/server-runs'
+import { retrying, sleep } from './retry'
 
 /**
  * Queries that do not depend on each other, compiled once by the page: in server
@@ -68,6 +69,10 @@ export async function runPlanLocally(dataSourceId: string, plan: QueryPlan, orig
   return out
 }
 
+const readResult = (runId: string, key: string, signal?: AbortSignal) => retrying(() => apiRequest<{ rows: Record<string, unknown>[] }>(
+  `/server-runs/${encodeURIComponent(runId)}/results/${encodeURIComponent(key)}`,
+), signal)
+
 /** A finished run's results, read from the server: the rows it kept, the errors it recorded. */
 export async function runResults(runId: string, state: QueryListState, keys: readonly string[]): Promise<PlanResults> {
   const out: PlanResults = new Map()
@@ -78,9 +83,7 @@ export async function runResults(runId: string, state: QueryListState, keys: rea
       return
     }
     if (state.rows?.[key] === undefined) return
-    const { rows } = await apiRequest<{ rows: Record<string, unknown>[] }>(
-      `/server-runs/${encodeURIComponent(runId)}/results/${encodeURIComponent(key)}`,
-    )
+    const { rows } = await readResult(runId, key)
     out.set(key, rows)
   }))
   return out
@@ -97,20 +100,36 @@ export function signatureOf(parts: readonly string[]): string {
   return (h >>> 0).toString(36)
 }
 
+/** The plan signed by what its queries are, each with its key: a run of other
+ *  queries, or of the same ones in another order, is not taken for its own. */
+export function signedPlan(plan: QueryPlan): QueryPlan {
+  return { ...plan, meta: { ...plan.meta, signature: signatureOf(plan.items.flatMap((item) => [item.key, item.sql])) } }
+}
+
 /** How often a followed run is read again. */
 const FOLLOW_MS = 1000
 /** How often a cancelled run is read again until it has stopped. */
 const STOPPING_MS = 200
 
-/** A run of another definition gives way: cancelled, then this plan's started once it has stopped. */
+const scopeKey = (kind: ServerRunKind, scopeId: string) => `${kind}|${scopeId}`
+/** The cancel each scope's last stopped follow asked for, until the server has it:
+ *  a plan started again at once (a re-run) waits for it, and then finds the
+ *  run being stopped, rather than join it as it goes. */
+const stopping = new Map<string, Promise<void>>()
+
+/** Asked to stop: it ends cancelled (or paused), whatever its signature. */
+const beingStopped = (run: ServerRun<unknown>) => run.status === 'pausing' || run.requested === 'cancel'
+
+/** The run here gives way: cancelled, then this plan's started once it has stopped. */
 async function replace<S>(kind: ServerRunKind, scopeId: string, run: ServerRun<S>, plan: QueryPlan, signal?: AbortSignal) {
   await cancelServerRun(run.id)
   for (;;) {
-    const latest = await getLatestServerRun<S>(kind, scopeId)
+    const latest = await retrying(() => getLatestServerRun<S>(kind, scopeId), signal)
     if (!latest || !ACTIVE_RUN_STATUSES.includes(latest.status)) break
     signal?.throwIfAborted()
-    await new Promise((resolve) => setTimeout(resolve, STOPPING_MS))
+    await sleep(STOPPING_MS, signal)
   }
+  signal?.throwIfAborted()
   return startServerRun<S>(kind, scopeId, plan)
 }
 
@@ -120,57 +139,98 @@ async function replace<S>(kind: ServerRunKind, scopeId: string, run: ServerRun<S
  * rows handed to `onRows` as they land, in no particular order. `resumeOnly`:
  * only join one going on — or, with `finished`, one done meanwhile; null when
  * there is none. A plan signed (`meta.signature`) joins only a run of the same
- * signature: one of another definition is replaced, or not joined. A stop from
- * here (`signal`) cancels the run.
+ * signature: one of another definition — or one being stopped — is replaced,
+ * or not joined. A stop from here (`signal`) cancels the run.
  */
 export async function followServerPlan(
   kind: ServerRunKind,
   scopeId: string,
   plan: QueryPlan,
   onRows: (index: number, rows: Record<string, unknown>[] | null, error?: string) => void,
-  { signal, resumeOnly = false, finished = false }: { signal?: AbortSignal; resumeOnly?: boolean; finished?: boolean } = {},
+  { signal, resumeOnly = false, finished = false, onRun }: {
+    signal?: AbortSignal; resumeOnly?: boolean; finished?: boolean
+    /** The run followed, once known — before any of its rows. */
+    onRun?: (run: ServerRun<QueryListState>) => void
+  } = {},
 ): Promise<ServerRun<QueryListState> | null> {
-  let run = resumeOnly
-    ? await getLatestServerRun<QueryListState>(kind, scopeId)
-    : await startServerRun<QueryListState>(kind, scopeId, plan)
-  if (!run) return null
-  // `finished`: a run that ended while no page followed it is taken up too.
-  if (resumeOnly && !ACTIVE_RUN_STATUSES.includes(run.status) && !(finished && run.status === 'done')) return null
+  const key = scopeKey(kind, scopeId)
   const signature = plan.meta?.signature
-  if (signature !== undefined && run.state.meta?.signature !== signature) {
-    if (resumeOnly) return null
-    run = await replace(kind, scopeId, run, plan, signal)
+  const ours = (r: ServerRun<QueryListState>) => signature === undefined || r.state.meta?.signature === signature
+
+  let run: ServerRun<QueryListState> | null = null
+  // Stopped before its run was known: the stop is held until it is, or none comes.
+  let release: (() => void) | undefined
+  const hold = (promise: Promise<void>) => {
+    stopping.set(key, promise)
+    void promise.then(() => { if (stopping.get(key) === promise) stopping.delete(key) })
   }
-  const index = new Map(plan.items.map((item, i) => [item.key, i]))
-  const delivered = new Set<string>()
-  const stop = () => { if (run) void cancelServerRun(run.id).catch(() => {}) }
-  signal?.addEventListener('abort', stop, { once: true })
+  const cancel = (target: ServerRun<QueryListState>) => {
+    hold(cancelServerRun(target.id).then(() => {}, () => {}))
+    release?.()
+  }
+  const onAbort = () => {
+    if (run) cancel(run)
+    else hold(new Promise<void>((resolve) => { release = resolve }))
+  }
+  // The run followed from now on; one taken up after the stop is stopped at once.
+  const follow = (next: ServerRun<QueryListState>) => {
+    run = next
+    if (signal?.aborted) {
+      cancel(next)
+      signal.throwIfAborted()
+    }
+    return next
+  }
+  signal?.addEventListener('abort', onAbort, { once: true })
   try {
+    let current: ServerRun<QueryListState>
+    if (resumeOnly) {
+      const latest = await retrying(() => getLatestServerRun<QueryListState>(kind, scopeId), signal)
+      if (!latest) return null
+      // `finished`: a run that ended while no page followed it is taken up too.
+      if (!ACTIVE_RUN_STATUSES.includes(latest.status) && !(finished && latest.status === 'done')) return null
+      if (!ours(latest)) return null
+      current = follow(latest)
+    } else {
+      while (stopping.has(key)) await stopping.get(key)
+      signal?.throwIfAborted()
+      current = follow(await startServerRun<QueryListState>(kind, scopeId, plan))
+      if (!ours(current) || (ACTIVE_RUN_STATUSES.includes(current.status) && beingStopped(current))) {
+        current = follow(await replace(kind, scopeId, current, plan, signal))
+      }
+    }
+    onRun?.(current)
+    const index = new Map(plan.items.map((item, i) => [item.key, i]))
+    const delivered = new Set<string>()
     for (;;) {
-      const state = run.state
-      for (const [key, i] of index) {
-        if (delivered.has(key)) continue
-        const error = state.errors?.[key]
+      const state = current.state
+      for (const [k, i] of index) {
+        if (delivered.has(k)) continue
+        const error = state.errors?.[k]
         if (error !== undefined) {
-          delivered.add(key)
+          delivered.add(k)
           onRows(i, null, error)
-        } else if (state.rows?.[key] !== undefined) {
-          delivered.add(key)
-          const { rows } = await apiRequest<{ rows: Record<string, unknown>[] }>(
-            `/server-runs/${encodeURIComponent(run.id)}/results/${encodeURIComponent(key)}`,
-          )
+        } else if (state.rows?.[k] !== undefined) {
+          delivered.add(k)
+          const { rows } = await readResult(current.id, k, signal)
           onRows(i, rows)
         }
       }
-      if (!ACTIVE_RUN_STATUSES.includes(run.status)) return run
+      if (!ACTIVE_RUN_STATUSES.includes(current.status)) return current
       signal?.throwIfAborted()
-      await new Promise((resolve) => setTimeout(resolve, FOLLOW_MS))
-      signal?.throwIfAborted()
-      const next = await getLatestServerRun<QueryListState>(kind, scopeId)
-      if (!next || next.id !== run.id) return run
-      run = next
+      await sleep(FOLLOW_MS, signal)
+      const next = await retrying(() => getLatestServerRun<QueryListState>(kind, scopeId), signal)
+      if (!next) return { ...current, status: 'cancelled', finishedAt: new Date().toISOString() }
+      if (next.id !== current.id) {
+        // Another run took its place (another tab, the MCP): ours has ended.
+        // One of the same definition computes the same, and is followed from its start.
+        if (!ours(next)) return { ...current, status: 'cancelled', error: 'replaced by another run', finishedAt: next.createdAt }
+        delivered.clear()
+      }
+      current = follow(next)
     }
   } finally {
-    signal?.removeEventListener('abort', stop)
+    signal?.removeEventListener('abort', onAbort)
+    release?.()
   }
 }

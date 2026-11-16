@@ -10,6 +10,7 @@ from app.core import audit
 from app.config import settings
 from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
+from app.core.refusal import refusal_detail
 from app.core.security import create_kernel_token
 from app.core.permissions import (
     check_project_permission,
@@ -36,6 +37,7 @@ from app.schemas.execution_session import (
 )
 from app.services import (
     code_acceptance_service,
+    database_binding,
     database_credential_service,
     data_source_service,
     dataset_service,
@@ -125,13 +127,18 @@ async def _require_execute(
 
 
 async def _require_connection_access(
-    db: AsyncSession, connection_id: str, user: User
+    db: AsyncSession, connection_id: str, user: User, project_uid: str
 ):
-    """Load a data source only if the user may read its workspace. Returns the
-    source (guarding sql_query() from reaching an arbitrary connection)."""
+    """Load a data source only if it is of the project's workspace and the user may
+    read it. Returns the source (guarding sql_query() from reaching an arbitrary
+    connection: a member of two workspaces would otherwise run a project's code on
+    the other one's database)."""
     source = await data_source_service.get(db, connection_id)
     if source is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Connection not found")
+    project = await db.get(Project, project_uid)
+    if project is None or database_binding.is_foreign(source, project.workspace_id):
+        raise database_binding.foreign_database()
     await check_workspace_permission(db, source.workspace_id, user, "databases:read")
     return source
 
@@ -180,7 +187,7 @@ def _with_context(body: ExecuteRequest) -> str:
     try:
         return injection.context_preamble(body.language, body.context_vars) + body.code
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
 
 
 @router.post("", response_model=ExecuteResponse)
@@ -216,7 +223,7 @@ async def execute_code(
     # connection's source so the connection config never reaches the kernel.
     resolver = None
     if body.connection_id:
-        source = await _require_connection_access(db, body.connection_id, user)
+        source = await _require_connection_access(db, body.connection_id, user, body.project_uid)
         login = await database_credential_service.resolve_login(db, source, user.id)
 
         async def resolver(sql: str):
@@ -377,7 +384,7 @@ async def render_component(
     try:
         analysis_code = render.build_render_code(body.kind, body.spec)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
 
     # Renders are Python-only today; the dataset is injected as `dataset` first.
     # Warnings are silenced: every component shows any stderr as the widget's error,
@@ -543,7 +550,7 @@ async def delete_session(
     await execution_session_service.delete(db, session)
 
 
-async def _make_ws_resolver(connection_id: str | None, user: User):
+async def _make_ws_resolver(connection_id: str | None, user: User, project_uid: str):
     """Build a SQL resolver bound to the connection, if any (mirrors POST /execute
     so sql_query() works in the terminal too). Loaded once at connect time.
 
@@ -553,7 +560,7 @@ async def _make_ws_resolver(connection_id: str | None, user: User):
         return None
     async with async_session() as db:
         try:
-            source = await _require_connection_access(db, connection_id, user)
+            source = await _require_connection_access(db, connection_id, user, project_uid)
         except HTTPException:
             return None
 
@@ -614,7 +621,7 @@ async def _terminal_kernel_loop(
         await websocket.send_json({"type": "error", "data": str(e)})
         await websocket.close()
         return
-    resolver = await _make_ws_resolver(connection_id, user)
+    resolver = await _make_ws_resolver(connection_id, user, project_uid)
 
     # Set on socket teardown so the drain below reads the run to completion WITHOUT
     # sending: the socket is already closed, and a failing send would abort the drain

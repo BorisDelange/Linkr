@@ -184,6 +184,8 @@ def nullish(value: Any, fallback: Any) -> Any:
 
 def js_slice_head(items: Sequence, end: Any) -> list:
     """`items.slice(0, end)`."""
+    if end is UNDEFINED:
+        return list(items)
     n = js_number(end)
     if isinstance(n, float) and math.isnan(n):
         return []

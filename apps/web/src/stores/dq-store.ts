@@ -131,13 +131,26 @@ export const useDqStore = create<DqState>((set, get) => ({
     set((s) => ({ dqRuleSets: [...s.dqRuleSets, ruleSet] }))
   },
 
+  // Optimistic: a second change made before the first is written (two quick
+  // drags of a category) builds on the first instead of undoing it.
   updateRuleSet: async (id, changes) => {
-    await getStorage().dqRuleSets.update(id, changes)
+    const storage = getStorage().dqRuleSets
     set((s) => ({
       dqRuleSets: s.dqRuleSets.map((rs) =>
         rs.id === id ? { ...rs, ...changes, updatedAt: new Date().toISOString() } : rs,
       ),
     }))
+    try {
+      await storage.update(id, changes)
+    } catch (err) {
+      // Back to what is stored: a later change may have landed meanwhile.
+      const stored = await storage.getById(id).catch(() => undefined)
+      if (stored) {
+        stored.checkGroups = readCheckGroups(stored.checkGroups)
+        set((s) => ({ dqRuleSets: s.dqRuleSets.map((rs) => (rs.id === id ? { ...rs, ...stored } : rs)) }))
+      }
+      throw err
+    }
   },
 
   deleteRuleSet: async (id) => {

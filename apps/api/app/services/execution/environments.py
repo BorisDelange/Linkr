@@ -91,6 +91,12 @@ def preset_for(workspace_default: dict | None, language: str) -> list[str]:
     return DEFAULT_PACKAGES.get(language, [])
 
 
+def preset_text(language: str, packages: list[str]) -> str:
+    """What a user accepts before a workspace's own package list is resolved into a
+    project: resolving builds source packages, which runs their code."""
+    return "\n".join([f"# Default {language_label(language)} packages of the workspace", *packages])
+
+
 async def install_preset(
     db: AsyncSession, project_uid: str, language: str, packages: list[str]
 ) -> Environment:

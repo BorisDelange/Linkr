@@ -75,3 +75,23 @@ async def test_derived_database_exports_without_count_or_server_names(client, db
     assert [m["derivedFrom"] for m in manifests] == [PORTABLE]
     for local in (b"dm_cohort_private", b"dm_private_corr", b"local-corr-id", b"local-db-id", b'"patientCount"'):
         assert local not in everything
+
+
+async def test_a_database_exports_none_of_the_fields_its_browser_twin_keeps_local(client, db):
+    import re
+    from pathlib import Path
+
+    headers = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    r = await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": ws, "alias": "plain", "name": "Plain", "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb", "managed": True},
+    })
+    assert r.status_code == 201, r.text
+    manifest = json.loads((await build_database_tree(db, await db.get(DataSource, r.json()["id"])))["entity.json"])
+
+    source = (Path(__file__).resolve().parents[2] / "web" / "src" / "lib" / "entity-io.ts").read_text()
+    block = re.search(r"DATA_SOURCE_LOCAL_FIELDS = \[(.*?)\]", source).group(1)
+    local = set(re.findall(r"'([^']+)'", block))
+    assert "unacceptedFreeSql" in local
+    assert not local & set(manifest)

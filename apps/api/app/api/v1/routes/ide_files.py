@@ -16,6 +16,7 @@ from app.core import audit, deferred
 from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_project_permission
+from app.core.refusal import refusal_detail
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.ide_file import (
@@ -92,7 +93,7 @@ async def read_raw(
     try:
         p = project_fs.script_path(project_uid, path)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
     if not p.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
     media_type = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
@@ -116,7 +117,7 @@ async def write_raw(
     try:
         dst = project_fs.script_path(project_uid, path)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
     if dst.is_dir():
         raise HTTPException(status.HTTP_409_CONFLICT, "A folder already has this name")
     existed = dst.exists()
@@ -156,7 +157,7 @@ async def create_file(
         else:
             project_fs.write_script(body.project_uid, body.path, body.content or "")
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
     await _notify(db, request, user, "created", body.project_uid, body.path)
     return IdeFileResponse(
         id=project_fs.node_id("ide", body.path),
@@ -189,7 +190,7 @@ async def copy_from_server(
     try:
         dst = project_fs.script_path(body.project_uid, body.path)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
     if dst.is_dir():
         raise HTTPException(status.HTTP_409_CONFLICT, "A folder already has this name")
 
@@ -263,7 +264,7 @@ async def save_content(
     try:
         project_fs.write_script(body.project_uid, body.path, body.content)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
     await _notify(db, request, user, "updated", body.project_uid, body.path)
 
 
@@ -278,7 +279,7 @@ async def move_file(
     try:
         project_fs.move_script(body.project_uid, body.path, body.new_path)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
     await _notify(db, request, user, "updated", body.project_uid, body.new_path)
 
 
@@ -293,5 +294,5 @@ async def delete_file(
     try:
         project_fs.delete_script(body.project_uid, body.path)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
     await _notify(db, request, user, "deleted", body.project_uid, body.path)

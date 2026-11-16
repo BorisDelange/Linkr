@@ -36,6 +36,7 @@ import { ConceptPickerDialog } from './ConceptPickerDialog'
 import { buildTimelineQuery, buildPatientVisitSummaryQuery } from '@/lib/duckdb/patient-data-queries'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { PluginConfigField } from '@/types/plugin'
+import { templateSource } from '@/lib/plugins/acceptance-source'
 
 interface WarehousePluginEditorSheetProps {
   widgetId: string | null
@@ -214,7 +215,7 @@ function EditorContent({
     // plugin's template has been chosen, not read.
     const codeReview: CodeReview = activeTab === 'code'
       ? { authored: true }
-      : { source: isCodeCustomized ? undefined : plugin?.templates?.[language], label: pluginName }
+      : { source: isCodeCustomized ? undefined : templateSource(plugin, language, pluginConfig, []), label: pluginName }
     isExecutingRef.current = true
     setIsExecuting(true)
     setResult(null)
@@ -253,7 +254,7 @@ function EditorContent({
       setIsExecuting(false)
       setStatusMessage(null)
     }
-  }, [currentCode, dataSourceId, selectedPatientId, selectedVisitId, selectedVisitDetailId, language, plugin, extraVars, activeTab, isCodeCustomized, pluginName])
+  }, [currentCode, dataSourceId, selectedPatientId, selectedVisitId, selectedVisitDetailId, language, plugin, extraVars, activeTab, isCodeCustomized, pluginName, pluginConfig])
 
   const leftVisible = activeTab !== null
   const [outputShown, setOutputShown] = useOutputPane('warehouse-plugin')

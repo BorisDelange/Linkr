@@ -78,15 +78,25 @@ class TimedOut(HTTPException):
     (`api_errors.query_time_limit`), so the client words it in its language; its
     text is what a job's log and the MCP show."""
 
-    def __init__(self, limit: int) -> None:
-        self.text = (
-            f"The query ran longer than the {_duration(limit)} limit and was stopped. "
-            "A longer query can run as a background job: from an R or Python script in the IDE, "
+    def __init__(self, limit: int, *, background: bool = False) -> None:
+        self.text = f"The query ran longer than the {_duration(limit)} limit and was stopped."
+        if background:
+            # Already a job: the hint to run it as one would send the user in a circle.
+            self.text += " An administrator can raise LINKR_BACKGROUND_QUERY_TIMEOUT_SECONDS."
+            super().__init__(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                {"code": "background_query_time_limit", "message": self.text, "minutes": max(1, round(limit / 60))},
+            )
+            return
+        self.text += (
+            " A longer query can run as a background job: from an R or Python script in the IDE, "
             "Run file as background job."
         )
+        in_minutes = limit >= 60 and limit % 60 == 0
         super().__init__(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
-            {"code": "query_time_limit", "message": self.text, "minutes": max(1, round(limit / 60))},
+            {"code": "query_time_limit", "message": self.text, "minutes": limit // 60} if in_minutes
+            else {"code": "query_time_limit_seconds", "message": self.text, "seconds": limit},
         )
 
     def __str__(self) -> str:
@@ -94,7 +104,7 @@ class TimedOut(HTTPException):
 
 
 def _duration(seconds: int) -> str:
-    return f"{seconds // 60}-minute" if seconds % 60 == 0 else f"{seconds}-second"
+    return f"{seconds // 60}-minute" if seconds >= 60 and seconds % 60 == 0 else f"{seconds}-second"
 
 
 @contextlib.contextmanager
@@ -229,13 +239,17 @@ def on_cancel(hook: Callable[[], None]) -> Iterator[None]:
         _cancel_hook.reset(token)
 
 
-async def within_limit[T](work: Callable[[], Awaitable[T]], owner: str, query_id: str | None = None) -> T:
+async def within_limit[T](
+    work: Callable[[], Awaitable[T]], owner: str, query_id: str | None = None, *, background: bool = False,
+) -> T:
     """Run `work`, which runs a query, as `owner`'s query `query_id`: its task
     being cancelled (the jobs panel) interrupts the query, and so does its running
     past `settings.query_timeout_seconds` (0: no limit), which raises `TimedOut`.
-    Either way it returns once the query has let go of its connection."""
+    Either way it returns once the query has let go of its connection.
+    `background`: the query goes on as a job once its user stops waiting, bound by
+    `settings.background_query_timeout_seconds` instead."""
     query_id = query_id or uuid.uuid4().hex
-    limit = settings.query_timeout_seconds
+    limit = settings.background_query_timeout_seconds if background else settings.query_timeout_seconds
     token = current_query.set((query_id, owner))
     try:
         guarded = until_stopped(work(), lambda: cancel(query_id, owner))
@@ -244,6 +258,6 @@ async def within_limit[T](work: Callable[[], Awaitable[T]], owner: str, query_id
         try:
             return await asyncio.wait_for(guarded, limit)
         except TimeoutError:
-            raise TimedOut(limit) from None
+            raise TimedOut(limit, background=background) from None
     finally:
         current_query.reset(token)

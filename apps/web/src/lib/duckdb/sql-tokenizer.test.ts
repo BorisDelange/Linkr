@@ -95,4 +95,12 @@ describe('a dollar sign ending an identifier', () => {
     expect(splitSqlStatements('SELECT 1 AS a$$; SELECT 2 AS b$$')).toHaveLength(2)
     expect(splitSqlStatements('SELECT $$a;b$$; SELECT 2')).toHaveLength(2)
   })
+
+  // Same cases as the server splitter (test_statement_boundaries.py).
+  it('reads a blank past ASCII as a blank and any other character as part of a name', () => {
+    expect(splitSqlStatements('SELECT $$a;b$$')).toEqual(['SELECT $$a;b$$'])
+    expect(splitSqlStatements('SELECT　$t$a;b$t$')).toHaveLength(1)
+    expect(splitSqlStatements('SELECT 1 AS é$$; SELECT 2 AS b$$')).toHaveLength(2)
+    expect(splitSqlStatements('SELECT $é$a;b$é$')).toHaveLength(1)
+  })
 })

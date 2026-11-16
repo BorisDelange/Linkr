@@ -479,9 +479,10 @@ async def test_sql_query_bridge_runs_via_host(client, monkeypatch):
     from app.services import data_source_service
 
     uid = await _project(client, headers)
+    workspace = (await client.get(f"{API}/projects/{uid}", headers=headers)).json()["workspaceId"]
 
     class _FakeSource:
-        workspace_id = None  # workspace-less: the admin caller passes
+        workspace_id = workspace
         connection_config = {"engine": "duckdb"}
 
     async def fake_get(db, source_id):
@@ -512,9 +513,10 @@ async def test_sql_query_bridge_runs_via_host_r(client, monkeypatch):
     from app.services import data_source_service
 
     uid = await _project(client, headers)
+    workspace = (await client.get(f"{API}/projects/{uid}", headers=headers)).json()["workspaceId"]
 
     class _FakeSource:
-        workspace_id = None
+        workspace_id = workspace
         connection_config = {"engine": "duckdb"}
 
     async def fake_get(db, source_id):
@@ -544,9 +546,10 @@ async def test_sql_query_r_null_becomes_na(client, monkeypatch):
     from app.services import data_source_service
 
     uid = await _project(client, headers)
+    workspace = (await client.get(f"{API}/projects/{uid}", headers=headers)).json()["workspaceId"]
 
     class _FakeSource:
-        workspace_id = None
+        workspace_id = workspace
         connection_config = {"engine": "duckdb"}
 
     async def fake_get(db, source_id):
@@ -1258,7 +1261,7 @@ async def test_each_sql_query_of_a_terminal_run_gets_its_own_line(client):
     user = await authenticate_ws(_FakeWebSocket({"token": headers["Authorization"].removeprefix("Bearer ")}))
     token = audit._current.set({"action": "terminal_close", "method": "WS", "username": "admin"})
     try:
-        resolver = await _make_ws_resolver(source, user)
+        resolver = await _make_ws_resolver(source, user, uid)
         for sql in ("SELECT 1", "SELECT 2"):
             with contextlib.suppress(Exception):
                 await resolver(sql)

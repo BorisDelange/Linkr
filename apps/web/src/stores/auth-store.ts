@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { getApiBaseUrl, isServerMode } from '@/lib/api-client'
+import { getApiBaseUrl, isInsecureSecretKeyRefusal, isServerMode } from '@/lib/api-client'
 import { setExportMinCount } from '@/lib/concept-mapping/export-masking'
 import { jwtSubject } from '@/lib/jwt'
 import { setPasswordMinLength } from '@/lib/password-policy'
@@ -36,6 +36,8 @@ interface AuthState {
   needsSetup: boolean | null // null = not yet checked
   isCheckingAuth: boolean
   serverUnreachable: boolean // server mode + backend didn't answer the setup check
+  /** The backend runs on an example LINKR_SECRET_KEY and refuses every request. */
+  insecureSecretKey: boolean
   loginError: string | null
 
   checkSetupStatus: () => Promise<void>
@@ -164,6 +166,7 @@ export const useAuthStore = create<AuthState>()((set, get) => {
     needsSetup: null,
     isCheckingAuth: false,
     serverUnreachable: false,
+    insecureSecretKey: false,
     loginError: null,
 
     checkSetupStatus: async () => {
@@ -179,20 +182,22 @@ export const useAuthStore = create<AuthState>()((set, get) => {
           if (typeof data.export_min_count === 'number') setExportMinCount(data.export_min_count)
           if (typeof data.password_min_length === 'number') setPasswordMinLength(data.password_min_length)
           if (data.trusted_header_login && !get().token && !justLoggedOut) await get().trustedLogin()
-          set({ needsSetup: data.needs_setup, isCheckingAuth: false, serverUnreachable: false })
+          set({ needsSetup: data.needs_setup, isCheckingAuth: false, serverUnreachable: false, insecureSecretKey: false })
+        } else if (isInsecureSecretKeyRefusal(res.status, await res.json().catch(() => null))) {
+          set({ needsSetup: false, isCheckingAuth: false, serverUnreachable: false, insecureSecretKey: true })
         } else if (res.status === 502 || res.status === 503 || res.status === 504) {
           // Gateway errors come from the reverse proxy (nginx), not the backend:
           // the proxy answered but the API behind it is down — that's unreachable.
-          set({ needsSetup: false, isCheckingAuth: false, serverUnreachable: true })
+          set({ needsSetup: false, isCheckingAuth: false, serverUnreachable: true, insecureSecretKey: false })
         } else {
           // The backend itself answered (even with an error) — it's reachable.
-          set({ needsSetup: false, isCheckingAuth: false, serverUnreachable: false })
+          set({ needsSetup: false, isCheckingAuth: false, serverUnreachable: false, insecureSecretKey: false })
         }
       } catch {
         // The backend didn't answer at all (down, wrong URL, refused to boot, CORS):
         // flag it so the gate shows a dedicated "server unreachable" screen instead
         // of a login form that can only fail with a misleading error.
-        set({ needsSetup: false, isCheckingAuth: false, serverUnreachable: true })
+        set({ needsSetup: false, isCheckingAuth: false, serverUnreachable: true, insecureSecretKey: false })
       }
     },
 

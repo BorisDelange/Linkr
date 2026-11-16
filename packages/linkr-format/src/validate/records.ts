@@ -101,12 +101,36 @@ function validateCheckGroups(bag: IssueBag, path: string, groups: unknown): void
     checkLocalized(bag, path, `${pointer}/name`, group.name, { label: 'name' })
     if (group.parentKey != null) checkString(bag, path, `${pointer}/parentKey`, group.parentKey, { label: 'parentKey' })
   })
+  const parentOf = new Map<string, string | null>()
+  for (const group of groups) {
+    if (isObject(group) && typeof group.key === 'string' && !parentOf.has(group.key)) {
+      parentOf.set(group.key, typeof group.parentKey === 'string' ? group.parentKey : null)
+    }
+  }
   groups.forEach((group, i) => {
-    if (isObject(group) && typeof group.parentKey === 'string' && !keys.has(group.parentKey)) {
+    if (!isObject(group) || typeof group.parentKey !== 'string') return
+    if (!keys.has(group.parentKey)) {
       bag.warn(path, `/checkGroups/${i}/parentKey`, 'unknown-reference',
         `parentKey "${group.parentKey}" names no category of the rule set.`, 'The category is shown at the top.')
+    } else if (parentOf.get(group.key as string) === group.parentKey && leadsBackTo(parentOf, group.key as string)) {
+      bag.warn(path, `/checkGroups/${i}/parentKey`, 'unknown-reference',
+        group.parentKey === group.key
+          ? `Category "${group.key}" is its own parent.`
+          : `The parents of category "${group.key}" lead back to it.`,
+        'The app moves the first category of the cycle to the top.')
     }
   })
+}
+
+/** Whether walking up from `key` comes back to it. */
+function leadsBackTo(parentOf: Map<string, string | null>, key: string): boolean {
+  const walked = new Set<string>()
+  let parent = parentOf.get(key) ?? null
+  while (parent !== null && parent !== key && !walked.has(parent)) {
+    walked.add(parent)
+    parent = parentOf.get(parent) ?? null
+  }
+  return parent === key
 }
 
 /** `rule-set.json` + `checks.json`. */

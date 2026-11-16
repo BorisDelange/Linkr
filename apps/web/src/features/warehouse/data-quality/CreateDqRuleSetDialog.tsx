@@ -139,7 +139,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
         name: setLocalized(editingRuleSet.name, language, name.trim()),
         description: setLocalized(editingRuleSet.description, language, description.trim()),
         dataSourceId,
-        dataSourceRef: buildPointer(dbSources, dataSourceId),
+        dataSourceRef: buildPointer(dbSources, dataSourceId) ?? null,
         badges,
         version: version.trim() || '0.1.0',
         ...authoring,

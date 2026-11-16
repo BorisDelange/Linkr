@@ -28,6 +28,7 @@ from app.services.data import (
     connection_pool,
     file_reader,
     query_cancel,
+    read_only_logins,
 )
 from app.services.data import pushdown as remote
 from app.services.data.db_host_guard import check_db_host
@@ -227,8 +228,17 @@ def _install(con: duckdb.DuckDBPyConnection, extension: str) -> None:
     if engine := _COMMUNITY_ENGINE_OF.get(extension):
         community_engines.load(con, engine)
         return
-    con.execute(f"INSTALL {extension}")
-    con.execute(f"LOAD {extension}")
+    _load_or_install(con, extension)
+
+
+def _load_or_install(con: duckdb.DuckDBPyConnection, extension: str) -> None:
+    """LOAD `extension`, INSTALLed first only when the extension directory lacks it:
+    INSTALL asks the repository, which an offline server cannot reach."""
+    try:
+        con.execute(f"LOAD {extension}")
+    except duckdb.IOException:
+        con.execute(f"INSTALL {extension}")
+        con.execute(f"LOAD {extension}")
 
 
 def _connect(extension: str) -> duckdb.DuckDBPyConnection:
@@ -461,6 +471,9 @@ def _attach_external(
     attach_login(con, config, password, alias, options)
     if config.get("engine") == "doris":
         _require_read_only_doris_login(con, alias)
+        read_only_logins.remember(con, alias, None, read_only_logins.READ_ONLY)
+    else:
+        read_only_logins.check(con, alias, config)
 
 
 def attach_dsn(con: duckdb.DuckDBPyConnection, dsn: str, alias: str, options: str) -> None:
@@ -635,6 +648,16 @@ _FORBIDDEN_IN_USER_SQL = re.compile(
 )
 
 
+class StatementRefused(ValueError):
+    """A refusal stated by code (`api_errors.<code>`), so the client words it in its
+    language; `str()` is the English text a log, a job or the MCP shows."""
+
+    def __init__(self, code: str, message: str, **values: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.detail = {"code": code, "message": message, **values}
+
+
 # Functions that send SQL to an attached database past its READ_ONLY flag
 # (community_engines, and the postgres/mysql extensions' `*_execute`), or that run
 # a statement held in a string, which hides any of those from this token check
@@ -646,11 +669,24 @@ _PASSTHROUGH_CALL = re.compile(r"(MSSQL_|ORACLE_)\w+|POSTGRES_EXECUTE|MYSQL_EXEC
 _DYNAMIC_SQL_CALL = re.compile(r"QUERY|QUERY_TABLE")
 # Extension functions that open the file or the connection named in their arguments
 # themselves, so neither allowed_paths nor the host check applies. A query reads the
-# databases Linkr attached for it, nothing else.
-_OWN_ACCESS_CALL = re.compile(r"SQLITE_\w+|POSTGRES_SCAN|POSTGRES_SCAN_PUSHDOWN|POSTGRES_ATTACH|READ_POSTGRES_BINARY")
+# databases Linkr attached for it, nothing else. SQLite's own functions that only
+# describe the library may stay in a view stored in a SQLite file.
+_OWN_ACCESS_CALL = re.compile(
+    r"SQLITE_(?!(?:VERSION|SOURCE_ID|COMPILEOPTION_USED|COMPILEOPTION_GET|OFFSET)$)\w+"
+    r"|POSTGRES_SCAN|POSTGRES_SCAN_PUSHDOWN|POSTGRES_ATTACH|READ_POSTGRES_BINARY")
 # The stream of the institution's collector holds only what Linkr writes to it.
 _SERVER_LOG_CALL = re.compile(r"ENABLE_LOGGING|DISABLE_LOGGING|TRUNCATE_DUCKDB_LOGS|WRITE_LOG")
 _PLAIN_STRING = re.compile(r"'((?:[^']|'')*)'")
+# The extensions' functions that send their text to the database as is: past the
+# READ_ONLY flag too, so their text must be one read.
+_TEXT_TO_DATABASE_CALL = frozenset({"POSTGRES_QUERY", "MYSQL_QUERY"})
+_READ_HEAD = re.compile(r"\s*(?:\(\s*)*(?:SELECT|WITH|SHOW|EXPLAIN|VALUES|TABLE|DESCRIBE|DESC)\b", re.IGNORECASE)
+# What turns a read into a write after its first keyword: a data-modifying CTE
+# (PostgreSQL), `SELECT … INTO`, `EXPLAIN ANALYZE` of a write.
+_WRITE_WORD = re.compile(
+    r"(?<![\w`$])(INSERT|UPDATE|DELETE|MERGE|INTO|CREATE|EXECUTE|CALL|COPY)(?![\w`$])", re.IGNORECASE,
+)
+_SHOW_CREATE = re.compile(r"\bSHOW\s+CREATE\b", re.IGNORECASE)
 _PASSTHROUGH_ENGINES = frozenset({"postgres", "mysql", "mssql"})
 
 
@@ -687,7 +723,7 @@ def _materialization_left_to_duckdb(stmt: str) -> str:
     return stmt
 
 
-def _reject_query_text_unread(stmt: str, call: int) -> None:
+def _reject_query_text_unread(stmt: str, call: int, con: duckdb.DuckDBPyConnection | None = None) -> None:
     """`query(...)` beside local databases: its text is checked like the statement's,
     which takes a plain string literal as its only argument."""
     tokens = _tokens(stmt)
@@ -695,13 +731,93 @@ def _reject_query_text_unread(stmt: str, call: int) -> None:
     literal = _PLAIN_STRING.match(stmt[tokens[call + 2][0]:ends[call + 2]]) if call + 3 < len(tokens) else None
     if literal is None or not stmt[tokens[call + 3][0]:].startswith(")"):
         raise ValueError("query() is not allowed here unless its text is one plain string")
-    _reject_passthrough_calls(literal.group(1).replace("''", "'"))
+    _reject_passthrough_calls(literal.group(1).replace("''", "'"), con=con)
 
 
-def _reject_passthrough_calls(stmt: str, dynamic_sql: bool = False, dynamic_hint: str = "") -> None:
+def _names_a_relation(texts: list[tuple[str, "duckdb.token_type"]], i: int) -> bool:
+    """Whether `name(` at token `i` names a table or a CTE with its columns
+    (`INSERT INTO query (a)`, `WITH query(a) AS (…)`) rather than calling a function:
+    DuckDB's grammar takes no call in these places."""
+    if i > 0 and texts[i - 1][0] in ("INTO", "TABLE", "EXISTS", "COPY"):
+        return True
+    depth = 0
+    for j in range(i + 1, len(texts)):
+        if texts[j][1] == duckdb.token_type.operator:
+            depth += texts[j][0].count("(") - texts[j][0].count(")")
+        if depth <= 0:
+            return j + 2 < len(texts) and texts[j + 1][0] == "AS" and (
+                texts[j + 2][0].startswith("(") or texts[j + 2][0] in ("MATERIALIZED", "NOT"))
+    return False
+
+
+def _remote_code(function: str, text: str) -> str:
+    """`text` as the database's lexer reads it, its strings and comments blanked:
+    MySQL's (Doris too) through pushdown's, PostgreSQL's through DuckDB's, whose
+    grammar it shares. Where the two could disagree on a string's end (`\\'`
+    with `standard_conforming_strings` off), the text is refused."""
+    if function == "MYSQL_QUERY":
+        return remote._native_code(text)
+    if "\\'" in text:
+        raise StatementRefused(
+            "passthrough_text_backslash_quote", f"{function.lower()}() text must not hold \\'", function=function.lower(),
+        )
+    tokens = duckdb.tokenize(text)
+    raw = text.encode("utf-8")
+    ends = [pos for pos, _ in tokens[1:]] + [len(raw)]
+    out = []
+    for (pos, kind), end in zip(tokens, ends):
+        piece = raw[pos:end].decode("utf-8", "replace")
+        if kind == duckdb.token_type.string_const or (kind == duckdb.token_type.identifier and piece.startswith('"')):
+            out.append(" x ")
+        elif kind != duckdb.token_type.comment:
+            out.append(_TOKEN_END.split(piece, 1)[0] + " ")
+    return "".join(out)
+
+
+def _reject_text_to_database(
+    stmt: str, call: int, function: str, con: duckdb.DuckDBPyConnection | None = None,
+) -> None:
+    """`postgres_query(db, text)` / `mysql_query(db, text)`: `text`, a plain string,
+    is one read — and, given `con`, `db` has a login proven read-only, since a read
+    may still call a function that writes (read_only_logins)."""
+    tokens = _tokens(stmt)
+    texts = [t for t, _ in _token_texts(stmt)]
+    ends = [pos for pos, _ in tokens[1:]] + [len(stmt)]
+    if con is not None:
+        named = _PLAIN_STRING.fullmatch(stmt[tokens[call + 2][0]:ends[call + 2]].rstrip()) if call + 2 < len(tokens) else None
+        read_only_logins.require_read_only(con, named.group(1).replace("''", "'") if named else None, function)
+    literal = (
+        _PLAIN_STRING.fullmatch(stmt[tokens[call + 4][0]:ends[call + 4]].rstrip())
+        if call + 5 < len(tokens) and texts[call + 3] == "," and texts[call + 5] == ")" else None
+    )
+    if literal is None:
+        raise StatementRefused(
+            "passthrough_text_not_literal", f"{function.lower()}() is not allowed unless its text is one plain string",
+            function=function.lower(),
+        )
+    code = _remote_code(function, literal.group(1).replace("''", "'")).rstrip()
+    while code.endswith(";"):
+        code = code[:-1].rstrip()
+    if ";" in code or not _READ_HEAD.match(code) or _WRITE_WORD.search(_SHOW_CREATE.sub("SHOW", code)):
+        raise StatementRefused(
+            "passthrough_text_not_read", f"{function.lower()}() is only allowed with one statement that reads",
+            function=function.lower(),
+        )
+
+
+def _reject_passthrough_calls(
+    stmt: str, dynamic_sql: bool = False, dynamic_hint: str = "", con: duckdb.DuckDBPyConnection | None = None,
+) -> None:
+    """Raise on a call user SQL may not make. `con`: the connection it runs on,
+    whose databases' logins decide whether the text functions may reach them."""
     texts = [(t.strip('"'), kind) for t, kind in _token_texts(stmt)]
     for i, (text, kind) in enumerate(texts[:-1]):
         if kind not in (duckdb.token_type.identifier, duckdb.token_type.keyword) or not texts[i + 1][0].startswith("("):
+            continue
+        if text in _TEXT_TO_DATABASE_CALL:
+            _reject_text_to_database(stmt, i, text, con)
+            continue
+        if _DYNAMIC_SQL_CALL.fullmatch(text) and _names_a_relation(texts, i):
             continue
         if _SERVER_LOG_CALL.fullmatch(text):
             raise ValueError(f"{text.lower()}() is not allowed: only Linkr writes to the server's log")
@@ -715,18 +831,46 @@ def _reject_passthrough_calls(stmt: str, dynamic_sql: bool = False, dynamic_hint
                 f"which Linkr's read-only guard cannot check{dynamic_hint}"
             )
         if text == "QUERY":
-            _reject_query_text_unread(stmt, i)
+            _reject_query_text_unread(stmt, i, con)
+
+
+def _pivot_expansion(stmt: str, parsed: list) -> list | None:
+    """What DuckDB makes of one PIVOT whose columns come from the data (no `IN`
+    list): a `CREATE TYPE … AS ENUM` per ON column, then the statement itself,
+    wrapped in its own BEGIN … COMMIT when it writes a table (`CREATE TABLE … AS`,
+    `INSERT … PIVOT`) — which leaves a caller's open transaction as it was. None
+    when `parsed` is anything else; text after the PIVOT gives its statements text."""
+    if len(parsed) < 2 or any(s.query for s in parsed):
+        return None
+    if not any(text in ("PIVOT", "PIVOT_WIDER") for text, _ in _token_texts(stmt)):
+        return None
+    body = list(parsed)
+    transaction = duckdb.StatementType.TRANSACTION
+    if len(body) >= 4 and body[0].type == transaction and body[-1].type == transaction:
+        body = body[1:-1]
+    *enums, last = body
+    if not enums or any(s.type != duckdb.StatementType.CREATE for s in enums) or last.type == transaction:
+        return None
+    return body
+
+
+def _parsed(stmt: str) -> list:
+    """DuckDB's statements of `stmt`, a PIVOT's expansion read as its statements
+    without the transaction DuckDB wraps them in."""
+    parsed = duckdb.extract_statements(stmt)
+    return _pivot_expansion(stmt, parsed) or parsed
 
 
 def _reject_hidden_statements(stmt: str) -> None:
     """Every check reads one split statement as one statement: where DuckDB's parser
-    would run several from that text, the checks would not have seen them."""
+    would run several from that text, the checks would not have seen them. A PIVOT
+    over the data's own values is one statement DuckDB expands into several."""
     try:
         parsed = duckdb.extract_statements(stmt)
     except duckdb.Error:
         return
-    if len(parsed) > 1:
-        raise ValueError("this statement could not be read as a single statement")
+    if len(parsed) > 1 and _pivot_expansion(stmt, parsed) is None:
+        raise StatementRefused("statement_not_single", "this statement could not be read as a single statement")
 
 
 def _statements_to_run(con: duckdb.DuckDBPyConnection, sql: str) -> list[str]:
@@ -738,7 +882,7 @@ def _statements_to_run(con: duckdb.DuckDBPyConnection, sql: str) -> list[str]:
         statements = [_materialization_left_to_duckdb(stmt) for stmt in statements]
     dynamic_sql = _has_passthrough_attach(con)
     for stmt in statements:
-        _reject_passthrough_calls(stmt, dynamic_sql)
+        _reject_passthrough_calls(stmt, dynamic_sql, con=con)
     return statements
 
 
@@ -759,14 +903,15 @@ def _reject_stored_passthrough(con: duckdb.DuckDBPyConnection, databases: list[s
         [databases, databases],
     ).fetchall()
     for (definition,) in rows:
-        _reject_passthrough_calls(definition, dynamic_sql=True)
+        _reject_passthrough_calls(definition, dynamic_sql=True, con=con)
 
 
 # The generated vocabulary fill script ran `query(getvariable(...))` before it
 # read TARGET_CONCEPT_IDS_VIEW; a pipeline still holding that version is told how
 # to replace it.
 _REGENERATE_FILL_HINT = (
-    ". If this is the vocabulary fill script, regenerate it from the pipeline's Vocabulary tab"
+    ". If this is the vocabulary fill script (or, in an older pipeline, 99_prune_vocabulary.sql), "
+    "regenerate it from the pipeline's Vocabulary tab"
 )
 
 
@@ -914,19 +1059,21 @@ def _classified(stmt: str) -> list[tuple[duckdb.StatementType, str, bool | None]
     an EXPLAIN reported as the statement it wraps with `explain` saying whether it
     runs it (None when there is no EXPLAIN). A statement the parser refuses yields
     nothing: running it fails the same way. An EXPLAIN whose target cannot be read
-    comes back as INVALID."""
+    comes back as INVALID. A PIVOT's expansion has no text of its own: its last
+    statement is reported with `stmt`'s."""
     try:
-        parsed = duckdb.extract_statements(stmt)
+        parsed = _parsed(stmt)
     except duckdb.Error:
         return []
     out: list[tuple[duckdb.StatementType, str, bool | None]] = []
-    for s in parsed:
+    for i, s in enumerate(parsed):
+        query = s.query or (stmt if i == len(parsed) - 1 else "")
         if s.type != duckdb.StatementType.EXPLAIN:
-            out.append((s.type, s.query, None))
+            out.append((s.type, query, None))
             continue
-        target = _explained(_strip_leading_noise(s.query))
+        target = _explained(_strip_leading_noise(query))
         if target is None:
-            out.append((duckdb.StatementType.INVALID, s.query, True))
+            out.append((duckdb.StatementType.INVALID, query, True))
             continue
         inner, analyze = target
         out.extend((t, text, analyze) for t, text, _ in _classified(inner) or [(duckdb.StatementType.INVALID, inner, None)])
@@ -1150,8 +1297,7 @@ def _load_sqlite(con: duckdb.DuckDBPyConnection) -> None:
     same, and the data such a run moves is the SQLite file's size; DuckDB has no
     per-database switch, and `AS MATERIALIZED` would mean rewriting user SQL.
     Covered by the database matrix (tests/db-matrix)."""
-    con.execute("INSTALL sqlite")
-    con.execute("LOAD sqlite")
+    _load_or_install(con, "sqlite")
     con.execute("SET disabled_optimizers = 'cte_inlining'")
 
 
@@ -1730,6 +1876,9 @@ def introspect_external(config: dict, password: str | None) -> list[dict]:
     """
     spec = _engine_spec(config)
     default = (_scope(config) or "").lower()
+    # A connection test or a schema read checks the login again: its grants may
+    # have just been fixed.
+    read_only_logins.forget(config)
     con = _connect(spec["extension"])
     try:
         _attach(con, config, password)

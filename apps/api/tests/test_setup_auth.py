@@ -17,7 +17,7 @@ API = "/api/v1"
 async def test_setup_status_and_initialize(client):
     r = await client.get(f"{API}/setup/status")
     assert r.status_code == 200
-    assert r.json() == {"needs_setup": True, "setup_token_required": False, "trusted_header_login": False, "export_min_count": 11, "password_min_length": 12}
+    assert r.json() == {"needs_setup": True, "setup_token_required": True, "trusted_header_login": False, "export_min_count": 11, "password_min_length": 12}
 
     r = await client.post(
         f"{API}/setup/initialize",
@@ -47,7 +47,7 @@ async def test_the_first_admin_needs_the_token_of_this_boot(client, monkeypatch)
     assert (await client.get(f"{API}/setup/status")).json()["setup_token_required"] is True
 
     account = {"username": "admin", "password": "pw-for-tests-only"}
-    for wrong in ({}, {"setup_token": ""}, {"setup_token": "guess"}, {"setup_token": "é"}):
+    for wrong in ({"setup_token": None}, {"setup_token": ""}, {"setup_token": "guess"}, {"setup_token": "é"}):
         r = await client.post(f"{API}/setup/initialize", json={**account, **wrong})
         assert r.status_code == 403, wrong
         assert r.json()["detail"]["code"] == "setup_token_invalid"
@@ -57,6 +57,17 @@ async def test_the_first_admin_needs_the_token_of_this_boot(client, monkeypatch)
     status = (await client.get(f"{API}/setup/status")).json()
     assert status["needs_setup"] is False
     assert status["setup_token_required"] is False
+
+
+async def test_no_first_admin_is_made_before_the_token_is_armed(client, monkeypatch):
+    monkeypatch.setattr(setup_token, "_token", None)
+    for candidate in (None, "", "anything"):
+        r = await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only", "setup_token": candidate})
+        assert r.status_code == 403, candidate
+        assert r.json()["detail"]["code"] == "setup_token_invalid"
+    status = (await client.get(f"{API}/setup/status")).json()
+    assert status["needs_setup"] is True
+    assert status["setup_token_required"] is True
 
 
 async def test_a_configured_token_is_used_and_not_shown(client, monkeypatch):
@@ -132,7 +143,10 @@ async def test_concurrent_initialize_creates_one_admin(tmp_path, monkeypatch):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             results = await asyncio.gather(
                 *(
-                    client.post(f"{API}/setup/initialize", json={"username": f"admin{i}", "password": "pw-for-tests-only"})
+                    client.post(
+                        f"{API}/setup/initialize",
+                        json={"username": f"admin{i}", "password": "pw-for-tests-only", "setup_token": setup_token.current()},
+                    )
                     for i in range(4)
                 )
             )

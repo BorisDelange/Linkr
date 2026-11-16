@@ -77,7 +77,7 @@ class QueryListExecutor(QueryingExecutor):
                 st.setdefault("errors", {})[item.key] = short(e)
                 await self.note(f"{what}: failed — {short(e)}")
             else:
-                write_json(result_path(self.run_id, item.key), rows)
+                await asyncio.to_thread(write_json, result_path(self.run_id, item.key), rows)
                 st.setdefault("rows", {})[item.key] = len(rows)
                 await self.note(f"{what}: {len(rows):,} rows, {took(started)}")
             st["next"] = i + 1

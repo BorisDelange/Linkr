@@ -427,6 +427,24 @@ def test_a_marked_notebook_or_page_leaves_as_written():
     assert "!scripts/report.html" in tree[".gitignore"].decode()
 
 
+def test_an_nbformat_3_notebook_leaves_without_outputs_rather_than_not_at_all():
+    from app.services.project_export import _notebook_without_outputs
+
+    v3 = json.dumps({
+        "nbformat": 3,
+        "worksheets": [{"cells": [
+            {"cell_type": "code", "prompt_number": 2, "input": ["df"],
+             "outputs": [{"output_type": "pyout", "text": ["DUMMY-V3"]}]},
+            {"cell_type": "markdown", "source": ["# A"]},
+        ]}],
+    })
+    stripped = json.loads(_notebook_without_outputs(v3))
+    assert stripped["worksheets"][0]["cells"][0] == {"cell_type": "code", "prompt_number": None, "input": ["df"], "outputs": []}
+    assert "DUMMY" not in json.dumps(stripped)
+    assert _notebook_without_outputs('{"nbformat": 3, "worksheets": [{"cells": 1}]}') is None
+    assert _notebook_without_outputs('{"metadata": {}}') is None
+
+
 def test_excluded_code_file_omitted_from_tree():
     # Code files are versioned by default; an excludedFiles entry (its scripts/ tree
     # path) omits the file from the tree AND from scripts/_tree.json entirely — must
@@ -651,7 +669,12 @@ def test_a_marked_data_script_goes_with_its_listing_and_ignore_exception():
     assert "!scripts/cohort.tsv" in tree[".gitignore"].decode()
 
 
-@pytest.mark.parametrize("name", ["extra.sql", "extra.py", "extra.R", "extra.Rmd", "requirements.txt", "Makefile", "renv.lock"])
+@pytest.mark.parametrize("name", [
+    "extra.sql", "extra.py", "extra.R", "extra.Rmd", "requirements.txt", "Makefile", "renv.lock",
+    "main.c", "lib.h", "App.java", "job.scala", "main.go", "lib.rs", "clean.sas", "model.do", "fit.m",
+    "run.pl", "app.rb", "index.php", "init.lua", "views.pgsql", "run.ps1", "build.bat", "Snakefile",
+    ".dockerignore", ".editorconfig", ".gitkeep",
+])
 def test_a_code_script_is_versioned_without_a_mark(name):
     assert f"scripts/{name}" in _tree_with_script(name, set())
 

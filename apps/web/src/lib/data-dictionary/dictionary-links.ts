@@ -114,10 +114,14 @@ const sameRepo = (a: string | undefined, b: string | undefined) => {
 async function adoptLooseSets(
   dictionary: DataDictionary, url: string, content: DictionaryContent | null, workspaceId: string, storage: Storage,
 ) {
-  const incoming = content ? new Map(content.conceptSets.map((s) => [setKey(s), s])) : null
+  const incoming = content
+    ? new Map(content.conceptSets.flatMap((s) => { const key = setKey(s); return key ? [[key, s] as const] : [] }))
+    : null
   for (const set of await storage.conceptSets.getByWorkspace(workspaceId)) {
-    if (set.dictionaryId) continue
-    const match = incoming?.get(setKey(set))
+    // A set with neither uniqueId nor sourceUrl matches none of the dictionary's.
+    const key = setKey(set)
+    if (set.dictionaryId || !key) continue
+    const match = incoming?.get(key)
     const adopt = incoming
       ? !!match && (sameRepo(set.sourceRepo, url) || sameRepo(set.sourceRepo, match.sourceRepo))
       : sameRepo(set.sourceRepo, url)

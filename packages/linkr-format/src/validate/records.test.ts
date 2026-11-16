@@ -73,6 +73,16 @@ describe('dq rule set', () => {
     ])
   })
 
+  it('warns on a category that is its own parent or whose parents lead back to it', () => {
+    const groups = [
+      { key: 'self', parentKey: 'self' }, { key: 'a', parentKey: 'b' }, { key: 'b', parentKey: 'a' }, { key: 'c', parentKey: 'a' },
+    ]
+    const issues = validateEntity(ruleSet([CHECK], { checkGroups: groups }), 'dq-rule-set')
+    expect(issues.map((i) => [i.severity, i.pointer])).toEqual([
+      ['warning', '/checkGroups/0/parentKey'], ['warning', '/checkGroups/1/parentKey'], ['warning', '/checkGroups/2/parentKey'],
+    ])
+  })
+
   it('accepts a rule set with no checks yet', () => {
     const tree = new MemoryTree({ 'entity.json': JSON.stringify({ type: 'dq-rule-set', name: { en: 'Empty' } }) })
     expect(validateEntity(tree, 'dq-rule-set')).toEqual([])

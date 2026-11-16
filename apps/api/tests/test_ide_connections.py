@@ -85,3 +85,42 @@ async def test_non_member_cannot_access(client, db):
     })
     other = await _create_user(db, client, "bob")
     assert (await client.get(f"{API}/ide-connections?projectUid={proj}", headers=other)).status_code == 403
+
+
+async def _database_in(client, headers, ws: str, alias: str) -> str:
+    r = await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": ws, "alias": alias, "name": {"en": alias}, "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb"},
+    })
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+async def test_a_connection_binds_only_a_database_of_its_project_workspace(client, db):
+    headers = await _admin_headers(client)
+    proj = await _project(client, headers)
+    own_ws = (await client.get(f"{API}/projects/{proj}", headers=headers)).json()["workspaceId"]
+    other_ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "Other"}})).json()["id"]
+    own = await _database_in(client, headers, own_ws, "own")
+    foreign = await _database_in(client, headers, other_ws, "foreign")
+
+    r = await client.post(f"{API}/ide-connections", headers=headers, json={
+        "id": "c-foreign", "projectUid": proj, "source": "database", "dataSourceId": foreign,
+    })
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "foreign_database"
+    r = await client.post(f"{API}/ide-connections", headers=headers, json={
+        "id": "c-own", "projectUid": proj, "source": "database", "dataSourceId": own,
+    })
+    assert r.status_code == 201, r.text
+    r = await client.patch(f"{API}/ide-connections/c-own", headers=headers, json={"dataSourceId": foreign})
+    assert r.status_code == 400
+    # Re-saving the whole row with the id it holds is no change.
+    r = await client.patch(f"{API}/ide-connections/c-own", headers=headers, json={"name": "Own", "dataSourceId": own})
+    assert r.status_code == 200
+
+    r = await client.post(f"{API}/execute", headers=headers, json={
+        "language": "python", "code": "print(1)", "projectUid": proj, "connectionId": foreign,
+    })
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "foreign_database"

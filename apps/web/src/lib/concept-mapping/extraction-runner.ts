@@ -297,7 +297,7 @@ export interface StartRunInput {
   ) => Promise<void>
   /** Record a failure on the stored run, so a reload shows it. `last`: the
    *  state this run last persisted — the stored one, which a write of the state
-   *  the run started from would roll back (its jobs among it). */
+   *  the run started from would roll back. */
   persistError: (message: string, last: SourceExtraction | null) => Promise<void>
   /**
    * The concept ids of the CSV written so far, in row order, or null when it
@@ -494,7 +494,6 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
     let firstWrite = offset === 0
     const keys = sources.map((s) => s.dictionary.key)
 
-    const profileQuery = queryAggregate
     let walkedIndex = -1
     let walked = EMPTY_WALK
 
@@ -523,7 +522,7 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
         Math.min(SAVE_EVERY, sizes[index] - local),
         runTotal, query, controller.signal,
         (n, _total, concept) => emit(projectId, { extracted: base + n, current: concept }),
-        sort, ranking, homes[index], recordTotals[index], profileQuery, store,
+        sort, ranking, homes[index], recordTotals[index], queryAggregate, store,
       )
       if (ranking && batch.gone) {
         const gone = new Set(batch.gone)

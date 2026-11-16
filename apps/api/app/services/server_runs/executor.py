@@ -12,11 +12,15 @@ import contextlib
 import json
 import logging
 import shutil
+import traceback
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from app.config import settings
 from app.core import audit, database, deferred
+from app.core.redact import scrub_row_values
 from app.models.data_source import DataSource
 from app.models.server_run import ServerRun
 from app.models.user import User
@@ -30,6 +34,7 @@ from app.services.server_runs.worker import (
     QueryTimedOut,
     QueryWorker,
     runs_in_worker,
+    to_the_end,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,14 +43,35 @@ _tasks: dict[str, asyncio.Task] = {}
 
 _ENDED_AS = {"done": "Done", "paused": "Paused", "cancelled": "Cancelled"}
 
+# The server is stopping (a restart, a deploy): the runs it cuts are left going
+# on, for the next process to take back (`runs.recover_on_startup`).
+_shutting_down = False
+
+
+def begin_shutdown() -> None:
+    global _shutting_down
+    _shutting_down = True
+
+
+def shutting_down() -> bool:
+    return _shutting_down
+
+
+def runs_root() -> Path:
+    return settings.data_path / "server-runs"
+
 
 def run_dir(run_id: str) -> Path:
     """The run's own files (a frozen ranking, uploaded inputs, results)."""
-    return settings.data_path / "server-runs" / run_id
+    return runs_root() / run_id
 
 
 def drop_files(run_id: str) -> None:
     shutil.rmtree(run_dir(run_id), ignore_errors=True)
+
+
+async def forget_files(run_id: str) -> None:
+    await asyncio.to_thread(drop_files, run_id)
 
 
 def is_running(run_id: str) -> bool:
@@ -62,14 +88,22 @@ def stop(run_id: str) -> bool:
     return True
 
 
+async def stop_and_wait(run_id: str, timeout: float = 10.0) -> None:
+    """`stop`, then wait a while for the executor to have let go of its files."""
+    task = _tasks.get(run_id)
+    if stop(run_id) and task is not None:
+        await asyncio.wait({task}, timeout=timeout)
+
+
 async def launch(run: ServerRun, label: str) -> None:
-    """A job for the run's next attempt, running its executor."""
+    """A job for the run's next attempt, running its executor. Raises when the
+    job cannot be made; the run, queued, is the caller's to end then."""
     from app.services.server_runs import registry
 
     async with database.async_session() as db:
         entity = await registry.KINDS[run.kind].entity(db, run)
         job = await jobs.create(
-            db, None, run.user_id, kind="server_run", label=label, workspace_id=run.workspace_id, entity=entity,
+            db, None, run.user_id, kind="server_run", label=label[:255], workspace_id=run.workspace_id, entity=entity,
         )
         run_row = await db.get(ServerRun, run.id)
         if run_row is not None:
@@ -96,20 +130,52 @@ async def execute(run_id: str, handle: jobs.JobHandle) -> None:
     async with database.async_session() as db:
         attempt = await state.claim(db, run_id)
         if attempt is None:
-            return
+            # Stopped before its turn, or taken by another job: this one did not run.
+            raise asyncio.CancelledError
         run = await db.get(ServerRun, run_id)
         assert run is not None
         kind = registry.KINDS[run.kind]
-        spec = kind.spec.model_validate(run.spec)
+        try:
+            spec = kind.spec.model_validate(run.spec)
+        except ValidationError as e:
+            # Stored by an older server: the page starts it again.
+            await state.write(db, run_id, attempt, status="failed", error=str(e)[:4000], finished_at=datetime.now(UTC))
+            raise
         try:
             executor = await kind.executor.create(db, run, attempt, spec, handle)
         except Gone as e:
             await state.write(db, run_id, attempt, status="failed", error=str(e), finished_at=datetime.now(UTC))
-            return
+            raise
+        except asyncio.CancelledError:
+            await to_the_end(_stopped_before_start(run_id, attempt))
+            raise
         except Exception as e:  # noqa: BLE001 — no login (session-only, gone): its user resumes it
-            await state.write(db, run_id, attempt, status="interrupted", error=str(getattr(e, "detail", e)), finished_at=datetime.now(UTC))
+            error = scrub_row_values(str(getattr(e, "detail", e)))
+            await state.write(db, run_id, attempt, status="interrupted", error=error, finished_at=datetime.now(UTC))
             raise
     await executor.run()
+
+
+async def _stop_status(run_id: str) -> str | None:
+    """What a run cut by a stop ends as: what its page asked — None while the
+    server shuts down, the run left going on for the next process."""
+    if _shutting_down:
+        return None
+    try:
+        async with database.async_session() as db:
+            asked = await state.requested(db, run_id)
+    except Exception:  # noqa: BLE001 — unread, the run pauses: a resume loses nothing
+        asked = None
+    return "cancelled" if asked == "cancel" else "paused"
+
+
+async def _stopped_before_start(run_id: str, attempt: int) -> None:
+    status = await _stop_status(run_id)
+    if status is None:
+        return
+    with contextlib.suppress(state.Fenced):
+        async with database.async_session() as db:
+            await state.write(db, run_id, attempt, status=status, requested=None, finished_at=datetime.now(UTC))
 
 
 class Gone(Exception):
@@ -192,34 +258,55 @@ class RunExecutor:
 
     async def run(self) -> None:
         heartbeat = asyncio.create_task(self._heartbeat())
-        outcome: dict = {}
+        status: str | None = None
+        error: str | None = None
         try:
             await self.note(self.start_note())
             await self.setup()
             await self.body()
-            outcome = {"status": "done"}
+            status = "done"
         except asyncio.CancelledError:
-            outcome = {"status": "cancelled" if await self.requested() == "cancel" else "paused"}
+            status = "stopped"
             raise
         except state.Fenced:
-            outcome = {}
             raise
         except Exception as e:  # noqa: BLE001 — any failure is the run's, shown on its page
-            logger.exception("server run %s failed", self.run_id)
-            outcome = {"status": "failed", "error": str(e)[:4000]}
+            # Shown to every reader of the run, and logged: a row value it quotes is not.
+            error = scrub_row_values(str(e))[:4000]
+            # The frames, not the exception's own text: they name code, never a row value.
+            logger.error(
+                "server run %s failed: %s: %s\n%s", self.run_id, type(e).__name__, error,
+                "".join(traceback.format_tb(e.__traceback__)),
+            )
+            status = "failed"
             raise
         finally:
-            heartbeat.cancel()
-            await asyncio.gather(heartbeat, return_exceptions=True)
-            with contextlib.suppress(Exception):
-                await asyncio.shield(self.teardown())
-            if outcome:
-                with contextlib.suppress(Exception):
-                    await asyncio.shield(self.note(_ENDED_AS.get(outcome["status"]) or f"Failed: {outcome.get('error')}"))
-                self.state.pop("current", None)
-                with contextlib.suppress(state.Fenced):
-                    await asyncio.shield(self.save(finished_at=datetime.now(UTC), requested=None, **outcome))
-                self.ended(outcome["status"])
+            # One task to its end, whatever cancels this one meanwhile (a second
+            # stop, the job's own cancel): a run must not stay `running` with no
+            # executor because its last write was cut.
+            await to_the_end(self._end(heartbeat, status, error))
+
+    async def _end(self, heartbeat: asyncio.Task, status: str | None, error: str | None) -> None:
+        heartbeat.cancel()
+        await asyncio.gather(heartbeat, return_exceptions=True)
+        with contextlib.suppress(Exception):
+            await self.teardown()
+        if status == "stopped":
+            status = await _stop_status(self.run_id)
+        if status is None:
+            return
+        outcome = {"status": status, **({"error": error} if error is not None else {})}
+        with contextlib.suppress(Exception):
+            await self.note(_ENDED_AS.get(status) or f"Failed: {short_text(error or '')}")
+        self.state.pop("current", None)
+        try:
+            await self.save(finished_at=datetime.now(UTC), requested=None, **outcome)
+        except state.Fenced:
+            return
+        except Exception:  # noqa: BLE001 — left `running` with no task, read as interrupted (`runs.settled`)
+            logger.error("server run %s: its outcome (%s) could not be written", self.run_id, status)
+            return
+        await asyncio.to_thread(self.ended, status)
 
     async def requested(self) -> str | None:
         async with database.async_session() as db:
@@ -266,7 +353,7 @@ class QueryingExecutor(RunExecutor):
         if source is None:
             raise Gone("the database no longer exists")
         login = await database_credential_service.resolve_login(db, source, run.user_id)
-        inputs = await data_source_service._materialize_inputs(db, source, login)
+        inputs = await data_source_service.materialize_inputs(db, source, login)
         return cls(run, attempt, spec, handle, await launched_by(db, run.user_id), source, login, inputs)
 
     async def setup(self) -> None:
@@ -290,7 +377,7 @@ class QueryingExecutor(RunExecutor):
             # One access-log line per query, as through `/query`.
             with audit.job_scope(self.handle.job_id, "query", self.launched_by):
                 if isinstance(self.worker, QueryWorker):
-                    data_source_service._audit(self.source, "query", sql)
+                    data_source_service.audit_use(self.source, "query", sql)
                     rows = await self.worker.run(sql, deadline=deadline)
                 else:
                     rows = await self.worker.run(sql, deadline=deadline, pushdown=pushdown)
@@ -313,7 +400,7 @@ class _InProcess:
 
     async def run(self, sql: str, *, deadline: float | None = None, pushdown: bool = True) -> list[dict]:
         ex = self.executor
-        tag = (f"job:{ex.handle.job_id}", str(ex.user_id))
+        tag = cancel_tag(ex.handle.job_id, ex.user_id)
         token = query_cancel.current_query.set(tag)
         cap = db_connect.row_cap.set(db_connect.MAX_QUERY_ROWS_ALL)
 
@@ -352,8 +439,20 @@ def took(started: float) -> str:
 
 
 def short(error: Exception) -> str:
-    text = str(error).strip().splitlines()
-    return (text[0] if text else type(error).__name__)[:300]
+    """A database error's first line, fit for the job's log and the run's page,
+    which others read: none of the row values it quotes."""
+    return short_text(str(error)) or type(error).__name__
+
+
+def short_text(text: str) -> str:
+    lines = scrub_row_values(text).strip().splitlines()
+    return lines[0][:300] if lines else ""
+
+
+def cancel_tag(job_id: str, user_id: int) -> tuple[str, str]:
+    """What `query_cancel` knows a run's query in flight by: its job, owned by the
+    run's user, as a query job's is (`query_jobs`)."""
+    return (f"job:{job_id}", str(user_id))
 
 
 def now_iso() -> str:

@@ -37,7 +37,7 @@ import { isServerMode } from '@/lib/api-client'
 import { sourceTables } from '@/lib/duckdb/engine'
 import { useServerRun } from '@/hooks/use-server-run'
 import { ACTIVE_RUN_STATUSES } from '@/lib/api/server-runs'
-import { preparePlan, runResults, type QueryListState } from '@/lib/server-runs/query-plan'
+import { preparePlan, runResults, signatureOf, type QueryListState } from '@/lib/server-runs/query-plan'
 import { QueryErrorNotice, StatsColumn } from './quality-stats-column'
 import type { DatabaseStatsCache, DataSource } from '@/types'
 
@@ -413,6 +413,9 @@ function ConceptQualityView({
     }).catch(() => {})
   }, [pipelineId, targetId, fingerprint])
 
+  // What a run of this target's last ETL run computes; `wanted`: the one this page started.
+  const runSignature = targetId ? signatureOf([targetId, fingerprint]) : null
+  const wanted = useRef<string | null>(null)
   const request = useRef(0)
   const load = useCallback(async (force: boolean) => {
     if (!targetId) return
@@ -434,7 +437,9 @@ function ConceptQualityView({
     try {
       if (onServer) {
         // Started — or the one going on joined —, and assembled once it ends (below).
-        const plan = conceptQualityPlan(await sourceTables(targetId), tRef.current('etl.quality_run_job'), { targetId, fingerprint })
+        const signature = signatureOf([targetId, fingerprint])
+        const plan = conceptQualityPlan(await sourceTables(targetId), tRef.current('etl.quality_run_job'), { targetId, fingerprint, signature })
+        wanted.current = signature
         await startServerRun(await preparePlan(targetId, plan))
         return
       }
@@ -453,6 +458,7 @@ function ConceptQualityView({
   // The server's run, followed: going on, it shows as loading; ended, its results
   // become the table — once, and only those of this target and this last run.
   const applied = useRef<string | null>(null)
+  const restartedAfter = useRef<string | null>(null)
   const run = serverRun.run
   useEffect(() => {
     if (!run) return
@@ -460,11 +466,18 @@ function ConceptQualityView({
       setLoading(true)
       return
     }
-    const meta = run.state.meta ?? {}
-    if (meta.targetId !== targetId || meta.fingerprint !== fingerprint || applied.current === run.id) {
-      if (run.status !== 'done') setLoading(false)
+    if (run.state.meta?.signature !== runSignature) {
+      // A run of an older ETL run, joined when this page started its own, ended:
+      // this page's is started now — once, not at every read of the old one.
+      if (wanted.current === runSignature && restartedAfter.current !== run.id) {
+        restartedAfter.current = run.id
+        void load(true)
+      } else {
+        setLoading(false)
+      }
       return
     }
+    if (applied.current === run.id) return
     applied.current = run.id
     if (run.status !== 'done') {
       setLoading(false)
@@ -476,7 +489,7 @@ function ConceptQualityView({
       .then((results) => save(assembleConceptQuality(results)))
       .then(() => setError(undefined), (e) => { setRows([]); setError(errorText(e)) })
       .finally(() => setLoading(false))
-  }, [run, targetId, fingerprint, save])
+  }, [run, runSignature, load, save])
 
   // Gated on the history being read: the fingerprint keys on the last run, so
   // firing early would compute against 'none' and then recompute a moment later.

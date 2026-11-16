@@ -103,14 +103,18 @@ async def test_a_cohort_is_frozen_on_its_own_database_only(client):
     assert r.status_code == 400
 
 
-async def test_a_freeze_past_the_time_limit_is_stopped(client, monkeypatch):
+async def test_a_freeze_past_its_time_limit_is_stopped(client, monkeypatch):
+    # A freeze goes on as a job of the panel: the limit of a query its user waits
+    # for does not bind it, and its refusal sends nobody to run it as a job.
     monkeypatch.setattr(settings, "query_timeout_seconds", 1)
+    monkeypatch.setattr(settings, "background_query_timeout_seconds", 2)
     headers = await _admin(client)
     cid, _, _ = await _frozen_cohort(client, headers)
     endless = "SELECT count(*) AS id, 1 AS patient_id FROM range(100000000000) t(i)"
     r = await asyncio.wait_for(client.post(f"{API}/cohorts/{cid}/materialize", headers=headers,
                                            json={"membershipSql": endless}), 30)
-    assert r.status_code == 422 and r.json()["detail"]["code"] == "query_time_limit"
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "background_query_time_limit"
+    assert "background job" not in r.json()["detail"]["message"]
     r = await asyncio.wait_for(client.post(f"{API}/cohorts/{cid}/materialize", headers=headers,
                                            json={"membershipSql": MEMBERSHIP}), 30)
     assert r.status_code == 200

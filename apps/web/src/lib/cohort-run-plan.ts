@@ -58,7 +58,7 @@ export async function compileCohortRun(
     items,
     keepGoing: true,
     // The database it reads: the server checks it is the cohort's.
-    meta: { signature: signatureOf([cohort.level, ...items.map((i) => i.sql)]), draft, dataSourceId },
+    meta: { signature: signatureOf([dataSourceId, cohort.level, ...items.map((i) => i.sql)]), draft, dataSourceId },
   }
 
   const rowsOf = (results: PlanResults, key: string) => {

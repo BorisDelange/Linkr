@@ -431,7 +431,10 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     const setIfCurrent = (fn: (s: CohortState) => Partial<CohortState>) =>
       set((s) => (s.executionAborts.get(id) === controller ? fn(s) : {}))
 
+    // A rejoin shows nothing before it knows of a run going on: one that ended
+    // is only read back, and none leaves the panel as it was.
     set((s) => {
+      if (rejoin) return { executionAborts: new Map(s.executionAborts).set(id, controller) }
       const errors = new Map(s.executionErrors)
       errors.delete(id)
       const outputs = new Map(s.customSqlOutputs)
@@ -444,7 +447,12 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       }
     })
 
-    const startTime = Date.now()
+    let startTime = Date.now()
+    // When and how long the server's run ran, not this page's following of it.
+    let ran: { executedAt: string; durationMs: number } | null = null
+    // Its rows land as it runs: false for a run rejoined once done, whose output only shows at the end.
+    let live = true
+    let joined = false
 
     try {
       const compiled = await compileCohortRun(cohort, dataSourceId, schemaMapping, draft)
@@ -457,20 +465,34 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       // list no member — and its failure never hides the cohort's own error.
       const onRows = (key: string, rows: Record<string, unknown>[] | null, error?: string) => {
         results.set(key, error != null || !rows ? new Error(error ?? 'no rows') : rows)
-        if (key === OUTPUT_KEY) setIfCurrent((s) => ({ customSqlOutputs: new Map(s.customSqlOutputs).set(id, outputOf(results, startTime)) }))
+        if (key === OUTPUT_KEY && live) setIfCurrent((s) => ({ customSqlOutputs: new Map(s.customSqlOutputs).set(id, outputOf(results, startTime)) }))
       }
       if (isServerMode()) {
         // A run of the server's: a reload, a closed tab or a restart leaves it
         // going on, and the page that comes back finds it (`rejoinCohortRun`).
         const plan = await preparePlan(dataSourceId, compiled.plan)
         const run = await followServerPlan('cohort_run', id, plan,
-          (i, rows, error) => onRows(plan.items[i].key, rows, error), { signal, resumeOnly: rejoin, finished: rejoin })
+          (i, rows, error) => onRows(plan.items[i].key, rows, error), {
+            signal, resumeOnly: rejoin, finished: rejoin,
+            onRun: (followed) => {
+              startTime = Date.parse(followed.createdAt) || startTime
+              live = followed.status !== 'done'
+              joined = true
+              if (rejoin && followed.status !== 'done') setIfCurrent((s) => ({ executionLoading: new Map(s.executionLoading).set(id, true) }))
+            },
+          })
         if (!run) {
           setIfCurrent((s) => ({ executionLoading: new Map(s.executionLoading).set(id, false) }))
           return 0
         }
         if (run.status === 'cancelled' || run.status === 'paused') throw new DOMException('cancelled', 'AbortError')
         if (run.status !== 'done') throw new Error(run.error ?? `the cohort run ended ${run.status}`)
+        const finishedAt = run.finishedAt ? Date.parse(run.finishedAt) : NaN
+        if (!Number.isNaN(finishedAt)) ran = { executedAt: run.finishedAt!, durationMs: Math.max(0, finishedAt - startTime) }
+        if (!live && results.has(OUTPUT_KEY)) {
+          const output = { ...outputOf(results, startTime), durationMs: ran?.durationMs ?? 0 }
+          setIfCurrent((s) => ({ customSqlOutputs: new Map(s.customSqlOutputs).set(id, output) }))
+        }
       } else {
         const named = cohortOrigin(localized(cohort.name, 'en'))
         for (const item of compiled.plan.items) {
@@ -485,8 +507,8 @@ export const useCohortStore = create<CohortState>((set, get) => ({
 
       const result: CohortExecutionResult = {
         ...compiled.assemble(results),
-        executedAt: new Date().toISOString(),
-        durationMs: Date.now() - startTime,
+        executedAt: ran?.executedAt ?? new Date().toISOString(),
+        durationMs: ran?.durationMs ?? Date.now() - startTime,
         ...(draft ? { fromDraft: { customSql: customSqlDraft ?? null } } : {}),
       }
       const output = compiled.ownOutput(result)
@@ -510,6 +532,11 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       return totalCount
     } catch (err) {
       if (!isCurrent()) return 0
+      // A rejoin that found nothing to follow asked for nothing: no error of its own to show.
+      if (rejoin && !joined) {
+        setIfCurrent((s) => ({ executionLoading: new Map(s.executionLoading).set(id, false) }))
+        return 0
+      }
       const cancelled = signal.aborted || (err instanceof DOMException && err.name === 'AbortError')
       set((s) => {
         // Drop the previous run's result. The panel only shows the error when

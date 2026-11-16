@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { ConceptSet, DataDictionary } from '@/types'
-import { buildDictionaryLinks, clonedDictionaryFiles, readDictionaryLinks, unlinkedConceptSets } from './dictionary-links'
+import type { Storage } from '@/lib/storage'
+import { buildDictionaryLinks, clonedDictionaryFiles, landDictionaries, readDictionaryLinks, unlinkedConceptSets } from './dictionary-links'
+import type { DictionaryContent } from './content'
 
 const dict = (over: Partial<DataDictionary>): DataDictionary => ({
   id: 'd', workspaceId: 'ws1', name: 'Core', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-02-01T00:00:00.000Z', ...over,
@@ -55,5 +57,35 @@ describe('reading back', () => {
       'data-dictionaries/core/app/package.json': '{}',
       'data-dictionaries/other/concept_sets/2.json': '{}',
     }, 'core')).toEqual({ 'concept_sets/1.json': '{}', 'units/recommended_units.json': '[]' })
+  })
+})
+
+describe('landDictionaries', () => {
+  it('adopts a loose set of the repository only when it can be matched to one of its sets', async () => {
+    const sets: ConceptSet[] = [
+      { id: 'keyed', workspaceId: 'ws1', uniqueId: 'u1', sourceRepo: 'https://x/core' },
+      { id: 'keyless', workspaceId: 'ws1', sourceRepo: 'https://x/core' },
+    ] as ConceptSet[]
+    const adopted: string[] = []
+    const storage = {
+      dataDictionaries: { getByWorkspace: async () => [], create: async () => {}, sync: async () => {} },
+      conceptSets: {
+        getByWorkspace: async () => sets,
+        update: async (id: string, changes: Partial<ConceptSet>) => {
+          adopted.push(id)
+          Object.assign(sets.find((x) => x.id === id)!, changes)
+        },
+      },
+    } as unknown as Storage
+    const content: DictionaryContent = {
+      // An incoming set with no key either: it must not pair with the keyless local one.
+      conceptSets: [{ name: 'A', uniqueId: 'u1' }, { name: 'B' }] as DictionaryContent['conceptSets'],
+      unitConversions: null, recommendedUnits: null, commit: null,
+    }
+    await landDictionaries(
+      [{ entityId: 'core', name: 'Core', git: { url: 'https://x/core', branch: 'main' } }],
+      new Map(), 'ws1', 'en', storage, async () => content,
+    )
+    expect(adopted).toEqual(['keyed'])
   })
 })

@@ -28,6 +28,7 @@ from app.services.server_runs import state
 from app.services.server_runs.concepts import profiles
 from app.services.server_runs.executor import (
     QueryingExecutor,
+    cancel_tag,
     now_iso,
     read_json,
     run_dir,
@@ -107,6 +108,12 @@ class ConceptExecutor(QueryingExecutor):
         self.batch_cap = int(learnt.get("batchCap", BATCH_CONCEPTS))
         self.batch_ceiling = int(learnt.get("batchCeiling", BATCH_CONCEPTS + 1))
         self.quick_in_a_row = 0
+        # The database's shared profiles and caches are written by its Concepts tab,
+        # and by an extraction only when its starter may write the database (decided
+        # by the server at start, `state.storesProfiles`); an extraction otherwise
+        # reads them and keeps what it computes to its CSV.
+        self.shared_writes = spec.extraction is None
+        self.stores_profiles = self.shared_writes or bool(self.state.get("storesProfiles"))
 
     def percent(self) -> int:
         st = self.state
@@ -161,12 +168,12 @@ class ConceptExecutor(QueryingExecutor):
         return super().start_note()
 
     async def body(self) -> None:
-        if self.spec.fresh and not self.state.get("cleared"):
+        if self.spec.fresh and self.shared_writes and not self.state.get("cleared"):
             async with database.async_session() as db:
                 await concept_profile_service.delete_for_source(db, self.source_id)
             self.state["cleared"] = True
             await self.save()
-        if self.spec.counts and self.state.get("stage") in (None, "counts"):
+        if self.spec.counts and self.shared_writes and self.state.get("stage") in (None, "counts"):
             await self._counts()
         if self.spec.dictionaries:
             if self.state.get("stage") in (None, "counts", "ranking"):
@@ -197,7 +204,7 @@ class ConceptExecutor(QueryingExecutor):
             counts[step] = {"done": sum(1 for k in keys if k in done), "total": len(keys)}
         self.state["stage"] = "counts"
         await self.save()
-        tag = (f"job:{self.handle.job_id}", str(self.source.workspace_id or ""))
+        tag = cancel_tag(self.handle.job_id, self.user_id)
         assembled = False
         for step in spec.steps:
             self.state["phase"] = step.step
@@ -344,18 +351,24 @@ class ConceptExecutor(QueryingExecutor):
             # The progress moves batch by batch; a resume redoes the page from
             # its start, the profiles it already stored read back, not computed,
             # and the progress waits there until the page passes it.
-            start = st.setdefault("pageStart", {"done": st.get("done", 0), "doneWeight": st.get("doneWeight", 0)})
+            st.setdefault("pageStart", {"done": st.get("done", 0), "doneWeight": st.get("doneWeight", 0)})
             self.page_done = self.page_weight = 0
+            # An extraction's page is passed with its CSV rows, in their transaction.
             await self._page(d_spec, d, page_ids)
-            st["offset"] += len(page_ids)
-            records = d["records"] or {}
-            st["done"] = start["done"] + len(page_ids)
-            st["doneWeight"] = start["doneWeight"] + sum(records.get(str(i), 0) + QUERY_COST_ROWS for i in page_ids)
-            st.pop("pageStart")
+            if self.spec.extraction is None:
+                self._pass_page(d, page_ids)
             await self.save()
             if self.spec.extraction is None:
                 await self._save_stats_run()
         st["stage"] = "done"
+
+    def _pass_page(self, d: dict, page_ids: list[int]) -> None:
+        st = self.state
+        start = st.pop("pageStart")
+        records = d["records"] or {}
+        st["offset"] += len(page_ids)
+        st["done"] = start["done"] + len(page_ids)
+        st["doneWeight"] = start["doneWeight"] + sum(records.get(str(i), 0) + QUERY_COST_ROWS for i in page_ids)
 
     async def _page(self, d_spec, d: dict, page_ids: list[int]) -> None:
         first = self.state["pageStart"]["done"] + 1
@@ -369,11 +382,11 @@ class ConceptExecutor(QueryingExecutor):
         outcomes: dict[int, dict] = {}
         if self.spec.metadata and present:
             outcomes = await self._profile(d_spec, d, present, concepts)
-        if self.spec.extraction is not None:
-            await self._append_csv(d, page, outcomes, self.state["pageStart"]["done"] + len(page_ids))
         last = concepts.get(present[-1]) if present else None
         if last is not None:
             self.state["current"] = _current(last)
+        if self.spec.extraction is not None:
+            await self._append_csv(d, page, outcomes, page_ids)
 
     async def _profile(self, d_spec, d: dict, ids: list[int], concepts: dict[int, dict]) -> dict[int, dict]:
         options = self.options
@@ -426,7 +439,7 @@ class ConceptExecutor(QueryingExecutor):
                     if merged["rowsCount"] > 0:
                         kept.append(merged)
                     out[cid] = profiles.filter_profile(merged, reader)
-                if kept:
+                if kept and self.stores_profiles:
                     async with database.async_session() as db:
                         await state.write(db, self.run_id, self.attempt)
                         await concept_profile_service.write(db, self.source_id, kept)
@@ -517,12 +530,15 @@ class ConceptExecutor(QueryingExecutor):
         st["failedCount"] = st.get("failedCount", 0) + 1
         listed = st.setdefault("failed", [])
         if len(listed) < FAILED_LISTED:
-            listed.append({"conceptId": concept_id, "error": str(error)[:300]})
-        logger.warning("concept run %s: concept %s failed: %s", self.run_id, concept_id, error)
+            listed.append({"conceptId": concept_id, "error": short(error)})
+        logger.warning("concept run %s: concept %s failed: %s", self.run_id, concept_id, short(error))
 
     # --- extraction CSV -----------------------------------------------------
 
-    async def _append_csv(self, d: dict, page: list[dict], outcomes: dict[int, dict], extracted: int) -> None:
+    async def _append_csv(self, d: dict, page: list[dict], outcomes: dict[int, dict], page_ids: list[int]) -> None:
+        """The page's rows appended to the project's CSV, and the page passed in
+        the checkpoint, in one transaction: a cut leaves both or neither, and a
+        resume never appends a page twice."""
         spec = self.spec
         assert spec.extraction is not None
         records = d["records"]
@@ -535,24 +551,34 @@ class ConceptExecutor(QueryingExecutor):
         body = profiles.extraction_csv_rows(rows)
         header = profiles.extraction_csv_header()
         text = (f"{header}\n{body}" if body else header) if first else (f"\n{body}" if body else "")
+        # Restored when the transaction does not land: the page is then done again.
+        before = dict(st)
         st["csvRows"] = st.get("csvRows", 0) + len(rows)
-        async with database.async_session() as db:
-            await state.write(db, self.run_id, self.attempt)
-            project = await mapping_project_service.get(db, self.scope_id)
-            if project is None:
-                raise ValueError("the mapping project no longer exists")
-            if text:
-                base = None if first else project.raw_file_sha
-                if base and not blob_store.exists(base):
-                    base = None
-                sha, size = await blob_store.append_bytes(base, text.encode("utf-8"))
-                await asyncio.to_thread(upload_ledger.record, self.user_id, sha, size)
-                project.raw_file_sha = sha
-                project.raw_file_name = "source-concepts.csv"
-            st["csvStarted"] = True
-            project.file_source_data = {**spec.extraction.file_source_data, "rows": [], "totalRowCount": st["csvRows"]}
-            project.source_extraction = self._extraction_state(extracted)
-            await db.commit()
+        st["csvStarted"] = True
+        self._pass_page(d, page_ids)
+        try:
+            async with database.async_session() as db:
+                project = await mapping_project_service.get(db, self.scope_id)
+                if project is None:
+                    raise ValueError("the mapping project no longer exists")
+                sha = None
+                if text:
+                    base = None if first else project.raw_file_sha
+                    if base and not blob_store.exists(base):
+                        base = None
+                    sha, size = await blob_store.append_bytes(base, text.encode("utf-8"))
+                    await asyncio.to_thread(upload_ledger.record, self.user_id, sha, size)
+                await state.fence(db, self.run_id, self.attempt, state=dict(st))
+                if sha is not None:
+                    project.raw_file_sha = sha
+                    project.raw_file_name = "source-concepts.csv"
+                project.file_source_data = {**spec.extraction.file_source_data, "rows": [], "totalRowCount": st["csvRows"]}
+                project.source_extraction = self._extraction_state(st["done"])
+                await db.commit()
+        except BaseException:
+            st.clear()
+            st.update(before)
+            raise
 
     async def _save_stats_run(self) -> None:
         """The database's last statistics run, as the profile summary reports it:

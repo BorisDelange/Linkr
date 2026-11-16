@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isDataFile, dataFilesToPush, defaultSelectedPaths, isForeignPath } from './git-file-classify'
+import { isDataFile, dataFilesToPush, leftOutFilesToDelete, defaultSelectedPaths, isForeignPath } from './git-file-classify'
 
 describe('isForeignPath', () => {
   it('flags files no scope rule recognises (another tool wrote them)', () => {
@@ -97,6 +97,28 @@ describe('dataFilesToPush', () => {
       { path: 'scripts/derive.py', changeType: 'added' },
       { path: '.gitignore', changeType: 'modified' },
     ])).toEqual([])
+  })
+})
+
+describe('leftOutFilesToDelete', () => {
+  it('names the deletions of files the export may have left out, in a project tree or under a workspace', () => {
+    expect(leftOutFilesToDelete([
+      { path: 'scripts/config.json', changeType: 'deleted' },
+      { path: 'scripts/figures/plot.png', changeType: 'deleted' },
+      { path: 'scripts/old.ipynb', changeType: 'deleted' },
+      { path: 'projects/icu/scripts/notes.txt', changeType: 'deleted' },
+      { path: 'datasets/view/old.csv', changeType: 'deleted' },
+      { path: 'scripts/derive.py', changeType: 'deleted' },
+      { path: 'dashboards/main.json', changeType: 'deleted' },
+      { path: 'scripts/kept.json', changeType: 'modified' },
+    ]).map((f) => f.path)).toEqual([
+      'scripts/config.json', 'scripts/figures/plot.png', 'scripts/old.ipynb', 'projects/icu/scripts/notes.txt',
+      'datasets/view/old.csv',
+    ])
+  })
+
+  it('treats a non-code file under a workspace project scripts/ as data to push', () => {
+    expect(dataFilesToPush([{ path: 'projects/icu/scripts/notes.txt', changeType: 'added' }])).toHaveLength(1)
   })
 })
 

@@ -44,12 +44,14 @@ from app.schemas.dataset_fs import (
     DsStageServerFile,
 )
 from app.core.permissions import check_workspace_permission
+from app.core.refusal import refusal_detail
 from app.models.data_source import DataSource
 from app.services import (
     upload_ledger,
     blob_store,
     data_source_service,
     database_credential_service,
+    database_binding,
     dataset_service,
     fs_browser,
     notification_service,
@@ -227,13 +229,13 @@ async def stage_server_file(
     try:
         src = fs_browser.validate_import_source(body.server_path, scope)
     except fs_browser.FsBrowseError as e:
-        raise HTTPException(e.status_code, str(e))
+        raise HTTPException(e.status_code, e.detail)
 
     async def work() -> DsStagedFile:
         try:
             sha, size = await blob_store.store_copy(lambda: fs_browser.open_import_source(str(src), scope))
         except fs_browser.FsBrowseError as e:
-            raise HTTPException(e.status_code, str(e))
+            raise HTTPException(e.status_code, e.detail)
         await asyncio.to_thread(upload_ledger.record, user.id, sha, size)
         return DsStagedFile(sha=sha, size=size, file_name=src.name)
 
@@ -289,7 +291,7 @@ async def preview_dataset_path(
     try:
         raw = project_fs.dataset_path(body.project_uid, body.path)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
     if not raw.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
     audit.bind(action="preview", project_uid=body.project_uid, detail=f"datasets/{body.path} with new import options")
@@ -313,7 +315,7 @@ async def import_dataset(
     try:
         dst = project_fs.dataset_path(body.project_uid, body.path)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
     dst.parent.mkdir(parents=True, exist_ok=True)
 
     async def work() -> DsNodeResponse:
@@ -361,7 +363,7 @@ async def create_empty_dataset(
     try:
         dst = project_fs.dataset_path(body.project_uid, body.path)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
     if dst.exists():
         raise HTTPException(status.HTTP_409_CONFLICT, "A dataset already exists at this path")
 
@@ -409,7 +411,7 @@ async def create_dataset_from_query(
     await _check_project(db, body.project_uid, user, "datasets:write")
     project = await db.get(Project, body.project_uid)
     if body.data_source_id not in (project.linked_data_source_ids or []):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This database is not linked to the project")
+        raise database_binding.not_linked()
     source = await db.get(DataSource, body.data_source_id)
     if source is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Database not found")
@@ -419,7 +421,7 @@ async def create_dataset_from_query(
     try:
         dst = project_fs.dataset_path(body.project_uid, path)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
     existed = dst.exists()
     if existed and not body.replace:
         raise HTTPException(status.HTTP_409_CONFLICT, "A dataset already exists at this path")
@@ -434,6 +436,7 @@ async def create_dataset_from_query(
             try:
                 table = await query_cancel.within_limit(
                     lambda: data_source_service.query(session, target, login, body.sql, arrow=True), str(user.id),
+                    background=True,
                 )
             except (query_cancel.QueryCancelled, duckdb.InterruptException):
                 raise deferred.Stopped() from None
@@ -519,7 +522,7 @@ async def reimport_dataset(
         except FileNotFoundError:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
         except ValueError as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
         # Its own session: past `deferred.WAIT_SECONDS` the request's is gone.
         async with deferred.session() as session:
             await _notify_dataset(session, request, user, "updated", body.project_uid, body.path)
@@ -597,7 +600,7 @@ async def duplicate_dataset(
         new_path = f"{parent}/{body.new_name}" if parent else body.new_name
         dst = project_fs.dataset_path(body.project_uid, new_path)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
     if not src.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
     shutil.copyfile(src, dst)
@@ -616,7 +619,7 @@ async def create_folder(
     try:
         folder = project_fs.dataset_path(body.project_uid, body.path)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
     existed = folder.is_dir()
     folder.mkdir(parents=True, exist_ok=True)
     if not existed:
@@ -643,7 +646,7 @@ async def move_dataset(
         src = project_fs.dataset_path(body.project_uid, body.path)
         dst = project_fs.dataset_path(body.project_uid, body.new_path)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
     if not src.exists() or src == dst:
         return
     # samefile: a case-only rename on a case-insensitive disk "exists" already.
@@ -689,7 +692,7 @@ async def delete_dataset(
     try:
         p = project_fs.dataset_path(body.project_uid, body.path)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e))
     if p.is_dir():
         shutil.rmtree(p, ignore_errors=True)
     elif p.is_file():

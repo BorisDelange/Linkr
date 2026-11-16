@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, apiFetch, apiRequest, formatApiError, leavesItsRoute } from './api-client'
+import {
+  ApiError,
+  apiFetch,
+  apiRequest,
+  formatApiError,
+  INSECURE_SECRET_KEY_EVENT,
+  isInsecureSecretKeyRefusal,
+  leavesItsRoute,
+} from './api-client'
 import i18n from './i18n'
 
 describe('apiRequest deferred polling', () => {
@@ -118,5 +126,34 @@ describe('formatApiError on a refusal with a translated code', () => {
   it('keeps the server\'s sentence for a code with no translation', () => {
     const raw = JSON.stringify({ detail: { code: 'something_else', message: 'server sentence' } })
     expect(formatApiError(new ApiError(409, raw)).summary).toContain('server sentence')
+  })
+})
+
+describe('a server running on an example secret key', () => {
+  const refusal = { detail: { code: 'insecure_secret_key', message: 'server sentence' } }
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('is told apart from a proxy or another 503', () => {
+    expect(isInsecureSecretKeyRefusal(503, refusal)).toBe(true)
+    expect(isInsecureSecretKeyRefusal(500, refusal)).toBe(false)
+    expect(isInsecureSecretKeyRefusal(503, { detail: 'Service Unavailable' })).toBe(false)
+    expect(isInsecureSecretKeyRefusal(503, null)).toBe(false)
+  })
+
+  it('words the refusal in the user\'s language', () => {
+    const { summary } = formatApiError(new ApiError(503, JSON.stringify(refusal)))
+    expect(summary).toContain(i18n.t('api_errors.insecure_secret_key'))
+  })
+
+  it('tells the app when any request is refused for it', async () => {
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {}, removeItem: () => {} })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(refusal), { status: 503 })))
+    const page = new EventTarget()
+    vi.stubGlobal('window', page)
+    const told = vi.fn()
+    page.addEventListener(INSECURE_SECRET_KEY_EVENT, told)
+    expect((await apiFetch('/api/v1/projects')).status).toBe(503)
+    expect(told).toHaveBeenCalledOnce()
   })
 })

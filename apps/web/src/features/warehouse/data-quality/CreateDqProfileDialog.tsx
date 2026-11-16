@@ -66,7 +66,7 @@ export function CreateDqProfileDialog({ open, onOpenChange, editingProfile, onCr
         name: setLocalized(editingProfile.name, language, name.trim()),
         description: setLocalized(editingProfile.description, language, description.trim()),
         dataSourceId,
-        dataSourceRef: buildPointer(dbSources, dataSourceId),
+        dataSourceRef: buildPointer(dbSources, dataSourceId) ?? null,
         badges,
         version: version.trim() || '0.1.0',
         ...authoring,

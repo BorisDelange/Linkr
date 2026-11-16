@@ -51,6 +51,7 @@ from app.core.permissions import (
     unreadable_project_tree_reads,
 )
 from app.models.mapping_project import MappingProject
+from app.models.project import Project
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.schemas.git import (
@@ -83,6 +84,7 @@ from app.services import (
     git_credential_service,
     git_service,
     git_sync_state_service,
+    project_fs,
     settings_import_service,
     workspace_service,
 )
@@ -90,6 +92,7 @@ from app.services.mapping_project_export_assemble import (
     assemble_mapping_project_file_zip,
     assemble_mapping_project_zip,
 )
+from app.services.project_export import tracked_files_to_adopt
 from app.services.project_export_assemble import assemble_project_zip
 from app.services.settings_export_assemble import (
     SettingsSelection,
@@ -98,6 +101,8 @@ from app.services.settings_export_assemble import (
 from app.services.workspace_export_assemble import (
     WorkspaceExportOptions,
     assemble_workspace_zip,
+    list_workspace_projects,
+    project_folder,
     unreadable_project_uids,
     unreadable_sections,
 )
@@ -465,6 +470,79 @@ def _push_anchors(row) -> tuple[str | None, str | None]:
     return (row.synced_oid or None), (row.reviewed_oid or None)
 
 
+async def _true() -> bool:
+    return True
+
+
+def _string_set(raw: object) -> set[str]:
+    return {p for p in raw if isinstance(p, str)} if isinstance(raw, list) else set()
+
+
+def _script_text(project: Project, tree_path: str) -> str | None:
+    try:
+        path = project_fs.export_script_path(project.uid, tree_path.removeprefix("scripts/"))
+    except ValueError:
+        return None
+    if not path.is_file():
+        return None
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+async def _adopt_tracked_files(db, repo_getter, entity_id: str, branch: str, remote_url: str | None, projects) -> bool:
+    """Mark for versioning, once per clone, the files the repository already tracks
+    that the export now leaves out unless marked (`tracked_files_to_adopt`), so the
+    first push after the data-file rule changed does not delete them from the
+    remote. `projects` pairs each project with the prefix of its tree in the
+    repository. True when a mark was added (the export must be rebuilt)."""
+    tracked = await git_service.tracked_paths(repo_getter, entity_id, branch, remote_url)
+    if tracked is None:
+        return False
+    adopted = False
+    for prefix, project in projects:
+        config = dict(project.config or {})
+        marked = config.get("versionedDataFiles")
+        project_fs.prime_binding(project.uid, project.ide_path, project.scripts_path, project.datasets_path)
+        adopt = await asyncio.to_thread(
+            tracked_files_to_adopt,
+            {p.removeprefix(prefix) for p in tracked if p.startswith(prefix)},
+            _string_set(marked),
+            _string_set(config.get("excludedFiles")),
+            lambda path, project=project: _script_text(project, path),
+        )
+        if adopt:
+            config["versionedDataFiles"] = [*(marked if isinstance(marked, list) else []), *adopt]
+            project.config = config
+            adopted = True
+            logger.info("git_tracked_files_adopted", project_uid=project.uid, count=len(adopt))
+    if adopted:
+        await db.commit()
+        for _prefix, project in projects:
+            await db.refresh(project)
+    await git_service.mark_tracked_adopted(repo_getter, entity_id)
+    return adopted
+
+
+async def _adopt_project_files(db, project, branch: str, may_write) -> bool:
+    if not await may_write():
+        return False
+    return await _adopt_tracked_files(
+        db, git_service.project_repo_getter, project.uid, branch, _remote_url(project), [("", project)],
+    )
+
+
+async def _adopt_workspace_files(db, ws: Workspace, branch: str, may_write) -> bool:
+    if not await may_write():
+        return False
+    projects = [
+        (f"projects/{project_folder(project)}/", project)
+        for project in await list_workspace_projects(db, ws.id)
+        if not project.git_remote_config
+    ]
+    return await _adopt_tracked_files(
+        db, git_service.workspace_repo_getter, ws.id, branch, _remote_url(ws), projects,
+    )
+
+
 # --- Project scope --------------------------------------------------------
 
 
@@ -477,17 +555,28 @@ async def project_status(
     user: User = Depends(get_current_user),
 ):
     file = await _writer_upload(file, _project_writer(db, project, user))
-    result = await _guard(
-        git_service.status(
-            git_service.project_repo_getter,
-            project.uid,
-            await _project_zip_bytes(db, project, file),
-            _default_branch(project, branch),
-            _remote_url(project),
-            await _token(db, user, project),
+    resolved_branch = _default_branch(project, branch)
+    may_write = _project_writer(db, project, user)
+
+    async def run() -> dict:
+        return await _guard(
+            git_service.status(
+                git_service.project_repo_getter,
+                project.uid,
+                await _project_zip_bytes(db, project, file),
+                resolved_branch,
+                _remote_url(project),
+                await _token(db, user, project),
+            )
         )
-    )
-    return {"linked": _remote_url(project) is not None, **result}
+
+    adopted = await _adopt_project_files(db, project, resolved_branch, may_write)
+    result = await run()
+    # A clone this status fetched for the first time is adopted now, then counted again.
+    if await _adopt_project_files(db, project, resolved_branch, may_write):
+        adopted = True
+        result = await run()
+    return {"linked": _remote_url(project) is not None, "adopted": adopted, **result}
 
 
 @router.post("/projects/{project_uid}/diff", response_model=GitDiffResponse)
@@ -566,6 +655,7 @@ async def project_three_way(
     user: User = Depends(get_current_user),
 ):
     file = await _writer_upload(file, _project_writer(db, project, user))
+    await _adopt_project_files(db, project, _default_branch(project, branch), _project_writer(db, project, user))
     return await _three_way(
         db, "projects", project.uid, git_service.project_repo_getter,
         await _project_zip_bytes(db, project, file), _default_branch(project, branch),
@@ -607,6 +697,7 @@ async def project_commit_push(
         )
     await _refuse_direct_push(db, project.workspace_id)
     resolved_branch = _default_branch(project, branch)
+    await _adopt_project_files(db, project, resolved_branch, _true)
     row = await git_sync_state_service.get(db, "projects", project.uid, resolved_branch)
     return await _pushed(
         user,
@@ -707,17 +798,28 @@ async def workspace_status(
 ):
     ws = await _load_workspace_tree(workspace_id, db, _member)
     file = await _writer_upload(file, _workspace_writer(db, ws.id, _member, "workspace-settings:write"))
-    result = await _guard(
-        git_service.status(
-            git_service.workspace_repo_getter,
-            ws.id,
-            await _workspace_zip_bytes(db, ws, file),
-            _default_branch(ws, branch),
-            _remote_url(ws),
-            await _token(db, _member, ws),
+    resolved_branch = _default_branch(ws, branch)
+    may_write = _workspace_writer(db, ws.id, _member, "workspace-settings:write")
+
+    async def run() -> dict:
+        return await _guard(
+            git_service.status(
+                git_service.workspace_repo_getter,
+                ws.id,
+                await _workspace_zip_bytes(db, ws, file),
+                resolved_branch,
+                _remote_url(ws),
+                await _token(db, _member, ws),
+            )
         )
-    )
-    return {"linked": _remote_url(ws) is not None, **result}
+
+    adopted = await _adopt_workspace_files(db, ws, resolved_branch, may_write)
+    result = await run()
+    # A clone this status fetched for the first time is adopted now, then counted again.
+    if await _adopt_workspace_files(db, ws, resolved_branch, may_write):
+        adopted = True
+        result = await run()
+    return {"linked": _remote_url(ws) is not None, "adopted": adopted, **result}
 
 
 @router.post("/workspaces/{workspace_id}/diff", response_model=GitDiffResponse)
@@ -778,6 +880,7 @@ async def workspace_commit_push(
             status.HTTP_400_BAD_REQUEST, "Workspace is not linked to a git remote"
         )
     await _refuse_direct_push(db, ws.id)
+    await _adopt_workspace_files(db, ws, _default_branch(ws, branch), _true)
     row = await git_sync_state_service.get(db, "workspaces", ws.id, _default_branch(ws, branch))
     return await _pushed(
         _member,
@@ -868,6 +971,9 @@ async def workspace_three_way(
 ):
     ws = await _load_workspace_tree(workspace_id, db, _member)
     file = await _writer_upload(file, _workspace_writer(db, ws.id, _member, "workspace-settings:write"))
+    await _adopt_workspace_files(
+        db, ws, _default_branch(ws, branch), _workspace_writer(db, ws.id, _member, "workspace-settings:write"),
+    )
     return await _three_way(
         db, "workspaces", ws.id, git_service.workspace_repo_getter,
         await _workspace_zip_bytes(db, ws, file), _default_branch(ws, branch),

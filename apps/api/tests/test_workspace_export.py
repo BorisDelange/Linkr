@@ -349,6 +349,7 @@ def _build_tree() -> dict[str, bytes]:
         stripped.pop("errorMessage", None)
         # Row counts of this instance's copy, recomputed on every mount.
         stripped.pop("stats", None)
+        stripped.pop("unacceptedFreeSql", None)
         if isinstance(stripped.get("derivedFrom"), dict):
             stripped["derivedFrom"] = _portable_derived_from(stripped["derivedFrom"])
         connection_config = stripped.pop("connectionConfig", None)

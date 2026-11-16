@@ -84,6 +84,9 @@ def upgrade() -> None:
         conn.execute(_rule_sets.update().where(_rule_sets.c.id == row_id).values(check_groups=declared))
 
 
+_LEGACY_NAME_LENGTH = 255
+
+
 def downgrade() -> None:
     conn = op.get_bind()
     rows = conn.execute(sa.text("SELECT id, name, description FROM dq_custom_checks")).fetchall()
@@ -91,21 +94,28 @@ def downgrade() -> None:
         updates = {}
         for column, raw in (("name", name), ("description", description)):
             value = _json_object(raw)
-            if value is None:
-                continue
-            updates[column] = value.get(_LEGACY_LANG) or next(iter(value.values()), "")
+            text = raw if value is None else value.get(_LEGACY_LANG) or next(iter(value.values()), "")
+            # The name column narrows back to String(255), which PostgreSQL enforces.
+            if column == "name" and isinstance(text, str) and len(text) > _LEGACY_NAME_LENGTH:
+                text = text[:_LEGACY_NAME_LENGTH]
+            if text != raw:
+                updates[column] = text
         if updates:
             assignments = ", ".join(f"{col} = :{col}" for col in updates)
             conn.execute(sa.text(f"UPDATE dq_custom_checks SET {assignments} WHERE id = :id"), {**updates, "id": row_id})
 
-    # Back to the bare keys of the groups holding no check; names and nesting are lost.
-    used = {k for (k,) in conn.execute(sa.text("SELECT DISTINCT group_key FROM dq_custom_checks")).fetchall() if k}
+    # Back to the bare keys of the groups holding no check of their rule set;
+    # names and nesting are lost.
+    used: dict[str, set[str]] = {}
+    for rule_set_id, key in conn.execute(sa.text("SELECT DISTINCT rule_set_id, group_key FROM dq_custom_checks")).fetchall():
+        if key:
+            used.setdefault(rule_set_id, set()).add(key)
     for row_id, raw in conn.execute(sa.select(_rule_sets.c.id, _rule_sets.c.check_groups)).fetchall():
         groups = _json_list(raw)
         if groups is None:
             continue
         keys = [g["key"] if isinstance(g, dict) else g for g in groups]
-        empty = [k for k in keys if isinstance(k, str) and k not in used]
+        empty = [k for k in keys if isinstance(k, str) and k not in used.get(row_id, set())]
         conn.execute(_rule_sets.update().where(_rule_sets.c.id == row_id).values(check_groups=empty or None))
 
     with op.batch_alter_table("dq_custom_checks", schema=None) as batch_op:

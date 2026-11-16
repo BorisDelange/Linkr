@@ -20,6 +20,7 @@ async def _chunks(total: int):
 async def test_sign_in_routes_take_small_bodies_only(client, path):
     r = await client.post(f"{API}{path}", content=b" " * (2 * MB), headers={"content-type": "application/json"})
     assert r.status_code == 413
+    assert r.json()["detail"]["code"] == "request_too_large"
 
 
 async def test_size_is_counted_without_a_declared_length(client):

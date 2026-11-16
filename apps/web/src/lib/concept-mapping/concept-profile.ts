@@ -1445,7 +1445,7 @@ async function profileBatch(
 /**
  * A batch's profiles from the rows of its query (`buildBatchProfileQuery`).
  * `empty`: `emptyScalar` of the batch's event table. Twin of the server's
- * `read_batch_profiles` (app/services/concept_runs/profiles.py), both held to
+ * `read_batch_profiles` (app/services/server_runs/concepts/profiles.py), both held to
  * `__fixtures__/concept-runs/profiles.json`.
  */
 export function readBatchProfiles(

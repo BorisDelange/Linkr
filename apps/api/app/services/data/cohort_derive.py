@@ -64,6 +64,7 @@ from app.services.data.db_connect import (
     _group_parquet,
     _lock_down_user_sql,
     _reject_forbidden_statements,
+    _reject_passthrough_calls,
     _reject_stored_passthrough,
     _require_ident,
     _role_schema_path,
@@ -496,6 +497,7 @@ def compute_members(source: SourceSpec, membership_sql: str):
     try:
         _attach_role(con, "source", source.spec)
         _reject_stored_passthrough(con, ["source"])
+        _reject_passthrough_calls(stmt, dynamic_sql=True, con=con)
         # Set before the lock: the client SQL must not be able to move it.
         con.execute(f"SET search_path='{_source_search_path(con, source)}'")
         _forbid_file_access(con, _source_files(source))
@@ -542,6 +544,31 @@ def plan(source: SourceSpec, mapping: dict, level: str, scope: str | None = None
             "pseudonymized": [c for c in columns if pseudonym_level(c, ids)],
         })
     return out
+
+
+def built_tables(target: SourceSpec, schema: str | None) -> set[tuple[str | None, str]]:
+    """The tables an earlier build left in `target`, keyed as `plan` names them
+    (schema, lower-cased table): those of `schema` for a schema derivation, else
+    every table of the derived database."""
+    con = _connect()
+    try:
+        _attach_role(con, "source", target.spec)
+        _forbid_file_access(con, _source_files(target))
+        _lock_down_user_sql(con)
+        tables = _source_tables(con, target)
+    finally:
+        con.close()
+    if schema is not None:
+        return {(None, t.lower()) for s, t, _ in tables if s.lower() == schema.lower()}
+    return {(None if target.is_default(s) else s.lower(), t.lower()) for s, t, _ in tables}
+
+
+def flag_built(planned: list[dict], built: set[tuple[str | None, str]]) -> list[dict]:
+    """`plan`'s entries, each marked `built` when the target already holds it."""
+    def key(t: dict) -> tuple[str | None, str]:
+        return (t["schema"].lower() if t["schema"] else None, t["table"].lower())
+
+    return [{**t, "built": key(t) in built} for t in planned]
 
 
 @dataclass

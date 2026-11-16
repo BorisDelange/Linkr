@@ -196,7 +196,11 @@ def build_read_expr(
                 )
         _check_excel_inflation(path, file_name)
         try:
-            con.execute("INSTALL excel; LOAD excel;")
+            # LOAD first: INSTALL asks the extension repository, which an offline server cannot reach.
+            try:
+                con.execute("LOAD excel")
+            except duckdb.IOException:
+                con.execute("INSTALL excel; LOAD excel;")
         except duckdb.Error as e:
             raise ExcelSupportUnavailable(str(e)) from e
         sheet = opts.get("sheet")

@@ -59,9 +59,14 @@ def _databases_dir() -> Path:
     return d
 
 
+def valid_id(source_id: object) -> bool:
+    """Whether `source_id` can name a managed database's file."""
+    return isinstance(source_id, str) and bool(_SAFE_ID.match(source_id))
+
+
 def path_for(source_id: str) -> Path:
     """Filesystem path of a managed database (may not exist yet)."""
-    if not isinstance(source_id, str) or not _SAFE_ID.match(source_id):
+    if not valid_id(source_id):
         raise ValueError(f"invalid data source id: {source_id!r}")
     return _databases_dir() / f"{source_id}.duckdb"
 
@@ -83,7 +88,7 @@ def exists(source_id: str) -> bool:
 
 def file_left_behind(source_id: str) -> bool:
     """A file (or its write-ahead log) already sits at this id's default path."""
-    if not isinstance(source_id, str) or not _SAFE_ID.match(source_id):
+    if not valid_id(source_id):
         return False
     path = path_for(source_id)
     return path.exists() or path.with_name(path.name + ".wal").exists()

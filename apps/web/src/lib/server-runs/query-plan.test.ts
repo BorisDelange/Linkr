@@ -1,7 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const api = vi.fn()
-vi.mock('@/lib/api-client', () => ({ apiRequest: (...args: unknown[]) => api(...args), isServerMode: () => true }))
+vi.mock('@/lib/api-client', () => {
+  class ApiError extends Error {
+    status: number
+    constructor(status: number, message: string) {
+      super(message)
+      this.status = status
+    }
+  }
+  return { ApiError, apiRequest: (...args: unknown[]) => api(...args), isServerMode: () => true }
+})
 const runs = { start: vi.fn(), latest: vi.fn(), cancel: vi.fn() }
 vi.mock('@/lib/api/server-runs', () => ({
   ACTIVE_RUN_STATUSES: ['queued', 'running', 'pausing'],
@@ -11,7 +20,7 @@ vi.mock('@/lib/api/server-runs', () => ({
 }))
 vi.mock('@/lib/duckdb/engine', () => ({}))
 
-const { followServerPlan } = await import('./query-plan')
+const { followServerPlan, signedPlan } = await import('./query-plan')
 
 const PLAN = { label: 'L', items: [{ key: 'a', sql: 'A' }, { key: 'b', sql: 'B' }, { key: 'c', sql: 'C' }], keepGoing: true }
 const run = (status: string, state: Record<string, unknown>) => ({ id: 'r', status, state })
@@ -70,5 +79,74 @@ describe('a plan followed on the server', () => {
     expect((await followed)?.id).toBe('new')
     expect(runs.cancel).toHaveBeenCalledWith('old')
     expect(runs.start).toHaveBeenCalledTimes(2)
+  })
+
+  it('a re-run while the run is being stopped waits for it to end, then starts anew', async () => {
+    const signed = { ...PLAN, meta: { signature: 's' } }
+    const first = { id: 'first', status: 'running', requested: null, state: { meta: { signature: 's' } } }
+    runs.start.mockResolvedValueOnce(first)
+    runs.latest.mockResolvedValue(first)
+    const controller = new AbortController()
+    const followed = followServerPlan('cohort_run', 'c1', signed, () => {}, { signal: controller.signal })
+    const settled = expect(followed).rejects.toMatchObject({ name: 'AbortError' })
+    await vi.advanceTimersByTimeAsync(10)
+    let asked!: () => void
+    runs.cancel.mockImplementationOnce(() => new Promise((resolve) => { asked = () => resolve({ ...first, status: 'pausing', requested: 'cancel' }) }))
+    controller.abort()
+    await settled
+
+    // Same signature, yet the run being stopped is not joined.
+    const stoppingRun = { ...first, status: 'pausing', requested: 'cancel' }
+    runs.start.mockResolvedValueOnce(stoppingRun).mockResolvedValueOnce({ id: 'second', status: 'done', requested: null, state: { meta: { signature: 's' } } })
+    runs.latest.mockReset()
+    runs.latest.mockResolvedValueOnce(stoppingRun).mockResolvedValueOnce({ ...first, status: 'cancelled' })
+    const again = followServerPlan('cohort_run', 'c1', signed, () => {})
+    await vi.advanceTimersByTimeAsync(10)
+    // The second waits for the first one's cancel to reach the server before it starts.
+    expect(runs.start).toHaveBeenCalledTimes(1)
+    asked()
+    await vi.runAllTimersAsync()
+    expect((await again)?.id).toBe('second')
+    expect(runs.start).toHaveBeenCalledTimes(3)
+  })
+
+  it('rides out a gateway error or a dropped connection on a poll or a result', async () => {
+    const { ApiError } = await import('@/lib/api-client')
+    runs.start.mockResolvedValue(run('running', {}))
+    runs.latest.mockRejectedValueOnce(new ApiError(504, 'gateway timeout')).mockResolvedValueOnce(run('done', { rows: { a: 1 } }))
+    api.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const got: unknown[] = []
+    const done = followServerPlan('database_stats', 'ds:stats', PLAN, (i, rows) => got.push([i, rows]))
+    await vi.runAllTimersAsync()
+    expect((await done)?.status).toBe('done')
+    expect(got).toEqual([[0, [{ from: 'a' }]]])
+  })
+
+  it('a run replaced by one of another definition is reported ended, not as going on', async () => {
+    const signed = { ...PLAN, meta: { signature: 's' } }
+    runs.start.mockResolvedValue({ id: 'mine', status: 'running', state: { meta: { signature: 's' } } })
+    runs.latest.mockResolvedValue({ id: 'theirs', status: 'running', state: { meta: { signature: 'other' } } })
+    const followed = followServerPlan('cohort_run', 'c1', signed, () => {})
+    await vi.runAllTimersAsync()
+    expect(await followed).toMatchObject({ id: 'mine', status: 'cancelled' })
+  })
+
+  it('a run started after the stop was asked is cancelled at once', async () => {
+    let started!: (r: unknown) => void
+    runs.start.mockImplementation(() => new Promise((resolve) => { started = resolve }))
+    const controller = new AbortController()
+    const followed = followServerPlan('database_stats', 'ds:x', PLAN, () => {}, { signal: controller.signal })
+    const settled = expect(followed).rejects.toMatchObject({ name: 'AbortError' })
+    await vi.advanceTimersByTimeAsync(10)
+    controller.abort()
+    started({ id: 'late', status: 'running', state: {} })
+    await settled
+    expect(runs.cancel).toHaveBeenCalledWith('late')
+  })
+
+  it('signs a plan by its queries and their keys: the same tables in another order sign differently', () => {
+    const sign = (tables: string[]) => signedPlan({ label: 'L', items: tables.map((t, i) => ({ key: `t${i}`, sql: `SELECT COUNT(*) FROM ${t}` })) }).meta?.signature
+    expect(sign(['a', 'b'])).toBe(sign(['a', 'b']))
+    expect(sign(['a', 'b'])).not.toBe(sign(['b', 'a']))
   })
 })

@@ -25,7 +25,7 @@ from app.services.server_runs.executor import (
     run_dir,
     write_json,
 )
-from app.services.server_runs.worker import _exited, _to_the_end
+from app.services.server_runs.worker import exited, to_the_end
 
 # A checkpoint after this many systems, or this many seconds, whichever first.
 CHECKPOINT_EVERY = 500
@@ -69,7 +69,7 @@ class CatalogAuditExecutor(RunExecutor):
     async def body(self) -> None:
         st = self.state
         path = checkpoint_path(self.run_id)
-        checkpoint = read_json(path) if path.exists() else None
+        checkpoint = await asyncio.to_thread(lambda: read_json(path) if path.exists() else None)
         st["next"] = checkpoint["next"] if checkpoint else 0
         messages: asyncio.Queue = asyncio.Queue()
         ctx = multiprocessing.get_context("spawn")
@@ -83,7 +83,7 @@ class CatalogAuditExecutor(RunExecutor):
             target=_read, args=(receive, asyncio.get_running_loop(), messages), name="catalog-audit-replies", daemon=True,
         ).start()
         try:
-            await _to_the_end(asyncio.to_thread(self.process.start))
+            await to_the_end(asyncio.to_thread(self.process.start))
         finally:
             # Else the process's end would never read as EOF here.
             send.close()
@@ -97,7 +97,7 @@ class CatalogAuditExecutor(RunExecutor):
                 st["total"] = msg[1]
                 await self.save()
             elif msg[0] == "checkpoint":
-                write_json(path, msg[1])
+                await asyncio.to_thread(write_json, path, msg[1])
                 st["next"] = msg[1]["next"]
                 await self.save()
             elif msg[0] == "done":
@@ -105,7 +105,7 @@ class CatalogAuditExecutor(RunExecutor):
                 audit = {
                     **self.spec.meta.model_dump(by_alias=True), "computedAt": now_iso(), "durationMs": mark["elapsedMs"], **result,
                 }
-                write_json(query_list.result_path(self.run_id, RESULT), audit)
+                await asyncio.to_thread(write_json, query_list.result_path(self.run_id, RESULT), audit)
                 st["next"] = mark["next"]
                 st["computedAt"] = audit["computedAt"]
                 await self.note(
@@ -119,9 +119,9 @@ class CatalogAuditExecutor(RunExecutor):
             return
         if process.exitcode is None:
             process.terminate()
-            if not await _exited(process, TERM_GRACE_S):
+            if not await exited(process, TERM_GRACE_S):
                 process.kill()
-                await _exited(process, TERM_GRACE_S)
+                await exited(process, TERM_GRACE_S)
 
 
 def _read(conn: Connection, loop: asyncio.AbstractEventLoop, messages: asyncio.Queue) -> None:

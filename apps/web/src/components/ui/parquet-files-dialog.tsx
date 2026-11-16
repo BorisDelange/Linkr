@@ -11,7 +11,16 @@ import { copyText } from '@/lib/clipboard'
 
 /** A value plus a copy button: it is meant to be pasted into another tool, and a
  *  long path is impractical to select by hand. */
-export function CopyablePath({ value, mono = true }: { value: string; mono?: boolean }) {
+export function CopyablePath({
+  value,
+  mono = true,
+  size = 'micro',
+}: {
+  value: string
+  mono?: boolean
+  /** `xs` where the value is the content itself (a command to run), not a detail. */
+  size?: 'micro' | 'xs'
+}) {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
 
@@ -29,7 +38,8 @@ export function CopyablePath({ value, mono = true }: { value: string; mono?: boo
           otherwise widen whatever narrow column it sits in. */}
       <code
         className={cn(
-          'block min-w-0 flex-1 break-all rounded bg-muted/50 px-1.5 py-1 text-[10px] leading-relaxed',
+          'block min-w-0 flex-1 break-all rounded bg-muted/50 px-1.5 py-1 leading-relaxed',
+          size === 'xs' ? 'text-xs' : 'text-[10px]',
           !mono && 'font-sans',
         )}
       >

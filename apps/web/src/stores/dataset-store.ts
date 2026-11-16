@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { ColumnFilterValue, DatasetFile, DatasetAnalysis, DatasetColumn } from '@/types'
 import { getStorage } from '@/lib/storage'
-import { columnId, uniqueColumnId } from '@/lib/column-id'
+import { columnId } from '@/lib/column-id'
 import { coerceValue, fitsColumnType } from '@/lib/dataset-utils'
 import { cleanLocalized } from '@/lib/localized'
 import { isServerMode } from '@/lib/api-client'
@@ -103,11 +103,6 @@ interface DatasetState {
 
   loadFileData: (fileId: string) => Promise<void>
   getFileRows: (fileId: string) => Record<string, unknown>[]
-  updateCell: (fileId: string, rowIndex: number, columnId: string, value: unknown) => void
-  addRow: (fileId: string) => void
-  removeRow: (fileId: string, rowIndex: number) => void
-  addColumn: (fileId: string, name: string, type: DatasetColumn['type']) => void
-  removeColumn: (fileId: string, columnId: string) => void
   /** Rename a column. The id is DERIVED from the name, so this rekeys the row data
    *  and repairs every dashboard filter/widget that referenced the old id. Rejects
    *  a name whose slug would displace another column. */
@@ -216,6 +211,13 @@ const MAX_UNDO = 50
  * and is never saved: undo is limited to what `canRewind` allows.
  */
 const _rawBaseline = new Map<string, { input: ReplayInput; exact: boolean }>()
+
+/** A file's rows as stored, with its exact baseline when it has one: a save
+ *  without it would lose, at the next reload, the values undo restores. */
+function storedData(fileId: string, rows: Record<string, unknown>[]) {
+  const baseline = _rawBaseline.get(fileId)
+  return { datasetFileId: fileId, rows, baseline: baseline?.exact ? baseline.input : undefined }
+}
 
 /** Where the last action starts in the log: one user action can record several ops. */
 function lastGroupStart(log: readonly DatasetOp[]): number {
@@ -361,8 +363,7 @@ async function recordOps(fileId: string, ops: DatasetOp[], replace: boolean): Pr
   }))
 
   const storage = getStorage()
-  const saved = _rawBaseline.get(fileId)
-  await storage.datasetData.save({ datasetFileId: fileId, rows, baseline: saved?.exact ? saved.input : undefined })
+  await storage.datasetData.save(storedData(fileId, rows))
   _savedDataSnapshot.set(fileId, JSON.stringify(rows))
   await storage.datasetFiles.update(fileId, patch)
 }
@@ -657,7 +658,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
         }
         for (const [rid, rows] of removedData) {
           _loadedData.set(rid, rows)
-          storage.datasetData.save({ datasetFileId: rid, rows }).catch((e) => console.warn('[dataset-store] persist error:', e))
+          storage.datasetData.save(storedData(rid, rows)).catch((e) => console.warn('[dataset-store] persist error:', e))
         }
         for (const analysis of removedAnalyses) {
           storage.datasetAnalyses.create(analysis).catch((e) => console.warn('[dataset-store] persist error:', e))
@@ -804,7 +805,10 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     storage.datasetFiles.create(node).catch((e) => console.warn('[dataset-store] persist error:', e))
     // Also copy the data rows in IndexedDB
     if (originalRows) {
-      storage.datasetData.save({ datasetFileId: newId, rows: originalRows }).catch((e) => console.warn('[dataset-store] persist error:', e))
+      // The copy carries the log, so it carries what the log replays over.
+      const baseline = _rawBaseline.get(id)
+      if (baseline?.exact) _rawBaseline.set(newId, baseline)
+      storage.datasetData.save(storedData(newId, originalRows)).catch((e) => console.warn('[dataset-store] persist error:', e))
     }
 
     get().pushUndo({
@@ -943,109 +947,6 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     return _loadedData.get(fileId) ?? []
   },
 
-  updateCell: (fileId, rowIndex, columnId, value) => {
-    if (isServerMode()) return  // imported datasets are read-only server-side (rows live in Parquet)
-    const rows = _loadedData.get(fileId)
-    if (!rows || rowIndex < 0 || rowIndex >= rows.length) return
-    rows[rowIndex][columnId] = value
-    set((s) => ({ _dirtyVersion: s._dirtyVersion + 1 }))
-    const existingTimer = _dataSaveTimers.get(fileId)
-    if (existingTimer) clearTimeout(existingTimer)
-    _dataSaveTimers.set(fileId, setTimeout(() => {
-      _dataSaveTimers.delete(fileId)
-      getStorage().datasetData.save({ datasetFileId: fileId, rows }).then(() => {
-        _savedDataSnapshot.set(fileId, JSON.stringify(rows))
-        useDatasetStore.setState((s) => ({ _dirtyVersion: s._dirtyVersion + 1 }))
-      }).catch((e) => console.warn('[dataset-store] persist error:', e))
-    }, 500))
-  },
-
-  addRow: (fileId) => {
-    if (isServerMode()) return  // read-only server-side (rows live in Parquet)
-    const file = get().files.find((f) => f.id === fileId)
-    if (!file || file.type !== 'file') return
-    const rows = _loadedData.get(fileId) ?? []
-    const newRow: Record<string, unknown> = {}
-    for (const col of file.columns ?? []) {
-      newRow[col.id] = null
-    }
-    rows.push(newRow)
-    set((s) => ({
-      files: s.files.map((f) => f.id === fileId ? { ...f, rowCount: rows.length, updatedAt: new Date().toISOString() } : f),
-      _dirtyVersion: s._dirtyVersion + 1,
-    }))
-    const existingTimer = _dataSaveTimers.get(fileId)
-    if (existingTimer) clearTimeout(existingTimer)
-    _dataSaveTimers.set(fileId, setTimeout(() => {
-      _dataSaveTimers.delete(fileId)
-      getStorage().datasetData.save({ datasetFileId: fileId, rows }).then(() => {
-        _savedDataSnapshot.set(fileId, JSON.stringify(rows))
-        useDatasetStore.setState((s) => ({ _dirtyVersion: s._dirtyVersion + 1 }))
-      }).catch((e) => console.warn('[dataset-store] persist error:', e))
-      getStorage().datasetFiles.update(fileId, { rowCount: rows.length, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
-    }, 500))
-  },
-
-  removeRow: (fileId, rowIndex) => {
-    if (isServerMode()) return  // read-only server-side (rows live in Parquet)
-    const rows = _loadedData.get(fileId)
-    if (!rows || rowIndex < 0 || rowIndex >= rows.length) return
-    rows.splice(rowIndex, 1)
-    set((s) => ({
-      files: s.files.map((f) => f.id === fileId ? { ...f, rowCount: rows.length, updatedAt: new Date().toISOString() } : f),
-      _dirtyVersion: s._dirtyVersion + 1,
-    }))
-    const existingTimer = _dataSaveTimers.get(fileId)
-    if (existingTimer) clearTimeout(existingTimer)
-    _dataSaveTimers.set(fileId, setTimeout(() => {
-      _dataSaveTimers.delete(fileId)
-      getStorage().datasetData.save({ datasetFileId: fileId, rows }).then(() => {
-        _savedDataSnapshot.set(fileId, JSON.stringify(rows))
-        useDatasetStore.setState((s) => ({ _dirtyVersion: s._dirtyVersion + 1 }))
-      }).catch((e) => console.warn('[dataset-store] persist error:', e))
-      getStorage().datasetFiles.update(fileId, { rowCount: rows.length, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
-    }, 500))
-  },
-
-  addColumn: (fileId, name, type) => {
-    if (isServerMode()) return  // read-only server-side (rows live in Parquet)
-    const file = get().files.find((f) => f.id === fileId)
-    if (!file || file.type !== 'file') return
-    const columns = file.columns ?? []
-    // Deterministic id from the name, unique against the file's existing column ids.
-    const id = uniqueColumnId(name, new Set(columns.map((c) => c.id)))
-    const newColumn: DatasetColumn = { id, name, type, order: columns.length }
-    const updatedColumns = [...columns, newColumn]
-    const rows = _loadedData.get(fileId) ?? []
-    for (const row of rows) {
-      row[id] = null
-    }
-    set((s) => ({
-      files: s.files.map((f) => f.id === fileId ? { ...f, columns: updatedColumns, updatedAt: new Date().toISOString() } : f),
-      _dirtyVersion: s._dirtyVersion + 1,
-    }))
-    getStorage().datasetFiles.update(fileId, { columns: updatedColumns, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
-    getStorage().datasetData.save({ datasetFileId: fileId, rows }).catch((e) => console.warn('[dataset-store] persist error:', e))
-  },
-
-  removeColumn: (fileId, columnId) => {
-    if (isServerMode()) return  // read-only server-side (rows live in Parquet)
-    const file = get().files.find((f) => f.id === fileId)
-    if (!file || file.type !== 'file') return
-    const columns = file.columns ?? []
-    const updatedColumns = columns.filter((c) => c.id !== columnId).map((c, i) => ({ ...c, order: i }))
-    const rows = _loadedData.get(fileId) ?? []
-    for (const row of rows) {
-      delete row[columnId]
-    }
-    set((s) => ({
-      files: s.files.map((f) => f.id === fileId ? { ...f, columns: updatedColumns, updatedAt: new Date().toISOString() } : f),
-      _dirtyVersion: s._dirtyVersion + 1,
-    }))
-    getStorage().datasetFiles.update(fileId, { columns: updatedColumns, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
-    getStorage().datasetData.save({ datasetFileId: fileId, rows }).catch((e) => console.warn('[dataset-store] persist error:', e))
-  },
-
   renameColumn: async (fileId, columnId, newName) => {
     const file = get().files.find((f) => f.id === fileId)
     if (!file || file.type !== 'file') return
@@ -1111,6 +1012,8 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     // Server mode uses POST /datasets/import (chunked upload + server parse), not
     // this in-memory path — guard so an imported dataset's Parquet is never clobbered.
     if (isServerMode()) return
+    // New raw rows: the baseline, cached or stored, described the old ones.
+    _rawBaseline.delete(fileId)
     const storage = getStorage()
     _loadedData.set(fileId, rows)
     const snapshot = JSON.stringify(rows)
@@ -1324,7 +1227,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     const rows = _loadedData.get(id) ?? []
     const timer = _dataSaveTimers.get(id)
     if (timer) { clearTimeout(timer); _dataSaveTimers.delete(id) }
-    await getStorage().datasetData.save({ datasetFileId: id, rows })
+    await getStorage().datasetData.save(storedData(id, rows))
     await getStorage().datasetFiles.update(id, { updatedAt: new Date().toISOString() })
     _savedDataSnapshot.set(id, JSON.stringify(rows))
     set((s) => ({ _dirtyVersion: s._dirtyVersion + 1 }))

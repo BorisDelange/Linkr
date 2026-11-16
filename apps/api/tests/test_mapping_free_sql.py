@@ -138,3 +138,19 @@ async def test_counts_made_without_the_held_back_relations_are_not_stored(client
     await code_acceptance_service.accept(db, user, ["SELECT 1"])
     r = await client.patch(f"{API}/data-sources/{source}", headers=bob, json={"stats": {"patientCount": 3}})
     assert r.json()["stats"] == {"patientCount": 3}
+
+
+async def test_a_derivation_registering_a_schema_carries_the_mapping_sql_only_for_an_owner(client, db):
+    admin, bob, ws = await _workspace(client, db)
+    source = (await _source(client, admin, ws, config={"engine": "duckdb"}, mapping=CUSTOM)).json()["id"]
+    target = (await client.post(f"{API}/data-sources", headers=admin, json={
+        "workspaceId": ws, "alias": "dst", "name": "Dst", "sourceType": "database",
+        "connectionConfig": {**PG, "allowWrites": True},
+    })).json()["id"]
+    body = {
+        "membershipSql": "SELECT 1 AS id, 1 AS patient_id", "level": "patient",
+        "target": {"kind": "schema", "dataSourceId": target, "schemaName": "cohort_a", "registerName": "Cohort A"},
+    }
+    r = await client.post(f"{API}/data-sources/{source}/derive", headers=bob, json=body)
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"]["code"] == "owner_only_free_sql"

@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { FieldError } from '@/components/ui/field-error'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { isServerMode } from '@/lib/api-client'
+import type { DeriveScope } from '@/lib/api/data-sources'
 import { rebuildRequest } from '@/lib/cohort-derive'
 import { buildCohortKeyMap } from '@/lib/entity-io'
 import { formatDateTime } from '@/lib/format-helpers'
@@ -25,6 +26,7 @@ import { paths } from '@/lib/paths'
 import { useCohortStore } from '@/stores/cohort-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import type { DataSource } from '@/types'
+import { useRebuildDropped } from '../cohorts/derive/use-rebuild-dropped'
 
 const LEVEL_KEY = {
   patient: 'cohorts.level_patient',
@@ -58,6 +60,13 @@ export function DerivedFromCard({ source }: { source: DataSource }) {
     const keys = buildCohortKeyMap(own)
     return own.find((c) => keys.get(c.id) === from.cohort.key)?.id
   }, [parent, from, cohorts])
+  const dropped = useRebuildDropped(confirm, from ? {
+    parentId: parent?.id,
+    level: from.level,
+    scope: from.options?.scope as DeriveScope | undefined,
+    target: { dataSourceId: source.id },
+    copiedUnproven: from.copiedUnproven,
+  } : null)
   if (!from) return null
 
   const request = parent ? rebuildRequest(source, parent, parentCohortId) : null
@@ -143,7 +152,7 @@ export function DerivedFromCard({ source }: { source: DataSource }) {
             <AlertDialogTitle>{t('cohort_derive.rebuild_title')}</AlertDialogTitle>
             <AlertDialogDescription>
               {t('cohort_derive.provenance_rebuild_description', { database: parentName })}
-              {!!from.copiedUnproven?.length && ` ${t('cohort_derive.rebuild_unproven_dropped', { tables: from.copiedUnproven.join(', ') })}`}
+              {dropped.tables.length > 0 && ` ${t(dropped.recorded ? 'cohort_derive.rebuild_unproven_dropped' : 'cohort_derive.rebuild_unproven_dropped_legacy', { tables: dropped.tables.join(', ') })}`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

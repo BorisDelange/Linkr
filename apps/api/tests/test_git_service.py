@@ -1680,6 +1680,7 @@ def test_zip_files_refuses_past_the_memory_bound(monkeypatch):
     with pytest.raises(g.GitError) as err:
         g._zip_files(_inflating_zip(2 * 1024 * 1024))
     assert err.value.code == "archive_too_large"
+    assert "LINKR_MAX_EXPORT_TREE_MEMORY_MB" in str(err.value)
     assert g._zip_files(_inflating_zip(1024)) == {"data.bin": b"\0" * 1024}
 
 
@@ -1697,3 +1698,24 @@ async def test_clone_to_zip_refuses_past_the_memory_bound(tmp_path, monkeypatch)
     with pytest.raises(g.GitError) as err:
         await g.clone_to_zip(str(source), "main", None)
     assert err.value.code == "archive_too_large"
+    assert "LINKR_MAX_EXPORT_TREE_MEMORY_MB" in str(err.value)
+
+
+def test_a_path_crosses_a_link_when_it_or_a_folder_on_its_way_is_one(tmp_path):
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / "f.txt").write_text("x")
+    (tmp_path / "link").symlink_to(tmp_path / "real")
+    (tmp_path / "file-link").symlink_to(tmp_path / "real" / "f.txt")
+    assert g._crosses_link(tmp_path, "link/f.txt") is True
+    assert g._crosses_link(tmp_path, "file-link") is True
+    assert g._crosses_link(tmp_path, "real/f.txt") is False
+    assert g._crosses_link(tmp_path, "real\\f.txt") is False
+    assert g._crosses_link(tmp_path, "absent/f.txt") is False
+
+
+@pytest.mark.parametrize("name, expected", [
+    (".lfsconfig", True), (".LFSCONFIG", True), (".lfsconfig.", True), (".lfsconfig ", True),
+    ("sub/.lfsconfig", False), ("sub\\.lfsconfig", False), (".lfsconfig.bak", False), ("lfsconfig", False),
+])
+def test_only_the_root_lfsconfig_is_named(name, expected):
+    assert g._names_lfs_config(name) is expected

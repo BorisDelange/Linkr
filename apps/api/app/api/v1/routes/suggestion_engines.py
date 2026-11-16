@@ -17,6 +17,7 @@ from app.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission
+from app.core.refusal import refusal_detail
 from app.models.job import Job
 from app.models.user import User
 from app.schemas.base import CamelModel
@@ -38,6 +39,9 @@ def _valid_ids(request: Request) -> None:
         except ValueError as e:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found") from e
 
+
+# Coded (`api_errors.embeddings_runtime_missing`), so the client words it in its language.
+_RUNTIME_MISSING = {"code": "embeddings_runtime_missing", "message": "The embeddings runtime is not installed"}
 
 router = APIRouter(tags=["suggestion-engines"], dependencies=[Depends(_valid_ids)])
 
@@ -208,7 +212,7 @@ async def create_model(
                 [(f.file_name, blob_store.path_for(f.sha)) for f in body.files],
             )
         except ValueError as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e)) from e
         model.update(name=(body.name or "").strip() or registry.uploaded_model_name(body.files[0].file_name))
         model["installedAt"] = registry.now()
     else:
@@ -225,7 +229,7 @@ async def create_model(
         try:
             await asyncio.to_thread(worker.check_model_folder, path)
         except ValueError as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e)) from e
         model["installedAt"] = registry.now()
     async with registry.lock(workspace_id):
         data = registry.load(workspace_id)
@@ -415,7 +419,7 @@ async def build_index(
     """Encode the vocabularies the index lacks (stale or missing), or all of them."""
     await check_workspace_permission(db, workspace_id, user, "workspace-settings:write")
     if not runtime.is_installed():
-        raise HTTPException(status.HTTP_409_CONFLICT, "The embeddings runtime is not installed")
+        raise HTTPException(status.HTTP_409_CONFLICT, _RUNTIME_MISSING)
     config = registry.find(registry.load(workspace_id)["configs"], config_id)
     if config is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Configuration not found")
@@ -445,7 +449,7 @@ async def semantic_search(
     seconds)."""
     await check_workspace_permission(db, workspace_id, user, "concept-mapping:read")
     if not runtime.is_installed():
-        raise HTTPException(status.HTTP_409_CONFLICT, "The embeddings runtime is not installed")
+        raise HTTPException(status.HTTP_409_CONFLICT, _RUNTIME_MISSING)
     data = registry.load(workspace_id)
     config = registry.find(data["configs"], config_id)
     if config is None:
@@ -550,7 +554,7 @@ async def resume_compute(
     if paused is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "No paused computation")
     if paused["params"].get("configId") and not runtime.is_installed():
-        raise HTTPException(status.HTTP_409_CONFLICT, "The embeddings runtime is not installed")
+        raise HTTPException(status.HTTP_409_CONFLICT, _RUNTIME_MISSING)
     return await _launch(
         db, user, project.workspace_id, "suggestion-scores", "Compute suggestion scores (resumed)",
         partial(tasks.score_project, project_id=project_id, params=paused["params"], resume=True),
@@ -580,7 +584,7 @@ async def compute_scores(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No method to compute")
     if body.config_id:
         if not runtime.is_installed():
-            raise HTTPException(status.HTTP_409_CONFLICT, "The embeddings runtime is not installed")
+            raise HTTPException(status.HTTP_409_CONFLICT, _RUNTIME_MISSING)
         if registry.find(registry.load(project.workspace_id)["configs"], body.config_id) is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown embedding configuration")
     params = {

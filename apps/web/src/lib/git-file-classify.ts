@@ -22,11 +22,15 @@ export function isDataFile(path: string): boolean {
   return DATA_EXTENSIONS.some((ext) => p.endsWith(ext))
 }
 
+// A project's scripts/, at the root of its own tree or under projects/<folder>/ in
+// its workspace's.
+const SCRIPTS_PREFIX = /^(?:projects\/[^/]+\/)?scripts\//
+
 /** Whether a path of an export tree holds rows. Outside scripts/ the tree is Linkr's
  *  own layout, whose JSON is no data; there, only what is data-shaped counts. */
 function holdsData(path: string): boolean {
   const p = path.toLowerCase()
-  if (p.startsWith('scripts/') && !p.endsWith('/_tree.json')) return isDataExtension(p)
+  if (SCRIPTS_PREFIX.test(p) && !p.endsWith('/_tree.json')) return isDataExtension(p)
   return DATA_EXTENSIONS.some((ext) => p.endsWith(ext)) || p.endsWith(EDITS_SUFFIX) || isDataFile(p)
 }
 
@@ -39,6 +43,20 @@ function holdsData(path: string): boolean {
  */
 export function dataFilesToPush<T extends { path: string; changeType: string }>(files: readonly T[]): T[] {
   return files.filter((f) => f.changeType !== 'deleted' && holdsData(f.path))
+}
+
+/**
+ * The files a commit would delete from the remote that the export may have left
+ * out rather than the user deleted: data files not marked, and notebooks whose
+ * outputs could not be stripped. They show as deletions although they still exist
+ * here, so the push confirmation names them before the remote loses them.
+ */
+export function leftOutFilesToDelete<T extends { path: string; changeType: string }>(files: readonly T[]): T[] {
+  return files.filter((f) => {
+    if (f.changeType !== 'deleted') return false
+    const p = f.path.toLowerCase()
+    return holdsData(p) || (SCRIPTS_PREFIX.test(p) && p.endsWith('.ipynb'))
+  })
 }
 
 /**

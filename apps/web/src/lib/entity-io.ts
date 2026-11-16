@@ -599,11 +599,13 @@ export const DATA_FILE_EXTENSIONS = ['.csv', '.parquet', '.pq', '.xlsx', '.xls']
 const CODE_FILE_EXTENSIONS = new Set([
   '.sql', '.py', '.r', '.rmd', '.qmd', '.ipynb', '.rproj', '.jl', '.sh', '.bash', '.js', '.mjs', '.cjs', '.ts',
   '.jsx', '.tsx', '.css', '.md', '.markdown', '.rst', '.tex', '.bib', '.yml', '.yaml', '.toml', '.ini',
-  '.cfg', '.lock',
+  '.cfg', '.lock', '.c', '.h', '.cc', '.cpp', '.hpp', '.java', '.scala', '.kt', '.go', '.rs', '.sas', '.do',
+  '.ado', '.m', '.pl', '.rb', '.php', '.lua', '.pgsql', '.psql', '.plsql', '.hql', '.ddl', '.ps1', '.bat',
+  '.cmd', '.zsh', '.smk',
 ])
 const CODE_FILE_NAMES = new Set([
   'makefile', 'dockerfile', 'license', 'readme', 'notice', '.gitignore', '.gitattributes', '.rprofile',
-  '.python-version', 'requirements.txt',
+  '.python-version', 'requirements.txt', '.dockerignore', '.editorconfig', 'snakefile', '.gitkeep',
 ])
 
 export function isDataExtension(path: string): boolean {
@@ -616,11 +618,31 @@ export function isDataExtension(path: string): boolean {
 
 const isNotebook = (path: string) => path.toLowerCase().endsWith('.ipynb')
 
+function clearedCells(cells: unknown[]): boolean {
+  let changed = false
+  for (const cell of cells as Record<string, unknown>[]) {
+    if (!cell || typeof cell !== 'object' || cell.cell_type !== 'code') continue
+    if (!(Array.isArray(cell.outputs) && cell.outputs.length === 0)) {
+      cell.outputs = []
+      changed = true
+    }
+    // `execution_count` in nbformat 4, `prompt_number` in nbformat 3.
+    for (const key of ['execution_count', 'prompt_number']) {
+      if (cell[key] != null) {
+        cell[key] = null
+        changed = true
+      }
+    }
+  }
+  return changed
+}
+
 /**
  * A Jupyter notebook as code only: every code cell's `outputs` emptied and its
- * `execution_count` cleared, since outputs hold the values a run displayed. The
- * text comes back unchanged when there is nothing to clear, and null when it is
- * not a notebook that parses. Twin of `_notebook_without_outputs` (project_export.py).
+ * run counter cleared (nbformat 4 `cells` and nbformat 3 `worksheets`), since
+ * outputs hold the values a run displayed. The text comes back unchanged when
+ * there is nothing to clear, and null when it is not a notebook that parses.
+ * Twin of `_notebook_without_outputs` (project_export.py).
  */
 export function notebookWithoutOutputs(content: string): string | null {
   let nb: unknown
@@ -629,20 +651,18 @@ export function notebookWithoutOutputs(content: string): string | null {
   } catch {
     return null
   }
-  const cells = (nb as { cells?: unknown } | null)?.cells
-  if (!nb || typeof nb !== 'object' || Array.isArray(nb) || !Array.isArray(cells)) return null
+  if (!nb || typeof nb !== 'object' || Array.isArray(nb)) return null
+  const { cells, worksheets } = nb as { cells?: unknown; worksheets?: unknown }
+  let groups: unknown[]
+  if (Array.isArray(cells)) groups = [cells]
+  else if (Array.isArray(worksheets)) {
+    groups = worksheets
+      .filter((ws): ws is Record<string, unknown> => !!ws && typeof ws === 'object' && !Array.isArray(ws))
+      .map((ws) => ws.cells)
+    if (!groups.every(Array.isArray)) return null
+  } else return null
   let changed = false
-  for (const cell of cells as Record<string, unknown>[]) {
-    if (!cell || typeof cell !== 'object' || cell.cell_type !== 'code') continue
-    if (!(Array.isArray(cell.outputs) && cell.outputs.length === 0)) {
-      cell.outputs = []
-      changed = true
-    }
-    if (cell.execution_count != null) {
-      cell.execution_count = null
-      changed = true
-    }
-  }
+  for (const group of groups as unknown[][]) changed = clearedCells(group) || changed
   return changed ? json(nb) : content
 }
 
@@ -2303,14 +2323,6 @@ async function readJsonFile<T>(zip: JSZip, path: string): Promise<T | null> {
 }
 
 /**
- * Read an entity's manifest, accepting the shared `entity.json` or the kind's
- * historical filename.
- *
- * Readers stay tolerant permanently: it is a handful of lines here, and it is
- * what lets every already-published repo keep importing after the format flip.
- * Writers are NOT tolerant — one format out, no flag.
- */
-/**
  * A manifest's `id` and `uid` reach API paths. One that is not a single path
  * segment is dropped: the importer then identifies the entity like any manifest
  * without an id.
@@ -2327,6 +2339,14 @@ function withoutFolderBindings<T>(manifest: T): T {
   return manifest
 }
 
+/**
+ * Read an entity's manifest, accepting the shared `entity.json` or the kind's
+ * historical filename.
+ *
+ * Readers stay tolerant permanently: it is a handful of lines here, and it is
+ * what lets every already-published repo keep importing after the format flip.
+ * Writers are NOT tolerant — one format out, no flag.
+ */
 async function readEntityManifest<T>(
   zip: JSZip,
   prefix: string,
@@ -3343,6 +3363,8 @@ export async function buildDqRuleSetFolder(
   storage: Storage,
 ): Promise<void> {
   const portable = { ...stripInstanceFields(ruleSet), dataSourceId: '' } as DqRuleSet
+  // Cleared to null on an update; the server drops a null ref too.
+  if (portable.dataSourceRef === null) delete portable.dataSourceRef
   // Only a rule set that declares categories carries the key, as on the server.
   if (portable.checkGroups?.length) portable.checkGroups = readCheckGroups(portable.checkGroups)
   else delete portable.checkGroups
@@ -3383,6 +3405,7 @@ export async function buildDqProfileFolder(
     dataSourceId: '',
     sources: profile.sources.map(({ ruleSetId: _local, ...source }) => source),
   } as unknown as DqProfile
+  if (portable.dataSourceRef === null) delete portable.dataSourceRef
   zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(portable), 'dq-profile')))
   await writeEntityDocs(zip, prefix, profile, storage, 'dq-profile', profile.id)
 }
@@ -4631,6 +4654,16 @@ export function withExportedConnectionConfig<T extends object>(row: T): T {
   const config = (row as { connectionConfig?: unknown }).connectionConfig
   if (config == null || typeof config !== 'object') return row
   return { ...row, connectionConfig: sanitizeConnectionConfig(config as Record<string, unknown>) }
+}
+
+/**
+ * An imported IDE connection given back the configuration of the local one it
+ * replaces (same name): a tree names only its engine, while where it points and
+ * as whom are this instance's. Kept only while the engine is the same.
+ */
+export function withLocalConnectionConfig(imported: IdeConnection, local: IdeConnection | undefined): IdeConnection {
+  if (!local || imported.connectionConfig?.engine !== local.connectionConfig?.engine) return imported
+  return { ...imported, connectionConfig: { ...local.connectionConfig, ...imported.connectionConfig } }
 }
 
 /**

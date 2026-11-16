@@ -25,6 +25,16 @@ FOREIGN_STORED = (
     "This entity points at a database of another workspace, so its results cannot be stored here. "
     "Choose a database of this workspace."
 )
+NOT_LINKED = "This database is not linked to the project"
+
+
+def foreign_database() -> HTTPException:
+    """Coded refusals (`api_errors.<code>`), worded by the client in its language."""
+    return HTTPException(status.HTTP_400_BAD_REQUEST, {"code": "foreign_database", "message": FOREIGN_DATABASE})
+
+
+def not_linked() -> HTTPException:
+    return HTTPException(status.HTTP_400_BAD_REQUEST, {"code": "database_not_linked", "message": NOT_LINKED})
 
 
 def is_foreign(source: DataSource, workspace_id: str | None, *, allow_vocabulary: bool = False) -> bool:
@@ -60,14 +70,17 @@ async def require_bindable(
         if source is None:
             continue
         if is_foreign(source, workspace_id, allow_vocabulary=allow_vocabulary):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, FOREIGN_DATABASE)
+            raise foreign_database()
         allowed = (
             await has_project_permission(db, project, user, "databases:read")
             if project is not None
             else await has_permission(db, workspace_id, user, "databases:read")
         )
         if not allowed:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Insufficient permissions on this database")
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                {"code": "database_read_forbidden", "message": "Insufficient permissions on this database"},
+            )
 
 
 async def require_stored_local(db: AsyncSession, workspace_id: str | None, *source_ids: str | None) -> None:
@@ -75,7 +88,7 @@ async def require_stored_local(db: AsyncSession, workspace_id: str | None, *sour
     for source_id in source_ids:
         source = await db.get(DataSource, source_id) if source_id else None
         if source is not None and is_foreign(source, workspace_id):
-            raise HTTPException(status.HTTP_409_CONFLICT, FOREIGN_STORED)
+            raise HTTPException(status.HTTP_409_CONFLICT, {"code": "foreign_stored", "message": FOREIGN_STORED})
 
 
 async def require_mapping_project_local(db: AsyncSession, workspace_id: str, mapping_project_id: str | None) -> None:

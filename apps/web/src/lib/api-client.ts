@@ -13,6 +13,15 @@ export function isServerMode(): boolean {
   return !!import.meta.env.VITE_API_URL
 }
 
+/** Dispatched on `window` when the server answers that it runs on an example
+ *  LINKR_SECRET_KEY and serves nothing (api `core/example_secret.py`). */
+export const INSECURE_SECRET_KEY_EVENT = 'linkr:insecure-secret-key'
+
+export function isInsecureSecretKeyRefusal(status: number, body: unknown): boolean {
+  const detail = (body as { detail?: { code?: unknown } } | null)?.detail
+  return status === 503 && typeof detail === 'object' && detail?.code === 'insecure_secret_key'
+}
+
 export function getApiBaseUrl(): string {
   // In dev, Vite proxy handles /api/* → localhost:8000
   // In prod, VITE_API_URL points to the backend.
@@ -138,6 +147,14 @@ export async function apiFetch(
       }
       res = await fetch(url, { ...options, headers: retryHeaders })
     }
+  }
+
+  if (
+    res.status === 503 &&
+    typeof window !== 'undefined' &&
+    isInsecureSecretKeyRefusal(503, await res.clone().json().catch(() => null))
+  ) {
+    window.dispatchEvent(new Event(INSECURE_SECRET_KEY_EVENT))
   }
 
   return res

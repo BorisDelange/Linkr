@@ -30,6 +30,13 @@ describe('dq-profile', () => {
     expect(run[0]).toMatchObject({ ruleSetId: 'b', ruleSetName: 'B', ruleSetVersion: '2.0.0', checkKey: 'b2' })
   })
 
+  it('paths a run check through a parent group only another check names, as the sidebar does', () => {
+    const checks = [{ ...check('a', 'a1', 0), groupKey: 'labs' }, { ...check('a', 'a2', 1), groupKey: 'person' }]
+    const rs = { ...ruleSet('a'), checkGroups: [{ key: 'labs', name: { en: 'Labs' }, parentKey: 'person' }] } as DqRuleSet
+    const [run] = profileRunChecks([{ ruleSetId: 'a', mode: 'selected', checkKeys: ['a1'] }], [rs], { a: checks }, () => 'A')
+    expect(run.groupPath.map((step) => step.key)).toEqual(['person', 'labs'])
+  })
+
   it('says what it points at and can no longer find', () => {
     const sources: DqProfileSource[] = [
       { ruleSetId: 'a', mode: 'selected', checkKeys: ['a1', 'gone'] },

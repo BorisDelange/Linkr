@@ -513,7 +513,11 @@ async def test_a_failed_build_never_removes_a_database_the_launcher_may_not_dele
     if mark_managed == "patch":
         r = await client.patch(f"{API}/data-sources/{other}", headers=editor, json={"connectionConfig": {"engine": "duckdb", "managed": True}})
     else:
+        # Only a database Linkr built is rebuilt from a DDL: this one is refused, never turned managed.
         r = await client.post(f"{API}/data-sources/{other}/create-from-ddl", headers=editor, json={"ddl": ""})
+        assert r.status_code == 400, r.text
+        assert (await client.get(f"{API}/data-sources/{other}", headers=admin)).json()["connectionConfig"].get("managed") is None
+        return
     assert r.status_code == 200, r.text
     job = await _derive(client, editor, ws, src, {
         "membershipSql": FAILING, "level": "patient", "target": {"kind": "new-database", "dataSourceId": other},
@@ -584,6 +588,33 @@ async def test_a_first_build_cut_by_a_restart_is_settled_at_startup(client, db, 
     assert "building" not in (left.linkr_created or {})
     done = await db.get(DataSource, built)
     assert done.status == "connected" and done.linkr_created == {"file": True}
+
+
+async def test_a_failed_first_build_left_in_place_is_not_reported_as_cut_by_a_restart(client, db):
+    from app.models.data_source import DataSource
+    from app.services import cohort_derive_service
+
+    admin = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "WS"}})).json()["id"]
+    src = await _managed(client, admin, ws, "src", seed=True)
+    kept = (await client.post(f"{API}/data-sources", headers=admin, json={
+        "workspaceId": ws, "alias": "kept", "name": "kept", "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb", "managed": True},
+    })).json()["id"]
+    # An editor's build into a card they did not create: the failure leaves the card.
+    editor = await _editor(client, db, admin, ws)
+    job = await _derive(client, editor, ws, src, {
+        "membershipSql": FAILING, "level": "patient", "target": {"kind": "new-database", "dataSourceId": kept},
+    })
+    assert job["status"] == "error"
+    db.expire_all()
+    left = await db.get(DataSource, kept)
+    assert "building" not in (left.linkr_created or {})
+    assert left.status == "error" and "failed" in left.error_message
+
+    await cohort_derive_service.reconcile_interrupted_builds(db)
+    db.expire_all()
+    assert "interrupted" not in (await db.get(DataSource, kept)).error_message
 
 
 async def _with_note_nlp(client, headers, ws) -> str:

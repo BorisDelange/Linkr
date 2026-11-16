@@ -9,6 +9,7 @@ from app.core import audit, deferred
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission
+from app.core.refusal import refusal_detail
 from app.models.cohort import Cohort
 from app.models.project import Project
 from app.models.user import User
@@ -232,12 +233,12 @@ async def materialize_cohort(
         )
     project = await db.get(Project, cohort.project_uid)
     if source_id not in (project.linked_data_source_ids or []):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This database is not linked to the project")
+        raise database_binding.not_linked()
     source = await data_source_service.get(db, source_id)
     if source is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Database not found")
     if database_binding.is_foreign(source, project.workspace_id):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, database_binding.FOREIGN_DATABASE)
+        raise database_binding.foreign_database()
     await check_workspace_permission(db, source.workspace_id, user, "databases:read")
     # The stored SQL runs under this user's own login and its result lands where
     # its author reads it: as with a schema mapping's SQL, the user accepts it first.
@@ -257,11 +258,12 @@ async def materialize_cohort(
                 table = await query_cancel.within_limit(
                     lambda: data_source_service.query(session, target, login, body.membership_sql, arrow=True, pushdown=True),
                     str(user.id),
+                    background=True,
                 )
             except (query_cancel.QueryCancelled, duckdb.InterruptException):
                 raise deferred.Stopped() from None
             except ValueError as e:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, refusal_detail(e)) from e
             except HTTPException:  # an ETL run holding the file
                 raise
             except Exception as e:

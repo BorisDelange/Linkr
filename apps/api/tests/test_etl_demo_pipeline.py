@@ -88,7 +88,7 @@ async def test_the_demo_pipeline_builds_the_omop_cdm(client, demo_pipeline):
     vocab = await _server_folder(client, headers, ws, "mimic_iv_demo_vocab", "mimic-iv-demo-omop")
     r = await client.post(f"{API}/data-sources", headers=headers, json={
         "workspaceId": ws, "alias": "mimic_iv_demo_omop", "name": {"en": "MIMIC-IV Demo OMOP"},
-        "sourceType": "database", "connectionConfig": {"engine": "duckdb"},
+        "sourceType": "database", "connectionConfig": {"engine": "duckdb", "managed": True},
     })
     target = r.json()["id"]
     ddl = (SEED / "schemas/omop-cdm-5-4/schema.ddl").read_text()

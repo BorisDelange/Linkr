@@ -225,3 +225,42 @@ def test_a_build_never_installs_the_environment_itself(tmp_path, monkeypatch):
     monkeypatch.setattr(uv.asyncio, "create_subprocess_exec", fake_exec)
     assert uv.asyncio.run(uv.build("p")).ok
     assert "--no-install-project" in argv[0]
+
+
+def _server_uv_toml(tmp_path, monkeypatch, text: str) -> None:
+    config = tmp_path / "xdg"
+    (config / "uv").mkdir(parents=True)
+    (config / "uv" / "uv.toml").write_text(text)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config))
+    monkeypatch.setenv("XDG_CONFIG_DIRS", str(tmp_path / "none"))
+    for name in ("UV_NATIVE_TLS", "UV_INSECURE_HOST", "UV_CONFIG_FILE"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_under_a_mirror_the_servers_own_tls_settings_still_apply(tmp_path, monkeypatch):
+    _mirror(monkeypatch)
+    _spec_dir(tmp_path, monkeypatch, _PROJECT_INDEX)
+    _server_uv_toml(tmp_path, monkeypatch, 'native-tls = true\nallow-insecure-host = ["pypi.chu.local"]\nindex-url = "https://elsewhere/simple"\n')
+    env = uv._uv_env("p", {"indexUrl": "https://pypi.chu.local/simple", "trustedHost": "proxy.chu.local"})
+    assert env["UV_NO_CONFIG"] == "1" and env["UV_NATIVE_TLS"] == "true"
+    assert env["UV_INSECURE_HOST"] == "proxy.chu.local pypi.chu.local"
+    assert env["UV_INDEX_URL"] == "https://pypi.chu.local/simple"
+
+
+def test_a_tls_variable_already_set_wins_over_the_servers_uv_toml(tmp_path, monkeypatch):
+    _mirror(monkeypatch)
+    _spec_dir(tmp_path, monkeypatch, _PROJECT_INDEX)
+    _server_uv_toml(tmp_path, monkeypatch, 'native-tls = true\n')
+    monkeypatch.setenv("UV_NATIVE_TLS", "false")
+    assert uv._uv_env("p", {"indexUrl": "https://pypi.chu.local/simple"})["UV_NATIVE_TLS"] == "false"
+
+
+def test_without_a_mirror_uv_reads_the_servers_uv_toml_itself(tmp_path, monkeypatch):
+    _spec_dir(tmp_path, monkeypatch, _PROJECT_INDEX)
+    _server_uv_toml(tmp_path, monkeypatch, 'native-tls = true\n')
+    assert "UV_NATIVE_TLS" not in uv._uv_env("p", {})
+
+
+def test_an_unreadable_server_uv_toml_is_skipped(tmp_path, monkeypatch):
+    _server_uv_toml(tmp_path, monkeypatch, "native-tls = [\n")
+    assert uv._server_tls_settings() == {}

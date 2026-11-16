@@ -53,7 +53,7 @@ import {
 import type { DataSource, MappingProject, SourceExtraction } from '@/types'
 import { countedRecordsOf } from '@/features/projects/warehouse/concepts/counted-records'
 import { localized } from '@/lib/localized'
-import { isServerMode } from '@/lib/api-client'
+import { formatApiError, isServerMode } from '@/lib/api-client'
 import { prepareQuerySql } from '@/lib/duckdb/engine'
 import { runShare, type ConceptRunState } from '@/lib/api/concept-runs'
 import { buildRunSpec } from '@/lib/concept-mapping/run-spec'
@@ -163,7 +163,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   // must not stop an extraction that takes hours. This only mirrors what the run
   // reports — including a run this component never started.
   const [snapshot, setSnapshot] = useState<RunSnapshot>(() => getRunSnapshot(project.id))
-  // Server mode: the run is the server's (services/concept_runs); this only reads it.
+  // Server mode: the run is the server's (services/server_runs/concepts); this only reads it.
   const onServer = isServerMode()
   const serverRun = useServerRun<ConceptRunState>('extraction', project.id, onServer && !!dataSource)
   const [startingOnServer, setStartingOnServer] = useState(false)
@@ -318,7 +318,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     const label = t('concept_mapping.extract_job_label', { name })
     if (onServer) {
       if (!restart && serverRun.resumable) {
-        await serverRun.resume().catch(() => {})
+        await serverRun.resume().catch((err) => setStartError(formatApiError(err).summary ?? null))
         return
       }
       setStartingOnServer(true)

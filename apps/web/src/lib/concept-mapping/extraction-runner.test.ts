@@ -3,7 +3,7 @@ import type { SourceExtraction } from '@/types'
 import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_PROFILE_OPTIONS, resolveProfileSource } from './concept-profile'
-import { startRun, walkWork, watchRun, workDone, type StartRunInput } from './extraction-runner'
+import { pauseRun, startRun, walkWork, watchRun, workDone, type StartRunInput } from './extraction-runner'
 import { EMPTY_WALK, extendWalk, walkKey, type ExtractionSort } from './source-extraction'
 
 const MEASUREMENTS = {
@@ -279,6 +279,29 @@ describe('resuming an unranked extraction', () => {
     })
     expect(writtenIds(writes)).toEqual([3, 4])
     expect(writes.at(-1)!.state.total).toBe(4)
+  })
+})
+
+describe('a pause', () => {
+  it('ends the run at once, a profile query in flight not waited for nor written', async () => {
+    const source = resolveProfileSource(OMOP, 'concept')!
+    const { answer } = fakeSource({ dictionary: { 1: 'a', 2: 'b' }, records: {} })
+    let asked = 0
+    // The engine cannot cancel it: the page's query never settles.
+    const hanging = async (sql: string, signal?: AbortSignal) => {
+      if (!/LIMIT \d+ OFFSET/.test(sql)) return answer(sql)
+      asked++
+      pauseRun(`p${runCount}`)
+      expect(signal?.aborted).toBe(true)
+      return new Promise<Record<string, unknown>[]>(() => {})
+    }
+    const writes = await runToEnd({
+      mapping: OMOP, sources: [source], options: NO_METADATA,
+      sort: { key: 'id', direction: 'asc' }, onlyWithRecords: false, resumeFrom: null,
+      query: hanging, queryAll: answer,
+    })
+    expect(asked).toBe(1)
+    expect(writtenIds(writes)).toEqual([])
   })
 })
 

@@ -92,7 +92,7 @@ async def list_dir(
         scope = await fs_browser.import_scope(db, project, user)
         return fs_browser.source_list_dir(path, include_files, _split_extensions(extensions), scope)
     except fs_browser.FsBrowseError as exc:
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        raise HTTPException(exc.status_code, exc.detail) from exc
 
 
 class ValidateBody(BaseModel):
@@ -135,7 +135,7 @@ async def rebind_copy(
         # request waits for it.
         return await asyncio.to_thread(fs_browser.copy_tree, body.src, body.dst, body.on_conflict, scope)
     except fs_browser.FsBrowseError as exc:
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        raise HTTPException(exc.status_code, exc.detail) from exc
 
 
 # --- Project-scoped browsing for an import (dataset / IDE upload from the server)
@@ -165,7 +165,7 @@ async def import_list_dir(
     try:
         return fs_browser.import_list_dir(path, _split_extensions(extensions), scope)
     except fs_browser.FsBrowseError as exc:
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        raise HTTPException(exc.status_code, exc.detail) from exc
 
 
 # --- Workspace-scoped browsing (databases pointing at server data) -------------
@@ -193,7 +193,7 @@ async def ws_list_dir(
     try:
         return fs_browser.source_list_dir(path, include_files, _split_extensions(extensions), scope)
     except fs_browser.FsBrowseError as exc:
-        raise HTTPException(exc.status_code, str(exc)) from exc
+        raise HTTPException(exc.status_code, exc.detail) from exc
 
 
 class ValidatePathBody(BaseModel):

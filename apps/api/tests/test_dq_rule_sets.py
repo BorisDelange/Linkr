@@ -53,6 +53,17 @@ async def test_rule_set_crud(client):
     assert (await client.get(f"{API}/dq-rule-sets/{r['id']}", headers=headers)).status_code == 404
 
 
+async def test_rule_set_database_pointer_clears_on_null(client):
+    headers = await _admin_headers(client)
+    r = await _rule_set(client, headers, await _workspace(client, headers))
+    ref = {"lineageId": "db-lin", "entityId": "omop-db"}
+    url = f"{API}/dq-rule-sets/{r['id']}"
+    assert (await client.patch(url, headers=headers, json={"dataSourceRef": ref})).json()["dataSourceRef"] == ref
+    cleared = await client.patch(url, headers=headers, json={"dataSourceId": "", "dataSourceRef": None})
+    assert cleared.json()["dataSourceRef"] is None
+    assert (await client.get(url, headers=headers)).json()["dataSourceRef"] is None
+
+
 async def test_list_all_without_workspace_filter(client):
     headers = await _admin_headers(client)
     ws = await _workspace(client, headers)
@@ -268,6 +279,19 @@ async def test_rule_set_reads_the_bare_group_keys_of_older_clients(client):
     assert p.json()["checkGroups"] == [{"key": "Vitals", "name": {"en": "Vitals"}, "parentKey": None}]
     bad = await client.patch(f"{API}/dq-rule-sets/{r['id']}", headers=headers, json={"checkGroups": [{"name": {}}]})
     assert bad.status_code == 422
+
+
+async def test_rule_set_groups_drop_repeats_and_break_cycles_as_the_client_does(client):
+    headers = await _admin_headers(client)
+    r = await _rule_set(client, headers, await _workspace(client, headers))
+
+    def g(key, parent=None, name=None):
+        return {"key": key, "name": name or {"en": key}, "parentKey": parent}
+
+    sent = [g("a"), g("a", name={"en": "Dup"}), g("self", "self"),
+            g("x", "c"), g("c", "d"), g("d", "e"), g("e", "c"), g("y", "gone")]
+    p = await client.patch(f"{API}/dq-rule-sets/{r['id']}", headers=headers, json={"checkGroups": sent})
+    assert p.json()["checkGroups"] == [g("a"), g("self"), g("x", "c"), g("c"), g("d", "e"), g("e", "c"), g("y", "gone")]
 
 
 async def test_check_name_and_description_are_localized(client):

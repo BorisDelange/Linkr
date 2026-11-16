@@ -198,7 +198,7 @@ Code: `server.ts` / `http.ts` (entries) · `build.ts` (toolsets, core list) · `
 (catalogue, find + run) · `shared.ts` · `tools-context.ts` (UI context, projects) ·
 `tools-workspace.ts` / `tools-databases.ts` / `workspace-rest.ts` (workspaces, projects, databases) ·
 `tools-warehouse.ts` (exploration, cohorts, report) · `tools-cohorts-extra.ts` (freeze, ATLAS import) · `tools-concepts.ts` ·
-`tools-derive.ts` (derived databases, jobs) · `tools-dq.ts` (data quality) ·
+`tools-derive.ts` (derived databases, jobs) · `tools-dq.ts` (data quality) · `tools-dq-groups.ts` (its check groups) ·
 `tools-lab.ts` (datasets, plugins, dashboards) · `tools-lab-datasets.ts` (dataset editing, analyses) ·
 `tools-lab-pipeline.ts` · `tools-lab-patient.ts` (patient boards) · `tools-lab-dashboards.ts` (dashboard extras) ·
 `tools-lab-plugins.ts` (workspace plugins) · `lab-rest.ts` (their shared REST calls) · `tools-ide.ts` (scripts, runs) · `tools-runtime.ts` (kernel sessions,

@@ -15,10 +15,10 @@ test('a cohort’s patient board is generated from its criteria', async ({ page 
 
   await page.getByRole('button', { name: /^\d+ [FM] / }).first().click()
   // Every read of the selected patient shows in the jobs panel, named, under
-  // one row for the patient opened.
+  // one row for the patient opened — which never names the patient's id.
   await page.getByRole('button', { name: /\d+ jobs?$/ }).click()
-  await page.getByRole('button', { name: /^Patient \d+ · \d+ jobs$/ }).first().click()
-  await expect(page.getByText(/^Patient summary · /).first()).toBeVisible()
+  await page.getByRole('button', { name: /^Patient · \d+ jobs$/ }).first().click()
+  await expect(page.getByText(/Patient summary · /).first()).toBeVisible()
 })
 
 test('a data table shows a concept’s values by period', async ({ page }) => {

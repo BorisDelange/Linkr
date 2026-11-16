@@ -2,7 +2,8 @@
 
 Before any account exists, the setup page answers anyone who reaches it. The token
 only exists in the server's own log or configuration, so holding it means holding
-access to the machine. Without a lifespan (the API mounted in a test) nothing asks.
+access to the machine. Until the lifespan has armed it (the API served by a host that
+never runs the lifespan), no token matches and no first administrator can be made.
 """
 
 import secrets
@@ -25,5 +26,5 @@ def current() -> str | None:
 
 def matches(candidate: str | None) -> bool:
     if _token is None:
-        return True
+        return False
     return secrets.compare_digest((candidate or "").encode("utf-8", "surrogatepass"), _token.encode())

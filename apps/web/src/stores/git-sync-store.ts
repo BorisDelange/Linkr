@@ -244,6 +244,12 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
       const zip = await buildZip(scope, id, get().lfsOverrides)
       const status = await gitStatus(scope, id, zip, branch)
       if (gen !== statusGen) return // superseded by a newer refresh — drop this result
+      // The server marked the files the repository tracks: reload the projects so a
+      // later mark toggle does not write back the config without them.
+      if (status.adopted) {
+        const { useAppStore } = await import('./app-store')
+        void useAppStore.getState().loadProjects()
+      }
       // Re-seed the selection: keep the user's choices for paths that still change,
       // default-select new paths. Deletions and unmarked data files are never
       // checked by default (see defaultSelectedPaths); a data file marked for

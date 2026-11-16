@@ -572,7 +572,7 @@ function dictionaryConcepts(page: readonly Record<string, unknown>[]) {
 /**
  * A dictionary page's CSV rows, given each concept's profile. With metadata on,
  * the rows stop at the first concept without one. Twin of the server's
- * `extracted_rows` (app/services/concept_runs/profiles.py), both held to
+ * `extracted_rows` (app/services/server_runs/concepts/profiles.py), both held to
  * `__fixtures__/concept-runs/profiles.json`.
  */
 export function extractedRows(

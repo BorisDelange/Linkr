@@ -73,11 +73,11 @@ def test_doris_attaches_without_read_only_and_checks_the_login():
     assert any("SHOW GRANTS" in s for s in con.sql)
 
 
-def test_mysql_still_attaches_read_only_without_a_grants_check():
-    con = _FakeCon()
+def test_mysql_attaches_read_only_and_checks_the_login_without_refusing_it():
+    con = _FakeCon([{"Grants for reader@%": "GRANT INSERT ON `omop`.* TO `reader`@`%`"}])
     db_connect._attach_external(con, "source", {**DORIS, "engine": "mysql"}, None)
-    assert len(con.sql) == 2
     assert con.sql[1].endswith('AS "source" (TYPE mysql, READ_ONLY, SECRET "linkr_source")')
+    assert any("SHOW GRANTS" in s for s in con.sql[2:])
 
 
 def test_doris_login_that_can_write_is_refused():

@@ -37,6 +37,7 @@ import { hasPluginReadme } from '@/lib/plugins/plugin-readme'
 import { PluginOutputRenderer } from './PluginOutputRenderer'
 import type { DatasetAnalysis } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
+import { templateSource } from '@/lib/plugins/acceptance-source'
 
 interface AnalysisShellProps {
   analysis: DatasetAnalysis
@@ -138,7 +139,7 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
           // tab's auto-run first of all, goes by what the server knows.
           review: asked && (editedCode.current || activeTab === 'code')
             ? { authored: true }
-            : { source: isCustomized ? undefined : plugin?.templates?.[execLanguage], label: analysis.name },
+            : { source: isCustomized ? undefined : templateSource(plugin, execLanguage, config, columns), label: analysis.name },
         })
       } else {
         // Auto-install declared plugin dependencies (only checks once per session)
@@ -164,7 +165,7 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
       setIsExecuting(false)
       setStatusMessage(null)
     }
-  }, [currentCode, analysis.type, analysis.datasetFileId, columns, getFileRows, language, activeProjectUid, setRightVisible, activeTab, isCustomized, plugin, analysis.name])
+  }, [currentCode, analysis.type, analysis.datasetFileId, columns, getFileRows, language, activeProjectUid, setRightVisible, activeTab, isCustomized, plugin, analysis.name, config])
   const handleRun = useCallback(() => runAnalysis(true), [runAnalysis])
 
   // Auto-run on mount (once)

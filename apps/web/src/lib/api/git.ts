@@ -42,6 +42,8 @@ export interface GitStatus {
   modified: number
   added: number
   deleted: number
+  /** Files the repository tracks were marked for versioning by this status. */
+  adopted?: boolean
 }
 
 export interface GitDiff {

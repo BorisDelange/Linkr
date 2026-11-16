@@ -232,3 +232,30 @@ def test_context_preamble_writes_each_language():
     assert injection.context_preamble("r", {"person_id": 3, "visit_id": None, "sql": 'a "b"'}) == (
         'library(jsonlite)\n\nperson_id <- 3\nvisit_id <- NULL\nsql <- "a \\"b\\""\n'
     )
+
+
+async def test_two_views_accepting_the_same_code_at_once_both_succeed(engine):
+    import asyncio
+
+    from sqlalchemy import func, select
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.models.code_acceptance import CodeAcceptance
+    from app.models.user import User
+    from app.services import code_acceptance_service
+
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    async with maker() as db:
+        user = User(username="viewer", password_hash="x", role="user")
+        db.add(user)
+        await db.commit()
+        user_id = user.id
+
+    async def accept() -> None:
+        async with maker() as db:
+            await code_acceptance_service.accept_by(db, user_id, [CODE, CODE])
+
+    await asyncio.gather(accept(), accept())
+    await accept()
+    async with maker() as db:
+        assert await db.scalar(select(func.count()).select_from(CodeAcceptance)) == 1

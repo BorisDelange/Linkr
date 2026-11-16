@@ -13,6 +13,8 @@ import {
 
 /** How often an active run is read again. */
 const POLL_MS = 1500
+/** How often a run at rest is: one started elsewhere (the MCP, another tab) shows up. */
+const IDLE_POLL_MS = 20_000
 
 interface Entry {
   run: ServerRun | null
@@ -25,6 +27,8 @@ interface Reader {
   listeners: Set<() => void>
   timer?: ReturnType<typeof setTimeout>
   reading: boolean
+  /** Bumped by every write: a read that started before one does not overwrite it. */
+  seq: number
 }
 
 // One reader per run, whichever views show it (the Concepts tab and the lists
@@ -38,6 +42,7 @@ const keyOf = (kind: ServerRunKind, scopeId: string) => `${kind}|${scopeId}`
 function update(key: string, patch: Partial<Entry>) {
   const reader = readers.get(key)
   if (!reader) return
+  reader.seq++
   reader.entry = { ...reader.entry, ...patch }
   schedule(key)
   for (const listener of reader.listeners) listener()
@@ -47,9 +52,12 @@ function schedule(key: string) {
   const reader = readers.get(key)
   if (!reader) return
   clearTimeout(reader.timer)
+  if (reader.listeners.size === 0) return
   const { run } = reader.entry
-  if (run && ACTIVE_RUN_STATUSES.includes(run.status) && reader.listeners.size > 0) {
+  if (run && ACTIVE_RUN_STATUSES.includes(run.status)) {
     reader.timer = setTimeout(() => void read(key), POLL_MS)
+  } else {
+    reader.timer = setTimeout(() => (document.hidden ? schedule(key) : void read(key)), IDLE_POLL_MS)
   }
 }
 
@@ -57,11 +65,13 @@ async function read(key: string) {
   const reader = readers.get(key)
   if (!reader || reader.reading) return
   reader.reading = true
+  const seq = reader.seq
   const at = key.indexOf('|')
   try {
     const run = await getLatestServerRun<Record<string, unknown>>(key.slice(0, at) as ServerRunKind, key.slice(at + 1))
     reader.reading = false
-    update(key, { run, loaded: true })
+    if (reader.seq === seq) update(key, { run, loaded: true })
+    else schedule(key)
   } catch {
     reader.reading = false
     clearTimeout(reader.timer)
@@ -72,7 +82,7 @@ async function read(key: string) {
 function subscribe(key: string, listener: () => void): () => void {
   let reader = readers.get(key)
   if (!reader) {
-    reader = { entry: EMPTY, listeners: new Set(), reading: false }
+    reader = { entry: EMPTY, listeners: new Set(), reading: false, seq: 0 }
     readers.set(key, reader)
   }
   reader.listeners.add(listener)

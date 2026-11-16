@@ -65,9 +65,19 @@ def _within_roots(target: Path) -> bool:
 
 
 class FsBrowseError(ValueError):
-    """A browse/validate request that must surface as a 4xx (not a 500)."""
+    """A browse/validate request that must surface as a 4xx (not a 500). A refusal
+    the client words in its language carries a `code` (`api_errors.<code>`)."""
 
     status_code = 400
+
+    def __init__(self, message: str, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code or _REFUSAL_CODES.get(message)
+
+    @property
+    def detail(self) -> dict | str:
+        """What the route answers: the coded refusal, else the message."""
+        return {"code": self.code, "message": str(self)} if self.code else str(self)
 
 
 class FsImportForbidden(FsBrowseError):
@@ -89,6 +99,11 @@ SYSTEM_PATH_REFUSED = "System folders (/proc, /sys, /dev) cannot be used"
 DATA_DIR_REFUSED = "Linkr's data folder cannot be used"
 OTHER_PROJECT_REFUSED = "Another project's folders cannot be used"
 BROWSE_ROOT_REFUSED = "A whole browse root cannot be bound to a single project"
+OTHER_WORKSPACE_DATABASE_REFUSED = (
+    "This file or folder holds a database of another workspace, and a workspace may not reach "
+    "another one's data by registering its path again. An administrator can register it here."
+)
+_REFUSAL_CODES = {OTHER_WORKSPACE_DATABASE_REFUSED: "other_workspace_database"}
 
 
 def validate_binding_path(path: str, scope: "FolderScope") -> None:
@@ -368,6 +383,9 @@ class FolderScope:
     foreign_bound: frozenset[str] = frozenset()
     own_bound: frozenset[str] = frozenset()
     sees_project_folders: bool = False
+    # Among `foreign_bound`, the files and folders of other workspaces' databases:
+    # refused the same way, with a refusal that says so.
+    foreign_databases: frozenset[str] = frozenset()
 
     @cached_property
     def _root_ancestry(self) -> set[tuple[int, int]]:
@@ -385,6 +403,28 @@ class FolderScope:
             if _identity(Path(p).expanduser()) in self._foreign_ids
             for ident in _lineage(Path(p).expanduser().resolve())
         }
+
+    @cached_property
+    def _database_ids(self) -> set[tuple[int, int]]:
+        return _identities(self.foreign_databases) & self._foreign_ids
+
+    @cached_property
+    def _database_ancestry(self) -> set[tuple[int, int]]:
+        return {
+            ident
+            for p in self.foreign_databases
+            if _identity(Path(p).expanduser()) in self._database_ids
+            for ident in _lineage(Path(p).expanduser().resolve())
+        }
+
+    def foreign_refusal(self, lineage: list[tuple[int, int]], ident: tuple[int, int] | None = None) -> str:
+        """The refusal of a path reaching a foreign binding: `lineage` the path's,
+        `ident` the binding it met (None: it is, is inside or contains one)."""
+        if ident is not None:
+            hit = ident in self._database_ids
+        else:
+            hit = bool(self._database_ids.intersection(lineage)) or (bool(lineage) and lineage[0] in self._database_ancestry)
+        return OTHER_WORKSPACE_DATABASE_REFUSED if hit else OTHER_PROJECT_REFUSED
 
     @cached_property
     def _own_ids(self) -> set[tuple[int, int]]:
@@ -443,19 +483,21 @@ async def import_scope(
     own: set[str] = set()
     for uid, *paths in rows.all():
         (own if uid == own_uid else foreign).update(p for p in paths if p)
+    databases: set[str] = set()
     if other_databases:
         query = select(DataSource.connection_config)
         if workspace_id is not None:
             query = query.where((DataSource.workspace_id != workspace_id) | DataSource.workspace_id.is_(None))
         for (config,) in (await db.execute(query)).all():
-            foreign.update(
+            databases.update(
                 p for p in ((config or {}).get("serverPath"), (config or {}).get("managedPath"))
                 if isinstance(p, str) and p
             )
     return FolderScope(
         whole_fs_allowed=whole_fs_allowed,
-        foreign_bound=frozenset(foreign),
+        foreign_bound=frozenset(foreign | databases),
         own_bound=frozenset(own),
+        foreign_databases=frozenset(databases - foreign),
     )
 
 
@@ -485,7 +527,7 @@ def _overlap_refusal(target: Path, scope: FolderScope) -> str | None:
     if reason or scope.sees_project_folders:
         return reason
     if scope._foreign_ids.intersection(lineage) or _identity(target) in scope._foreign_ancestry:
-        return OTHER_PROJECT_REFUSED
+        return scope.foreign_refusal(lineage)
     return None
 
 
@@ -502,7 +544,7 @@ def _import_refusal(target: Path, scope: FolderScope) -> str | None:
         if ident in scope._own_ids:
             return None
         if ident in scope._foreign_ids:
-            return OTHER_PROJECT_REFUSED
+            return scope.foreign_refusal(lineage, ident)
     return None
 
 

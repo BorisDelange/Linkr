@@ -16,7 +16,6 @@ import math
 from datetime import UTC, datetime
 
 from app.core import database
-from app.core.redact import scrub_row_values
 from app.models.dq_rule_set import DqProfile, DqRuleSet, DqRunHistory
 from app.schemas.dq_run import DqRunSpec
 from app.services.server_runs.executor import RunExecutor, short, took
@@ -160,8 +159,8 @@ class DqExecutor(QueryListExecutor):
                 try:
                     rows = await self._run(item.sql, what, item.pushdown)
                 except (QueryFailed, QueryTimedOut, QueryStalled, WorkerDied) as e:
-                    # Kept with the run, read by others: the error, not the row values it may quote.
-                    error = scrub_row_values(short(e))
+                    # Kept with the run, read by others: the error, not the row values it may quote (`short`).
+                    error = short(e)
                     results[item.key] = {"ms": js_round((asyncio.get_running_loop().time() - started) * 1000), "error": error}
                     await self.note(f"{what}: failed — {error}")
                 else:

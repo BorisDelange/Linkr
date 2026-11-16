@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { defaultCatalogVariables } from '@/lib/data-catalog/config'
+import { compileCatalogRunSpec } from '@/lib/duckdb/catalog-run-spec'
+import { injectClassRelations } from '@/lib/schema-classes/inject'
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { captureTools } from './gateway'
 import { registerDqTools } from './tools-dq'
 import { registerEtlTools } from './tools-etl'
@@ -78,6 +81,40 @@ describe('a stored database of another workspace', () => {
     const calls = fakeApi(HERE)
     await run('run_dq_rule_set', { rule_set_id: 'rs', record: false })
     expect(queries(calls).length).toBeGreaterThan(0)
+  })
+
+  it('computes a catalog of its own workspace over the tables the database lists, as the app does', async () => {
+    const mapping = mappingV1ToV2({
+      patientTable: { table: 'person', idColumn: 'person_id', birthYearColumn: 'year_of_birth', genderColumn: 'gender' },
+      visitTable: { table: 'visit', idColumn: 'visit_id', patientIdColumn: 'person_id', startDateColumn: 'vstart' },
+      conceptTables: [{ key: 'lab', table: 'lab_concept', idColumn: 'concept_id', nameColumn: 'concept_name' }],
+      eventTables: {
+        Lab: { table: 'lab', conceptIdColumn: 'cid', patientIdColumn: 'person_id', dateColumn: 'dt', conceptDictionaryKey: 'lab' },
+        Drug: { table: 'drug', conceptIdColumn: 'cid', patientIdColumn: 'person_id', dateColumn: 'dt', conceptDictionaryKey: 'lab' },
+      },
+      genderValues: { male: 'M', female: 'F' },
+    } as unknown as SchemaMappingV1)
+    // No drug table: the app plans its relation empty.
+    const tables = ['person', 'visit', 'lab_concept', 'lab']
+    let posted: { spec?: unknown } | undefined
+    vi.spyOn(LinkrApi.prototype, 'request').mockImplementation((async (method: string, path: string, body?: unknown) => {
+      if (path === '/data-sources/db1/schema') return tables.map((name) => ({ name }))
+      if (path.startsWith('/data-sources/')) return { ...database(HERE), schemaMapping: mapping }
+      if (path.startsWith('/server-runs/latest')) return null
+      if (method === 'POST' && path === '/server-runs') {
+        posted = body as typeof posted
+        return { id: 'r', status: 'done', state: {}, error: null }
+      }
+      if (path.startsWith('/data-catalogs/cat')) return path.includes('results') ? null : catalog
+      return {}
+    }) as never)
+    await run('compute_data_catalog', { catalog_id: 'cat' })
+    const app = await compileCatalogRunSpec(catalog as never, mapping, {
+      label: 'L', fresh: true, tables, prepare: async (sql) => injectClassRelations(sql, mapping, tables),
+    })
+    expect(posted?.spec).toEqual({ ...app, label: expect.any(String) })
+    const without = await compileCatalogRunSpec(catalog as never, mapping, { label: 'L', fresh: true, prepare: async (sql) => injectClassRelations(sql, mapping) })
+    expect(posted?.spec).not.toEqual({ ...without, label: expect.any(String) })
   })
 
   it('runs no script when the server refuses to record the run', async () => {

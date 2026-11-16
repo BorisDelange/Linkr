@@ -33,7 +33,7 @@ import { GitFileRow } from './GitFileRow'
 import { QuickActionCard } from './QuickActionCard'
 import { GitErrorInline } from './GitErrorInline'
 import { useConfirmDataVersioning, type DataPushAction } from './ConfirmDataVersioningDialog'
-import { dataFilesToPush } from '@/lib/git-file-classify'
+import { dataFilesToPush, leftOutFilesToDelete } from '@/lib/git-file-classify'
 
 interface GitSyncPanelProps {
   scope: GitScope
@@ -157,7 +157,8 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
         setProposalsKey((k) => k + 1)
       }
     }
-    requestPush(dataFilesToPush(files.filter((f) => selected.has(f.path))), () => void run(), 'propose')
+    const chosen = files.filter((f) => selected.has(f.path))
+    requestPush(dataFilesToPush(chosen), () => void run(), 'propose', leftOutFilesToDelete(chosen))
   }
 
   const handleCommit = () => {
@@ -170,7 +171,8 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
         setTimeout(() => setPushed(false), 2000)
       }
     }
-    requestPush(dataFilesToPush(files.filter((f) => selected.has(f.path))), () => void commit())
+    const chosen = files.filter((f) => selected.has(f.path))
+    requestPush(dataFilesToPush(chosen), () => void commit(), 'push', leftOutFilesToDelete(chosen))
   }
 
   // A private remote that couldn't be read (missing/invalid token) must NOT fall
@@ -201,7 +203,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   const quickActions = buildQuickActions(scope, files)
   const runQuickAction = (qa: QuickAction, action: DataPushAction) => {
     if (committing || mustPullFirst || qa.files.length === 0) return
-    requestPush(dataFilesToPush(qa.files), () => void commitQuickAction(qa, action), action)
+    requestPush(dataFilesToPush(qa.files), () => void commitQuickAction(qa, action), action, leftOutFilesToDelete(qa.files))
   }
   const commitQuickAction = async (qa: QuickAction, action: DataPushAction) => {
     // commitPushPaths refreshes the status once the push lands, so the cards

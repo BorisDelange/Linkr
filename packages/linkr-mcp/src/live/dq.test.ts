@@ -8,6 +8,7 @@ import {
   selectChecks, summarizeRows, testRunOutcome, unboundedExplore, validateCheckFields,
 } from './dq'
 import { registerDqTools } from './tools-dq'
+import { registerDqGroupTools } from './tools-dq-groups'
 
 const check = (over: Omit<Partial<DqCustomCheck>, 'name'> & { name?: string }): DqCustomCheck => ({
   id: 'c1', ruleSetId: 'rs', checkKey: 'negative-values', description: {}, category: 'plausibility', subcategory: 'atemporal',
@@ -196,5 +197,6 @@ describe('investigation', () => {
 describe('registerDqTools', () => {
   it('registers every tool with a valid schema', () => {
     expect(() => registerDqTools(new McpServer({ name: 't', version: '0' }))).not.toThrow()
+    expect(() => registerDqGroupTools(new McpServer({ name: 't', version: '0' }))).not.toThrow()
   })
 })

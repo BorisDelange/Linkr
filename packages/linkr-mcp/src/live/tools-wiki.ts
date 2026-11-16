@@ -553,10 +553,16 @@ export function registerWikiTools(server: Server): void {
         run = await catalogs.resumeRun(run.id)
       } else {
         const mapping = ds.schemaMapping
+        // The tables the database has, as the app passes them: a relation of a
+        // table it lacks is planned empty rather than failing the run. None listed
+        // means unreadable yet, not empty.
+        const schema = await api.getSchema(ds.id).catch(() => null)
+        const tables = Array.isArray(schema) && schema.length ? schema.map((t) => t.name) : null
         const spec = await compileCatalogRunSpec(catalog, mapping, {
           label: `Catalog “${loc(catalog.name)}” · Computation`,
           fresh: !!restart || !paused,
-          prepare: (sql) => injectClassRelations(sql, mapping),
+          tables,
+          prepare: (sql) => injectClassRelations(sql, mapping, tables),
         })
         run = await catalogs.startRun(catalog_id, spec)
       }

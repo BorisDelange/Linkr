@@ -104,10 +104,14 @@ class BodySizeLimitMiddleware:
             message = await receive()
             seen += len(message.get("body", b""))
             if seen > limit:
-                raise HTTPException(413, "Request body too large")
+                raise HTTPException(413, _TOO_LARGE)
             return message
 
         await self.app(scope, counted, send)
+
+
+# Coded (`api_errors.request_too_large`), so the client words it in its language.
+_TOO_LARGE = {"code": "request_too_large", "message": "Request body too large"}
 
 
 async def _unauthenticated(scope: Scope, receive: Receive, send: Send) -> None:
@@ -115,4 +119,4 @@ async def _unauthenticated(scope: Scope, receive: Receive, send: Send) -> None:
 
 
 async def _too_large(scope: Scope, receive: Receive, send: Send) -> None:
-    await JSONResponse({"detail": "Request body too large"}, status_code=413)(scope, receive, send)
+    await JSONResponse({"detail": _TOO_LARGE}, status_code=413)(scope, receive, send)

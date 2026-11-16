@@ -20,7 +20,7 @@ from app.services.server_runs.catalog.executor import CatalogExecutor
 from app.services.server_runs.catalog_audit.executor import CatalogAuditExecutor
 from app.services.server_runs.concepts.executor import ConceptExecutor
 from app.services.server_runs.dq import DqExecutor
-from app.services.server_runs.etl import EtlExecutor
+from app.services.server_runs.etl import EtlExecutor, close_history
 from app.services.server_runs.executor import RunExecutor
 from app.services.server_runs.query_list import QueryListExecutor
 
@@ -29,7 +29,7 @@ async def _database_entity(db, run: ServerRun) -> jobs.Entity | None:
     if run.data_source_id is None:
         return None
     source = await db.get(DataSource, run.data_source_id)
-    return jobs.Entity("database", run.data_source_id, jobs._name_of(source.name) if source else "")
+    return jobs.Entity("database", run.data_source_id, jobs.name_of(source.name) if source else "")
 
 
 async def _mapping_project_entity(db, run: ServerRun) -> jobs.Entity | None:
@@ -38,7 +38,7 @@ async def _mapping_project_entity(db, run: ServerRun) -> jobs.Entity | None:
     project = await db.get(MappingProject, run.scope_id)
     if project is None:
         return await _database_entity(db, run)
-    return jobs.Entity("mapping_project", project.id, jobs._name_of(project.name))
+    return jobs.Entity("mapping_project", project.id, jobs.name_of(project.name))
 
 
 @dataclass(frozen=True)
@@ -53,6 +53,9 @@ class Kind:
     # A resume may bring a spec compiled again (scripts fixed while it waited):
     # `respec(state, spec)` is the checkpoint carried over to it.
     respec: Callable[[dict, BaseModel], dict] | None = None
+    # A run cancelled while no executor holds it (paused, interrupted, failed,
+    # or replaced by a new one): `on_closed(run_id)` ends what it left open.
+    on_closed: Callable[[str], Awaitable[None]] | None = None
 
 
 def _concepts_initial(spec: RunSpec) -> dict:
@@ -65,7 +68,7 @@ async def _pipeline_entity(db, run: ServerRun) -> jobs.Entity | None:
     pipeline = await db.get(EtlPipeline, (run.spec or {}).get("pipeline_id") or "")
     if pipeline is None:
         return await _database_entity(db, run)
-    return jobs.Entity("etl_pipeline", pipeline.id, jobs._name_of(pipeline.name))
+    return jobs.Entity("etl_pipeline", pipeline.id, jobs.name_of(pipeline.name))
 
 
 async def _scope_pipeline_entity(db, run: ServerRun) -> jobs.Entity | None:
@@ -74,7 +77,7 @@ async def _scope_pipeline_entity(db, run: ServerRun) -> jobs.Entity | None:
     pipeline = await db.get(EtlPipeline, run.scope_id)
     if pipeline is None:
         return await _database_entity(db, run)
-    return jobs.Entity("etl_pipeline", pipeline.id, jobs._name_of(pipeline.name))
+    return jobs.Entity("etl_pipeline", pipeline.id, jobs.name_of(pipeline.name))
 
 
 async def _catalog_entity(db, run: ServerRun) -> jobs.Entity | None:
@@ -83,7 +86,7 @@ async def _catalog_entity(db, run: ServerRun) -> jobs.Entity | None:
     catalog = await db.get(DataCatalog, run.scope_id)
     if catalog is None:
         return await _database_entity(db, run)
-    return jobs.Entity("data_catalog", catalog.id, jobs._name_of(catalog.name))
+    return jobs.Entity("data_catalog", catalog.id, jobs.name_of(catalog.name))
 
 
 async def _cohort_entity(db, run: ServerRun) -> jobs.Entity | None:
@@ -92,7 +95,7 @@ async def _cohort_entity(db, run: ServerRun) -> jobs.Entity | None:
     cohort = await db.get(Cohort, run.scope_id)
     if cohort is None:
         return await _database_entity(db, run)
-    return jobs.Entity("cohort", cohort.id, jobs._name_of(cohort.name))
+    return jobs.Entity("cohort", cohort.id, jobs.name_of(cohort.name))
 
 
 async def _dq_rule_set_entity(db, run: ServerRun) -> jobs.Entity | None:
@@ -101,7 +104,7 @@ async def _dq_rule_set_entity(db, run: ServerRun) -> jobs.Entity | None:
     rule_set = await db.get(DqRuleSet, run.scope_id)
     if rule_set is None:
         return await _database_entity(db, run)
-    return jobs.Entity("dq_rule_set", rule_set.id, jobs._name_of(rule_set.name))
+    return jobs.Entity("dq_rule_set", rule_set.id, jobs.name_of(rule_set.name))
 
 
 async def _dq_profile_entity(db, run: ServerRun) -> jobs.Entity | None:
@@ -110,7 +113,7 @@ async def _dq_profile_entity(db, run: ServerRun) -> jobs.Entity | None:
     profile = await db.get(DqProfile, run.scope_id)
     if profile is None:
         return await _database_entity(db, run)
-    return jobs.Entity("dq_profile", profile.id, jobs._name_of(profile.name))
+    return jobs.Entity("dq_profile", profile.id, jobs.name_of(profile.name))
 
 
 def _query_list_initial(spec: QueryListSpec) -> dict:
@@ -119,14 +122,14 @@ def _query_list_initial(spec: QueryListSpec) -> dict:
 
 def _etl_respec(state: dict, spec) -> dict:
     """The scripts left, compiled again — maybe only those: the run goes on at the
-    first one not done, found by its file in the new steps."""
+    first of the new steps not already done."""
     file_ids = state.get("fileIds") or []
     at = state.get("next", 0)
     if at >= len(file_ids):
         return state
+    done = set(file_ids[:at])
     steps = [step.file_id for step in spec.steps]
-    pending = file_ids[at]
-    return {**state, "next": steps.index(pending) if pending in steps else 0, "fileIds": steps}
+    return {**state, "next": next((i for i, f in enumerate(steps) if f not in done), len(steps)), "fileIds": steps}
 
 
 KINDS: dict[str, Kind] = {
@@ -135,7 +138,7 @@ KINDS: dict[str, Kind] = {
     # One per target database: a DuckDB file has one writer.
     "etl": Kind(
         EtlRunSpec, EtlExecutor, entity=_pipeline_entity, initial=lambda spec: {"next": 0, "scripts": [], "pipelineId": spec.pipeline_id},
-        resume_on_startup=False, respec=_etl_respec,
+        resume_on_startup=False, respec=_etl_respec, on_closed=close_history,
     ),
     # A pipeline's Quality check, its concept comparison: scope the pipeline.
     "etl_quality": Kind(QueryListSpec, QueryListExecutor, entity=_scope_pipeline_entity, initial=_query_list_initial),
@@ -150,11 +153,11 @@ KINDS: dict[str, Kind] = {
         CatalogAuditRunSpec, CatalogAuditExecutor, entity=_catalog_entity,
         initial=lambda spec: {"next": 0, "meta": spec.meta.model_dump(by_alias=True)},
     ),
-    # A cohort's members, count and attrition: scope the cohort.
     # A rule set's checks, its test run, and a quality profile's: scope the rule set
     # or the profile, which reads its own database.
     "dq_rule_set": Kind(DqRunSpec, DqExecutor, entity=_dq_rule_set_entity, initial=_query_list_initial),
     "dq_profile": Kind(DqRunSpec, DqExecutor, entity=_dq_profile_entity, initial=_query_list_initial),
+    # A cohort's members, count and attrition: scope the cohort.
     "cohort_run": Kind(QueryListSpec, QueryListExecutor, entity=_cohort_entity, initial=_query_list_initial),
     # Its report's and its Statistics tab's figures: scope the cohort.
     "cohort_figures": Kind(QueryListSpec, QueryListExecutor, entity=_cohort_entity, initial=_query_list_initial),

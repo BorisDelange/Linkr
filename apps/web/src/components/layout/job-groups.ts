@@ -1,6 +1,7 @@
 import type { Job } from '@/lib/api/environments'
 
-const ACTIVE = new Set<Job['status']>(['queued', 'running'])
+export const ACTIVE_JOB_STATUSES: ReadonlySet<Job['status']> = new Set<Job['status']>(['queued', 'running'])
+const ACTIVE = ACTIVE_JOB_STATUSES
 
 /** Jobs of one action, shown as one row of the panel. */
 export interface JobGroupRow {
@@ -164,3 +165,11 @@ export function splitEntityHead(label: string, entity: JobEntity | null = null):
   return { head: '', action: label }
 }
 
+/** Short local date+time for a job row, e.g. "07/31 14:22:05" — the seconds
+ *  because a page sends several queries a minute. Falsy/bad input → ''. */
+export function formatJobTime(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}

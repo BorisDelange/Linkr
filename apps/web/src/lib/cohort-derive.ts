@@ -92,6 +92,12 @@ export function derivationScopes(level: CohortLevel): DeriveScope[] {
 
 export const planTableName = (p: { schema: string | null; table: string }) => (p.schema ? `${p.schema}.${p.table}` : p.table)
 
+/** The tables a rebuild leaves out although its target holds them: copied whole
+ *  by a build that predates the opt-in for tables nothing proves personless. */
+export function droppedOnRebuild(plan: readonly DerivePlanTable[]): string[] {
+  return plan.filter((p) => p.unproven && p.built).map(planTableName)
+}
+
 /** A table a derivation may copy: one never refused as unfilterable. */
 export function copyableTables(plan: readonly DerivePlanTable[]): DerivePlanTable[] {
   return plan.filter((p) => !p.unresolved && !p.unfilterable)

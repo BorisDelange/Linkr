@@ -12,18 +12,19 @@ from app.schemas.ide_connection import (
     IdeConnectionResponse,
     IdeConnectionUpdate,
 )
-from app.services import ide_connection_service
+from app.services import database_binding, ide_connection_service
 
 router = APIRouter(prefix="/ide-connections", tags=["ide-connections"])
 
 
 async def _require_project_access(
     db: AsyncSession, project_uid: str, user: User, permission: str
-) -> None:
+) -> Project:
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
     await check_project_permission(db, project, user, permission)
+    return project
 
 
 async def _load(db: AsyncSession, connection_id: str, user: User, permission: str) -> IdeConnection:
@@ -50,7 +51,8 @@ async def create_connection(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(db, body.project_uid, user, "ide:write")
+    project = await _require_project_access(db, body.project_uid, user, "ide:write")
+    await database_binding.require_bindable(db, project.workspace_id, user, [body.data_source_id], project=project)
     return await ide_connection_service.create(db, body)
 
 
@@ -71,6 +73,10 @@ async def update_connection(
     db: AsyncSession = Depends(get_db),
 ):
     connection = await _load(db, connection_id, user, "ide:write")
+    changed = database_binding.changed_ids(connection, body, "data_source_id")
+    if changed:
+        project = await db.get(Project, connection.project_uid)
+        await database_binding.require_bindable(db, project.workspace_id, user, changed, project=project)
     return await ide_connection_service.update(db, connection, body)
 
 

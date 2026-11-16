@@ -22,6 +22,13 @@ describe('dq-groups', () => {
     expect(readCheckGroups(null)).toEqual([])
   })
 
+  it('keeps the first of a repeated key and lifts the first category of a parent cycle to the top', () => {
+    expect(readCheckGroups([g('a'), { ...g('a'), name: { en: 'Dup' } }])).toEqual([g('a')])
+    expect(readCheckGroups([g('self', 'self')])).toEqual([g('self')])
+    expect(readCheckGroups([g('x', 'a'), g('a', 'b'), g('b', 'c'), g('c', 'a'), g('d', 'gone')]))
+      .toEqual([g('x', 'a'), g('a'), g('b', 'c'), g('c', 'a'), g('d', 'gone')])
+  })
+
   it('builds the nested tree, undeclared keys at the top, ungrouped apart', () => {
     const { roots, ungrouped } = groupTree(GROUPS, CHECKS)
     expect(roots.map((n) => n.key)).toEqual(['demo', 'person', 'gone-parent-ok'])
@@ -86,6 +93,11 @@ describe('legacy DQ records', () => {
       name: { en: 'Not null' }, description: {}, groupKey: 'person', category: 'conformance', severity: 'notice',
     })
     expect(readStoredCheck(stored as unknown as DqCustomCheck)).not.toHaveProperty('tableName')
+  })
+
+  it('keeps a legacy check moved out of its table group ungrouped', () => {
+    const stored = { id: 'x', name: 'Not null', category: 'validity', severity: 'info', tableName: 'person', groupKey: null }
+    expect(readStoredCheck(stored as unknown as DqCustomCheck).groupKey).toBeNull()
   })
 
   it('reads a run recorded before groups: its table becomes a one-step path', () => {

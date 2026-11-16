@@ -195,7 +195,14 @@ async def init_upload(body: InitRequest, user: User = Depends(get_current_user))
     if body.total_chunks < 1:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid chunk count")
     if body.total_chunks > _max_chunks():
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, f"An upload holds at most {_max_chunks()} chunks.")
+        raise HTTPException(
+            status.HTTP_413_CONTENT_TOO_LARGE,
+            {
+                "code": "upload_too_many_chunks",
+                "message": f"An upload holds at most {_max_chunks()} chunks.",
+                "maxChunks": _max_chunks(),
+            },
+        )
     declared = body.file_size or 0
     _require_room(declared)
     _require_quota(user.id, await _held_for_quota(user.id), declared)

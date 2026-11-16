@@ -986,22 +986,32 @@ def _safe_join(tree: Path, rel: str) -> Path:
     return dest
 
 
+# The settings bounding an export tree, as an administrator sets them.
+_DISK_BOUND = "LINKR_MAX_EXPORT_TREE_MB"
+_MEMORY_BOUND = "LINKR_MAX_EXPORT_TREE_MEMORY_MB"
+
+
+def _too_large(what: str, setting: str) -> GitError:
+    return GitError(f"{what}; an administrator can raise {setting} (in MB) to allow it", "archive_too_large")
+
+
 @contextmanager
-def _export_archive_errors() -> Iterator[None]:
+def _export_archive_errors(setting: str) -> Iterator[None]:
     """A refused or unreadable export answers as a GitError, the routes' 400."""
     try:
         yield
     except GitError:
         raise
     except safe_zip.ZipTooLarge as exc:
-        raise GitError(str(exc), "archive_too_large") from exc
+        raise _too_large(str(exc), setting) from exc
     except (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError) as exc:
         raise GitError(f"the export is not a readable ZIP: {exc}") from exc
 
 
-def read_archive(zip_bytes: bytes, max_bytes: int) -> dict[str, bytes]:
-    """An archive's files in memory, within `max_bytes` once decompressed. Raises GitError."""
-    with _export_archive_errors():
+def read_archive(zip_bytes: bytes, max_bytes: int, setting: str = _MEMORY_BOUND) -> dict[str, bytes]:
+    """An archive's files in memory, within `max_bytes` once decompressed (`setting`
+    names that bound in the refusal). Raises GitError."""
+    with _export_archive_errors(setting):
         return safe_zip.read_all(zip_bytes, max_bytes=max_bytes)
 
 
@@ -1023,7 +1033,7 @@ def _unpack_zip_into(zip_bytes: bytes, tree: Path) -> None:
     (filters, hooks) on the next `git add`. Raises GitError otherwise. Its size is
     bounded before the tree is touched, so a refused export leaves the tree as it was.
     """
-    with _export_archive_errors(), zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+    with _export_archive_errors(_DISK_BOUND), zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         members = safe_zip.checked_members(zf, max_bytes=settings.max_export_tree_mb * 1024 * 1024)
         _check_room_for(members, tree)
         for entry in tree.iterdir():
@@ -1157,6 +1167,47 @@ async def status(repo_getter, uid: str, zip_bytes: bytes, branch: str, remote_ur
 
     async with _lock_for(repo_getter(uid)):
         return await asyncio.to_thread(work)
+
+
+_TRACKED_ADOPTED_MARKER = "linkr-tracked-adopted"
+
+
+async def tracked_paths(repo_getter, uid: str, branch: str, remote_url: str | None) -> set[str] | None:
+    """The files committed on `branch` as the entity's clone last fetched it (no
+    network), or None when the clone of that remote has no such branch yet or its
+    one-off adoption of tracked files (`mark_tracked_adopted`) already ran."""
+    _safe_ref(branch)
+
+    def work() -> set[str] | None:
+        repo = repo_getter(uid)
+        if not remote_url or not (repo / ".git").is_dir():
+            return None
+        if (repo / ".git" / _TRACKED_ADOPTED_MARKER).exists():
+            return None
+        if _run(repo, "remote", "get-url", "origin", check=False).strip() != remote_url:
+            return None
+        ref = f"refs/heads/{branch}"
+        if not _run(repo, "rev-parse", "-q", "--verify", ref, check=False).strip():
+            return None
+        out = _run(repo, "ls-tree", "-r", "-z", "--name-only", ref, check=False)
+        return {p for p in out.split("\0") if p}
+
+    async with _lock_for(repo_getter(uid)):
+        return await asyncio.to_thread(work)
+
+
+async def mark_tracked_adopted(repo_getter, uid: str) -> None:
+    """Record that the files tracked in the entity's clone were adopted, so a file
+    the user unmarks afterwards is not adopted again (the marker lives in .git, so a
+    clone of a new remote starts over)."""
+
+    def work() -> None:
+        git_dir = repo_getter(uid) / ".git"
+        if git_dir.is_dir():
+            (git_dir / _TRACKED_ADOPTED_MARKER).touch()
+
+    async with _lock_for(repo_getter(uid)):
+        await asyncio.to_thread(work)
 
 
 async def sync_state(
@@ -2458,7 +2509,7 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> tuple[bytes,
                 for p in _tree_files(repo):
                     zf.write(p, p.relative_to(repo).as_posix())
                     if buf.tell() > settings.max_export_tree_memory_mb * 1024 * 1024:
-                        raise GitError("the repository is too large to clone here", "archive_too_large")
+                        raise _too_large("the repository is too large to clone here", _MEMORY_BOUND)
             return buf.getvalue(), cloned_oid
         finally:
             shutil.rmtree(tmp, ignore_errors=True)

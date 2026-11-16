@@ -13,6 +13,7 @@ declarative: add/remove rewrites ``pyproject.toml`` and re-locks; the venv is
 """
 
 import asyncio
+import os
 import subprocess
 import tomllib
 from dataclasses import dataclass
@@ -130,7 +131,49 @@ def _uv_env(project_uid: str, options: dict | None = None) -> dict[str, str]:
         # pyproject cannot name another one, nor pin a package to another source.
         env["UV_NO_CONFIG"] = "1"
         env["UV_NO_SOURCES"] = "1"
+        tls = _server_tls_settings()
+        if hosts := tls.pop("UV_INSECURE_HOST", None):
+            env["UV_INSECURE_HOST"] = " ".join(filter(None, (env.get("UV_INSECURE_HOST"), hosts)))
+        env.update(tls)
     return env
+
+
+def _server_config_files() -> list[Path]:
+    """The uv.toml files uv itself would read for the server (Linux, macOS), lowest
+    precedence first: system, user, then `UV_CONFIG_FILE`."""
+    system_dirs = (os.environ.get("XDG_CONFIG_DIRS") or "/etc/xdg").split(os.pathsep)
+    files = [Path("/etc/uv/uv.toml"), *(Path(d) / "uv" / "uv.toml" for d in reversed(system_dirs) if d)]
+    user = os.environ.get("XDG_CONFIG_HOME") or str(Path(os.environ.get("HOME") or Path.home()) / ".config")
+    files.append(Path(user) / "uv" / "uv.toml")
+    if config_file := os.environ.get("UV_CONFIG_FILE"):
+        files.append(Path(config_file))
+    return files
+
+
+def _server_tls_settings() -> dict[str, str]:
+    """The TLS settings of the server's own uv configuration, as the variables uv
+    reads. UV_NO_CONFIG, which keeps a project's pyproject.toml from naming another
+    index, also drops those files — and a mirror behind an institution's CA, or
+    trusted as an insecure host, is then unreachable. A variable already set wins,
+    as it does for uv."""
+    native_tls: bool | None = None
+    insecure: list[str] = []
+    for path in _server_config_files():
+        try:
+            data = tomllib.loads(path.read_text())
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        if isinstance(data.get("native-tls"), bool):
+            native_tls = data["native-tls"]
+        hosts = data.get("allow-insecure-host")
+        if isinstance(hosts, list):
+            insecure = [h for h in hosts if isinstance(h, str) and h.strip()]
+    out: dict[str, str] = {}
+    if native_tls and "UV_NATIVE_TLS" not in os.environ:
+        out["UV_NATIVE_TLS"] = "true"
+    if insecure and "UV_INSECURE_HOST" not in os.environ:
+        out["UV_INSECURE_HOST"] = " ".join(insecure)
+    return out
 
 
 def _require_mirror_sources(project_uid: str, options: dict | None, *, lock_too: bool) -> None:

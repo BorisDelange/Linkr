@@ -277,7 +277,7 @@ export function buildPointer<T extends PointerTarget & { name?: unknown }>(
  */
 export function resolvePointer<T extends PointerTarget>(
   rows: T[],
-  ref: PointerRef | undefined,
+  ref: PointerRef | null | undefined,
   targetWorkspaceId: string,
 ): T | undefined {
   if (!ref) return undefined

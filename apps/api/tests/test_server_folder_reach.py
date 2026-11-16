@@ -73,7 +73,11 @@ async def test_another_workspaces_database_folder_is_refused_to_file_routes(
         "projectUid": p2, "serverPath": str(mart / "person.csv"),
     })
     assert r.status_code == 403
-    assert (await client.post(f"{API}/data-sources", headers=w2_member, json=_source(w2, mart))).status_code == 403
+    assert r.json()["detail"]["code"] == "other_workspace_database"
+    r = await client.post(f"{API}/data-sources", headers=w2_member, json=_source(w2, mart))
+    assert r.status_code == 403
+    # Coded, so the client says why and that an administrator can register it.
+    assert r.json()["detail"]["code"] == "other_workspace_database"
     r = await client.post(f"{API}/projects/{p2}/fs/rebind-copy", headers=w2_member, json={
         "src": str(own), "dst": str(mart), "on_conflict": "overwrite",
     })

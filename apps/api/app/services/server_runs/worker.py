@@ -141,7 +141,7 @@ class QueryWorker:
     """One child process answering a run's queries over one connection to its
     database. `run` calls are served one at a time.
 
-    `config, password, files, known` are `data_source_service._materialize_inputs`'s.
+    `config, password, files, known` are `data_source_service.materialize_inputs`'s.
     `prepare` ("module:function") is called in the child with its connection once
     it is locked down — a test hook. The graces are the ladder's (`run`)."""
 
@@ -208,15 +208,15 @@ class QueryWorker:
                 async with asyncio.timeout(deadline):
                     reply = await self._watched(child, req)
             except TimeoutError:
-                reply = await _to_the_end(self._stop_query(child, req))
+                reply = await to_the_end(self._stop_query(child, req))
                 if reply is None or reply[0] != "ok":
                     raise QueryTimedOut(deadline or 0) from None
             except _Stalled:
-                reply = await _to_the_end(self._stop_query(child, req))
+                reply = await to_the_end(self._stop_query(child, req))
                 if reply is None or reply[0] != "ok":
                     raise QueryStalled(self._stall_after_s) from None
             except asyncio.CancelledError:
-                await _to_the_end(self._stop_query(child, req))
+                await to_the_end(self._stop_query(child, req))
                 raise
             if reply is _EOF:
                 await self._kill(child)
@@ -240,7 +240,7 @@ class QueryWorker:
         child = self._child
         if child is None:
             return
-        await _to_the_end(self._end(child))
+        await to_the_end(self._end(child))
 
     # --- the child's life ---------------------------------------------------
 
@@ -271,7 +271,7 @@ class QueryWorker:
         ).start()
         try:
             try:
-                await _to_the_end(asyncio.to_thread(process.start))
+                await to_the_end(asyncio.to_thread(process.start))
             finally:
                 # Else the child's death would never read as EOF here.
                 child_work.close()
@@ -286,7 +286,7 @@ class QueryWorker:
             if ready[0] != "ready":
                 raise SetupFailed(ready[2])
         except BaseException:
-            await _to_the_end(self._kill(child))
+            await to_the_end(self._kill(child))
             raise
         return child
 
@@ -340,16 +340,16 @@ class QueryWorker:
     async def _end(self, child: _Child) -> None:
         with contextlib.suppress(OSError):
             _send(child, child.work, ("exit",))
-        if await _exited(child.process, self._term_grace_s):
+        if await exited(child.process, self._term_grace_s):
             self._discard(child)
         else:
             await self._kill(child)
 
     async def _kill(self, child: _Child) -> None:
         _signal_group(child.process, signal.SIGTERM)
-        if not await _exited(child.process, self._term_grace_s):
+        if not await exited(child.process, self._term_grace_s):
             _signal_group(child.process, signal.SIGKILL)
-            await _exited(child.process, _KILL_WAIT_S)
+            await exited(child.process, _KILL_WAIT_S)
         self._discard(child)
 
     def _discard(self, child: _Child) -> None:
@@ -362,7 +362,7 @@ class QueryWorker:
         _live_temp_dirs.discard(child.temp_dir)
 
 
-async def _to_the_end[T](work: Awaitable[T]) -> T:
+async def to_the_end[T](work: Awaitable[T]) -> T:
     """Await `work` to its end even when the task is cancelled meanwhile, then
     raise the cancel: a stop or a kill left half done would leave a child behind."""
     task = asyncio.ensure_future(work)
@@ -380,7 +380,7 @@ async def _to_the_end[T](work: Awaitable[T]) -> T:
     return result
 
 
-async def _exited(process: BaseProcess, timeout: float) -> bool:
+async def exited(process: BaseProcess, timeout: float) -> bool:
     if process.pid is None:
         return True
     end = time.monotonic() + timeout

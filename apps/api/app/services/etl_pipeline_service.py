@@ -60,8 +60,10 @@ async def update(
 
 async def delete(db: AsyncSession, pipeline: EtlPipeline) -> None:
     from app.services import git_service
+    from app.services.server_runs import runs
 
     pipeline_id = pipeline.id
+    await runs.forget_pipeline(db, pipeline_id, pipeline.target_data_source_id)
     await db.delete(pipeline)  # cascades to files via FK
     await db.commit()
     # The README attachments' owner is polymorphic (no FK), so clean them here.
@@ -168,7 +170,7 @@ async def create_run(
     db.add(run)
     await db.commit()
     await db.refresh(run)
-    await _prune_runs(db, data.pipeline_id)
+    await prune_runs(db, data.pipeline_id)
     return run
 
 
@@ -194,7 +196,7 @@ async def delete_runs_for_pipeline(db: AsyncSession, pipeline_id: str) -> None:
     await db.commit()
 
 
-async def _prune_runs(db: AsyncSession, pipeline_id: str) -> None:
+async def prune_runs(db: AsyncSession, pipeline_id: str) -> None:
     """Drop the runs beyond the cap, oldest first."""
     result = await db.execute(
         select(EtlRunHistory.id)

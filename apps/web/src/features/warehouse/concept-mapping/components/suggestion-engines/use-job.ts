@@ -14,10 +14,11 @@ export type WatchedJob = Job & { unreachable?: boolean }
 
 const RETRY_MS = 5000
 
-/** What a failed poll means: the server is down, failing or asking to wait
- *  (`retry`), or it answered that the job is gone or not the user's to see (`gone`). */
+/** What a failed poll means: the job is gone or not the user's to see (`gone`),
+ *  or anything else — the server down, failing, asking to wait, a session to
+ *  sign in again (`retry`). */
 export function pollFailure(err: unknown): 'retry' | 'gone' {
-  return err instanceof ApiError && err.status < 500 && err.status !== 408 && err.status !== 429 ? 'gone' : 'retry'
+  return err instanceof ApiError && (err.status === 403 || err.status === 404 || err.status === 410) ? 'gone' : 'retry'
 }
 
 /**

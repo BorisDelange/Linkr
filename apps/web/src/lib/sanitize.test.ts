@@ -122,8 +122,24 @@ describe('sanitizeHtml', () => {
       expect(style.textContent).not.toMatch(/@import|@font-face|position|inset|z-index|https:/)
     })
 
-    it('drops a style element outside a figure', () => {
-      const out = rendered(sanitizeHtml('<p>note</p><style>button { display: none }</style><svg><title><style>a{}</style></title></svg>'))
+    it('keeps a table style (pandas Styler, gt) to the output that holds it', () => {
+      const styler = '<style type="text/css">#T_a td { color: red; position: fixed } .col_heading, button { font-weight: bold }</style>'
+        + '<table id="T_a"><tr><th class="col_heading">h</th><td>1</td></tr></table>'
+      const { host, outside, rules } = inDocument(sanitizeHtml(styler))
+      expect(rules.length).toBe(2)
+      for (const rule of rules) expect(outside.matches(rule.selectorText)).toBe(false)
+      expect(host.querySelector('td')!.matches(rules[0].selectorText)).toBe(true)
+      expect(host.querySelector('th')!.matches(rules[1].selectorText)).toBe(true)
+      expect(host.querySelector('style')!.textContent).not.toContain('position')
+
+      const gt = '<div id="g"><style>#g .gt_table { color: blue }</style><table class="gt_table"><tr><td>1</td></tr></table></div>'
+      const scoped = inDocument(sanitizeHtml(gt))
+      expect(scoped.host.querySelector('table')!.matches(scoped.rules[0].selectorText)).toBe(true)
+      expect(scoped.outside.matches(scoped.rules[0].selectorText)).toBe(false)
+    })
+
+    it('drops an HTML style inside a drawing', () => {
+      const out = rendered(sanitizeHtml('<p>note</p><svg><title><style>a{}</style></title></svg>'))
       expect(out.querySelector('style')).toBeNull()
       expect(out.querySelector('p')?.textContent).toBe('note')
     })
@@ -144,7 +160,7 @@ describe('sanitizeHtml', () => {
 
     it("does not let markup borrow the app's classes", () => {
       const out = rendered(sanitizeHtml('<div class="fixed inset-0 z-50">x</div><svg class="svglite fixed"><rect class="own"/></svg>'))
-      expect(out.querySelector('div')!.hasAttribute('class')).toBe(false)
+      expect(out.querySelector('div')!.getAttribute('class')).toBe('lk-c-fixed lk-c-inset-0 lk-c-z-50')
       expect(out.querySelector('svg')!.getAttribute('class')).toBe('svglite')
       expect(out.querySelector('rect')!.getAttribute('class')).toBe('own')
     })

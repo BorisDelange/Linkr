@@ -114,7 +114,8 @@ export function registerDeriveTools(server: Server): void {
         rebuild_database_id: {
           type: 'string',
           description: 'new-database: rebuild this database, derived from the cohort before, instead of creating one (its content is replaced). '
-            + 'A rebuild keeps what that derivation kept and how it pseudonymised; only the options passed change.',
+            + 'A rebuild keeps what that derivation kept and how it pseudonymised; only the options passed change (tables passed '
+            + 'replace the tables it copied).',
         },
         target_database_id: {
           type: 'string',
@@ -125,11 +126,14 @@ export function registerDeriveTools(server: Server): void {
         replace: {
           type: 'boolean',
           description: 'schema: drop and recreate the schema if it exists (a rebuild). Default false. Rebuilding a schema derived '
-            + 'from this cohort keeps what it kept and how it pseudonymised; only the options passed change.',
+            + 'from this cohort keeps what it kept and how it pseudonymised; only the options passed change (tables passed replace '
+            + 'the tables it copied).',
         },
         register: { type: 'boolean', description: 'schema outside DuckDB: also declare the schema as a Linkr database. Default true.' },
         copy_personless: {
-          type: 'boolean', description: `${COPY_PERSONLESS_DESCRIPTION} With tables: true adds them to the list, false removes them.`,
+          type: 'boolean',
+          description: `${COPY_PERSONLESS_DESCRIPTION} With tables: true adds them to the list, false removes them; absent, only the tables `
+            + 'listed are copied — on a rebuild too, whatever the derivation copied before.',
         },
         copy_unproven_tables: {
           type: 'array', items: { type: 'string' },

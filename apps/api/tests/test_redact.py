@@ -208,3 +208,46 @@ def test_long_adversarial_error_is_scrubbed_in_linear_time():
     scrub_row_values("'a" * 200_000)
     scrub_row_values('"a' * 200_000)
     assert time.perf_counter() - started < 1
+
+
+@pytest.mark.parametrize("text", [
+    "Catalog Error: Table with name 'measurement' does not exist! Did you mean 'main.measure'?",
+    'Binder Error: Referenced column "birth_dt" not found in FROM clause!\nCandidate bindings: "birth_datetime"',
+    "Binder Error: No function matches the given name and argument types 'lenght(VARCHAR)'.",
+    'Script “02.sql” failed: Binder Error: Referenced column "birth_dt" not found',
+    "query failed: Catalog Error: Table with name 'measurement' does not exist!",
+    "NameError: name 'foo' is not defined",
+    "AttributeError: 'DataFrame' object has no attribute 'colmun'",
+    "ModuleNotFoundError: No module named 'polars'",
+])
+def test_the_names_a_schema_error_quotes_stay_wherever_it_sits(text):
+    assert scrub_row_values(text) == text
+
+
+def test_a_traceback_keeps_the_name_its_last_line_quotes():
+    out = scrub_row_values("Traceback (most recent call last):\n  File \"<cell>\", line 1\nNameError: name 'foo' is not defined")
+    assert out.endswith("NameError: name 'foo' is not defined")
+
+
+@pytest.mark.parametrize("text", [
+    "Conversion Error: Could not convert string 'abc: Catalog Error: DUMMY' to INT32",
+    "Conversion Error: Could not convert string 'abc\nBinder Error: DUMMY' to INT32",
+    'Constraint Error: Duplicate key "id: x\nCatalog Error: DUMMY" violates primary key',
+    "Script “02.sql” failed: Conversion Error: Could not convert string 'DUMMY' to INT32",
+])
+def test_a_value_quoting_a_class_name_is_still_scrubbed(text):
+    assert "DUMMY" not in scrub_row_values(text)
+
+
+def test_a_value_error_after_a_schema_error_is_scrubbed_and_the_names_kept():
+    out = scrub_row_values("Binder Error: column \"birth_dt\"\nConversion Error: Could not convert string 'DUMMY' to INT32")
+    assert '"birth_dt"' in out and "DUMMY" not in out and "to INT32" in out
+
+
+def test_a_text_of_many_schema_errors_is_scrubbed_in_linear_time():
+    import time
+
+    started = time.perf_counter()
+    scrub_row_values("\nBinder Error: 'a'" * 20_000)
+    scrub_row_values(": Catalog Error " * 50_000)
+    assert time.perf_counter() - started < 2

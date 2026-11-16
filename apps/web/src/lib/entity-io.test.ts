@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import JSZip from 'jszip'
-import { DB_ERROR_NO_DATA_ON_IMPORT, buildProjectZip, slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, parseDatabaseZip, importParsedDatabase, gitignoreEscapePath, isDataExtension, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, parseImportZip, attachTreeIds, buildSqlCollectionFolder, buildDqRuleSetFolder, reassemblePresetMapping, resolveDashboardBundle, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
+import { DB_ERROR_NO_DATA_ON_IMPORT, buildProjectZip, slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, buildDataSourceFolder, collectGitLinkedEntities, applyClonedEntity, parseDatabaseZip, importParsedDatabase, gitignoreEscapePath, isDataExtension, notebookWithoutOutputs, withLocalConnectionConfig, excludedCodeFiles, reconstructTreeFiles, readImportedManifest, readImportedTree, parseImportZip, attachTreeIds, buildSqlCollectionFolder, buildDqRuleSetFolder, reassemblePresetMapping, resolveDashboardBundle, canonicalSchemaMapping, projectSlug, sameProjectSlug } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import { isVersioned } from '@/lib/entity-versioning'
 import { findLineageMatch, resolveByLineage } from '@/lib/import-identity'
-import type { DatasetFile, DataCatalog, DqRuleSet, DqCustomCheck, CustomSchemaPreset, EtlPipeline, SqlScriptCollection, SqlScriptFile } from '@/types'
+import type { DatasetFile, IdeConnection, DataCatalog, DqRuleSet, DqCustomCheck, CustomSchemaPreset, EtlPipeline, SqlScriptCollection, SqlScriptFile } from '@/types'
 import type { Storage } from '@/lib/storage'
 
 const serverMode = vi.hoisted(() => ({ value: false }))
@@ -576,6 +576,19 @@ describe('parseProjectZip — project.json without timestamps', () => {
     }))
     const parsed = await parseProjectZip(await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File)
     expect(parsed!.connections.map((c) => c.connectionConfig)).toEqual([{ engine: 'postgresql' }])
+  })
+
+  it('gives a re-imported IDE connection back the local configuration of the same engine', () => {
+    const local = {
+      id: 'local', projectUid: 'p', name: 'Remote', source: 'custom', status: 'connected', createdAt: '',
+      connectionConfig: { engine: 'postgresql', host: 'db.local', database: 'omop', username: 'me' },
+    } as unknown as IdeConnection
+    const imported = { ...local, id: 'new', connectionConfig: { engine: 'postgresql' } } as unknown as IdeConnection
+    expect(withLocalConnectionConfig(imported, local).connectionConfig)
+      .toEqual({ engine: 'postgresql', host: 'db.local', database: 'omop', username: 'me' })
+    const repointed = { ...imported, connectionConfig: { engine: 'duckdb' } } as unknown as IdeConnection
+    expect(withLocalConnectionConfig(repointed, local)).toBe(repointed)
+    expect(withLocalConnectionConfig(imported, undefined)).toBe(imported)
   })
 
   it('parses a project identified only by projectId (no uid, null lineageId)', async () => {
@@ -3781,8 +3794,34 @@ describe('which files count as data', () => {
       expect(isDataExtension(`scripts/${name}`)).toBe(true)
     })
 
-  it.each(['a.sql', 'b.PY', 'c.R', 'd.Rmd', 'e.qmd', 'f.ipynb', 'g.sh', 'h.md', 'i.yaml', 'requirements.txt', 'Makefile', '.gitignore', 'renv.lock'])(
+  it.each([
+    'a.sql', 'b.PY', 'c.R', 'd.Rmd', 'e.qmd', 'f.ipynb', 'g.sh', 'h.md', 'i.yaml', 'requirements.txt', 'Makefile',
+    '.gitignore', 'renv.lock', 'main.c', 'lib.h', 'App.java', 'job.scala', 'main.go', 'lib.rs', 'clean.sas',
+    'model.do', 'fit.m', 'run.pl', 'app.rb', 'index.php', 'init.lua', 'views.pgsql', 'run.ps1', 'build.bat',
+    'Snakefile', '.dockerignore', '.editorconfig', '.gitkeep',
+  ])(
     '%s is code, versioned by default', (name) => {
       expect(isDataExtension(`scripts/sub/${name}`)).toBe(false)
     })
+})
+
+describe('notebookWithoutOutputs', () => {
+  it('strips the outputs of an nbformat 3 notebook rather than giving up on it', () => {
+    const v3 = JSON.stringify({
+      nbformat: 3,
+      worksheets: [{ cells: [
+        { cell_type: 'code', prompt_number: 2, input: ['df'], outputs: [{ output_type: 'pyout', text: ['DUMMY-V3'] }] },
+        { cell_type: 'markdown', source: ['# A'] },
+      ] }],
+    })
+    const stripped = JSON.parse(notebookWithoutOutputs(v3)!)
+    expect(stripped.worksheets[0].cells[0]).toEqual({ cell_type: 'code', prompt_number: null, input: ['df'], outputs: [] })
+    expect(JSON.stringify(stripped)).not.toContain('DUMMY')
+  })
+
+  it('gives up on what it cannot read as a notebook', () => {
+    expect(notebookWithoutOutputs('{ DUMMY')).toBeNull()
+    expect(notebookWithoutOutputs('{"nbformat": 3, "worksheets": [{"cells": 1}]}')).toBeNull()
+    expect(notebookWithoutOutputs('{"metadata": {}}')).toBeNull()
+  })
 })

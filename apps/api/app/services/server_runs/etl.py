@@ -17,6 +17,7 @@ import logging
 from datetime import UTC, datetime
 
 from app.core import audit, database
+from app.core.redact import scrub_row_values
 from app.models.etl_pipeline import EtlRunHistory
 from app.schemas.etl_run import EtlRunSpec
 from app.services import (
@@ -30,8 +31,10 @@ from app.services.server_runs.executor import (
     RunExecutor,
     launched_by,
     short,
+    shutting_down,
     took,
 )
+from app.services.server_runs.worker import to_the_end
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +62,9 @@ class EtlExecutor(RunExecutor):
             raise Gone("the target database no longer exists")
         roles = {}
         for role, ds_id in spec.roles.items():
+            # As the start checked them (`routes.data_sources.etl_roles`): the target is the scope.
+            if role == "target" or not ds_id:
+                continue
             source = await data_source_service.get(db, ds_id)
             if source is None:
                 raise Gone(f"the {role} database no longer exists")
@@ -95,11 +101,15 @@ class EtlExecutor(RunExecutor):
         log.update(values)
         return log
 
-    async def _history(self, status: str, completed: bool = False) -> None:
+    async def _history(self, status: str, completed: bool = False, *, create: bool = False) -> None:
+        """`create`: the run's first write of it. Later, a row gone went with its
+        pipeline, or its user deleted it: it is not written again."""
         async with database.async_session() as db:
             row = await db.get(EtlRunHistory, self.run_id)
             created = row is None
             if row is None:
+                if not create:
+                    return
                 row = EtlRunHistory(
                     id=self.run_id, pipeline_id=self.pipeline_id, started_at=self.state.get("startedAt") or _iso(),
                     created_by_id=self.user_id,
@@ -111,7 +121,7 @@ class EtlExecutor(RunExecutor):
             await db.commit()
             if created:
                 # The list keeps its last runs, as one written by the page does.
-                await etl_pipeline_service._prune_runs(db, self.pipeline_id)
+                await etl_pipeline_service.prune_runs(db, self.pipeline_id)
 
     # --- the run ----------------------------------------------------------------
 
@@ -120,7 +130,7 @@ class EtlExecutor(RunExecutor):
         st.setdefault("startedAt", _iso())
         st.setdefault("pipelineId", self.pipeline_id)
         st["fileIds"] = [step.file_id for step in self.spec.steps]
-        await self._history("running")
+        await self._history("running", create=True)
         steps = self.spec.steps
         try:
             while st.get("next", 0) < len(steps):
@@ -136,18 +146,23 @@ class EtlExecutor(RunExecutor):
                 await self.save()
                 await self._history("running")
         except asyncio.CancelledError:
-            # Paused or cancelled: the script in flight did not end.
-            for log in st.get("scripts", []):
-                if log.get("status") == "running":
-                    self._log(log["fileId"], status="stopped", startedAt=log.get("startedAt"),
-                              completedAt=_iso(), durationMs=log.get("durationMs"))
-            ending = "error" if await self.requested() == "cancel" else "running"
-            await asyncio.shield(self._history(ending, completed=ending != "running"))
+            await to_the_end(self._stopped())
             raise
         except Exception:
-            await asyncio.shield(self._history("error", completed=True))
+            await to_the_end(self._history("error", completed=True))
             raise
         await self._history("success", completed=True)
+
+    async def _stopped(self) -> None:
+        """Paused or cancelled: the script in flight did not end. The history entry
+        stays running while the run waits for a resume, or for the next server
+        process to take it back (a restart)."""
+        for log in self.state.get("scripts", []):
+            if log.get("status") == "running":
+                self._log(log["fileId"], status="stopped", startedAt=log.get("startedAt"),
+                          completedAt=_iso(), durationMs=log.get("durationMs"))
+        ending = "error" if not shutting_down() and await self.requested() == "cancel" else "running"
+        await self._history(ending, completed=ending != "running")
 
     async def _script(self, step) -> None:
         st = self.state
@@ -204,7 +219,7 @@ class EtlExecutor(RunExecutor):
             raise
         except Exception as e:
             ms = int((asyncio.get_running_loop().time() - started) * 1000)
-            self._log(step.file_id, status="error", startedAt=started_at, completedAt=_iso(), durationMs=ms, error=str(e))
+            self._log(step.file_id, status="error", startedAt=started_at, completedAt=_iso(), durationMs=ms, error=scrub_row_values(str(e)))
             await self.note(f"Script “{step.name}” failed: {short(e)}")
             raise
         ms = int((asyncio.get_running_loop().time() - started) * 1000)
@@ -213,3 +228,14 @@ class EtlExecutor(RunExecutor):
             rowsAffected=len(rows), output=f"{len(rows)} row{'s' if len(rows) != 1 else ''} in {took(started)}",
         )
         await self.note(f"Script “{step.name}”: {took(started)}")
+
+
+async def close_history(run_id: str) -> None:
+    """A run cancelled while it waited (paused, interrupted, failed) or replaced
+    by a new one: its history entry ends as a cancelled run's does."""
+    async with database.async_session() as db:
+        row = await db.get(EtlRunHistory, run_id)
+        if row is not None and row.status == "running":
+            row.status = "error"
+            row.completed_at = _iso()
+            await db.commit()

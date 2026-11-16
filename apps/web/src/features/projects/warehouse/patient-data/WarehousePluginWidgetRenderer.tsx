@@ -11,6 +11,7 @@ import { buildTimelineQuery, buildPatientVisitSummaryQuery } from '@/lib/duckdb/
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { ExecuteNotPermitted } from '@/components/ui/execute-not-permitted'
 import { localized } from '@/lib/localized'
+import { acceptanceSource } from '@/lib/plugins/acceptance-source'
 import { forgetDeclinedCode } from '@/stores/code-acceptance-prompt'
 
 interface WarehousePluginWidgetRendererProps {
@@ -89,7 +90,10 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
         selectedVisitId,
         selectedVisitDetailId,
         extraVars,
-        { source: template, label: widget ? localized(widget.name, i18n.language) : undefined },
+        {
+          source: acceptanceSource(template, pluginConfig ?? {}, [], plugin.manifest.configSchema),
+          label: widget ? localized(widget.name, i18n.language) : undefined,
+        },
       )
       setResult(output)
     } catch (err) {

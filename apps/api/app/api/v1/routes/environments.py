@@ -31,7 +31,7 @@ from app.schemas.execution import (
     JobResponse,
     PackageResponse,
 )
-from app.services import project_fs
+from app.services import code_acceptance_service, project_fs
 from app.services.execution import env_options, environments, jobs, kernel
 from app.services.execution.package_spec import (
     InvalidPackageSpec,
@@ -323,9 +323,17 @@ async def install_preset(
     project = await _require_ide_install(db, project_uid, user)
     _valid_language(language)
     workspace = await db.get(Workspace, project.workspace_id) if project.workspace_id else None
-    packages = environments.preset_for(
-        workspace.default_env_packages if workspace else None, language
-    )
+    workspace_list = workspace.default_env_packages if workspace else None
+    packages = environments.preset_for(workspace_list, language)
+    # The workspace's own list may come from an imported or pulled tree, and
+    # resolving it runs the build code of its source packages (an R install runs
+    # theirs too): accepted first, as an environment is before its build. The
+    # built-in list is Linkr's.
+    if packages and isinstance((workspace_list or {}).get(language), list):
+        text = environments.preset_text(language, packages)
+        if not await code_acceptance_service.is_accepted_by(db, user.id, text):
+            raise code_acceptance_service.EnvironmentNotAccepted(language, text)
+
     async def work():
         async with deferred.session() as session:
             try:
@@ -409,7 +417,7 @@ def _detail(job: Job) -> JobResponse:
 def _listed(job: Job) -> JobResponse:
     """A job as the panel polls it: without its input nor its log, which it
     reads once the job is opened (`GET /jobs/{id}`)."""
-    return _detail(job).model_copy(update={"input": None, "log_tail": ""})
+    return _detail(job).model_copy(update={"input": None, "log_tail": "", "result": jobs.without_owner_error(job.result)})
 
 
 @router.get("/projects/{project_uid}/jobs", response_model=list[JobResponse])

@@ -172,3 +172,17 @@ async def test_the_refusal_for_a_file_left_behind_says_it_clears_on_its_own(clie
     detail = r.json()["detail"]
     assert detail["code"] == "database_file_left_behind"
     assert "deleted database" in detail["message"] and "hour" in detail["message"] and "automatically" in detail["message"]
+
+
+async def test_a_managed_database_id_its_file_cannot_carry_is_refused_not_a_500(client):
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    token = (await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "W"}})).json()["id"]
+
+    r = await client.post(f"{API}/data-sources", headers=headers, json={
+        "id": "mimic.pseudo", "workspaceId": ws, "alias": "d", "name": "D", "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb", "managed": True},
+    })
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"]["code"] == "managed_database_id_invalid"

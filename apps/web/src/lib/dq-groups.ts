@@ -28,7 +28,10 @@ export interface DqGroupNode<C> {
 
 /**
  * The categories as stored, legacy shapes included: before categories had names
- * the list held the bare keys of the empty ones.
+ * the list held the bare keys of the empty ones. A repeated key keeps its first
+ * entry, and a category whose parents lead back to it (a hand-edited export)
+ * goes to the top — the first of a cycle in list order. Mirrored by
+ * `_read_check_groups` (schemas/dq_rule_set.py): both must write the same list.
  */
 export function readCheckGroups(raw: unknown): DqCheckGroup[] {
   if (!Array.isArray(raw)) return []
@@ -49,7 +52,22 @@ export function readCheckGroups(raw: unknown): DqCheckGroup[] {
       out.push(group)
     }
   }
-  return out
+  return breakCycles(out)
+}
+
+function breakCycles(groups: DqCheckGroup[]): DqCheckGroup[] {
+  const parentOf = new Map(groups.map((g) => [g.key, g.parentKey]))
+  return groups.map((group) => {
+    const walked = new Set<string>()
+    let parent = parentOf.get(group.key) ?? null
+    while (parent !== null && parent !== group.key && !walked.has(parent)) {
+      walked.add(parent)
+      parent = parentOf.get(parent) ?? null
+    }
+    if (parent !== group.key) return group
+    parentOf.set(group.key, null)
+    return { ...group, parentKey: null }
+  })
 }
 
 /** A category's name, or its key when it was never given one. */

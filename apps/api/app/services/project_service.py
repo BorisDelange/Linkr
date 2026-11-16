@@ -99,9 +99,13 @@ async def set_folder_bindings(db: AsyncSession, project: Project, changes: dict)
 
 
 async def delete(db: AsyncSession, project: Project) -> None:
+    from app.services import cohort_service
+
     project_uid = project.uid
     shas = await blob_cleanup.collect_project_blob_shas(db, project_uid)
 
+    # Its cohorts' runs stop and their files go, before the cascade takes the rows.
+    await cohort_service.delete_for_project(db, project_uid)
     await db.delete(project)
     await db.commit()
 

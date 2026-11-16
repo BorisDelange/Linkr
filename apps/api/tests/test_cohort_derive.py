@@ -456,3 +456,23 @@ def test_an_opt_in_never_reaches_a_table_refused_for_another_reason(source_with_
     )}
     assert written["unmapped_link"]["skipped"] is True and written["unmapped_link"]["unfilterable"] == "other_person_id"
     assert "unmapped_link" not in _names_in(target.path)
+
+
+def test_a_rebuild_names_the_tables_an_older_build_copied_that_it_now_leaves_out(source_with_child_tables, tmp_path):
+    # An older build copied note_nlp whole without recording it; the target still holds it.
+    old = tmp_path / "old.duckdb"
+    con = duckdb.connect(str(old))
+    con.execute("CREATE TABLE person AS SELECT 1 AS person_id")
+    con.execute("CREATE TABLE note_nlp AS SELECT 1 AS note_nlp_id")
+    con.execute("CREATE SCHEMA cohort_a")
+    con.execute("CREATE TABLE cohort_a.cost AS SELECT 1 AS cost_id")
+    con.close()
+    target = SourceSpec({"kind": "file", "engine": "duckdb", "path": str(old)})
+    planned = cohort_derive.plan(source_with_child_tables, MAPPING, "patient")
+
+    built = {t["table"]: t["built"] for t in cohort_derive.flag_built(planned, cohort_derive.built_tables(target, None))}
+    assert built["note_nlp"] is True and built["person"] is True
+    assert built["cost"] is False and built["fact_relationship"] is False
+    # A schema derivation reads the tables of its own schema only.
+    in_schema = cohort_derive.flag_built(planned, cohort_derive.built_tables(target, "cohort_a"))
+    assert {t["table"] for t in in_schema if t["built"]} == {"cost"}

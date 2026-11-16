@@ -113,3 +113,23 @@ async def test_a_server_owned_kernel_has_no_project_folder_on_its_path(ide):
     out = await run(kernel, "import sys\nprint('' in sys.path)")
     assert "False" in out.stdout
     assert planted_ran(ide) == ""
+
+
+async def test_installed_code_loading_an_object_of_a_project_class_needs_the_module_imported_first(ide):
+    (ide / "shapes.py").write_text("class Point:\n    x = 3\n")
+    out = await run(user_kernel(), (
+        "import pickle, sys\n"
+        "import shapes\n"
+        "data = pickle.dumps(shapes.Point())\n"
+        "del sys.modules['shapes']\n"
+        "try:\n"
+        "    pickle._loads(data)\n"
+        "except ModuleNotFoundError as e:\n"
+        "    print('refused:', e)\n"
+        "import shapes\n"
+        "print('loaded', pickle._loads(data).x)\n"
+    ))
+    # The pure-Python unpickler is installed code: it reaches the project's module
+    # only once the member's code imported it, and the refusal says so.
+    assert "refused:" in out.stdout and "import shapes" in out.stdout, out.stderr
+    assert "loaded 3" in out.stdout

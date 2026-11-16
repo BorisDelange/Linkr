@@ -204,7 +204,8 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
   // The declared categories and the ones only checks name (a generated check's table).
   const everyGroup = useMemo(() => allGroups(storedGroups, customChecks), [storedGroups, customChecks])
   // Why the last change to the list (a category renamed, checks moved, deleted,
-  // enabled) failed; every such change is all-or-nothing, so the list is as it was.
+  // enabled) failed. Each is all-or-nothing, but for a category deleted: its
+  // checks go first, so a failure after them leaves the category there, emptied.
   const [opError, setOpError] = useState<string | null>(null)
   const runOp = useCallback(async (op: () => Promise<unknown>): Promise<boolean> => {
     setOpError(null)
@@ -216,8 +217,11 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
       return false
     }
   }, [])
-  const saveGroups = (next: DqCheckGroup[]) =>
-    runOp(() => updateRuleSet(ruleSetId, { checkGroups: next.length ? next : null }))
+  // Built from the store at action time, not from this render: the update is
+  // optimistic, so a second change made before the first is written keeps it.
+  const latestGroups = () => readCheckGroups(useDqStore.getState().dqRuleSets.find((rs) => rs.id === ruleSetId)?.checkGroups)
+  const saveGroups = (change: (groups: DqCheckGroup[]) => DqCheckGroup[]) =>
+    runOp(() => updateRuleSet(ruleSetId, { checkGroups: nullIfEmpty(change(latestGroups())) }))
   // The category dialog: a new one (under `parent`) or one being edited.
   const [groupDialog, setGroupDialog] = useState<{ editing?: DqCheckGroup; parent?: string | null } | null>(null)
   const [renamingGroup, setRenamingGroup] = useState<string | null>(null)
@@ -263,11 +267,11 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
 
   const createGroup = (name: LocalizedString, parentKey: string | null) => {
     const key = newGroupKey(name, everyGroup.map((g) => g.key))
-    return saveGroups([...storedGroups, { key, name, parentKey }]).then((ok) => (ok ? key : null))
+    return saveGroups((groups) => [...groups, { key, name, parentKey }]).then((ok) => (ok ? key : null))
   }
 
   const editGroup = (key: string, name: LocalizedString, parentKey: string | null) =>
-    saveGroups(moveGroupIfChanged(renameGroup(storedGroups, key, name), key, parentKey))
+    saveGroups((groups) => moveGroupIfChanged(renameGroup(groups, key, name), key, parentKey))
 
   const renameGroupInline = async (key: string, text: string) => {
     const current = everyGroup.find((g) => g.key === key)
@@ -276,7 +280,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
       return
     }
     // The field stays open on failure, with the name typed.
-    if (await saveGroups(renameGroup(storedGroups, key, setLocalized(current.name, lang, text)))) setRenamingGroup(null)
+    if (await saveGroups((groups) => renameGroup(groups, key, setLocalized(current.name, lang, text)))) setRenamingGroup(null)
   }
 
   const deleteGroup = async (key: string, withChecks: boolean): Promise<boolean> => {
@@ -293,7 +297,8 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
     const ok = await runOp(async () => {
       if (withChecks) await deleteCustomChecks(ids)
       else await updateChecks(own, { groupKey: parentKey })
-      await updateRuleSet(ruleSetId, { checkGroups: nullIfEmpty(withChecks ? removeSubtree(storedGroups, key) : removeGroup(storedGroups, key)) })
+      const groups = latestGroups()
+      await updateRuleSet(ruleSetId, { checkGroups: nullIfEmpty(withChecks ? removeSubtree(groups, key) : removeGroup(groups, key)) })
     })
     if (ok) setDeletingGroup(null)
     return ok
@@ -312,7 +317,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
     },
     onDropGroup: (key, parentKey) => {
       if ((everyGroup.find((g) => g.key === key)?.parentKey ?? null) === parentKey) return
-      void saveGroups(moveGroup(storedGroups, key, parentKey))
+      void saveGroups((groups) => moveGroup(groups, key, parentKey))
     },
     canMoveGroup: (key, parentKey) => canMoveGroup(everyGroup, key, parentKey),
   } : undefined
@@ -519,7 +524,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                 setDatabaseMissing(false)
                 void updateRuleSet(ruleSetId, {
                   dataSourceId: value,
-                  dataSourceRef: value ? buildPointer(dbSources, value) : undefined,
+                  dataSourceRef: buildPointer(dbSources, value) ?? null,
                 })
               }}
               disabled={!canWrite}
@@ -796,7 +801,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                   {/* Check metadata */}
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b px-3 py-1.5">
                     <div className="flex items-center gap-1.5">
-                      <Label className="text-[10px] text-muted-foreground">{t('data_quality.col_category')}</Label>
+                      <Label className="text-muted-foreground">{t('data_quality.col_category')}</Label>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Info size={12} className="-ml-1 shrink-0 text-muted-foreground" />
@@ -828,7 +833,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                       </Select>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <Label className="text-[10px] text-muted-foreground">{t('data_quality.col_subcategory')}</Label>
+                      <Label className="text-muted-foreground">{t('data_quality.col_subcategory')}</Label>
                       <Select
                         value={selectedCheck.subcategory ?? NO_SUBCATEGORY}
                         onValueChange={(v) => updateCustomCheck(selectedCheck.id, { subcategory: v === NO_SUBCATEGORY ? null : v as DqSubcategory })}
@@ -848,7 +853,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                       </Select>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <Label className="text-[10px] text-muted-foreground">{t('data_quality.col_severity')}</Label>
+                      <Label className="text-muted-foreground">{t('data_quality.col_severity')}</Label>
                       <Select
                         value={selectedCheck.severity}
                         onValueChange={(v) => updateCustomCheck(selectedCheck.id, { severity: v as DqSeverity })}
@@ -1067,7 +1072,7 @@ function ThresholdField({ value, disabled, onCommit }: {
 
   return (
     <div className="flex items-center gap-1.5">
-      <Label className="text-[10px] text-muted-foreground">{t('data_quality.custom_threshold')}</Label>
+      <Label className="text-muted-foreground">{t('data_quality.custom_threshold')}</Label>
       <Input
         type="text"
         inputMode="decimal"
@@ -1115,7 +1120,7 @@ function CheckTextFields({ check, disabled, onCommit }: {
   const same = (a: LocalizedString, b: LocalizedString) => JSON.stringify(trimLocalized(a)) === JSON.stringify(trimLocalized(b))
   return (
     <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 border-b px-3 py-1.5">
-      <Label className="text-[10px] text-muted-foreground">{t('data_quality.check_name')}</Label>
+      <Label className="text-muted-foreground">{t('data_quality.check_name')}</Label>
       <LocalizedFields
         layout="row"
         size="xs"
@@ -1128,7 +1133,7 @@ function CheckTextFields({ check, disabled, onCommit }: {
           else if (!same(trimmed, check.name)) onCommit({ name: trimmed })
         }}
       />
-      <Label className="text-[10px] text-muted-foreground">{t('data_quality.check_description')}</Label>
+      <Label className="text-muted-foreground">{t('data_quality.check_description')}</Label>
       <LocalizedFields
         layout="row"
         size="xs"

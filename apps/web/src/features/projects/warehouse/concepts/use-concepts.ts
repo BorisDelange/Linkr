@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { queryDataSource, discoverTables } from '@/lib/duckdb/engine'
 import { conceptRelations } from '@/lib/schema-classes/relations'
 import { isServerMode } from '@/lib/api-client'
+import i18n from '@/lib/i18n'
 import {
   queryConceptCache,
   getConceptStats,
@@ -233,7 +234,7 @@ export function fetchConceptStats(
     const countSql = buildDomainCountQuery(schemaMapping, dictKey, conceptId)
     if (!countSql) return null
     // One row of the jobs panel for the concept's queries.
-    const group = { key: `concept-stats:${crypto.randomUUID()}`, label: `Concepts · statistics of ${conceptId}` }
+    const group = { key: `concept-stats:${crypto.randomUUID()}`, label: i18n.t('concepts.stats_job_group', { id: conceptId }) }
     const countResult = await queryDataSource(dataSourceId, countSql, { origin: `Concepts · count records of ${conceptId}`, group })
     const rowCount = Number(countResult[0]?.cnt ?? 0)
 

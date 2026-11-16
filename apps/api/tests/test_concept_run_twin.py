@@ -300,3 +300,79 @@ async def test_a_slow_batch_is_cut_at_once_and_caps_the_next_ones(client, monkey
     got = sorted(({**p, "computedAt": ""} for p in stored), key=lambda p: p["conceptId"])
     mismatches = list(_differences(got, TWIN["expected"]))
     assert not mismatches, "\n".join(mismatches[:40])
+
+
+async def _extraction(client, headers, source, project_id: str) -> dict:
+    ws = (await client.get(f"{API}/data-sources/{source}", headers=headers)).json()["workspaceId"]
+    admin = await _admin_headers(client)
+    r = await client.post(f"{API}/mapping-projects", headers=admin, json={
+        "id": project_id, "workspaceId": ws, "name": {"en": "Twin"}, "sourceType": "database", "dataSourceId": source,
+    })
+    assert r.status_code in (200, 201), r.text
+    spec = {**TWIN["spec"], "extraction": {
+        "fileSourceData": {"fileName": "source-concepts.csv", "rows": [], "columns": ["concept_id"], "columnMapping": {}},
+        "dictionaryKeys": ["concept"],
+    }}
+    r = await client.post(f"{API}/server-runs", headers=headers, json={"kind": "extraction", "scopeId": project_id, "spec": spec})
+    assert r.status_code == 202, r.text
+    return r.json()
+
+
+async def _extraction_until(client, headers, project_id: str, statuses) -> dict:
+    deadline = asyncio.get_running_loop().time() + 120
+    while True:
+        run = (await client.get(f"{API}/server-runs/latest?kind=extraction&scopeId={project_id}", headers=headers)).json()
+        if run["status"] in statuses:
+            return run
+        assert asyncio.get_running_loop().time() < deadline, run
+        await asyncio.sleep(0.2)
+
+
+async def _csv_lines(client, headers, project_id: str) -> tuple[dict, list[str]]:
+    from app.services import blob_store
+
+    stored = (await client.get(f"{API}/mapping-projects/{project_id}", headers=headers)).json()
+    return stored, (await blob_store.read_bytes(stored["rawFileSha"])).decode().splitlines()
+
+
+async def test_an_extraction_cut_once_its_page_landed_appends_it_once(client, monkeypatch, tmp_path_factory):
+    from app.services.server_runs.concepts import executor as loop
+
+    monkeypatch.setattr(loop, "PAGE_SIZE", 4)
+    append = loop.ConceptExecutor._append_csv
+    cuts = []
+
+    async def cut_after_the_first_page(self, *args):
+        await append(self, *args)
+        if not cuts:
+            cuts.append(True)
+            raise RuntimeError("cut between the page and the next checkpoint")
+
+    monkeypatch.setattr(loop.ConceptExecutor, "_append_csv", cut_after_the_first_page)
+    headers, source = await _parquet_source(client, monkeypatch, tmp_path_factory)
+    run = await _extraction(client, headers, source, "twin-cut")
+    failed = await _extraction_until(client, headers, "twin-cut", {"done", "failed"})
+    assert failed["status"] == "failed" and failed["state"]["offset"] == 4
+    r = await client.post(f"{API}/server-runs/{run['id']}/resume", headers=headers)
+    assert r.status_code == 200, r.text
+    done = await _extraction_until(client, headers, "twin-cut", {"done", "failed"})
+    assert done["status"] == "done", done["error"]
+    stored, lines = await _csv_lines(client, headers, "twin-cut")
+    assert len(lines) == 1 + len(TWIN["expected"]) == 1 + stored["fileSourceData"]["totalRowCount"]
+    assert len(set(lines)) == len(lines)
+
+
+async def test_an_extraction_by_who_may_not_write_the_database_keeps_its_profiles_to_its_csv(client, db, monkeypatch, tmp_path_factory):
+    from tests.test_server_folder_reach import _member
+
+    admin, source = await _parquet_source(client, monkeypatch, tmp_path_factory)
+    ws = (await client.get(f"{API}/data-sources/{source}", headers=admin)).json()["workspaceId"]
+    mapper = await _member(client, db, ws, "mapper", ["databases:read", "concept-mapping:read", "concept-mapping:write"])
+    run = await _extraction(client, mapper, source, "twin-mapper")
+    assert run["state"]["storesProfiles"] is False
+    done = await _extraction_until(client, mapper, "twin-mapper", {"done", "failed"})
+    assert done["status"] == "done", done["error"]
+    _, lines = await _csv_lines(client, mapper, "twin-mapper")
+    assert len(lines) == 1 + len(TWIN["expected"])
+    async with database.async_session() as session:
+        assert await concept_profile_service.read(session, source, "concept", [p["conceptId"] for p in TWIN["expected"]]) == []

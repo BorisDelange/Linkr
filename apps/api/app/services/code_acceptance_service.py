@@ -20,6 +20,8 @@ import hashlib
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.code_acceptance import CodeAcceptance
@@ -51,12 +53,27 @@ async def accept(db: AsyncSession, user: User, codes: list[str]) -> None:
     await accept_by(db, user.id, codes)
 
 
+_INSERTS = {"postgresql": pg_insert, "sqlite": sqlite_insert}
+
+
 async def accept_by(db: AsyncSession, user_id: int, codes: list[str]) -> None:
-    digests = {digest(code) for code in codes}
-    known = set((await db.scalars(
-        select(CodeAcceptance.digest).where(CodeAcceptance.user_id == user_id, CodeAcceptance.digest.in_(digests))
-    )).all())
-    db.add_all(CodeAcceptance(user_id=user_id, digest=d) for d in digests - known)
+    digests = sorted({digest(code) for code in codes})
+    if not digests:
+        return
+    # One statement that skips what is known: two views accepting the same code
+    # at once (two widgets of one board) both succeed.
+    insert = _INSERTS.get(db.get_bind().dialect.name)
+    if insert is not None:
+        await db.execute(
+            insert(CodeAcceptance)
+            .values([{"user_id": user_id, "digest": d} for d in digests])
+            .on_conflict_do_nothing(index_elements=["user_id", "digest"])
+        )
+    else:
+        known = set((await db.scalars(
+            select(CodeAcceptance.digest).where(CodeAcceptance.user_id == user_id, CodeAcceptance.digest.in_(digests))
+        )).all())
+        db.add_all(CodeAcceptance(user_id=user_id, digest=d) for d in digests if d not in known)
     await db.commit()
 
 

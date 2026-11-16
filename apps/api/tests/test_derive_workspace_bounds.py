@@ -63,7 +63,7 @@ async def test_a_derivation_never_lands_in_another_workspace(client, db, kind):
     })
 
     assert r.status_code == 400, r.text
-    assert "another workspace" in r.json()["detail"]
+    assert r.json()["detail"]["code"] == "foreign_database"
     if kind == "schema":
         q = await client.post(f"{API}/data-sources/{dst}/query", headers=admin, json={"sql": "SELECT COUNT(*) AS n FROM copied.person"})
         assert q.status_code != 200
@@ -89,7 +89,7 @@ async def _named_like_a_key(client, headers, ws: str, name: str, tmp_path, monke
     monkeypatch.setattr(settings, "fs_browse_roots", str(tmp_path))
     r = await client.post(f"{API}/data-sources", headers=headers, json={
         "id": name, "workspaceId": ws, "alias": "lookalike", "name": {"en": "l"}, "sourceType": "database",
-        "connectionConfig": {"engine": "duckdb"}, "schemaMapping": {"patientTable": {"table": "person", "idColumn": "person_id"}},
+        "connectionConfig": {"engine": "duckdb", "inMemory": True}, "schemaMapping": {"patientTable": {"table": "person", "idColumn": "person_id"}},
     })
     assert r.status_code == 201, r.text
     r = await client.post(f"{API}/data-sources/{name}/create-from-ddl", headers=headers, json={

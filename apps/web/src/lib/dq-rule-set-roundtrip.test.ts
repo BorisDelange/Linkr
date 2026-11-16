@@ -36,6 +36,13 @@ const exportStore = new Proxy({}, {
 }) as unknown as Storage
 
 describe('DQ rule set round trip', () => {
+  it('a rule set whose database was cleared exports no pointer, as the server does', async () => {
+    const zip = new JSZip()
+    await buildDqRuleSetFolder(zip, '', { ...RULE_SET, dataSourceId: '', dataSourceRef: null }, exportStore)
+    const manifest = JSON.parse(await zip.file('entity.json')!.async('string'))
+    expect(manifest).not.toHaveProperty('dataSourceRef')
+  })
+
   it('a cloned git repo restores every check field and the schema pointer', async () => {
     const zip = new JSZip()
     await buildDqRuleSetFolder(zip, '', RULE_SET, exportStore)

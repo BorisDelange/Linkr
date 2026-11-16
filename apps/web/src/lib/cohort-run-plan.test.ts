@@ -44,6 +44,9 @@ describe('a cohort run, compiled', () => {
     const sign = async (cohort: Cohort) => (await compile(cohort)).plan.meta?.signature
     expect(await sign(cohortOf('patient'))).toBe(await sign(cohortOf('patient')))
     expect(await sign(cohortOf('patient'))).not.toBe(await sign(cohortOf('visit')))
+    // A run on another database is not this one's count.
+    const onOther = (await compileCohortRun(cohortOf('patient'), 'ds2', mapping, false))!.plan.meta?.signature
+    expect(onOther).not.toBe(await sign(cohortOf('patient')))
   })
 
   it('assembles the members, the count and the attrition from the results', async () => {

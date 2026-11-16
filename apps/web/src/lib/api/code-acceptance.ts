@@ -11,8 +11,9 @@ import { requestCodeAcceptance } from '@/stores/code-acceptance-prompt'
 export interface CodeReview {
   /** The person is writing this code or has it on screen as they press Run. */
   authored?: boolean
-  /** The stored template this text resolves. Its config values are serialised as
-   *  literals (`resolveTemplate`), so accepting the template covers them all. */
+  /** The stored template this text resolves, with the free text of its settings
+   *  (`acceptanceSource`): once accepted, every text it resolves to with those
+   *  settings runs without asking. */
   source?: string
   /** What the dialog calls this code: the widget's or analysis's name. */
   label?: string

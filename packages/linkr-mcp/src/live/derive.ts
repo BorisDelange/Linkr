@@ -190,7 +190,8 @@ export function previousDerivation(
 /**
  * A rebuild's choices, as the app's Rebuild makes them: what the derivation kept
  * before — the same database, never a wider one — with only what the call states
- * changed. The app's defaults apply to a new derivation only.
+ * changed; `tables` stated replace the tables kept, personless ones included.
+ * The app's defaults apply to a new derivation only.
  */
 export function rebuildChoices(previous: PreviousDerivation, stated: DeriveOptionsInput): DeriveOptionsInput {
   const o = previous.options
@@ -211,6 +212,9 @@ export function rebuildChoices(previous: PreviousDerivation, stated: DeriveOptio
       }
     : { copyPersonless: previous.copyPersonless ?? true, birthPrecision: 'day', pseudonymize: false }
   const merged = { ...recorded, ...stated }
+  // Tables listed replace what was kept, as a new derivation of these tables
+  // would: the personless tables are added only when the call asks for them.
+  if (stated.tables && stated.copyPersonless === undefined) delete merged.copyPersonless
   if (merged.method === 'random' && !stated.reuseKeyOf) delete merged.reuseKeyOf
   return merged
 }

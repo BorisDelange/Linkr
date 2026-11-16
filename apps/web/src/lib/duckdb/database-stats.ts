@@ -1,7 +1,7 @@
 import i18n from '@/lib/i18n'
 import { isServerMode } from '@/lib/api-client'
 import { queryDataSource, discoverTables } from './engine'
-import { followServerPlan, preparePlan } from '@/lib/server-runs/query-plan'
+import { followServerPlan, preparePlan, signedPlan } from '@/lib/server-runs/query-plan'
 import { quoteTableRef } from '@/lib/format-helpers'
 import { specTables } from '@/lib/schema-classes/spec'
 import type { DatabaseStatsCache, TableRowCount } from '@/types'
@@ -31,8 +31,8 @@ interface StatsQuery {
 /**
  * Runs statistics queries and hands each one's rows over, null for one that
  * failed — a block that cannot be computed shows empty, it does not stop the
- * others. In the browser, `parallel` at a time; on a server, one query job
- * (`run-query-job.ts`), so none outlasts a gateway's timeout or runs beside
+ * others. In the browser, `parallel` at a time; on a server, one `database_stats`
+ * run (`followServerPlan`), so none outlasts a gateway's timeout or runs beside
  * another heavy query, and the jobs panel can stop it.
  */
 type StatsRunner = (
@@ -71,13 +71,16 @@ function statsRunner(dsId: string, phase: StatsPhase, { signal, label, resumeOnl
   // A run of the server's: a reload, a closed tab or a restart leaves it going on,
   // and the page that comes back joins it (`resumeOnly`).
   return async (queries, onRows) => {
-    const plan = await preparePlan(dsId, {
+    // Signed: a run of other queries (the mapping changed, the tables listed in
+    // another order — the row counts of countAllTables share the scope) is not joined.
+    const plan = signedPlan(await preparePlan(dsId, {
       label: label ?? i18n.t('databases.stats_job', { name: dsId }),
       items: queries.map(({ key, sql }) => ({ key, sql, what: key.replace(/_/g, ' ') })),
       keepGoing: true,
-    })
+    }))
     const run = await followServerPlan('database_stats', statsRunScope(dsId, phase), plan,
-      (i, rows, error) => onRows(i, error == null ? rows : null), { signal, resumeOnly })
+      // A run joined is read to its end, even one that ended since it was seen going on.
+      (i, rows, error) => onRows(i, error == null ? rows : null), { signal, resumeOnly, finished: resumeOnly })
     if (!run) throw new DOMException('nothing to resume', 'AbortError')
     if (run.status === 'done') return
     // Stopped from the jobs panel: as a stop from the page.

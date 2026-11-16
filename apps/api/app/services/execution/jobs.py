@@ -80,7 +80,7 @@ class Entity:
 
 
 # The entity the request works on, set where the route loads it
-# (`data_sources._load_source`): every job the request creates — each of its
+# (`data_sources.load_source`): every job the request creates — each of its
 # queries, a job started by it — is that entity's. Tasks started from the
 # request carry it with them.
 current_entity: ContextVar[Entity | None] = ContextVar("job_entity", default=None)
@@ -91,11 +91,11 @@ async def _entity_of(db: AsyncSession, entity: Entity | None, project_uid: str |
     if entity is None and project_uid is not None:
         project = await db.get(Project, project_uid)
         if project is not None:
-            entity = Entity("project", project_uid, _name_of(project.name) or project_uid)
+            entity = Entity("project", project_uid, name_of(project.name) or project_uid)
     return entity
 
 
-def _name_of(name: object) -> str:
+def name_of(name: object) -> str:
     """A localized name in one language: English first, then any."""
     if isinstance(name, dict):
         return str(name.get("en") or next((v for v in name.values() if v), "") or "")
@@ -251,6 +251,7 @@ async def tracked(
         raise
     except Exception as e:
         await _set(job.id, status="error", log_tail=scrub_row_values(str(e))[-4000:])
+        await _keep_owner_error(job.id, e)
         raise
     await _set(job.id, status="done", progress=100)
 
@@ -312,6 +313,7 @@ async def tracked_if_slow(
     except Exception as e:
         if job_id := await settle():
             await _set(job_id, status="error", log_tail=scrub_row_values(str(e))[-4000:])
+            await _keep_owner_error(job_id, e)
         raise
     if job_id := await settle():
         await _set(job_id, status="done", progress=100, **({"log_tail": late.summary} if late.summary else {}))
@@ -369,6 +371,7 @@ async def _run(job_id: str, body, launched_by: dict, lane: str | None = "build",
     except Exception as e:  # a job body failure is the job's error, not a 500
         await handle.log(scrub_row_values(str(e)))
         await _set(job_id, status="error")
+        await _keep_owner_error(job_id, e)
     finally:
         _tasks.pop(job_id, None)
 
@@ -407,9 +410,13 @@ class JobHandle:
         await _set(self.job_id, input=capped_input(text))
 
     async def set_result(self, result: dict) -> None:
-        """`error`/`errors` carry a driver's text, kept to what a log may hold."""
+        """`error`/`errors` carry a driver's text, kept to what a log may hold; its
+        owner reads the text whole (`OWNER_ERROR`)."""
         if isinstance(result.get("error"), str):
-            result = {**result, "error": scrub_row_values(result["error"])}
+            raw = result["error"]
+            result = {**result, "error": scrub_row_values(raw)}
+            if result["error"] != raw:
+                result[OWNER_ERROR] = redact_secrets(raw)[-4000:]
         if isinstance(result.get("errors"), dict):
             result = {
                 **result,
@@ -451,6 +458,30 @@ async def live_log(handle: JobHandle, every: float = 2.0):
 
 _ENDED = ("done", "error", "cancelled")
 _ACTIVE = ("queued", "running")
+
+
+# A failed job's error as its driver wrote it, secrets aside: row values included,
+# so only its owner reads it (`GET /jobs/{id}`); every list leaves it out.
+OWNER_ERROR = "ownerError"
+
+
+async def _keep_owner_error(job_id: str, error: BaseException) -> None:
+    raw = str(error)
+    if scrub_row_values(raw) == raw:
+        return
+    async with async_session() as db:
+        job = await db.get(Job, job_id)
+        if job is None:
+            return
+        job.result = {**(job.result or {}), OWNER_ERROR: redact_secrets(raw)[-4000:]}
+        await db.commit()
+
+
+def without_owner_error(result: dict | None) -> dict | None:
+    """`result` as anyone but the job's owner may read it."""
+    if not result or OWNER_ERROR not in result:
+        return result
+    return {k: v for k, v in result.items() if k != OWNER_ERROR}
 
 
 async def _set(job_id: str, **fields) -> None:

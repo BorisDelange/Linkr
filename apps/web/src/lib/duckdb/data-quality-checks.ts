@@ -96,7 +96,8 @@ export function readStoredCheck(stored: DqCustomCheck): DqCustomCheck {
     exploreSql: check.exploreSql ?? null,
     origin: check.origin ?? 'manual',
     templateKey: check.templateKey ?? null,
-    groupKey: check.groupKey ?? tableName ?? null,
+    // A check moved to "Other checks" holds groupKey: null beside its stale tableName.
+    groupKey: check.groupKey !== undefined ? check.groupKey : tableName ?? null,
     disabled: check.disabled ?? false,
   })
 }

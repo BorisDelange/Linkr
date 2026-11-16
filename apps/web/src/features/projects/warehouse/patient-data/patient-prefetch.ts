@@ -1,4 +1,5 @@
 import { queryDataSource, type QueryOptions } from '@/lib/duckdb/engine'
+import i18n from '@/lib/i18n'
 import type { JobGroup } from '@/lib/duckdb/query-log'
 import { escSql } from '@/lib/format-helpers'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
@@ -101,7 +102,7 @@ function groupOf(sql: string): JobGroup | undefined {
   const patientId = shown.find((id): id is string => !!id && filtersOnPatient(sql, id))
   if (!patientId) return undefined
   // Never the patient's id in a label: the jobs panel shows it to every member of the workspace.
-  opened = { patientId, group: { key: `patient:${crypto.randomUUID()}`, label: 'Patient' } }
+  opened = { patientId, group: { key: `patient:${crypto.randomUUID()}`, label: i18n.t('patient_data.job_group') } }
   return opened.group
 }
 const keyOf = (dataSourceId: string, sql: string) => `${dataSourceId}\n${sql}`

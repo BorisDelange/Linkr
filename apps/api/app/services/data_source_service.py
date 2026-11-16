@@ -382,6 +382,21 @@ def _refuse_file_left_behind(source_id: str | None) -> None:
         )
 
 
+def _refuse_managed_id(source_id: str | None) -> None:
+    """A managed database's file is named after its id: lowercase letters, digits, `-` and `_`."""
+    if source_id is not None and not managed_db.valid_id(source_id):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {
+                "code": "managed_database_id_invalid",
+                "message": (
+                    "A database Linkr creates is named after its id, which may hold only lowercase letters, "
+                    "digits, '-' and '_' (at most 128 characters)."
+                ),
+            },
+        )
+
+
 async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataSource:
     payload = data.model_dump(exclude_none=True)
     await ensure_alias_free(db, payload.get("workspace_id"), payload["alias"], payload.get("id"))
@@ -393,6 +408,7 @@ async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataS
     await enforce_server_path(db, config, owner, payload.get("workspace_id"))
     await enforce_root_cert(db, config, owner)
     if (config or {}).get("managed"):
+        _refuse_managed_id(payload.get("id"))
         _refuse_file_left_behind(payload.get("id"))
     if config is not None:
         config = _keep_managed_path(config, None)
@@ -646,6 +662,10 @@ async def delete(
     """Remove a database. `delete_data` also removes what Linkr created for it
     (see `created_data`) — never data a connection merely points at; dropping a
     schema is done with `login`, the deleting user's own."""
+    from app.services.server_runs import runs
+
+    # Before its rows cascade away: a run going on stops, and its files go.
+    await runs.forget_database(db, source.id)
     created = created_data(source) if delete_data else None
     if created:
         connection_pool.invalidate(source.id)
@@ -1254,7 +1274,7 @@ async def run_etl(
     for source in (target, *roles.values()):
         if source is not None:
             connection_pool.invalidate(source.id)
-    _audit(target, "etl_run", sql)
+    audit_use(target, "etl_run", sql)
 
     attachments = await role_attachments(db, {k: v for k, v in roles.items() if k != "target"}, user_id)
 
@@ -1385,7 +1405,7 @@ async def flight_status(source: DataSource, login: Login | None) -> dict:
 
 # --- Live connection test (external databases) -----------------------------
 
-def _audit(source: DataSource, action: str, detail: str | None = None) -> None:
+def audit_use(source: DataSource, action: str, detail: str | None = None) -> None:
     audit.bind(action=action, data_source_id=source.id, workspace_id=source.workspace_id, detail=detail)
 
 
@@ -1412,7 +1432,7 @@ async def query(
     DuckDB/SQLite file from the blob store. JSON-ready rows, capped; or, with
     `arrow`, the whole result as an Arrow table. Logged (core/audit).
     `pushdown`, `native`: see db_connect.query_external."""
-    _audit(source, "query", sql)
+    audit_use(source, "query", sql)
     try:
         result = await _query(db, source, login, sql, arrow, pushdown, native)
     except Exception as exc:
@@ -1476,7 +1496,7 @@ async def _query(
     raise ValueError(f"queries not supported for engine: {engine}")
 
 
-async def _materialize_inputs(
+async def materialize_inputs(
     db: AsyncSession, source: DataSource, login: Login | None
 ) -> tuple[dict, str | None, list[tuple[str, str]] | None, list[str] | None]:
     """(config, password, files, known) to materialize a query of the source as
@@ -1515,8 +1535,8 @@ async def write_concept_unit(
     db: AsyncSession, source: DataSource, login: Login | None, key: str, select_sql: str, run_id: str
 ) -> None:
     """Run one unit of the concept counts for run `run_id` and keep its rows."""
-    _audit(source, "concept_cache_unit", select_sql)
-    config, password, files, known = await _materialize_inputs(db, source, login)
+    audit_use(source, "concept_cache_unit", select_sql)
+    config, password, files, known = await materialize_inputs(db, source, login)
     await asyncio.to_thread(
         concept_cache_fs.write_unit, config, password, files, known, select_sql, source.id, key, run_id,
     )
@@ -1526,8 +1546,8 @@ async def assemble_concept_cache(
     db: AsyncSession, source: DataSource, login: Login | None, select_sql: str
 ) -> float:
     """Write the concept list from the units done so far; returns the new mtime."""
-    _audit(source, "concept_cache_refresh", select_sql)
-    config, password, files, known = await _materialize_inputs(db, source, login)
+    audit_use(source, "concept_cache_refresh", select_sql)
+    config, password, files, known = await materialize_inputs(db, source, login)
     return await in_query_thread(
         concept_cache_fs.assemble, config, password, files, known, select_sql, source.id,
     )
@@ -1577,7 +1597,7 @@ async def introspect(db: AsyncSession, source: DataSource, login: Login | None) 
     """Introspect a stored source's schema (tables + columns) server-side — for
     network DBs as `login` sees them (grants hide tables), for file DBs via the
     uploaded blob."""
-    _audit(source, "introspect")
+    audit_use(source, "introspect")
     config = dict(source.connection_config or {})
     engine = config.get("engine")
     if engine in _EXTERNAL_ENGINES:

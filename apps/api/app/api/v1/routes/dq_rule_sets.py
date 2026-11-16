@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission
 from app.core.redact import scrub_row_values
+from app.core.refusal import refusal_detail
 from app.models.dq_rule_set import DqCustomCheck, DqRuleSet, DqRunHistory
 from app.models.user import User
 from app.schemas.dq_rule_set import (
@@ -398,7 +399,7 @@ async def update_check(
     try:
         check = await dq_rule_set_service.update_check(db, check, body)
     except ValueError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, refusal_detail(exc)) from exc
     changed = _changed_fields(before, check)
     if changed:
         rule_set = await dq_rule_set_service.get(db, check.rule_set_id)

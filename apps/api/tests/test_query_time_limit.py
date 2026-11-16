@@ -100,7 +100,7 @@ async def test_a_query_past_the_limit_is_stopped_and_frees_its_slot(client, monk
     r = await asyncio.wait_for(client.post(f"{API}/data-sources/{ds}/query", headers=headers, json={
         "sql": ENDLESS, "origin": "endless", "heavy": True,
     }), 30)
-    assert r.status_code == 422 and r.json()["detail"]["code"] == "query_time_limit"
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "query_time_limit_seconds"
     [job] = [j for j in await _queries(client, headers, ws) if j["label"] == "endless"]
     assert job["status"] == "error"
     assert "limit" in (await client.get(f"{API}/jobs/{job['id']}", headers=headers)).json()["logTail"]

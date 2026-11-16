@@ -48,3 +48,19 @@ describe('LinkrApi.request', () => {
     expect(message).toMatch(/Never ask them for the password/)
   })
 })
+
+describe('a server on an example secret key', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  const detail = { code: 'insecure_secret_key', message: "This server's LINKR_SECRET_KEY is a value published in Linkr's example configuration" }
+
+  it.each([
+    ['a token', { LINKR_TOKEN: 'tok' }],
+    ['a password', { LINKR_USERNAME: 'u', LINKR_PASSWORD: 'p' }],
+  ])('says why with %s', async (_how, credentials) => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ detail }, { status: 503 })))
+    const client = new LinkrApi({ LINKR_API_URL: 'http://linkr.test', ...credentials })
+    const message = await client.request('GET', '/projects').then(() => null, (e: Error) => e.message)
+    expect(message).toMatch(/LINKR_SECRET_KEY/)
+  })
+})

@@ -113,6 +113,16 @@ def attach_writable(con: duckdb.DuckDBPyConnection, alias: str, config: dict, pa
 
 # ── read-only logins ─────────────────────────────────────────────────────────
 
+class LoginNotReadOnly(ValueError):
+    """A login refused by code (`api_errors.<code>`, its fields as values), so the
+    client words it in its language; `str()` is the English a log or the MCP shows."""
+
+    def __init__(self, code: str, message: str, **values: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.detail = {"code": code, "message": message, **values}
+
+
 def _scalar_row(con: duckdb.DuckDBPyConnection, sql: str) -> tuple:
     return con.execute(sql).fetchone() or ()
 
@@ -135,9 +145,17 @@ def _require_read_only_sqlserver_login(con: duckdb.DuckDBPyConnection, alias: st
     held = [name for name, value in zip(names, row) if value]
     held += [p for p in _sqlserver_granted_permissions(con, alias) if p not in held]
     if held:
-        raise ValueError(
+        steps, execute = _sqlserver_remedy(held, login)
+        remedy = "A database administrator can remove them: " + steps + "."
+        if execute:
+            remedy += (" The login must not be able to execute procedures either: EXECUTE is often"
+                       " inherited from a GRANT EXECUTE TO public, which REVOKE EXECUTE FROM public"
+                       " removes for every user instead.")
+        raise LoginNotReadOnly(
+            "sqlserver_login_not_read_only" + ("_execute" if execute else ""),
             "Linkr only connects to SQL Server with a read-only login (db_datareader or SELECT "
-            f"grants); this one also holds {', '.join(held)}. {_sqlserver_remedy(held, login)}"
+            f"grants); this one also holds {', '.join(held)}. {remedy}",
+            held=", ".join(held), steps=steps,
         )
 
 
@@ -145,21 +163,17 @@ _SQLSERVER_SERVER_ROLES = {"sysadmin"}
 _SQLSERVER_DATABASE_ROLES = {"db_owner", "db_datawriter", "db_ddladmin"}
 
 
-def _sqlserver_remedy(held: list[str], login: str) -> str:
-    """What a DBA runs so the login only reads: leave the roles, deny the rest.
-    A DENY overrides a grant inherited through a role, `public` included."""
+def _sqlserver_remedy(held: list[str], login: str) -> tuple[str, bool]:
+    """What a DBA runs so the login only reads: leave the roles, deny the rest —
+    and whether EXECUTE is among them. A DENY overrides a grant inherited through
+    a role, `public` included."""
     who = "[" + (login or "<login>").replace("]", "]]") + "]"
     steps = [f"ALTER SERVER ROLE {r} DROP MEMBER {who}" for r in held if r in _SQLSERVER_SERVER_ROLES]
     steps += [f"ALTER ROLE {r} DROP MEMBER {who}" for r in held if r in _SQLSERVER_DATABASE_ROLES]
     perms = [p for p in held if p not in _SQLSERVER_SERVER_ROLES | _SQLSERVER_DATABASE_ROLES]
     if perms:
         steps.append(f"DENY {', '.join(perms)} TO {who}")
-    remedy = "A database administrator can remove them: " + "; ".join(steps) + "."
-    if any(p.split(" ", 1)[0] == "EXECUTE" for p in perms):
-        remedy += (" The login must not be able to execute procedures either: EXECUTE is often"
-                   " inherited from a GRANT EXECUTE TO public, which REVOKE EXECUTE FROM public"
-                   " removes for every user instead.")
-    return remedy
+    return "; ".join(steps), any(p.split(" ", 1)[0] == "EXECUTE" for p in perms)
 
 
 # Permissions a read-only login must not hold on the database or on a schema, as
@@ -175,11 +189,19 @@ def _is_sqlserver_write_permission(name: str) -> bool:
     return name in _SQLSERVER_WRITE_PERMS or name.split(" ", 1)[0] in _SQLSERVER_WRITE_FAMILIES
 
 
+# T-SQL functions (scalar, inline, multi-statement table-valued): SQL Server
+# forbids them any write, so EXECUTE on one reads — the usual
+# GRANT EXECUTE ON dbo.fn_x TO public behind a view. CLR functions (FS, FT) are
+# left out: an EXTERNAL_ACCESS or UNSAFE assembly can reach beyond the database.
+_SQLSERVER_READING_FUNCTIONS = "'FN', 'IF', 'TF'"
+
+
 def _sqlserver_granted_permissions(con: duckdb.DuckDBPyConnection, alias: str) -> list[str]:
     """The writing permissions the login holds on the database, on any user schema
     or on any user object, by grant or by ownership — none of them visible to
     HAS_PERMS_BY_NAME at the database level. A grant goes by what the login can
-    effectively do, so the DENY of `_sqlserver_remedy` clears it."""
+    effectively do, so the DENY of `_sqlserver_remedy` clears it. EXECUTE on a
+    T-SQL function is a read; on a procedure, a schema or the database it is not."""
     inner = (
         "SELECT DISTINCT permission_name FROM ("
         "SELECT permission_name COLLATE DATABASE_DEFAULT AS permission_name FROM fn_my_permissions(NULL, 'DATABASE') "
@@ -189,6 +211,7 @@ def _sqlserver_granted_permissions(con: duckdb.DuckDBPyConnection, alias: str) -
         "UNION ALL SELECT dp.permission_name COLLATE DATABASE_DEFAULT FROM sys.database_permissions dp "
         "JOIN sys.objects o ON o.object_id = dp.major_id "
         "WHERE dp.class = 1 AND dp.state IN ('G', 'W') AND o.is_ms_shipped = 0 "
+        f"AND NOT (dp.permission_name = 'EXECUTE' AND o.type IN ({_SQLSERVER_READING_FUNCTIONS})) "
         "AND HAS_PERMS_BY_NAME(QUOTENAME(SCHEMA_NAME(o.schema_id)) + '.' + QUOTENAME(o.name), 'OBJECT', "
         "dp.permission_name, COL_NAME(dp.major_id, NULLIF(dp.minor_id, 0)), "
         "CASE WHEN dp.minor_id = 0 THEN NULL ELSE 'COLUMN' END) = 1 "

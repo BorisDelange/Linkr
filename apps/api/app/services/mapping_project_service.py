@@ -84,8 +84,12 @@ async def update(
 
 async def delete(db: AsyncSession, project: MappingProject) -> None:
     from app.services import git_service, scores_export
+    from app.services.server_runs import runs
 
     project_id = project.id
+    # Its extraction stopped first: the CSV it may still have appended to is the one to drop.
+    await runs.forget(db, ("extraction",), [project_id])
+    await db.refresh(project)
     sha = project.raw_file_sha
     await db.delete(project)  # cascades to concept_mappings via FK
     await db.commit()

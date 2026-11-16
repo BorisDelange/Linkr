@@ -148,3 +148,11 @@ def test_text_that_is_not_a_number(value):
 
 def test_math_round_rounds_half_up():
     assert [js.js_round(x) for x in (2.5, 3.5, -2.5, 11.49, 11.5)] == [3, 4, -2, 11, 12]
+
+
+def test_slice_head_as_javascript_slices():
+    items = [1, 2, 3]
+    assert js.js_slice_head(items, js.UNDEFINED) == [1, 2, 3]
+    assert js.js_slice_head(items, 2) == [1, 2]
+    assert js.js_slice_head(items, -1) == [1, 2]
+    assert js.js_slice_head(items, None) == []

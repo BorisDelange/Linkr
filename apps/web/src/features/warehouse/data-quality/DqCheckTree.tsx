@@ -5,7 +5,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/component
 import { InlineRenameField } from '@/components/InlineRenameField'
 import { groupLabel, nodeChecks, type DqGroupNode } from '@/lib/dq-groups'
 import { cn } from '@/lib/utils'
-import { DRAG_CHECKS, DRAG_GROUP, groupFoldKey } from './check-tree'
+import { DRAG_CHECKS, DRAG_GROUP, groupFoldKey, readDraggedChecks } from './check-tree'
 
 export interface DqCheckTreeDnd {
   /** Checks dropped on a category; null: "Other checks". */
@@ -72,12 +72,13 @@ export function DqCheckTree<C>({
       onDragLeave: () => setOver((prev) => (prev === id ? null : prev)),
       onDrop: (e: DragEvent) => {
         setOver(null)
-        const checks = e.dataTransfer.getData(DRAG_CHECKS)
+        const rawChecks = e.dataTransfer.getData(DRAG_CHECKS)
+        const checks = rawChecks ? readDraggedChecks(rawChecks) : null
         const group = e.dataTransfer.getData(DRAG_GROUP)
         if (!checks && !group) return
         e.preventDefault()
         e.stopPropagation()
-        if (checks) dnd.onDropChecks(JSON.parse(checks) as string[], key)
+        if (checks) dnd.onDropChecks(checks, key)
         else if (key !== null && group !== key && dnd.canMoveGroup(group, key)) dnd.onDropGroup(group, key)
       },
     } : {}

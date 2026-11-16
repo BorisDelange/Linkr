@@ -22,7 +22,7 @@ import {
 } from '@/lib/import-identity'
 import { mintEntityId } from '@/components/ui/entity-id-field'
 import { localized } from '@/lib/localized'
-import { deleteProjectData, importProjectContent, createEntityAttachments, projectSlug, reassemblePresetMapping, replaceDatabaseBoards, replaceDatabaseCohorts, DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
+import { deleteProjectData, importProjectContent, withLocalConnectionConfig, createEntityAttachments, projectSlug, reassemblePresetMapping, replaceDatabaseBoards, replaceDatabaseCohorts, DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip } from '@/lib/entity-io'
 import { rederiveTreeIds } from '@/lib/entity-tree'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
@@ -356,7 +356,9 @@ export async function importWorkspaceTree(
         : { lineageId: project.lineageId ?? crypto.randomUUID() }),
     }
 
-    // Clean up existing data
+    // Clean up existing data. The IDE connections' local configuration (host,
+    // database, login) travels in no tree: read it first to give it back below.
+    const localConnections = duplicate ? [] : await storage.connections.getByProject(uid).catch(() => [])
     await deleteProjectData(storage, uid)
     await storage.projects.delete(uid).catch(() => {})
 
@@ -365,6 +367,12 @@ export async function importWorkspaceTree(
 
     // Write all sub-entities (child ids remapped to fresh UUIDs to avoid collisions).
     await importProjectContent(parsedProject, uid, storage, { workspaceId: targetWsId })
+    if (localConnections.length > 0) {
+      for (const imported of await storage.connections.getByProject(uid)) {
+        const kept = withLocalConnectionConfig(imported, localConnections.find((c) => c.name === imported.name))
+        if (kept !== imported) await storage.connections.update(imported.id, { connectionConfig: kept.connectionConfig })
+      }
+    }
     projectIdx++
     reportPhase('workspaces.import_phase_projects', projectIdx, parsed.projects.size)
     await yieldToBrowser()

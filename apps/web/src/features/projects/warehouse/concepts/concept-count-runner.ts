@@ -1,9 +1,9 @@
 /**
- * Plans a database's concept counts for its server run (services/concept_runs):
+ * Plans a database's concept counts for its server run (services/server_runs/concepts):
  * the id types checked, the patients sliced, the run's manifest stored, and the
  * units still to count handed over with the SQL that assembles the list between
  * them (see `concept-count-plan.ts`). The server counts them, then computes the
- * statistics; the page only reads where it is (`use-concept-run.ts`).
+ * statistics; the page only reads where it is (`useServerRun`, `use-concept-count.ts`).
  */
 
 import type { SchemaMapping } from '@/types/schema-mapping'
@@ -130,7 +130,7 @@ async function checkConceptIdTypes(dataSourceId: string, mapping: SchemaMapping,
  * Server mode: what the server run counts (`RunCountSpec`), planned here — the
  * id types checked, the patients sliced, the manifest stored — for the units of
  * `steps` still to count; the server then counts them, assembling the list as it
- * goes, and the statistics after (services/concept_runs).
+ * goes, and the statistics after (services/server_runs/concepts).
  */
 export async function prepareCountSpec(
   { dataSourceId, mapping, restart, steps, stats }: ConceptCountInput,

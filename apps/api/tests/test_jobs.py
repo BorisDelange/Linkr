@@ -314,3 +314,35 @@ async def test_a_job_is_the_entity_its_request_works_on(db):
     finally:
         jobs.current_entity.reset(token)
     assert (job.entity_type, job.entity_id, job.entity_name) == ("database", "db-1", "MIMIC")
+
+
+async def test_a_failed_job_keeps_its_whole_error_for_its_owner_and_out_of_lists(db):
+    job = await jobs.create(db, "proj-1", 1, kind="build", label="Build")
+
+    async def body(handle):
+        raise ValueError("Conversion Error: Could not convert string 'DUMMY-NAME' to INT32")
+
+    jobs.launch(job.id, body)
+    settled = await _wait_settled(db, job.id)
+    assert "DUMMY-NAME" not in settled.log_tail
+    assert "DUMMY-NAME" in settled.result[jobs.OWNER_ERROR]
+    assert jobs.OWNER_ERROR not in jobs.without_owner_error(settled.result)
+
+
+async def test_a_job_result_error_is_scrubbed_and_kept_whole_for_its_owner(db):
+    job = await jobs.create(db, "proj-1", 1, kind="etl", label="ETL", running=True)
+    await jobs.JobHandle(job.id).set_result({"step": 2, "error": "Constraint Error: duplicate key '12345'"})
+    row = await db.get(Job, job.id, populate_existing=True)
+    assert "12345" not in row.result["error"] and "12345" in row.result[jobs.OWNER_ERROR]
+    assert jobs.without_owner_error(row.result) == {"step": 2, "error": row.result["error"]}
+
+
+async def test_a_job_error_without_values_keeps_no_second_copy(db):
+    job = await jobs.create(db, "proj-1", 1, kind="build", label="Build")
+
+    async def body(handle):
+        raise RuntimeError("boom")
+
+    jobs.launch(job.id, body)
+    settled = await _wait_settled(db, job.id)
+    assert jobs.OWNER_ERROR not in (settled.result or {})

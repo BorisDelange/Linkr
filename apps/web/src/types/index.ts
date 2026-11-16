@@ -1495,9 +1495,9 @@ export interface DqRuleSet extends Seedable, Authored, Lineaged {
    * `dataSourceId` is this instance's local UUID and addresses nothing anywhere
    * else. This pointer is what travels: stamped when the database is picked (not
    * derived at export time, so the server-side export carries it too) and
-   * resolved back to a local id on import.
+   * resolved back to a local id on import. `null` clears it on an update.
    */
-  dataSourceRef?: DataSourceRef
+  dataSourceRef?: DataSourceRef | null
   /**
    * Schema preset the rule set was generated from, as a portable pointer only:
    * it is informative (nothing re-reads the preset after creation), so it is
@@ -1571,7 +1571,7 @@ export interface DqProfile extends Seedable, Authored, Lineaged {
   /** The database the profile runs on, chosen at creation. */
   dataSourceId: string
   /** Portable identity of the database above (see DqRuleSet.dataSourceRef). */
-  dataSourceRef?: DataSourceRef
+  dataSourceRef?: DataSourceRef | null
   sources: DqProfileSource[]
   status: DqRuleSetStatus
   lastRunAt?: string

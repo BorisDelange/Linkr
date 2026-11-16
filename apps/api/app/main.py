@@ -62,7 +62,7 @@ from app.api.v1.routes.wiki_pages import router as wiki_pages_router
 from app.api.v1.routes.workspaces import PROJECTS_LEFT_OUT_HEADER
 from app.api.v1.routes.workspaces import router as workspaces_router
 from app.config import settings
-from app.core import audit, hardening, setup_token, trusted_header
+from app.core import audit, example_secret, hardening, setup_token, trusted_header
 from app.core.body_limit import BodySizeLimitMiddleware
 from app.core.database import async_session
 from app.core.logging import setup_logging
@@ -74,29 +74,25 @@ from app.models.user import User
 logger = structlog.get_logger()
 
 
-_INSECURE_SECRET = "dev-secret-change-in-production"
 _MIN_SECRET_LENGTH = 32
-_EXAMPLE_SECRETS = {_INSECURE_SECRET, "change-me", "changeme"}
 
 
 def weak_secret_key(key: str) -> bool:
     """Whether `key` is one a shipped example names, or short enough to guess."""
-    return key.strip().lower() in _EXAMPLE_SECRETS or len(key) < _MIN_SECRET_LENGTH
+    return example_secret.is_example(key) or len(key) < _MIN_SECRET_LENGTH
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging(debug=settings.debug)
     hardening.forbid_same_user_inspection()
-    # The secret_key signs every JWT. Booting on a key an example names in a real
-    # deployment would let anyone forge admin tokens. A short key only warns: refusing
-    # it would stop instances already running, on an upgrade.
-    if settings.secret_key.strip().lower() in _EXAMPLE_SECRETS and not settings.debug:
-        raise RuntimeError(
-            "LINKR_SECRET_KEY is a value from an example. Set a strong secret "
-            "(python3 -c 'import secrets; print(secrets.token_urlsafe(48))') "
-            "or run with LINKR_DEBUG=true for local development."
-        )
+    # On a key from an example nothing else starts (migrations, jobs, sweeps): the
+    # instance only answers why it refuses (core/example_secret.py). A short key only
+    # warns: refusing it would stop instances already running, on an upgrade.
+    if example_secret.refusing():
+        logger.error("insecure_secret_key", advice=example_secret.MESSAGE)
+        yield
+        return
     if weak_secret_key(settings.secret_key) and not settings.debug:
         logger.warning(
             "weak_secret_key",
@@ -174,6 +170,10 @@ async def lifespan(app: FastAPI):
     app_sweep_task = asyncio.create_task(web_apps.run_idle_sweeper())
     audit_task = asyncio.create_task(audit.run_periodic())
     yield
+    # First: the server runs cut from here on stay going on, for the next process.
+    from app.services.server_runs import executor as server_run_executor
+
+    server_run_executor.begin_shutdown()
     from app.api.v1.routes.apps import close_client as close_app_proxy
     from app.services.execution.kernel import manager as kernel_manager
     from app.services.execution.kernel import warm_pool
@@ -224,6 +224,10 @@ class _ErrorLoggingMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(_ErrorLoggingMiddleware)
+app.add_middleware(BodySizeLimitMiddleware)
+# Outside the body limit, which checks a token's signature; inside CORS, so a browser
+# on another origin can read the refusal.
+app.add_middleware(example_secret.ExampleSecretMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -240,7 +244,6 @@ app.add_middleware(
     #   x-request-id       — see core/audit.request_id.
     expose_headers=["x-file-name", "x-git-cloned-oid", audit.REQUEST_ID_HEADER, PROJECTS_LEFT_OUT_HEADER],
 )
-app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 # Outermost, so a request refused by any layer below is still logged.
 app.add_middleware(audit.AuditMiddleware)

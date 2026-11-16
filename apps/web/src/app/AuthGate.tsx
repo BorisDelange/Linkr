@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
+import { INSECURE_SECRET_KEY_EVENT } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth-store'
 import { useAppStore } from '@/stores/app-store'
 import { LoginPage } from '@/features/login/LoginPage'
+import { InsecureSecretKey } from '@/features/login/InsecureSecretKey'
 import { ServerUnreachable } from '@/features/login/ServerUnreachable'
 import { SetupWizard } from '@/features/setup/SetupWizard'
 import { LinkrLogo } from '@/components/ui/linkr-logo'
@@ -22,6 +24,7 @@ export function AuthGate({ children }: AuthGateProps) {
     needsSetup,
     isCheckingAuth,
     serverUnreachable,
+    insecureSecretKey,
     token,
     user,
     checkSetupStatus,
@@ -35,6 +38,14 @@ export function AuthGate({ children }: AuthGateProps) {
   useEffect(() => {
     if (isServerMode) checkSetupStatus()
   }, [isServerMode, checkSetupStatus])
+
+  // A server restarted on an example key while this tab was open.
+  useEffect(() => {
+    if (!isServerMode) return
+    const refuse = () => useAuthStore.setState({ insecureSecretKey: true })
+    window.addEventListener(INSECURE_SECRET_KEY_EVENT, refuse)
+    return () => window.removeEventListener(INSECURE_SECRET_KEY_EVENT, refuse)
+  }, [isServerMode])
 
   // Validate the stored token on mount (once setup is done). Runs whenever a
   // token is present — even if a user is already cached from localStorage —
@@ -87,6 +98,8 @@ export function AuthGate({ children }: AuthGateProps) {
 
   // In local mode, render children immediately (after hooks, to keep hook order stable)
   if (!isServerMode) return <>{children}</>
+
+  if (insecureSecretKey) return <InsecureSecretKey />
 
   // Loading state
   if (isCheckingAuth || needsSetup === null || validatingToken) {

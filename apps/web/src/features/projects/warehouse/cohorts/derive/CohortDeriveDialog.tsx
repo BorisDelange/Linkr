@@ -53,6 +53,7 @@ import {
 import { DeriveContentTab, type VariablesMode } from './DeriveContentTab'
 import { DEFAULT_PSEUDONYMS, deriveDraft, draftFromDerivations, saveDeriveDraft } from './derive-draft'
 import { DerivePseudonymTab } from './DerivePseudonymTab'
+import { useRebuildDropped } from './use-rebuild-dropped'
 import {
   pseudonymSettingsValid, type BirthPrecision, type KeyedDerivation, type PseudonymSettings,
 } from './pseudonym-settings'
@@ -283,6 +284,14 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
     }))
   }
 
+  const dropped = useRebuildDropped(!!rebuilding, rebuilding ? {
+    parentId: source.id,
+    level: cohort.level,
+    scope: rebuilding.options?.scope as DeriveScope | undefined,
+    target: { dataSourceId: rebuilding.targetId, schemaName: rebuilding.kind === 'schema' ? rebuilding.schemaName : null },
+    copiedUnproven: rebuilding.copiedUnproven,
+  } : null)
+
   const databaseName = (id: string | undefined) => {
     const ds = dataSources.find((d) => d.id === id)
     return ds ? localized(ds.name, i18n.language) : t('cohort_derive.missing_database')
@@ -497,7 +506,7 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
             <AlertDialogDescription>
               {rebuilding && t('cohort_derive.rebuild_description', { target: derivationLabel(rebuilding) })}
               {rebuilding?.kind === 'schema' && ` ${t('cohort_derive.rebuild_schema_warning')}`}
-              {!!rebuilding?.copiedUnproven?.length && ` ${t('cohort_derive.rebuild_unproven_dropped', { tables: rebuilding.copiedUnproven.join(', ') })}`}
+              {dropped.tables.length > 0 && ` ${t(dropped.recorded ? 'cohort_derive.rebuild_unproven_dropped' : 'cohort_derive.rebuild_unproven_dropped_legacy', { tables: dropped.tables.join(', ') })}`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

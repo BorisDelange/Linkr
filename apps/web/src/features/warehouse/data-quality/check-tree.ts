@@ -5,6 +5,16 @@ import type { FoldNode } from './use-fold-state'
 export const DRAG_CHECKS = 'application/x-linkr-dq-checks'
 export const DRAG_GROUP = 'application/x-linkr-dq-group'
 
+/** The check ids a `DRAG_CHECKS` payload carries; null for anything else dropped (another tab's, a hand-made one). */
+export function readDraggedChecks(raw: string): string[] | null {
+  try {
+    const ids: unknown = JSON.parse(raw)
+    return Array.isArray(ids) && ids.every((id) => typeof id === 'string') ? ids : null
+  } catch {
+    return null
+  }
+}
+
 /** The fold key of a category (`''`: "Other checks") within a tree's `scope`. */
 export const groupFoldKey = (scope: string, key: string) => `${scope}g:${key}`
 

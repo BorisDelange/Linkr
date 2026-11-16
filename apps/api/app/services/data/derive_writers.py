@@ -34,6 +34,7 @@ import duckdb
 from app.services.data import community_engines
 from app.services.data.db_connect import (
     _engine_spec,
+    _load_or_install,
     _require_ident,
     _sql_path,
     attach_login,
@@ -74,8 +75,7 @@ def writer_for(con: duckdb.DuckDBPyConnection, dest: Destination, alias: str) ->
         community_engines.attach_writable(con, alias, dest.config, dest.password)
         return SqlServerWriter(con, alias)
     spec = _engine_spec(dest.config)
-    con.execute(f"INSTALL {spec['extension']}")
-    con.execute(f"LOAD {spec['extension']}")
+    _load_or_install(con, spec['extension'])
     # Writable, deliberately: the one place Linkr writes into a database it did
     # not create, and only statements cohort_derive generates run.
     attach_login(con, dest.config, dest.password, alias, f"TYPE {spec['type']}")

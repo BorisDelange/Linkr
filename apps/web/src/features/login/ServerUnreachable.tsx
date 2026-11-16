@@ -8,8 +8,8 @@ import { useAuthStore } from '@/stores/auth-store'
 
 /**
  * Shown in server mode when the backend didn't answer the initial setup check —
- * it's down, the API URL is wrong, or it refused to boot (e.g. an insecure
- * secret_key / wildcard CORS guard). Distinct from the login page so the user
+ * it's down, the API URL is wrong, or it refused to boot (e.g. the wildcard CORS
+ * guard). Distinct from the login page so the user
  * isn't handed a form that can only fail with a misleading "invalid credentials".
  */
 export function ServerUnreachable() {

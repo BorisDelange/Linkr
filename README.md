@@ -147,8 +147,8 @@ cp apps/api/.env.example apps/api/.env
 python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Paste that value over `dev-secret-change-in-production` in `apps/api/.env` — the backend
-refuses to start on the example key. Then point the frontend at the backend and run both:
+Paste that value over `dev-secret-change-in-production` in `apps/api/.env` — on the
+example key the backend refuses every request, and the app says so. Then point the frontend at the backend and run both:
 
 ```bash
 cp apps/web/.env.example apps/web/.env.local

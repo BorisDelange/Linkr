@@ -543,7 +543,7 @@ async def test_create_from_ddl_cannot_read_server_files_without_code_execution(c
     sentinel.write_text("SERVER-ONLY")
     ds = (await client.post(f"{API}/data-sources", headers=member, json={
         "workspaceId": ws, "alias": "m", "name": "M", "sourceType": "database",
-        "connectionConfig": {"engine": "duckdb"},
+        "connectionConfig": {"engine": "duckdb", "managed": True},
     })).json()
 
     ddl = (
@@ -612,7 +612,7 @@ async def test_create_from_ddl_materialises_the_database(client, tmp_path, monke
                 "alias": "omop",
                 "name": "OMOP",
                 "sourceType": "database",
-                "connectionConfig": {"engine": "duckdb"},
+                "connectionConfig": {"engine": "duckdb", "managed": True},
             },
         )
     ).json()
@@ -668,7 +668,7 @@ async def test_an_etl_run_holding_the_database_is_a_409_and_can_be_stopped(clien
             f"{API}/data-sources",
             headers=headers,
             json={"workspaceId": ws, "alias": "omop", "name": "OMOP",
-                  "sourceType": "database", "connectionConfig": {"engine": "duckdb"}},
+                  "sourceType": "database", "connectionConfig": {"engine": "duckdb", "managed": True}},
         )
     ).json()["id"]
     r = await client.post(
@@ -721,16 +721,16 @@ async def test_managed_database_exposes_its_file_path(client, tmp_path, monkeypa
                 "alias": "omop",
                 "name": "OMOP",
                 "sourceType": "database",
-                "connectionConfig": {"engine": "duckdb"},
+                "connectionConfig": {"engine": "duckdb", "managed": True},
             },
         )
     ).json()
 
-    # Before materialisation: not managed yet, so there is no path to hand out.
+    # Before materialisation: the file it will be is not made yet.
     before = (
         await client.get(f"{API}/data-sources/{created['id']}/connection-info", headers=headers)
     ).json()
-    assert before["path"] is None and before["exists"] is False
+    assert before["exists"] is False
 
     await client.post(
         f"{API}/data-sources/{created['id']}/create-from-ddl",
@@ -917,6 +917,35 @@ async def test_server_path_outside_the_roots_is_a_400_not_a_500(client, monkeypa
     assert r.status_code == 201
     r = await client.patch(f"{API}/data-sources/{r.json()['id']}", headers=headers, json={"connectionConfig": outside})
     assert r.status_code == 400
+
+
+async def test_create_from_ddl_builds_only_a_duckdb_linkr_owns(client, tmp_path, monkeypatch):
+    """A database Linkr only connects to — its own DuckDB file named nowhere as
+    managed, a server file, another engine — is never swapped for an empty one."""
+    from app.config import settings
+
+    files = tmp_path / "files"
+    files.mkdir()
+    theirs = files / "theirs.duckdb"
+    theirs.touch()
+    monkeypatch.setattr(type(settings), "data_path", property(lambda _: tmp_path / "data"))
+    monkeypatch.setattr(settings, "fs_browse_roots", str(files))
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    for i, config in enumerate((
+        {"engine": "duckdb"},
+        {"engine": "duckdb", "managed": True, "serverPath": str(theirs)},
+        {"engine": "postgresql", "managed": True, "host": "localhost", "database": "x"},
+    )):
+        created = await client.post(f"{API}/data-sources", headers=headers, json={
+            "workspaceId": ws, "alias": f"db{i}", "name": {"en": "DB"}, "sourceType": "database", "connectionConfig": config,
+        })
+        assert created.status_code == 201, created.text
+        source_id = created.json()["id"]
+        r = await client.post(f"{API}/data-sources/{source_id}/create-from-ddl", headers=headers,
+                              json={"ddl": "CREATE TABLE person (person_id BIGINT);"})
+        assert r.status_code == 400, config
+    assert theirs.stat().st_size == 0
 
 
 async def test_a_query_id_is_a_uuid(client):

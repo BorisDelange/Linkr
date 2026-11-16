@@ -17,10 +17,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.server_run import ACTIVE_STATUSES, ServerRun
 
+# Ended, but taken back where it stopped by a resume.
+RESUMABLE = ("paused", "interrupted", "failed")
+
 BOOT_ID = str(uuid.uuid4())
 
-# Renewed at each batch and by a heartbeat in between: a claim this old belongs
-# to an executor that no longer runs.
+# Renewed at each batch and by a heartbeat in between. A queued run gets one
+# too: claimed within it, or no executor is coming for it.
 LEASE_SECONDS = 120
 
 # Kept per kind and scope besides the active one: the page shows the
@@ -60,7 +63,7 @@ async def create(
     run. The second value says whether it is new. `initial`: its first state."""
     run = ServerRun(
         data_source_id=data_source_id, kind=kind, scope_id=scope_id, workspace_id=workspace_id,
-        user_id=user_id, status="queued", spec=spec, attempt=0,
+        user_id=user_id, status="queued", spec=spec, attempt=0, boot_id=BOOT_ID, lease_until=_lease(),
         # To the microsecond: two runs of one second must still say which is the last.
         created_at=datetime.now(UTC),
         state=initial,
@@ -93,22 +96,39 @@ async def prune(db: AsyncSession, kind: str, scope_id: str) -> list[str]:
     return list(ended)
 
 
-async def requeue(db: AsyncSession, run: ServerRun, user_id: int) -> ServerRun:
-    """A paused, interrupted or failed run queued again where it stopped, as
-    `user_id` (whose login its queries will use)."""
-    run.status = "queued"
-    run.requested = None
-    run.error = None
-    run.finished_at = None
-    run.user_id = user_id
+async def requeue(db: AsyncSession, run: ServerRun, **values) -> bool:
+    """A paused, interrupted or failed run queued again where it stopped, as the
+    user who started it; False when it was no longer resumable (resumed already,
+    by a second click). IntegrityError when another run of its scope is going on.
+    `values`: its new `state` and `spec`, for a resume bringing a spec."""
+    result = await db.execute(
+        update(ServerRun)
+        .where(ServerRun.id == run.id, ServerRun.status.in_(RESUMABLE))
+        .values(
+            status="queued", requested=None, error=None, finished_at=None, boot_id=BOOT_ID, lease_until=_lease(),
+            **values,
+        )
+    )
     try:
         await db.commit()
     except IntegrityError:
-        # Another run of the same scope started meanwhile.
         await db.rollback()
         raise
     await db.refresh(run)
-    return run
+    return result.rowcount == 1
+
+
+async def end(db: AsyncSession, run: ServerRun, status: str, *, among: tuple[str, ...], **values) -> bool:
+    """Set an ended status on a run no executor writes — one still in `among`, as
+    read at this moment, not as the caller last saw it. Whether it was."""
+    result = await db.execute(
+        update(ServerRun)
+        .where(ServerRun.id == run.id, ServerRun.status.in_(among))
+        .values(status=status, finished_at=datetime.now(UTC), **values)
+    )
+    await db.commit()
+    await db.refresh(run)
+    return result.rowcount == 1
 
 
 async def claim(db: AsyncSession, run_id: str) -> int | None:
@@ -159,13 +179,17 @@ async def requested(db: AsyncSession, run_id: str) -> str | None:
 
 async def ask(db: AsyncSession, run: ServerRun, action: str) -> ServerRun:
     """Record what the page asks ('pause', 'cancel'). A run not yet claimed stops
-    here; a running one shows `pausing` until its executor has stopped."""
-    run.requested = action
-    if run.status == "queued":
-        run.status = "cancelled" if action == "cancel" else "paused"
-        run.finished_at = datetime.now(UTC)
-    elif run.status == "running":
-        run.status = "pausing"
+    here; a running one shows `pausing` until its executor has stopped. A run
+    that ended meanwhile is left as it ended."""
+    stopped = "cancelled" if action == "cancel" else "paused"
+    await db.execute(
+        update(ServerRun).where(ServerRun.id == run.id, ServerRun.status == "queued")
+        .values(requested=action, status=stopped, finished_at=datetime.now(UTC))
+    )
+    await db.execute(
+        update(ServerRun).where(ServerRun.id == run.id, ServerRun.status.in_(("running", "pausing")))
+        .values(requested=action, status="pausing")
+    )
     await db.commit()
     await db.refresh(run)
     return run

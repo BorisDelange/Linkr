@@ -28,6 +28,9 @@ class GitStatusResponse(CamelModel):
     modified: int
     added: int
     deleted: int
+    # Files the repository tracks were marked for versioning by this status: the
+    # client's copy of the project config is stale.
+    adopted: bool = False
 
 
 class GitDiffResponse(CamelModel):

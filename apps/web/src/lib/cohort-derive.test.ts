@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import type { Cohort, DataSource } from '@/types'
 import {
+  droppedOnRebuild,
   DERIVE_SCHEMA_NAME, copyableTables, createdData, defaultDeriveSchemaName, derivableReason, derivationRequest, derivedDatabaseRow,
   isWritableTarget, personlessTables, rebuildRequest, unprovenTables,
 } from './cohort-derive'
@@ -161,5 +162,18 @@ describe('a table nothing shows to be personless', () => {
     expect(JSON.stringify(r.derivedFrom)).not.toContain('note_nlp')
     expect(derivationRequest(input).copyUnprovenTables).toBeUndefined()
     expect(derivationRequest({ ...input, copyUnprovenTables: [] }).copyUnprovenTables).toBeUndefined()
+  })
+})
+
+describe('droppedOnRebuild', () => {
+  it('names the tables the target holds that the plan no longer copies', () => {
+    const t = (table: string, extra: Partial<DerivePlanTable>): DerivePlanTable =>
+      ({ schema: null, table, filter: null, column: null, ...extra })
+    expect(droppedOnRebuild([
+      t('note_nlp', { unproven: true, built: true }),
+      t('cost', { unproven: true, built: false }),
+      t('person', { filter: 'patient', column: 'person_id', built: true }),
+      { ...t('fact', { unproven: true, built: true }), schema: 'hosp' },
+    ])).toEqual(['note_nlp', 'hosp.fact'])
   })
 })

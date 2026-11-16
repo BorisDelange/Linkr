@@ -284,6 +284,15 @@ describe('rebuildChoices', () => {
     expect(rebuilt({ options: stored }, { variables: 'all' }).options.variables).toBeUndefined()
   })
 
+  it('copies only the tables a rebuild lists, as a new derivation would, the personless ones only when asked', () => {
+    // Recorded before the tables were: every table, the personless ones with them.
+    const whole = { options: { scope: 'patient' as const }, copyPersonless: true }
+    expect(rebuilt(whole, { tables: ['person'] }).options.tables).toEqual([{ schema: null, table: 'person' }])
+    expect(rebuilt(whole, { tables: ['person'], copy_personless: true }).options.tables)
+      .toEqual([{ schema: null, table: 'person' }, { schema: 'vocab', table: 'concept' }])
+    expect(rebuilt(whole).options.tables?.map((t) => t.table)).toContain('concept')
+  })
+
   it('adds or removes the tables with no patient id from a list of tables', () => {
     const r = derivationOptions(cohort(), planTables, { tables: ['person'], copyPersonless: true })
     if ('error' in r) throw new Error(r.error)

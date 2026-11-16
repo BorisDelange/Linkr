@@ -80,8 +80,10 @@ class Settings(BaseSettings):
     upload_quota_mb: int = 0
     # Bounds on an entity's export tree once decompressed: on disk (status, diff,
     # commit) and held in memory (three-way pull, merged tree, repository clone).
+    # The one in memory sits high enough for the repositories with LFS data that
+    # cloned and pulled before it existed: it stops a runaway archive, not a repo.
     max_export_tree_mb: int = 10240
-    max_export_tree_memory_mb: int = 1024
+    max_export_tree_memory_mb: int = 4096
     # Bound on an .xlsx once decompressed. The Excel reader loads the shared strings
     # part whole, at about 3.5x its size, so that part gets an eighth of this.
     max_excel_inflated_mb: int = 4096
@@ -157,11 +159,13 @@ class Settings(BaseSettings):
     # than that resets the deadline every line and runs forever, pinning a
     # max_build_concurrency slot (shared with env builds) until it's manually killed.
     job_timeout_seconds: int = 1800
-    # Wall-clock limit of a query its user waits for (`/query`, a cohort freeze,
-    # a dataset from a query, the concept list): past it the query is interrupted
-    # and its lane slot, thread and connection freed. 0: no limit. Query jobs and
-    # ETL runs are not bound by it.
+    # Wall-clock limit of a query its user waits for (`/query`, the concept list):
+    # past it the query is interrupted and its lane slot, thread and connection
+    # freed. 0: no limit. Query jobs and ETL runs are not bound by it.
     query_timeout_seconds: int = 900
+    # The same for a query that goes on as a job of the jobs panel once its user
+    # stops waiting (a cohort freeze, a dataset from a query). 0: no limit.
+    background_query_timeout_seconds: int = 0
     # Heavy queries run as jobs (a data catalog's counts…): how many at once. Each
     # opens its own DuckDB, which sizes its memory on the whole container, so two
     # big ones together can get the container killed. Own queue: never waits on,

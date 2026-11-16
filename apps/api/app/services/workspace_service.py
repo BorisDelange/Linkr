@@ -87,9 +87,12 @@ async def delete(db: AsyncSession, workspace: Workspace) -> None:
         stats_cache_service,
     )
     from app.services.data import query_jobs
+    from app.services.server_runs import runs
     from app.services.suggestions import registry as embeddings_registry
 
     workspace_id = workspace.id
+    # Before the cascade takes their rows: a run going on stops, and its files go.
+    await runs.forget_workspace(db, workspace_id)
     result = await db.execute(
         select(Project.uid).where(Project.workspace_id == workspace_id)
     )

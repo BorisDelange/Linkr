@@ -1,4 +1,5 @@
 import { apiRequest } from '@/lib/api-client'
+import { withEnvironmentAcceptance } from '@/lib/api/code-acceptance'
 
 /** A project's per-language environment (server mode). One per language. */
 export interface ProjectEnvironment {
@@ -101,6 +102,8 @@ export interface JobResult {
   figures?: Array<{ id?: string; type: 'svg' | 'png'; data: string; label?: string }>
   table?: { headers: string[]; rows: string[][] } | null
   html?: string | null
+  /** A failed job's error whole, row values included: only `GET /jobs/{id}`, to its owner. */
+  ownerError?: string
 }
 
 export interface Job {
@@ -179,14 +182,16 @@ export function buildEnvironment(
   })
 }
 
-/** Record the workspace's default data-science package set into this env. */
+/** Record the workspace's default data-science package set into this env. A list
+ *  of the workspace's own (it may come from an import) is accepted first. */
 export function installPreset(
   projectUid: string,
   language: 'python' | 'r',
 ): Promise<ProjectEnvironment> {
-  return apiRequest(`/projects/${encodeURIComponent(projectUid)}/environments/${encodeURIComponent(language)}/preset`, {
-    method: 'POST',
-  })
+  return withEnvironmentAcceptance(() => apiRequest<ProjectEnvironment>(
+    `/projects/${encodeURIComponent(projectUid)}/environments/${encodeURIComponent(language)}/preset`,
+    { method: 'POST' },
+  ))
 }
 
 /** Re-lock one package (or all, if pkg omitted) to a newer version; env → draft. */

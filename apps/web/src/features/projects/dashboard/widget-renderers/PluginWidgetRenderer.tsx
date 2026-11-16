@@ -18,6 +18,7 @@ import { useAppStore } from '@/stores/app-store'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { ExecuteNotPermitted } from '@/components/ui/execute-not-permitted'
 import { localized } from '@/lib/localized'
+import { acceptanceSource } from '@/lib/plugins/acceptance-source'
 
 interface PluginWidgetRendererProps {
   widget: DashboardWidget
@@ -86,7 +87,10 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
           purpose: 'dashboards',
           // Each widget run gets its own isolated process → widgets execute in parallel.
           ephemeral: true,
-          review: { source: template, label: localized(widget.name, i18n.language) },
+          review: {
+            source: acceptanceSource(template, source.config, columns, plugin.manifest.configSchema),
+            label: localized(widget.name, i18n.language),
+          },
         })
       }
       // Ensure plugin dependencies are installed (cached per session) — WASM only.

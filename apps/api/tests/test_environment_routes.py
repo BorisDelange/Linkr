@@ -271,6 +271,39 @@ async def test_the_default_packages_are_not_accepted_for_whoever_installs_them(c
     assert not await code_acceptance_service.is_accepted_by(db, admin.id, spec)
 
 
+async def test_a_workspace_package_list_is_accepted_before_it_is_resolved(client, db, fake_provisioner):
+    """Resolving a list runs the build code of its source packages, and the list
+    may come from an imported or pulled workspace: nothing runs before it is accepted."""
+    from sqlalchemy import select
+
+    from app.models.project import Project
+    from app.models.user import User
+    from app.models.workspace import Workspace
+    from app.services import code_acceptance_service
+    from app.services.execution import environments
+
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    project = await db.get(Project, uid)
+    workspace = await db.get(Workspace, project.workspace_id)
+    workspace.default_env_packages = {"python": ["imported-pkg"]}
+    await db.commit()
+
+    r = await client.post(f"{API}/projects/{uid}/environments/python/preset", headers=headers)
+    assert r.status_code == 428
+    detail = r.json()["detail"]
+    assert detail["code"] == "environment_acceptance_required" and "imported-pkg" in detail["spec"]
+    pkgs = (await client.get(f"{API}/projects/{uid}/environments/python/packages", headers=headers)).json()
+    assert "imported-pkg" not in {p["name"] for p in pkgs}
+
+    admin = (await db.execute(select(User))).scalars().first()
+    await code_acceptance_service.accept_by(db, admin.id, [environments.preset_text("python", ["imported-pkg"])])
+    r = await client.post(f"{API}/projects/{uid}/environments/python/preset", headers=headers)
+    assert r.status_code == 200, r.text
+    pkgs = (await client.get(f"{API}/projects/{uid}/environments/python/packages", headers=headers)).json()
+    assert "imported-pkg" in {p["name"] for p in pkgs}
+
+
 async def test_import_env_spec_restores_renv_lock_and_lists_packages(client):
     """A project clone restores environments/r/renv.lock on disk; its recorded
     packages then surface through the packages endpoint (renv list reads the lock,

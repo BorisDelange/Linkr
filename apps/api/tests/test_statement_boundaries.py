@@ -16,6 +16,14 @@ def test_a_dollar_after_an_identifier_opens_no_block():
     assert db_connect._split_statements("SELECT $$a;b$$; SELECT $t$c;d$t$") == ["SELECT $$a;b$$", "SELECT $t$c;d$t$"]
 
 
+def test_a_blank_past_ascii_opens_a_dollar_block_any_other_character_does_not():
+    # Same cases as the client splitter (sql-tokenizer.test.ts).
+    assert db_connect._split_statements("SELECT $$a;b$$") == ["SELECT $$a;b$$"]
+    assert len(db_connect._split_statements("SELECT　$t$a;b$t$")) == 1
+    assert len(db_connect._split_statements("SELECT 1 AS é$$; SELECT 2 AS b$$")) == 2
+    assert len(db_connect._split_statements("SELECT $é$a;b$é$")) == 1
+
+
 @pytest.mark.parametrize("template", [HIDDEN, HIDDEN_NO_CLOSE])
 def test_a_cohort_query_cannot_hold_another_statement(template):
     with pytest.raises(ValueError):
@@ -88,3 +96,58 @@ def test_a_column_id_stays_one_identifier(tmp_path, col_id):
     out.mkdir()
     path = dataset_rows.write_parquet([{col_id: "1"}], [{"id": col_id, "name": "n", "type": "string", "order": 0}], dir=out)
     assert duckdb.connect().execute(f"SELECT * FROM read_parquet('{path}')").fetchall() == [("1",)]
+
+
+PIVOTS = [
+    "PIVOT t ON b USING sum(a)",
+    "SELECT * FROM (PIVOT t ON b USING sum(a)) ORDER BY 1",
+    "WITH p AS (PIVOT t ON b USING sum(a)) SELECT * FROM p",
+    "PIVOT t ON b, c USING sum(a)",
+    "PIVOT_WIDER t ON b USING sum(a) -- trailing comment",
+]
+PIVOT_TABLE = "CREATE TABLE t AS SELECT * FROM (VALUES (1, 'x', 'u'), (2, 'y', 'v')) v(a, b, c)"
+
+
+@pytest.mark.parametrize("sql", [*PIVOTS, "CREATE TABLE p AS PIVOT t ON b USING sum(a)", "INSERT INTO p PIVOT t ON b USING sum(a)"])
+def test_a_pivot_over_the_datas_own_values_is_one_statement(sql):
+    db_connect._reject_hidden_statements(sql)
+
+
+@pytest.mark.parametrize("sql", [
+    "PIVOT t ON b USING sum(a); SELECT 2",
+    "PIVOT t ON b USING sum(a); PIVOT t ON c USING sum(a)",
+    "CREATE TABLE p AS PIVOT t ON b USING sum(a); CREATE TABLE q AS PIVOT t ON c USING sum(a)",
+    "PIVOT t ON b USING sum(a); ATTACH 'x.db' AS o",
+    "SELECT 'PIVOT'; SELECT 2",
+])
+def test_a_pivot_still_hides_no_other_statement(sql):
+    with pytest.raises(db_connect.StatementRefused, match="single statement") as refused:
+        db_connect._reject_hidden_statements(sql)
+    assert refused.value.code == "statement_not_single"
+
+
+@pytest.mark.parametrize("sql", PIVOTS)
+def test_a_read_query_runs_a_pivot(sql):
+    con = duckdb.connect()
+    con.execute(PIVOT_TABLE)
+    rows = db_connect._run_isolated(con, "memory", sql, False)
+    assert rows and {"x", "y"} <= {part for column in rows[0] for part in column.split("_")}
+
+
+def test_a_pipeline_script_writes_a_pivot(tmp_path):
+    target = tmp_path / "target.duckdb"
+    duckdb.connect(str(target)).close()
+    db_connect.run_etl_sql(str(target), f"{PIVOT_TABLE}; CREATE TABLE p AS PIVOT t ON b USING sum(a); INSERT INTO p PIVOT t ON b USING sum(a)")
+    with duckdb.connect(str(target)) as con:
+        assert con.execute("SELECT sum(x), sum(y), count(*) FROM p").fetchall() == [(2, 4, 4)]
+
+
+def test_a_pivot_cannot_copy_to_a_file(tmp_path):
+    target = tmp_path / "target.duckdb"
+    duckdb.connect(str(target)).close()
+    out = tmp_path / "out.csv"
+    with pytest.raises(ValueError, match="COPY"):
+        db_connect.run_etl_sql(str(target), f"{PIVOT_TABLE}; COPY (PIVOT t ON b USING sum(a)) TO '{out}'")
+    assert not out.exists()
+    with pytest.raises(ValueError, match="COPY"):
+        db_connect._reject_session_statements(f"COPY (PIVOT t ON b USING sum(a)) TO '{out}'")

@@ -8,9 +8,11 @@
  * assigns to innerHTML, i.e. on the HTML parse the browser will make of it.
  *
  * The result lands in the app's document, so markup also keeps to its own box: a
- * figure's `<style>` is rewritten to reach that figure only, a `<style>` anywhere
- * else is dropped, and markup outside an SVG drawing neither positions itself over
- * the page nor borrows the app's classes.
+ * `<style>` is rewritten to reach only the figure, the element or the output that
+ * holds it (a pandas Styler or gt table), with no declaration that positions or
+ * fetches anything; markup outside an SVG drawing never positions itself over the
+ * page, and its classes are renamed (`lk-c-…`, in its styles too), so it cannot
+ * borrow the app's.
  */
 import DOMPurify from 'dompurify'
 
@@ -20,6 +22,9 @@ const PURIFY_CONFIG = {
   USE_PROFILES: { html: true, svg: true, svgFilters: true },
   FORBID_TAGS: ['iframe', 'frame', 'frameset', 'object', 'embed', 'foreignObject', 'meta', 'base', 'link', 'form'],
   FORBID_ATTR: ['srcdoc', 'formaction'],
+  // A leading `<style>` (pandas Styler starts with one) would otherwise be parsed
+  // into the head and lost.
+  FORCE_BODY: true,
 }
 
 /** Formatting a box can take without leaving it: nothing that positions, floats or moves. */
@@ -55,14 +60,25 @@ function safeDeclarations(css: string): string {
 
 const SCOPE_ATTRIBUTE = 'data-lk-scope'
 const FIGURE_ROOT_CLASS = /^svglite$/
+const CLASS_PREFIX = 'lk-c-'
 let _scopeSeq = 0
+// The scope of a `<style>` at the top of the markup being sanitized: its whole
+// output, wrapped once sanitized.
+let _outputScope: string | null = null
+
+const prefixedClasses = (classes: string) =>
+  classes.split(/\s+/).filter(Boolean).map((c) => CLASS_PREFIX + c).join(' ')
+
+/** A selector naming the renamed classes. A `.` inside an attribute value is
+ *  renamed too, which can only make the selector match less. */
+const withPrefixedClasses = (selector: string) => selector.replace(/\.(-?[_a-zA-Z][\w-]*)/g, `.${CLASS_PREFIX}$1`)
 
 /**
  * The style rules of `css`, each reaching only `scope` and what it contains, with
  * safe declarations. Read through a parser, so a stray `}` cannot end the scope;
  * at-rules are not kept, so nothing is fetched and no font or keyframes go global.
  */
-function scopedCss(css: string, scope: string): string {
+function scopedCss(css: string, scope: string, renameClasses = false): string {
   const inert = document.implementation.createHTMLDocument('')
   const style = inert.createElement('style')
   style.textContent = css
@@ -70,7 +86,8 @@ function scopedCss(css: string, scope: string): string {
   const rules: string[] = []
   for (const rule of Array.from(style.sheet?.cssRules ?? [])) {
     if (!('selectorText' in rule)) continue
-    const { selectorText, style: declarations } = rule as CSSStyleRule
+    const { selectorText: raw, style: declarations } = rule as CSSStyleRule
+    const selectorText = renameClasses ? withPrefixedClasses(raw) : raw
     const body = safeDeclarations(declarations.cssText)
     if (!body || /[<{}]/.test(selectorText + body)) continue
     rules.push(`${scope}:is(${selectorText}),${scope} :is(${selectorText}){${body}}`)
@@ -85,14 +102,27 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   // Before anything inside it can mark it: an element is walked before its children.
   el.removeAttribute(SCOPE_ATTRIBUTE)
   if (el.localName === 'style') {
-    const figure = el.namespaceURI === SVG_NS ? el.parentElement?.closest('svg') : null
-    if (!figure) {
+    if (el.namespaceURI === SVG_NS) {
+      const figure = el.parentElement?.closest('svg')
+      if (!figure) {
+        el.remove()
+        return
+      }
+      const id = figure.getAttribute(SCOPE_ATTRIBUTE) ?? `lk${_scopeSeq++}`
+      figure.setAttribute(SCOPE_ATTRIBUTE, id)
+      el.textContent = scopedCss(el.textContent ?? '', `[${SCOPE_ATTRIBUTE}="${id}"]`)
+      return
+    }
+    const parent = el.parentElement
+    // An HTML style inside a drawing (its <title>, its <desc>) styles nothing a figure needs.
+    if (parent?.closest('svg')) {
       el.remove()
       return
     }
-    const id = figure.getAttribute(SCOPE_ATTRIBUTE) ?? `lk${_scopeSeq++}`
-    figure.setAttribute(SCOPE_ATTRIBUTE, id)
-    el.textContent = scopedCss(el.textContent ?? '', `[${SCOPE_ATTRIBUTE}="${id}"]`)
+    const holder = parent && parent.localName !== 'body' ? parent : null
+    const id = holder?.getAttribute(SCOPE_ATTRIBUTE) ?? (holder ? `lk${_scopeSeq++}` : (_outputScope ??= `lk${_scopeSeq++}`))
+    holder?.setAttribute(SCOPE_ATTRIBUTE, id)
+    el.textContent = scopedCss(el.textContent ?? '', `[${SCOPE_ATTRIBUTE}="${id}"]`, true)
     return
   }
   if (isInSvg(el)) return
@@ -105,7 +135,9 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   }
   const classes = el.getAttribute('class')
   if (classes !== null) {
-    const kept = el.namespaceURI === SVG_NS ? classes.split(/\s+/).filter((c) => FIGURE_ROOT_CLASS.test(c)).join(' ') : ''
+    const kept = el.namespaceURI === SVG_NS
+      ? classes.split(/\s+/).filter((c) => FIGURE_ROOT_CLASS.test(c)).join(' ')
+      : prefixedClasses(classes)
     if (kept) el.setAttribute('class', kept)
     else el.removeAttribute('class')
   }
@@ -156,7 +188,13 @@ function namespaceSvgIds(root: Element): void {
 }
 
 export function sanitizeHtml(dirty: string): string {
-  return DOMPurify.sanitize(namespaceStandaloneSvg(dirty), PURIFY_CONFIG)
+  _outputScope = null
+  try {
+    const clean = DOMPurify.sanitize(namespaceStandaloneSvg(dirty), PURIFY_CONFIG)
+    return _outputScope ? `<div ${SCOPE_ATTRIBUTE}="${_outputScope}">${clean}</div>` : clean
+  } finally {
+    _outputScope = null
+  }
 }
 
 /** Namespace the ids of a standalone SVG (an svglite figure), returned

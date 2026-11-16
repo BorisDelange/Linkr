@@ -174,7 +174,12 @@ def _gate_project_imports():
                 return None
             if name not in kernel_imports and from_members_code(sys._getframe(1)):
                 return None
-            raise ModuleNotFoundError(f"No module named {name!r}", name=name)
+            raise ModuleNotFoundError(
+                f"No module named {name!r}: the project's own {name!r} is imported from your code only, "
+                "never by installed code on its own (pickle or joblib loading an object, a plugin loader). "
+                f"Run `import {name}` in your code first, then load.",
+                name=name,
+            )
 
     sys.meta_path.insert(sys.meta_path.index(PathFinder), ProjectImportGate)
 

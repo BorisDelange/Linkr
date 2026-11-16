@@ -100,19 +100,28 @@ export function isProtected(regions: Region[], index: number): boolean {
   return regions.some((r) => index >= r.start && index < r.end)
 }
 
+// The blanks DuckDB's parser reads as spaces though they are not ASCII; any other
+// character past ASCII is part of an identifier. Mirrors db_connect._PARSER_SPACE_CHARS.
+const PARSER_SPACE = /[\u00a0\u2000-\u200b\u202f\u205f\u2060\u3000\ufeff]/
+
+function isIdentifierChar(ch: string): boolean {
+  return /[\w$]/.test(ch) || (ch.charCodeAt(0) >= 0x80 && !PARSER_SPACE.test(ch))
+}
+
 /**
  * If a dollar-quote tag opens at `at` (`$$` or `$name$`), return the tag string
  * (e.g. `"$$"`, `"$body$"`); otherwise null. A tag is `$` + optional identifier
- * + `$`, where the identifier starts with a letter/underscore.
+ * + `$`, where the identifier starts with a letter/underscore. Mirrors
+ * db_connect._dollar_tag.
  */
 function matchDollarTag(sql: string, at: number): string | null {
   if (sql[at] !== '$') return null
   // Right after an identifier character the `$` belongs to that identifier.
-  if (at > 0 && /[\w$\u0080-\uffff]/.test(sql[at - 1])) return null
+  if (at > 0 && isIdentifierChar(sql[at - 1])) return null
   let j = at + 1
-  while (j < sql.length && /[A-Za-z0-9_]/.test(sql[j])) {
+  while (j < sql.length && /[\p{L}\p{N}_]/u.test(sql[j])) {
     // The first char of a non-empty tag must not be a digit.
-    if (j === at + 1 && /[0-9]/.test(sql[j])) return null
+    if (j === at + 1 && /\p{N}/u.test(sql[j])) return null
     j++
   }
   if (sql[j] === '$') return sql.slice(at, j + 1)

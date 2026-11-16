@@ -14,10 +14,16 @@ from app.schemas.dq_taxonomy import (
 def _read_check_groups(value):
     """A rule set's check groups as stored: [{key, name, parentKey}], camelCase
     like the rest of the stored JSON. Before groups had names the list held the
-    bare keys of the empty ones, which read as groups named by their key."""
+    bare keys of the empty ones, which read as groups named by their key.
+
+    Mirrors ``readCheckGroups`` (lib/dq-groups.ts), so both write the same list:
+    a repeated key keeps its first entry, and a group whose parents lead back to
+    it (a hand-edited export) goes to the top, the first of a cycle in list order.
+    """
     if not isinstance(value, list):
         return value
     groups = []
+    seen = set()
     for g in value:
         if isinstance(g, str):
             g = {"key": g, "name": {"en": g}, "parentKey": None}
@@ -27,7 +33,24 @@ def _read_check_groups(value):
         parent = g.get("parentKey", g.get("parent_key"))
         if not isinstance(name, dict) or (parent is not None and not isinstance(parent, str)):
             raise ValueError(f"check group {g['key']!r}: name is a localized object, parentKey a key or null")
+        if g["key"] in seen:
+            continue
+        seen.add(g["key"])
         groups.append({"key": g["key"], "name": name, "parentKey": parent})
+    return _break_cycles(groups)
+
+
+def _break_cycles(groups: list[dict]) -> list[dict]:
+    parent_of = {g["key"]: g["parentKey"] for g in groups}
+    for g in groups:
+        walked = set()
+        parent = parent_of.get(g["key"])
+        while parent is not None and parent != g["key"] and parent not in walked:
+            walked.add(parent)
+            parent = parent_of.get(parent)
+        if parent == g["key"]:
+            parent_of[g["key"]] = None
+            g["parentKey"] = None
     return groups
 
 
@@ -250,13 +273,13 @@ class DqCustomCheckResponse(CamelModel):
     group_key: str | None = None
     disabled: bool
     created_at: datetime
+    updated_at: datetime
 
     # A row the migration missed, or written empty, still reads as a LocalizedString.
     @field_validator("name", "description", mode="before")
     @classmethod
     def _text(cls, v):
         return {} if v is None else _read_text(v)
-    updated_at: datetime
 
 
 class DqRunHistoryCreate(CamelModel):
