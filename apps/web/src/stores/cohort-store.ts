@@ -12,7 +12,7 @@ import { localized, toLocalized } from '@/lib/localized'
 import { buildCohortMembershipSql, cohortRunError } from '@/lib/duckdb/cohort-query'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import * as engine from '@/lib/duckdb/engine'
-import { followServerPlan, preparePlan, type PlanResults } from '@/lib/server-runs/query-plan'
+import { followServerPlan, preparePlan, signedPlan, type PlanResults } from '@/lib/server-runs/query-plan'
 import { compileCohortRun, OUTPUT_KEY, outputOf } from '@/lib/cohort-run-plan'
 import type {
   Cohort,
@@ -470,7 +470,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       if (isServerMode()) {
         // A run of the server's: a reload, a closed tab or a restart leaves it
         // going on, and the page that comes back finds it (`rejoinCohortRun`).
-        const plan = await preparePlan(dataSourceId, compiled.plan)
+        const plan = await signedPlan(dataSourceId, await preparePlan(dataSourceId, compiled.plan))
         const run = await followServerPlan('cohort_run', id, plan,
           (i, rows, error) => onRows(plan.items[i].key, rows, error), {
             signal, resumeOnly: rejoin, finished: rejoin,

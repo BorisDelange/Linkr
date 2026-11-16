@@ -643,11 +643,6 @@ _CODE_NAMES = frozenset({
     ".python-version", "requirements.txt", ".dockerignore", ".editorconfig", "snakefile", ".gitkeep",
 })
 
-# What counted as data under scripts/ before the allowlist: any other file was
-# versioned by default, so a repository may already track it.
-_LEGACY_DATA_EXTENSIONS = (".csv", ".parquet", ".pq", ".xlsx", ".xls")
-
-
 def _is_data_ext(path: str) -> bool:
     name = path.lower().rsplit("/", 1)[-1]
     if name in _CODE_NAMES:
@@ -701,31 +696,31 @@ def _notebook_without_outputs(content: str) -> str | None:
     return _json(nb).decode("utf-8") if changed else content
 
 
-def tracked_files_to_adopt(
+def tracked_files_left_out(
     tracked: set[str],
     marked: set[str],
     excluded: set[str],
+    exists: Callable[[str], bool],
     read: Callable[[str], str | None],
 ) -> list[str]:
-    """The files of a project tree (paths under scripts/) a repository already
-    tracks that the export now leaves out unless marked: the non-code files the
-    allowlist made data, and notebooks whose outputs cannot be stripped. Marking
-    them keeps the next push from deleting committed files. ``read(path)`` gives a
-    file's text, None once it is gone from the project."""
-    adopt: list[str] = []
+    """The files of a project tree (paths under scripts/) a repository tracks that
+    the export leaves out for want of a mark: data files, and notebooks whose
+    outputs cannot be stripped. They are reported for the user to mark, never
+    marked here: a data file reaches a remote only once the user marked it.
+    ``exists(path)`` says whether the project still holds the file, ``read(path)``
+    gives a notebook's text."""
+    left_out: list[str] = []
     for path in sorted(tracked):
         if not path.startswith("scripts/") or path in marked or path in excluded:
             continue
         if _is_data_ext(path):
-            if path.lower().endswith(_LEGACY_DATA_EXTENSIONS):
-                continue
-            if read(path) is not None:
-                adopt.append(path)
+            if exists(path):
+                left_out.append(path)
         elif _is_notebook(path):
             content = read(path)
             if content is not None and _notebook_without_outputs(content) is None:
-                adopt.append(path)
-    return adopt
+                left_out.append(path)
+    return left_out
 
 
 def _gitignore_escape(p: str) -> str:

@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+from pydantic import computed_field
+
 from app.schemas.base import CamelModel
 
 
@@ -33,3 +35,11 @@ class ServerRunResponse(CamelModel):
     created_at: datetime
     updated_at: datetime
     finished_at: datetime | None = None
+
+    @computed_field
+    @property
+    def signature(self) -> str | None:
+        """What a signed kind's run reads (`query_list.signature`), computed by the
+        server: the page compares it with its own plan's before taking the run up."""
+        value = self.state.get("signature")
+        return value if isinstance(value, str) else None

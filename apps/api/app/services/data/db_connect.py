@@ -674,6 +674,14 @@ _DYNAMIC_SQL_CALL = re.compile(r"QUERY|QUERY_TABLE")
 _OWN_ACCESS_CALL = re.compile(
     r"SQLITE_(?!(?:VERSION|SOURCE_ID|COMPILEOPTION_USED|COMPILEOPTION_GET|OFFSET)$)\w+"
     r"|POSTGRES_SCAN|POSTGRES_SCAN_PUSHDOWN|POSTGRES_ATTACH|READ_POSTGRES_BINARY")
+# Every other function of the postgres and mysql extensions: some send text of their
+# own past the READ_ONLY flag (`postgres_configure_pool(health_check_query := …)` runs
+# it in autocommit), and a new release may add more. Allowed: the text functions,
+# checked apart, and those that only read a value or drop a cache.
+_EXTENSION_CALL = re.compile(r"(?:READ_)?(?:POSTGRES|MYSQL)_\w+")
+_EXTENSION_CALL_ALLOWED = frozenset({
+    "POSTGRES_HSTORE_GET", "POSTGRES_HSTORE_TO_JSON", "POSTGRES_CLEAR_CACHE", "MYSQL_CLEAR_CACHE",
+})
 # The stream of the institution's collector holds only what Linkr writes to it.
 _SERVER_LOG_CALL = re.compile(r"ENABLE_LOGGING|DISABLE_LOGGING|TRUNCATE_DUCKDB_LOGS|WRITE_LOG")
 _PLAIN_STRING = re.compile(r"'((?:[^']|'')*)'")
@@ -740,13 +748,49 @@ def _names_a_relation(texts: list[tuple[str, "duckdb.token_type"]], i: int) -> b
     DuckDB's grammar takes no call in these places."""
     if i > 0 and texts[i - 1][0] in ("INTO", "TABLE", "EXISTS", "COPY"):
         return True
+    if not _heads_a_cte(texts, i):
+        return False
+    # A CTE's parentheses hold column names only, then `AS [[NOT] MATERIALIZED] (`:
+    # a call — `FROM t, query('…') AS materialized (x)` — holds anything else.
+    j = i + 2
+    while j < len(texts) and (texts[j][1] == duckdb.token_type.identifier or texts[j][0] == ","):
+        j += 1
+    after = [t for t, _ in texts[j:j + 5]]
+    if after[:2] != [")", "AS"]:
+        return False
+    rest = after[2:]
+    if rest[:1] == ["NOT"]:
+        rest = rest[1:]
+        if rest[:1] != ["MATERIALIZED"]:
+            return False
+    if rest[:1] == ["MATERIALIZED"]:
+        rest = rest[1:]
+    return rest[:1] == ["("]
+
+
+_CTE_LIST_WORDS = frozenset({"AS", "MATERIALIZED", "NOT", "USING", "KEY"})
+
+
+def _heads_a_cte(texts: list[tuple[str, "duckdb.token_type"]], i: int) -> bool:
+    """Whether token `i` starts an item of a WITH list: right after WITH, RECURSIVE
+    or a comma that, read back at its own depth, reaches WITH through CTE items only."""
+    if i == 0 or texts[i - 1][0] not in ("WITH", "RECURSIVE", ","):
+        return False
     depth = 0
-    for j in range(i + 1, len(texts)):
-        if texts[j][1] == duckdb.token_type.operator:
-            depth += texts[j][0].count("(") - texts[j][0].count(")")
-        if depth <= 0:
-            return j + 2 < len(texts) and texts[j + 1][0] == "AS" and (
-                texts[j + 2][0].startswith("(") or texts[j + 2][0] in ("MATERIALIZED", "NOT"))
+    for j in range(i - 1, -1, -1):
+        text, kind = texts[j]
+        if kind == duckdb.token_type.operator and ("(" in text or ")" in text):
+            depth += text.count(")") - text.count("(")
+            if depth < 0:
+                return False
+            continue
+        if depth:
+            continue
+        if text in ("WITH", "RECURSIVE"):
+            return True
+        if text == "," or kind == duckdb.token_type.identifier or text in _CTE_LIST_WORDS:
+            continue
+        return False
     return False
 
 
@@ -825,6 +869,11 @@ def _reject_passthrough_calls(
             raise ValueError(f"{text.lower()}() is not allowed: it would run SQL on the database past Linkr's read-only guard")
         if _OWN_ACCESS_CALL.fullmatch(text):
             raise ValueError(f"{text.lower()}() is not allowed: a query reads only the databases Linkr attached for it")
+        if _EXTENSION_CALL.fullmatch(text) and text not in _EXTENSION_CALL_ALLOWED:
+            raise ValueError(
+                f"{text.lower()}() is not allowed: a PostgreSQL or MySQL database is read through its tables, "
+                "postgres_query() or mysql_query()"
+            )
         if dynamic_sql and _DYNAMIC_SQL_CALL.fullmatch(text):
             raise ValueError(
                 f"{text.lower()}() is not allowed: it runs SQL built from text, "

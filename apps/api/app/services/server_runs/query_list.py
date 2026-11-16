@@ -6,6 +6,7 @@ they all run, page open or not.
 """
 
 import asyncio
+import hashlib
 import re
 
 from app.schemas.query_list import QueryListSpec
@@ -28,6 +29,26 @@ from app.services.server_runs.worker import (
 TRIES = 2
 # A result's key, as the spec allows it (schemas/query_list.py): never a path.
 KEY = re.compile(r"[A-Za-z0-9_.-]{1,80}")
+_SURROGATE = re.compile("[\ud800-\udfff]")
+
+
+def signature(data_source_id: str | None, spec: QueryListSpec) -> str:
+    """What a run reads, as the page computes it for the plan it sends
+    (apps/web lib/server-runs/query-plan.ts `planSignature`): SHA-256, in hex,
+    over netstrings (`<utf-8 byte length>:<bytes>,`) of the database, the count
+    and parts of the page's `meta.signatureBasis`, then the count of the items
+    and each one's key and SQL, in order."""
+    raw = spec.meta.get("signatureBasis")
+    basis = [part for part in raw if isinstance(part, str)] if isinstance(raw, list) else []
+    parts = [data_source_id or "", str(len(basis)), *basis, str(len(spec.items))]
+    for item in spec.items:
+        parts += [item.key, item.sql]
+    digest = hashlib.sha256()
+    for part in parts:
+        # A lone surrogate is what the browser's TextEncoder writes as U+FFFD.
+        data = _SURROGATE.sub("\ufffd", part).encode("utf-8")
+        digest.update(b"%d:%s," % (len(data), data))
+    return digest.hexdigest()
 
 
 def result_path(run_id: str, key: str):

@@ -37,7 +37,7 @@ import { isServerMode } from '@/lib/api-client'
 import { sourceTables } from '@/lib/duckdb/engine'
 import { useServerRun } from '@/hooks/use-server-run'
 import { ACTIVE_RUN_STATUSES } from '@/lib/api/server-runs'
-import { preparePlan, runResults, signatureOf, type QueryListState } from '@/lib/server-runs/query-plan'
+import { planSignature, preparePlan, runResults, type QueryListState } from '@/lib/server-runs/query-plan'
 import { QueryErrorNotice, StatsColumn } from './quality-stats-column'
 import type { DatabaseStatsCache, DataSource } from '@/types'
 
@@ -413,8 +413,21 @@ function ConceptQualityView({
     }).catch(() => {})
   }, [pipelineId, targetId, fingerprint])
 
-  // What a run of this target's last ETL run computes; `wanted`: the one this page started.
-  const runSignature = targetId ? signatureOf([targetId, fingerprint]) : null
+  // The comparison of this target's last ETL run, as the server runs it.
+  const serverPlan = useCallback(async (target: string) => preparePlan(target, conceptQualityPlan(
+    await sourceTables(target), tRef.current('etl.quality_run_job'), { targetId: target, fingerprint, signatureBasis: [fingerprint] },
+  )), [fingerprint])
+  // What a run of it reads (`planSignature`), '' when it cannot be compiled; `wanted`: the one this page started.
+  const [runSignature, setRunSignature] = useState<string | null>(null)
+  useEffect(() => {
+    setRunSignature(null)
+    if (!onServer || !targetId) return
+    let live = true
+    void serverPlan(targetId)
+      .then((plan) => planSignature(targetId, plan))
+      .then((signature) => { if (live) setRunSignature(signature) }, () => { if (live) setRunSignature('') })
+    return () => { live = false }
+  }, [onServer, targetId, serverPlan])
   const wanted = useRef<string | null>(null)
   const request = useRef(0)
   const load = useCallback(async (force: boolean) => {
@@ -437,10 +450,9 @@ function ConceptQualityView({
     try {
       if (onServer) {
         // Started — or the one going on joined —, and assembled once it ends (below).
-        const signature = signatureOf([targetId, fingerprint])
-        const plan = conceptQualityPlan(await sourceTables(targetId), tRef.current('etl.quality_run_job'), { targetId, fingerprint, signature })
-        wanted.current = signature
-        await startServerRun(await preparePlan(targetId, plan))
+        const plan = await serverPlan(targetId)
+        wanted.current = await planSignature(targetId, plan)
+        await startServerRun(plan)
         return
       }
       const loaded = await loadConceptQuality(targetId)
@@ -453,7 +465,7 @@ function ConceptQualityView({
     } finally {
       if (ticket === request.current && !onServer) setLoading(false)
     }
-  }, [pipelineId, targetId, fingerprint, onServer, startServerRun, save])
+  }, [pipelineId, targetId, fingerprint, onServer, startServerRun, serverPlan, save])
 
   // The server's run, followed: going on, it shows as loading; ended, its results
   // become the table — once, and only those of this target and this last run.
@@ -466,7 +478,8 @@ function ConceptQualityView({
       setLoading(true)
       return
     }
-    if (run.state.meta?.signature !== runSignature) {
+    if (runSignature === null) return
+    if (run.signature !== runSignature) {
       // A run of an older ETL run, joined when this page started its own, ended:
       // this page's is started now — once, not at every read of the old one.
       if (wanted.current === runSignature && restartedAfter.current !== run.id) {

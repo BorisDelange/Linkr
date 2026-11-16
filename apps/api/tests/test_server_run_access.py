@@ -1,6 +1,7 @@
 """Who may read, stop and resume a server run (routes/server_runs.py): what its
 scope allows, its database's rows only to who may read the database, and a
-resume only to the user who started it, whose login its queries use."""
+resume only to the user who started it, whose login its queries use. A run an
+external database read with its starter's own login is theirs alone."""
 
 import asyncio
 
@@ -172,3 +173,106 @@ async def test_deleting_what_a_run_reads_stops_it_and_drops_its_files(client, db
     assert not executor.is_running(run["id"])
     assert not executor.run_dir(run["id"]).exists()
     assert await db.get(ServerRun, run["id"]) is None
+
+
+# --- a run read with a user's own login ----------------------------------------
+
+
+async def _held(run, label):
+    """No executor: the run stays queued."""
+
+
+async def _per_login_world(client, db, world, monkeypatch):
+    """An external database of the workspace, each reader with their own login;
+    runs are made but not executed."""
+    from sqlalchemy import select
+
+    from app.models.data_source import DataSource
+    from app.models.user import User
+    from app.services import database_credential_service as creds
+    from app.services.server_runs import executor
+
+    monkeypatch.setattr(executor, "launch", _held)
+    source = DataSource(
+        alias="pg", name={"en": "PG"}, source_type="database", workspace_id=world["ws"],
+        connection_config={"engine": "postgresql", "host": "h", "port": 5432, "database": "omop"},
+    )
+    db.add(source)
+    await db.commit()
+    alice = await _member(client, db, world["ws"], "alice", ["databases:read"])
+    bob = await _member(client, db, world["ws"], "bob", ["databases:read"])
+    for name in ("alice", "bob"):
+        user = (await db.execute(select(User).where(User.username == name))).scalar_one()
+        await creds.save(db, source, user.id, f"{name}_db", "pw-for-tests-only", remember=False)
+    return source.id, alice, bob
+
+
+@pytest.fixture
+def _no_session_logins():
+    from app.services import database_credential_service as creds
+
+    yield
+    with creds._session_lock:
+        creds._session.clear()
+
+
+async def _counts(client, headers, scope) -> dict:
+    r = await client.post(f"{API}/server-runs", headers=headers, json={
+        "kind": "database_stats", "scopeId": scope, "spec": _spec(("t0", "SELECT COUNT(*) AS cnt FROM person")),
+    })
+    assert r.status_code == 202, r.text
+    return r.json()
+
+
+@pytest.mark.usefixtures("_no_session_logins")
+async def test_a_runs_rows_on_an_external_database_reach_only_the_login_that_read_them(client, db, world, monkeypatch):
+    from app.services.server_runs import executor, query_list
+
+    source, alice, bob = await _per_login_world(client, db, world, monkeypatch)
+    scope = f"{source}:counts"
+    latest = f"{API}/server-runs/latest?kind=database_stats&scopeId={scope}"
+    theirs = await _counts(client, alice, scope)
+    executor.write_json(query_list.result_path(theirs["id"], "t0"), [{"cnt": 42}])
+    url = f"{API}/server-runs/{theirs['id']}"
+    assert (await client.get(f"{url}/results/t0", headers=alice)).json() == {"rows": [{"cnt": 42}]}
+
+    # Another reader of the database neither finds it, nor reads, stops or resumes it…
+    assert (await client.get(latest, headers=bob)).json() is None
+    assert (await client.get(f"{url}/results/t0", headers=bob)).status_code == 404
+    for action in ("pause", "cancel", "resume"):
+        assert (await client.post(f"{url}/{action}", headers=bob)).status_code == 404, action
+    # …and a start of theirs is a run of their own login, beside it.
+    own = await _counts(client, bob, scope)
+    assert own["id"] != theirs["id"]
+    assert (await client.get(latest, headers=bob)).json()["id"] == own["id"]
+    assert (await client.get(latest, headers=alice)).json()["id"] == theirs["id"]
+
+
+async def test_a_run_on_a_file_database_stays_shared_by_its_readers(client, db, world, monkeypatch):
+    from app.services.server_runs import executor
+
+    monkeypatch.setattr(executor, "launch", _held)
+    scope = f"{world['ds']}:counts"
+    started = await _counts(client, world["admin"], scope)
+    assert (await _counts(client, world["reader"], scope))["id"] == started["id"]
+
+
+async def _run_spec(client, headers, pid, spec) -> dict:
+    r = await client.post(f"{API}/server-runs", headers=headers, json={"kind": "etl_quality", "scopeId": pid, "spec": spec})
+    assert r.status_code == 202, r.text
+    return r.json()
+
+
+async def test_a_run_carries_the_signature_the_server_computed_not_the_one_sent(client, world):
+    from app.schemas.query_list import QueryListSpec
+    from app.services.server_runs import query_list
+
+    admin, pid = world["admin"], world["pid"]
+    spec = _spec(("a", "SELECT 1 AS x"))
+    spec["meta"] = {**spec["meta"], "signature": "what-the-page-expects", "signatureBasis": ["run-1"]}
+    run = await _run_spec(client, admin, pid, spec)
+    expected = query_list.signature(world["ds"], QueryListSpec.model_validate(spec))
+    assert run["signature"] == expected != "what-the-page-expects"
+    assert "signature" not in run["state"]["meta"]
+    assert (await _until(client, admin, pid, {"done", "failed"}))["signature"] == expected
+

@@ -254,9 +254,9 @@ async def test_a_single_query_reports_how_far_it_has_read_on_its_job(client, mon
     real_progress = jobs.JobHandle.progress
 
     async def progress(self, pct):
+        await real_progress(self, pct)
         if pct == 42:
             reported.set()
-        await real_progress(self, pct)
 
     monkeypatch.setattr(jobs.JobHandle, "progress", progress)
     headers = await _admin(client)

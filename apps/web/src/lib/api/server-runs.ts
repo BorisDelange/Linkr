@@ -22,6 +22,9 @@ export interface ServerRun<S = Record<string, unknown>> {
   createdAt: string
   updatedAt: string
   finishedAt: string | null
+  /** What a signed kind's run reads, computed by the server at its start
+   *  (`planSignature`); null for the other kinds. */
+  signature?: string | null
 }
 
 /** The run going on for this kind and scope, else the last one; null when none ran. */

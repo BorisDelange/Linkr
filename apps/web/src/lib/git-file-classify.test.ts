@@ -98,6 +98,20 @@ describe('dataFilesToPush', () => {
       { path: '.gitignore', changeType: 'modified' },
     ])).toEqual([])
   })
+
+  it('counts a marked notebook as data, in a project tree or under a workspace, and an unmarked one as code', () => {
+    const files = [
+      { path: 'scripts/results.ipynb', changeType: 'modified' },
+      { path: 'projects/icu/scripts/eda.ipynb', changeType: 'added' },
+      { path: 'scripts/clean.ipynb', changeType: 'modified' },
+      { path: 'scripts/gone.ipynb', changeType: 'deleted' },
+    ]
+    const marked = new Set(['scripts/results.ipynb', 'projects/icu/scripts/eda.ipynb', 'scripts/gone.ipynb'])
+    expect(dataFilesToPush(files, marked).map((f) => f.path)).toEqual([
+      'scripts/results.ipynb', 'projects/icu/scripts/eda.ipynb',
+    ])
+    expect(dataFilesToPush(files)).toEqual([])
+  })
 })
 
 describe('leftOutFilesToDelete', () => {

@@ -241,6 +241,22 @@ async def test_paused_then_resumed_where_it_stopped(client, monkeypatch, tmp_pat
     assert row["computedSteps"] is None
 
 
+async def test_a_failed_computation_keeps_no_row_value_in_its_catalog(client, monkeypatch, tmp_path_factory):
+    from app.services.server_runs.catalog.executor import CatalogExecutor
+
+    async def failing(self, sql, what, **kwargs):
+        raise RuntimeError("Conversion Error: Could not convert string 'ROW-VALUE-42' to INT32")
+
+    monkeypatch.setattr(CatalogExecutor, "query", failing)
+    headers, catalog = await _catalog(client, monkeypatch, tmp_path_factory)
+    r = await client.post(f"{API}/server-runs", headers=headers, json={"kind": "catalog", "scopeId": catalog, "spec": TWIN["spec"]})
+    assert r.status_code == 202, r.text
+    assert (await _until(client, headers, catalog, {"done", "failed"}))["status"] == "failed"
+    row = (await client.get(f"{API}/data-catalogs/{catalog}", headers=headers)).json()
+    assert row["status"] == "error" and "Could not convert string" in row["lastError"]
+    assert "ROW-VALUE-42" not in row["lastError"]
+
+
 async def test_a_start_checks_its_catalog_and_spec(client, monkeypatch, tmp_path_factory):
     headers, catalog = await _catalog(client, monkeypatch, tmp_path_factory)
     r = await client.post(f"{API}/server-runs", headers=headers, json={"kind": "catalog", "scopeId": "no-such-catalog", "spec": TWIN["spec"]})

@@ -7,12 +7,18 @@ from starlette.testclient import TestClient, WebSocketDenialResponse
 
 from app import main
 from app.config import settings
+from app.core import example_secret
 
 EXAMPLE_KEYS = [
     "dev-secret-change-in-production",
     "change-me",
     "CHANGE-ME",
     " changeme ",
+    "",
+    "   ",
+    '"change-me"',
+    "''",
+    "<the generated secret>",
 ]
 
 
@@ -21,6 +27,11 @@ EXAMPLE_KEYS = [
 )
 def test_a_known_or_short_signing_key_is_weak(key):
     assert main.weak_secret_key(key)
+
+
+@pytest.mark.parametrize("key", ['"suitably-long-random-looking-value-0123456789"', "change-me-please-0123456789abcdef"])
+def test_a_real_key_is_no_example_even_quoted_or_containing_one(key):
+    assert not example_secret.is_example(key)
 
 
 def test_a_generated_signing_key_is_not():

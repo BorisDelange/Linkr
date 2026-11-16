@@ -322,6 +322,7 @@ def test_text_sent_to_the_database_may_read(sql):
     "SELECT * FROM mysql_query('ext', getvariable('q'))",
     "SELECT * FROM mysql_query('ext', 'SELECT 1', 'x')",
     "SELECT * FROM query('SELECT * FROM mysql_query(''ext'', ''DELETE FROM t'')')",
+    "SELECT * FROM mysql_query('ext', 'SELECT a FROM t WHERE 1 --1 FOR UPDATE\n')",
 ])
 def test_text_sent_to_the_database_must_be_one_read(sql):
     with pytest.raises(ValueError):
@@ -331,6 +332,8 @@ def test_text_sent_to_the_database_must_be_one_read(sql):
 @pytest.mark.parametrize("sql", [
     "WITH query(a, b) AS (SELECT 1, 2) SELECT * FROM query",
     "WITH x AS (SELECT 1), query(a) AS MATERIALIZED (SELECT 2) SELECT * FROM query",
+    "WITH RECURSIVE query(a) AS NOT MATERIALIZED (SELECT 2) SELECT * FROM query",
+    "SELECT * FROM (WITH x AS (SELECT 1), query(a) AS (SELECT 2) SELECT * FROM query)",
     "INSERT INTO query (a) VALUES (1)",
     "CREATE TABLE IF NOT EXISTS query(a INT)",
 ])
@@ -341,10 +344,42 @@ def test_a_relation_named_query_is_no_call(sql):
 @pytest.mark.parametrize("sql", [
     "SELECT * FROM (SELECT 1) x, query('SELECT 1') AS q",
     "CREATE MACRO m(s) AS TABLE SELECT * FROM query(s)",
+    "SELECT * FROM query(getvariable('x')) AS MATERIALIZED",
+    "SELECT * FROM query('SELECT 1') AS MATERIALIZED (x)",
+    "SELECT * FROM query('SELECT 1') AS NOT MATERIALIZED",
+    "SELECT * FROM t, query(s) AS MATERIALIZED (x)",
+    "SELECT * FROM t, query(s) AS (SELECT 1)",
+    "WITH x AS (SELECT * FROM t, query(s) AS MATERIALIZED (a)) SELECT * FROM x",
+    "WITH x AS (SELECT 1), query('SELECT 1') AS MATERIALIZED (SELECT 2) SELECT 1",
+    "SELECT * FROM query_table(getvariable('t')) AS MATERIALIZED",
 ])
 def test_a_call_of_query_is_still_one(sql):
     with pytest.raises(ValueError, match="query"):
         db_connect._reject_passthrough_calls(sql, dynamic_sql=True)
+
+
+def test_a_call_of_query_named_like_a_cte_is_checked_as_a_call():
+    with pytest.raises(ValueError, match="sqlite_scan"):
+        db_connect._reject_passthrough_calls(
+            "SELECT * FROM query('SELECT * FROM sqlite_scan(''linkr.db'', ''users'')') AS MATERIALIZED")
+
+
+@pytest.mark.parametrize("call", [
+    "postgres_configure_pool(catalog_name='src', health_check_query='DELETE FROM t')",
+    "mysql_debug_execution_plan('src', 'SELECT 1')",
+    "mysql_explain_federated('src', 'SELECT 1')",
+    "postgres_attach('host=x')",
+    "read_postgres_binary('x')",
+    "mysql_configure_pool(catalog_name='src')",
+])
+def test_other_extension_functions_are_refused(call):
+    with pytest.raises(ValueError, match="not allowed"):
+        db_connect._reject_passthrough_calls(f"SELECT * FROM {call}")
+
+
+def test_extension_functions_that_only_read_a_value_stay_allowed():
+    db_connect._reject_passthrough_calls(
+        "SELECT postgres_hstore_get(h, 'k'), postgres_hstore_to_json(h) FROM t; FROM mysql_clear_cache()")
 
 
 def test_sqlite_functions_that_describe_the_library_may_stay_in_a_view():

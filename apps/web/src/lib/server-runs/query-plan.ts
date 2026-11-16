@@ -1,5 +1,6 @@
 import { apiRequest } from '@/lib/api-client'
 import * as duckdbEngine from '@/lib/duckdb/engine'
+import { sha256Hex } from '@/lib/sha256'
 import {
   ACTIVE_RUN_STATUSES,
   cancelServerRun,
@@ -29,8 +30,11 @@ export interface QueryPlan {
   items: QueryPlanItem[]
   /** A query that fails is recorded and the others still run. */
   keepGoing?: boolean
-  /** The page's own, carried into the run's state (a fingerprint, a definition). */
-  meta?: Record<string, unknown>
+  /** The page's own, carried into the run's state (a fingerprint, a definition).
+   *  `signatureBasis`: what the plan's signature covers beyond its database and
+   *  queries (`planSignature`); `signature`: the one this page expects, which
+   *  the server does not take from it. */
+  meta?: { signatureBasis?: string[]; signature?: string; [key: string]: unknown }
 }
 
 /** Where a `query_list` run is, as its checkpoint says. */
@@ -100,10 +104,35 @@ export function signatureOf(parts: readonly string[]): string {
   return (h >>> 0).toString(36)
 }
 
-/** The plan signed by what its queries are, each with its key: a run of other
- *  queries, or of the same ones in another order, is not taken for its own. */
-export function signedPlan(plan: QueryPlan): QueryPlan {
-  return { ...plan, meta: { ...plan.meta, signature: signatureOf(plan.items.flatMap((item) => [item.key, item.sql])) } }
+/**
+ * What a run of `plan` on `dataSourceId` reads, as the server computes it at the
+ * run's start (`ServerRun.signature`, apps/api services/server_runs/query_list.py
+ * `signature`): SHA-256, in hex, over netstrings (`<utf-8 byte length>:<bytes>,`)
+ * of the database, the count and parts of `meta.signatureBasis`, then the count of
+ * the items and each one's key and SQL, in order. Pinned on both sides by
+ * `__fixtures__/server-runs/plan-signature.json`.
+ */
+export async function planSignature(dataSourceId: string, plan: QueryPlan): Promise<string> {
+  const basis = plan.meta?.signatureBasis ?? []
+  const parts = [dataSourceId, String(basis.length), ...basis, String(plan.items.length), ...plan.items.flatMap((item) => [item.key, item.sql])]
+  const encoder = new TextEncoder()
+  const chunks = parts.flatMap((part) => {
+    const bytes = encoder.encode(part)
+    return [encoder.encode(`${bytes.length}:`), bytes, encoder.encode(',')]
+  })
+  const canonical = new Uint8Array(chunks.reduce((n, chunk) => n + chunk.length, 0))
+  let at = 0
+  for (const chunk of chunks) {
+    canonical.set(chunk, at)
+    at += chunk.length
+  }
+  return sha256Hex(canonical)
+}
+
+/** The plan signed by what it reads (`planSignature`): a run of other queries, of
+ *  the same ones in another order or on another database, is not taken for its own. */
+export async function signedPlan(dataSourceId: string, plan: QueryPlan): Promise<QueryPlan> {
+  return { ...plan, meta: { ...plan.meta, signature: await planSignature(dataSourceId, plan) } }
 }
 
 /** How often a followed run is read again. */
@@ -138,8 +167,8 @@ async function replace<S>(kind: ServerRunKind, scopeId: string, run: ServerRun<S
  * going on for this kind and scope joined, as after a reload — and each query's
  * rows handed to `onRows` as they land, in no particular order. `resumeOnly`:
  * only join one going on — or, with `finished`, one done meanwhile; null when
- * there is none. A plan signed (`meta.signature`) joins only a run of the same
- * signature: one of another definition — or one being stopped — is replaced,
+ * there is none. A plan signed (`signedPlan`) joins only a run the server signed
+ * the same: one of another definition — or one being stopped — is replaced,
  * or not joined. A stop from here (`signal`) cancels the run.
  */
 export async function followServerPlan(
@@ -155,7 +184,7 @@ export async function followServerPlan(
 ): Promise<ServerRun<QueryListState> | null> {
   const key = scopeKey(kind, scopeId)
   const signature = plan.meta?.signature
-  const ours = (r: ServerRun<QueryListState>) => signature === undefined || r.state.meta?.signature === signature
+  const ours = (r: ServerRun<QueryListState>) => signature === undefined || r.signature === signature
 
   let run: ServerRun<QueryListState> | null = null
   // Stopped before its run was known: the stop is held until it is, or none comes.

@@ -3,7 +3,7 @@ import { localized } from '@/lib/localized'
 import { buildAttritionQueries, buildCohortResultsSql, buildCustomSqlOutputSql, cohortIdColumn } from '@/lib/duckdb/cohort-query'
 import { cohortRelationNarrowing } from '@/features/projects/warehouse/cohorts/relation-narrowing'
 import { relationsCountedAt } from '@/features/projects/warehouse/patient-data/timeline-relations'
-import { signatureOf, type PlanResults, type QueryPlan } from '@/lib/server-runs/query-plan'
+import type { PlanResults, QueryPlan } from '@/lib/server-runs/query-plan'
 import type { Cohort, CohortExecutionResult, CustomSqlOutput, SchemaMapping } from '@/types'
 
 /** Result rows loaded per run. Matches the server's MAX_QUERY_ROWS (see
@@ -57,8 +57,9 @@ export async function compileCohortRun(
     label: i18n.t('cohorts.run_job', { name: localized(cohort.name, i18n.language) }),
     items,
     keepGoing: true,
-    // The database it reads: the server checks it is the cohort's.
-    meta: { signature: signatureOf([dataSourceId, cohort.level, ...items.map((i) => i.sql)]), draft, dataSourceId },
+    // The database it reads: the server checks it is the cohort's. The level is
+    // signed with it once prepared (`signedPlan`).
+    meta: { signatureBasis: [cohort.level], draft, dataSourceId },
   }
 
   const rowsOf = (results: PlanResults, key: string) => {

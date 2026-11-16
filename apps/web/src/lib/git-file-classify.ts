@@ -36,13 +36,17 @@ function holdsData(path: string): boolean {
 
 /**
  * The data files a commit would send to the remote: anything data-shaped anywhere
- * in the tree (a marked file under scripts/ counts too), added, modified or renamed.
- * A deletion carries no content, so it needs no consent. The sync UI asks for an
- * explicit confirmation listing these before every push — marking a file once is
- * not consent for each later version of it.
+ * in the tree, and every file marked for versioning (`marked`, tree paths) — a
+ * marked notebook keeps its outputs — added, modified or renamed. A deletion
+ * carries no content, so it needs no consent. The sync UI asks for an explicit
+ * confirmation listing these before every push — marking a file once is not
+ * consent for each later version of it.
  */
-export function dataFilesToPush<T extends { path: string; changeType: string }>(files: readonly T[]): T[] {
-  return files.filter((f) => f.changeType !== 'deleted' && holdsData(f.path))
+export function dataFilesToPush<T extends { path: string; changeType: string }>(
+  files: readonly T[],
+  marked: ReadonlySet<string> = new Set(),
+): T[] {
+  return files.filter((f) => f.changeType !== 'deleted' && (holdsData(f.path) || marked.has(f.path)))
 }
 
 /**

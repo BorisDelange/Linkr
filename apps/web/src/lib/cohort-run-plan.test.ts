@@ -4,7 +4,7 @@ vi.mock('@/features/projects/warehouse/cohorts/relation-narrowing', () => ({ coh
 vi.mock('@/features/projects/warehouse/patient-data/timeline-relations', () => ({ relationsCountedAt: async () => null }))
 
 import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
-import type { PlanResults } from '@/lib/server-runs/query-plan'
+import { signedPlan, type PlanResults } from '@/lib/server-runs/query-plan'
 import type { Cohort, CohortLevel } from '@/types'
 import { compileCohortRun, MAX_RESULT_ROWS, OUTPUT_KEY, outputOf } from './cohort-run-plan'
 
@@ -41,12 +41,12 @@ describe('a cohort run, compiled', () => {
   })
 
   it('signs what it computes: the same definition the same, another one differently', async () => {
-    const sign = async (cohort: Cohort) => (await compile(cohort)).plan.meta?.signature
+    const sign = async (cohort: Cohort, ds = 'ds1') =>
+      (await signedPlan(ds, (await compileCohortRun(cohort, ds, mapping, false))!.plan)).meta?.signature
     expect(await sign(cohortOf('patient'))).toBe(await sign(cohortOf('patient')))
     expect(await sign(cohortOf('patient'))).not.toBe(await sign(cohortOf('visit')))
     // A run on another database is not this one's count.
-    const onOther = (await compileCohortRun(cohortOf('patient'), 'ds2', mapping, false))!.plan.meta?.signature
-    expect(onOther).not.toBe(await sign(cohortOf('patient')))
+    expect(await sign(cohortOf('patient'), 'ds2')).not.toBe(await sign(cohortOf('patient')))
   })
 
   it('assembles the members, the count and the attrition from the results', async () => {

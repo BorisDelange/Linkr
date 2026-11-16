@@ -1,34 +1,35 @@
 import type { DatasetColumn } from '@/types'
 import type { PluginConfigField } from '@/types/plugin'
+import { pickedColumnNames } from './template-resolver'
 
 const PLACEHOLDER = /\{\{(\w+)\}\}/g
+
+const byKey = ([a]: [string, unknown], [b]: [string, unknown]) => (a < b ? -1 : a > b ? 1 : 0)
 
 function stringsIn(value: unknown): string[] {
   if (typeof value === 'string') return [value]
   if (Array.isArray(value)) return value.flatMap(stringsIn)
-  if (value && typeof value === 'object') return Object.values(value).flatMap(stringsIn)
+  if (value && typeof value === 'object') {
+    return Object.entries(value).sort(byKey).flatMap(([k, v]) => [k, ...stringsIn(v)])
+  }
   return []
 }
 
-/** The text a setting puts in the code that no list bounds: a picked column or a
- *  declared option is not free text, a number or a boolean holds none. */
-function freeText(field: PluginConfigField | undefined, value: unknown, columns: readonly DatasetColumn[]): string[] {
-  const strings = stringsIn(value)
-  if (field?.type === 'column-select') return strings.filter((s) => !columns.some((c) => c.id === s))
-  if (field?.type === 'select') {
-    const options = new Set((field.options ?? []).map((o) => o.value))
-    return strings.filter((s) => !options.has(s))
-  }
-  return strings
+/** The text a setting puts in the code: a picked column puts its name, which the
+ *  dataset may rename; a select its value, whose options the manifest may change.
+ *  A number or a boolean holds none. */
+function textInCode(field: PluginConfigField | undefined, value: unknown, columns: readonly DatasetColumn[]): string[] {
+  if (field?.type === 'column-select') return stringsIn(pickedColumnNames(field, value, columns))
+  return stringsIn(value)
 }
 
 /**
  * What accepting a plugin's code from its template covers: the template, and the
- * free text its settings put in the code. A template may hand a setting to
- * eval, parse or a SQL call, so a changed text asks again; what cannot carry code
- * (numbers, booleans, picked columns, declared options) stays out, so ordinary
- * use is not asked twice. The patient context reaches the run apart and is never
- * part of it. Accepted as the `source` of a CodeReview.
+ * text its settings put in the code. A template may hand a setting to eval, parse
+ * or a SQL call, so any changed text asks again, whoever changed it (a column
+ * renamed, a manifest's options edited); numbers and booleans carry no code and
+ * stay out, so ordinary use is not asked twice. The patient context reaches the
+ * run apart and is never part of it. Accepted as the `source` of a CodeReview.
  */
 export function acceptanceSource(
   template: string,
@@ -36,16 +37,16 @@ export function acceptanceSource(
   columns: readonly DatasetColumn[],
   schema: Record<string, PluginConfigField> | undefined,
 ): string {
-  const settings: Record<string, string[]> = {}
+  const settings = new Map<string, string[]>()
   for (const [, key] of template.matchAll(PLACEHOLDER)) {
-    if (key in settings) continue
+    if (settings.has(key)) continue
     const field = schema?.[key]
-    const text = freeText(field, config[key] ?? field?.default, columns)
-    if (text.length > 0) settings[key] = text
+    const text = textInCode(field, config[key] ?? field?.default, columns)
+    if (text.length > 0) settings.set(key, text)
   }
-  const keys = Object.keys(settings).sort()
-  if (keys.length === 0) return template
-  return `${template}\n# Linkr settings: ${JSON.stringify(Object.fromEntries(keys.map((k) => [k, settings[k]])))}`
+  if (settings.size === 0) return template
+  const sorted = [...settings].sort(byKey)
+  return `${template}\n# Linkr settings: ${JSON.stringify(Object.fromEntries(sorted))}`
 }
 
 /** `acceptanceSource` of a plugin's template in `language`, if it has one. */

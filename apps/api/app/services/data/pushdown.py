@@ -420,7 +420,8 @@ def _native_code(sql: str) -> str:
     `` `s3`(…) `` reads as the call it is and `` `into` `` as no keyword. What
     Doris might read otherwise is refused, since text taken for a comment here
     would run there: a `#`, a backslash in a `--` comment, a `/*` inside a
-    comment, an executable `/*! */`, an unterminated string. A hint `/*+ … */`
+    comment, an executable `/*! */`, an unterminated string, a `--` with no space
+    after it (MySQL reads no comment there). A hint `/*+ … */`
     is lexed by Doris as SQL, so it is kept as SQL."""
     out: list[str] = []
     i, n = 0, len(sql)
@@ -443,6 +444,8 @@ def _native_code(sql: str) -> str:
             out.append("`" + re.sub(r"\W", "_", sql[i + 1:j]) + "`" if c == "`" else c + c)
             i = j + 1
         elif sql.startswith("--", i):
+            if i + 2 >= n or sql[i + 2] > " ":
+                raise NativeRefused("native SQL: '--' not followed by a space")
             end = sql.find("\n", i)
             end = n if end < 0 else end
             if "\\" in sql[i:end]:

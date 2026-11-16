@@ -14,7 +14,7 @@ import { useAppStore } from '@/stores/app-store'
 import { SectionLabel } from '@/components/ui/section-label'
 import { groupGitFiles } from '@/lib/git-file-meta'
 import { buildQuickActions, type QuickAction } from '@/lib/git-quick-actions'
-import type { GitProposal, GitScope } from '@/lib/api/git'
+import type { GitProposal, GitScope, GitTrackedUnmarkedFile } from '@/lib/api/git'
 import { GitDiffDialog } from './GitDiffDialog'
 import { PushMappingsDialog } from './PushMappingsDialog'
 import { MappingProjectPull } from './MappingProjectPull'
@@ -34,6 +34,7 @@ import { QuickActionCard } from './QuickActionCard'
 import { GitErrorInline } from './GitErrorInline'
 import { useConfirmDataVersioning, type DataPushAction } from './ConfirmDataVersioningDialog'
 import { dataFilesToPush, leftOutFilesToDelete } from '@/lib/git-file-classify'
+import { TrackedUnmarkedNotice } from './TrackedUnmarkedNotice'
 
 interface GitSyncPanelProps {
   scope: GitScope
@@ -114,7 +115,8 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   // Quick actions (simple, one-click) is the default; Details is the full
   // branch/file/message UI for advanced users.
   const [mode, setMode] = useState<'quick' | 'details'>('quick')
-  const { requestPush, dialog: confirmDataPushDialog } = useConfirmDataVersioning()
+  const { requestMark, requestPush, dialog: confirmDataPushDialog } = useConfirmDataVersioning()
+  const markVersionedDataFiles = useAppStore((s) => s.markVersionedDataFiles)
 
   // ensureStatus recomputes only when the entity/branch/includeData changed since
   // the last status (see the store), so switching tabs and returning to the same
@@ -144,6 +146,16 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   }
 
   const files = status?.files ?? []
+  const marked = new Set(status?.markedForVersioning ?? [])
+  const trackedUnmarked = status?.trackedUnmarked ?? []
+
+  const markTracked = (entries: GitTrackedUnmarkedFile[]) =>
+    requestMark(entries.map((e) => e.path), () => void (async () => {
+      const keysByProject = new Map<string, string[]>()
+      for (const e of entries) keysByProject.set(e.projectUid, [...(keysByProject.get(e.projectUid) ?? []), e.key])
+      for (const [uid, keys] of keysByProject) await markVersionedDataFiles(uid, keys)
+      await refreshStatus(scope, id, branch)
+    })())
 
   // Same selection and checks as a push, onto a branch of its own: the change
   // reaches `branch` once the forge merges it (plan §6).
@@ -158,7 +170,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
       }
     }
     const chosen = files.filter((f) => selected.has(f.path))
-    requestPush(dataFilesToPush(chosen), () => void run(), 'propose', leftOutFilesToDelete(chosen))
+    requestPush(dataFilesToPush(chosen, marked), () => void run(), 'propose', leftOutFilesToDelete(chosen))
   }
 
   const handleCommit = () => {
@@ -172,7 +184,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
       }
     }
     const chosen = files.filter((f) => selected.has(f.path))
-    requestPush(dataFilesToPush(chosen), () => void commit(), 'push', leftOutFilesToDelete(chosen))
+    requestPush(dataFilesToPush(chosen, marked), () => void commit(), 'push', leftOutFilesToDelete(chosen))
   }
 
   // A private remote that couldn't be read (missing/invalid token) must NOT fall
@@ -203,7 +215,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   const quickActions = buildQuickActions(scope, files)
   const runQuickAction = (qa: QuickAction, action: DataPushAction) => {
     if (committing || mustPullFirst || qa.files.length === 0) return
-    requestPush(dataFilesToPush(qa.files), () => void commitQuickAction(qa, action), action, leftOutFilesToDelete(qa.files))
+    requestPush(dataFilesToPush(qa.files, marked), () => void commitQuickAction(qa, action), action, leftOutFilesToDelete(qa.files))
   }
   const commitQuickAction = async (qa: QuickAction, action: DataPushAction) => {
     // commitPushPaths refreshes the status once the push lands, so the cards
@@ -378,6 +390,9 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   // a greyed-out button next to a banner explaining why is telling the user what
   // they cannot do; replacing it with what they CAN do is the point of the mode.
   const pullMode = inlinePull && mustPullFirst
+  const trackedNotice = !loadingStatus && !authBlocked && !statusBlocked && !pullMode
+    ? <TrackedUnmarkedNotice files={trackedUnmarked} onMark={markTracked} />
+    : null
   const afterPull = async () => {
     // The pull wrote straight to the DB, behind whatever in-memory stores the
     // scope's own views read — only it knows what to reload; a reinstall knows too.
@@ -455,6 +470,8 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
               or "not implemented" notice is read after the buttons it qualifies. */}
           {pullBanner}
 
+          {trackedNotice}
+
           {loadingStatus ? (
             <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
               <Loader2 size={14} className="animate-spin" />
@@ -526,6 +543,8 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
       {branchRow}
 
       {pullBanner}
+
+      {trackedNotice}
 
       {authBlocked && authBlock}
 

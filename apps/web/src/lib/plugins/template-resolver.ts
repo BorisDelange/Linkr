@@ -48,34 +48,45 @@ function serialiseField(
   }
 }
 
-/** column-select: resolve IDs → names, then format as list or single string. */
-function serialiseColumnSelect(
+/** What a column-select puts in the code: the picked columns' names (a multi field
+ *  with none picked and `defaultAll` takes every column its filter allows), or for
+ *  a single pick the column's name, else the value as given. */
+export function pickedColumnNames(
   field: PluginConfigField,
   value: unknown,
-  columns: DatasetColumn[],
-  language: 'python' | 'r',
-): string {
+  columns: readonly DatasetColumn[],
+): unknown {
   if (field.multi) {
     let ids = Array.isArray(value) ? (value as string[]) : []
-    // If no columns selected and defaultAll is true, use all columns
-    // (optionally filtered by the field's type filter)
     if (ids.length === 0 && field.defaultAll) {
       const filtered = field.filter
         ? columns.filter(c => (field.filter === 'numeric' ? c.type === 'number' : c.type === 'string'))
         : columns
       ids = filtered.map(c => c.id)
     }
-    const names = ids
+    return ids
       .map(id => columns.find(c => c.id === id)?.name)
       .filter((n): n is string => n != null)
+  }
+  if (value == null) return null
+  return columns.find(c => c.id === (value as string))?.name ?? value
+}
+
+function serialiseColumnSelect(
+  field: PluginConfigField,
+  value: unknown,
+  columns: DatasetColumn[],
+  language: 'python' | 'r',
+): string {
+  const picked = pickedColumnNames(field, value, columns)
+  if (field.multi) {
+    const names = picked as string[]
     return language === 'r'
       ? `c(${names.map(n => JSON.stringify(n)).join(', ')})`
       : JSON.stringify(names)
   }
-  // single
-  if (value == null) return language === 'r' ? 'NULL' : 'None'
-  const name = columns.find(c => c.id === (value as string))?.name ?? (value as string)
-  return JSON.stringify(name)
+  if (picked == null) return language === 'r' ? 'NULL' : 'None'
+  return JSON.stringify(picked)
 }
 
 function serialiseBool(value: unknown, language: 'python' | 'r'): string {

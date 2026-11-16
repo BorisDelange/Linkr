@@ -25,12 +25,15 @@ MESSAGE = (
 )
 
 EXAMPLE_SECRETS = frozenset(
-    {"dev-secret-change-in-production", "change-me", "changeme"}
+    {"dev-secret-change-in-production", "change-me", "changeme", "<the generated secret>"}
 )
 
 
 def is_example(key: str) -> bool:
-    return key.strip().lower() in EXAMPLE_SECRETS
+    """An example's value, or the empty one docker/.env.example ships — also kept in
+    the quotes an env file passed to `docker run --env-file` does not strip."""
+    bare = key.strip().strip("\"'").strip().lower()
+    return not bare or bare in EXAMPLE_SECRETS
 
 
 def refusing() -> bool:

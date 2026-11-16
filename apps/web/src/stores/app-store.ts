@@ -182,6 +182,8 @@ interface AppState {
    *  file recreated there starts unmarked. Returns what it removed, for undo. */
   forgetVersioningMarks: (uid: string, key: string) => Promise<RemovedMarks | null>
   restoreVersioningMarks: (uid: string, removed: RemovedMarks) => Promise<void>
+  /** Add export tree paths to project.config.versionedDataFiles (never removes). */
+  markVersionedDataFiles: (uid: string, paths: string[]) => Promise<void>
   _saveVersioningConfig: (uid: string, config: Record<string, unknown>) => Promise<void>
   /** Remember the database the IDE runs scripts against. Persists + travels with
    *  the export (the id is local, the ref beside it is what survives an import). */
@@ -652,6 +654,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     const project = get()._projectsRaw.find((p) => p.uid === uid)
     if (!project) return
     await get()._saveVersioningConfig(uid, restoreMarks((project.config ?? {}) as Record<string, unknown>, removed))
+  },
+
+  markVersionedDataFiles: async (uid, paths) => {
+    const project = get()._projectsRaw.find((p) => p.uid === uid)
+    if (!project || paths.length === 0) return
+    await get()._saveVersioningConfig(uid, restoreMarks((project.config ?? {}) as Record<string, unknown>, { versionedDataFiles: paths }))
   },
 
   _saveVersioningConfig: async (uid, config) => {

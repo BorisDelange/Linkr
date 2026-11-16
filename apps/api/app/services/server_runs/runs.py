@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import database
 from app.core.redact import scrub_row_values
 from app.models.server_run import ACTIVE_STATUSES, ServerRun
-from app.services.server_runs import executor, registry, state
+from app.services.server_runs import executor, query_list, registry, state
 from app.services.server_runs.state import RESUMABLE
 
 logger = logging.getLogger(__name__)
@@ -84,22 +84,28 @@ async def _launch(db: AsyncSession, run: ServerRun) -> None:
 
 async def start(
     db: AsyncSession, *, kind: str, scope_id: str, data_source_id: str | None, workspace_id: str | None,
-    user_id: int, spec: dict, granted: dict | None = None,
+    user_id: int, spec: dict, granted: dict | None = None, principal: str = "",
 ) -> ServerRun:
-    """The run going on for this kind and scope, or a new one: a second start — a
-    second tab, a click during a reload — follows the first rather than run
-    beside it. A paused one the new run replaces is closed. `spec` is validated.
+    """The run going on for this kind, scope and principal, or a new one: a second
+    start — a second tab, a click during a reload — follows the first rather than
+    run beside it. A paused one the new run replaces is closed. `spec` is validated.
     `granted`: what the server decided its starter may do, kept in its state."""
-    model = registry.KINDS[kind].spec.model_validate(spec)
-    await settled(db, await state.active(db, kind, scope_id))
-    previous = await state.latest(db, kind, scope_id)
+    the_kind = registry.KINDS[kind]
+    model = the_kind.spec.model_validate(spec)
+    initial = the_kind.initial(model)
+    if the_kind.signed:
+        # The page's own claim is dropped: no reader may take it for the server's.
+        initial["meta"] = {k: v for k, v in (initial.get("meta") or {}).items() if k != "signature"}
+        initial["signature"] = query_list.signature(data_source_id, model)
+    await settled(db, await state.active(db, kind, scope_id, (principal,)))
+    previous = await state.latest(db, kind, scope_id, (principal,))
     run, created = await state.create(
         db, kind=kind, scope_id=scope_id, data_source_id=data_source_id, workspace_id=workspace_id,
-        user_id=user_id, spec=model.model_dump(), initial={**registry.KINDS[kind].initial(model), **(granted or {})},
+        user_id=user_id, spec=model.model_dump(), initial={**initial, **(granted or {})}, principal=principal,
     )
     if not created:
         return run
-    for pruned in await state.prune(db, kind, scope_id):
+    for pruned in await state.prune(db, kind, scope_id, principal):
         await executor.forget_files(pruned)
     if previous is not None and previous.status in RESUMABLE:
         await _close(db, previous, RESUMABLE)

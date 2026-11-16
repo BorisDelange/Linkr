@@ -30,6 +30,7 @@ from sqlalchemy import insert, update
 from sqlalchemy.exc import IntegrityError
 
 from app.core import database
+from app.core.redact import scrub_row_values
 from app.models.data_catalog import DataCatalog
 from app.models.stats_cache import StatsCache
 from app.services import stats_cache_service
@@ -121,7 +122,7 @@ class CatalogExecutor(QueryingExecutor):
         except state.Fenced:
             raise
         except Exception as e:
-            await asyncio.shield(self._final_save(str(e)[:4000]))
+            await asyncio.shield(self._final_save(scrub_row_values(str(e))[:4000]))
             raise
 
     async def _compute(self) -> None:

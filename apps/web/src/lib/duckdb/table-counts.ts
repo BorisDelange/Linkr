@@ -124,7 +124,7 @@ export async function countAllTables(
     // timeout or runs beside another heavy query, a reload finds it going on, and
     // the jobs panel can stop it.
     let done = 0
-    const plan = signedPlan(await preparePlan(dataSourceId, {
+    const plan = await signedPlan(dataSourceId, await preparePlan(dataSourceId, {
       label: i18n.t('databases.count_tables_job'),
       items: tables.map((table, i) => ({ key: `t${i}`, sql: `SELECT COUNT(*) as cnt FROM ${quoteTableRef(table)}`, what: `Rows of ${table}` })),
       keepGoing: true,

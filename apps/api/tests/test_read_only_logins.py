@@ -10,10 +10,11 @@ from app.core.refusal import refusal_detail
 from app.services.data import db_connect, read_only_logins
 from app.services.data.community_engines import LoginNotReadOnly
 from app.services.data.read_only_logins import (
-    MySQLGrant,
+    MYSQL_LOGIN_SQL,
+    MYSQL_PRIVILEGES_SQL,
     Verdict,
+    mysql_grantee,
     mysql_write_privileges,
-    parse_mysql_grant,
     postgres_write_privileges,
 )
 
@@ -76,111 +77,71 @@ def test_the_postgres_check_is_one_select_of_ten_columns():
     assert isinstance(tree, sqlglot.exp.Select) and len(tree.expressions) == 10
 
 
-# ── MySQL / MariaDB: SHOW GRANTS lines ───────────────────────────────────────
+# ── MySQL / MariaDB: information_schema ──────────────────────────────────────
 
-@pytest.mark.parametrize(("line", "grant"), [
-    ("GRANT USAGE ON *.* TO `reader`@`%`", MySQLGrant(("USAGE",), "*.*")),
-    ("GRANT SELECT, SHOW VIEW ON `omop`.* TO `reader`@`%`", MySQLGrant(("SELECT", "SHOW VIEW"), "`omop`.*")),
-    ("GRANT SELECT ON `omop`.`person` TO 'reader'@'10.0.0.%'", MySQLGrant(("SELECT",), "`omop`.`person`")),
-    ("GRANT SELECT (`a`, `b ON c`), INSERT (`c`) ON `omop`.`t` TO `reader`@`%`",
-     MySQLGrant(("SELECT", "INSERT"), "`omop`.`t`")),
-    ("GRANT ALL PRIVILEGES ON `scratch`.* TO `reader`@`%`", MySQLGrant(("ALL PRIVILEGES",), "`scratch`.*")),
-    ("GRANT ALL ON *.* TO `root`@`localhost` WITH GRANT OPTION",
-     MySQLGrant(("ALL PRIVILEGES",), "*.*", grant_option=True)),
-    ("GRANT SELECT, CREATE TEMPORARY TABLES, LOCK TABLES ON `omop`.* TO `reader`@`%`",
-     MySQLGrant(("SELECT", "CREATE TEMPORARY TABLES", "LOCK TABLES"), "`omop`.*")),
-    ("GRANT APPLICATION_PASSWORD_ADMIN,SYSTEM_VARIABLES_ADMIN,SHOW_ROUTINE ON *.* TO `ops`@`%`",
-     MySQLGrant(("APPLICATION_PASSWORD_ADMIN", "SYSTEM_VARIABLES_ADMIN", "SHOW_ROUTINE"), "*.*")),
-    ("GRANT EXECUTE ON PROCEDURE `omop`.`refresh` TO `reader`@`%`",
-     MySQLGrant(("EXECUTE",), "PROCEDURE `omop`.`refresh`")),
-    ("GRANT PROXY ON ''@'' TO 'root'@'localhost' WITH GRANT OPTION", MySQLGrant(("PROXY",), "''@''", grant_option=True)),
-    ("GRANT USAGE ON *.* TO `reader`@`%` IDENTIFIED BY PASSWORD '*2470C0C06DEE42FD1618BB99005ADCA2EC9D1E19'",
-     MySQLGrant(("USAGE",), "*.*")),
-    ("GRANT `analyst`@`%`,`loader`@`%` TO `reader`@`%`", MySQLGrant(roles=("`analyst`@`%`", "`loader`@`%`"))),
-    ("GRANT `analyst` TO `reader`@`%` WITH ADMIN OPTION", MySQLGrant(roles=("`analyst`",), admin_option=True)),
-    ("grant select on omop.* to reader@'%'", MySQLGrant(("SELECT",), "omop.*")),
+ME = "'reader'@'%'"
+
+
+def _privileges(*privileges: str, grantable: str = "NO", grantee: str = ME) -> list[tuple]:
+    return [(grantee, p, grantable) for p in privileges]
+
+
+@pytest.mark.parametrize(("current_user", "grantee"), [
+    ("reader@%", "'reader'@'%'"),
+    ("reader@10.0.0.%", "'reader'@'10.0.0.%'"),
+    ("svc@corp@db.internal", "'svc@corp'@'db.internal'"),
 ])
-def test_a_grant_line_reads_as_its_privileges_or_roles(line, grant):
-    assert parse_mysql_grant(line) == grant
-
-
-@pytest.mark.parametrize("line", [
-    "REVOKE INSERT ON `mysql`.* FROM `reader`@`%`",
-    "SET DEFAULT ROLE `analyst` FOR `reader`@`%`",
-])
-def test_a_line_that_grants_nothing_is_skipped(line):
-    assert parse_mysql_grant(line) is None
-
-
-@pytest.mark.parametrize("line", ["", "Grants for reader@%", "GRANT SELECT", "GRANT ON *.* TO x", "GRANT SELECT, ON *.* TO x",
-                                  "GRANT SELECT (`a` ON `t` TO x", "GRANT 'x' ON *.* TO y"])
-def test_a_grant_line_it_cannot_read_is_refused(line):
-    with pytest.raises(ValueError):
-        parse_mysql_grant(line)
-
-
-@pytest.mark.parametrize(("line", "writes"), [
-    ("GRANT USAGE ON *.* TO `reader`@`%`", []),
-    ("GRANT SELECT, SHOW VIEW, SHOW DATABASES ON *.* TO `reader`@`%`", []),
-    ("GRANT SELECT (`a`), UPDATE (`b`) ON `omop`.`t` TO `reader`@`%`", ["UPDATE"]),
-    ("GRANT SELECT ON `omop`.* TO `reader`@`%` WITH GRANT OPTION", ["GRANT OPTION"]),
-    ("GRANT PROCESS, FILE, RELOAD ON *.* TO `reader`@`%`", ["PROCESS", "FILE", "RELOAD"]),
-    ("GRANT BINLOG_ADMIN ON *.* TO `reader`@`%`", ["BINLOG_ADMIN"]),
-])
-def test_only_reading_privileges_are_read_only(line, writes):
-    assert parse_mysql_grant(line).writes == writes
-
-
-def _answers(table: dict[str, list[str]]):
-    asked: list[str] = []
-
-    def show_grants(statement: str) -> list[str]:
-        asked.append(statement)
-        if statement not in table:
-            raise duckdb.CatalogException(f"refused: {statement}")
-        return table[statement]
-
-    return show_grants, asked
+def test_the_login_is_matched_as_information_schema_spells_it(current_user, grantee):
+    assert mysql_grantee(current_user) == grantee
 
 
 def test_a_mysql_login_reading_one_database_is_read_only():
-    show, _ = _answers({"SHOW GRANTS": [
-        "GRANT USAGE ON *.* TO `reader`@`%`", "GRANT SELECT, SHOW VIEW ON `omop`.* TO `reader`@`%`",
-    ]})
-    assert mysql_write_privileges(show) == []
+    rows = _privileges("USAGE") + _privileges("SELECT", "SHOW VIEW")
+    assert mysql_write_privileges("reader@%", 0, 0, rows) == []
 
 
-def test_a_role_granted_to_the_login_counts_through_using():
-    show, asked = _answers({
-        "SHOW GRANTS": ["GRANT USAGE ON *.* TO `reader`@`%`", "GRANT `etl`@`%` TO `reader`@`%`"],
-        "SHOW GRANTS FOR CURRENT_USER() USING `etl`@`%`": [
-            "GRANT USAGE ON *.* TO `reader`@`%`", "GRANT INSERT, DELETE ON `omop`.* TO `reader`@`%`",
-            "GRANT `etl`@`%` TO `reader`@`%`",
-        ],
-    })
-    assert mysql_write_privileges(show) == ["INSERT", "DELETE"]
-    assert asked == ["SHOW GRANTS", "SHOW GRANTS FOR CURRENT_USER() USING `etl`@`%`"]
+@pytest.mark.parametrize(("rows", "writes"), [
+    (_privileges("SELECT", "SHOW DATABASES", "SHOW_ROUTINE"), []),
+    (_privileges("SELECT", "INSERT"), ["INSERT"]),
+    (_privileges("USAGE", "SYSTEM_VARIABLES_ADMIN"), ["SYSTEM_VARIABLES_ADMIN"]),
+    (_privileges("select", "update"), ["UPDATE"]),
+    (_privileges("SELECT", grantable="YES"), ["GRANT OPTION"]),
+    (_privileges("PROCESS", "FILE", "FILE"), ["PROCESS", "FILE"]),
+])
+def test_only_reading_privileges_are_read_only(rows, writes):
+    assert mysql_write_privileges("reader@%", 0, 0, _privileges("USAGE") + rows) == writes
 
 
-def test_mariadb_roles_are_read_one_by_one():
-    show, _ = _answers({
-        "SHOW GRANTS": ["GRANT `etl` TO `reader`@`%`", "GRANT USAGE ON *.* TO `reader`@`%`",
-                        "SET DEFAULT ROLE `etl` FOR `reader`@`%`"],
-        "SHOW GRANTS FOR `etl`": ["GRANT ALL PRIVILEGES ON `omop`.* TO `etl`"],
-    })
-    assert mysql_write_privileges(show) == ["ALL PRIVILEGES"]
+def test_other_accounts_rows_are_not_the_logins():
+    rows = _privileges("USAGE") + _privileges("SELECT", "INSERT", "DROP", grantee="'root'@'localhost'")
+    assert mysql_write_privileges("reader@%", 0, 0, rows) == []
 
 
-def test_roles_that_cannot_be_read_leave_the_login_unverified():
-    show, _ = _answers({"SHOW GRANTS": ["GRANT `etl`@`%` TO `reader`@`%`"]})
-    with pytest.raises(duckdb.Error):
-        mysql_write_privileges(show)
+def test_a_grant_to_public_counts_for_the_login():
+    rows = _privileges("USAGE") + _privileges("INSERT", grantee="PUBLIC")
+    assert mysql_write_privileges("reader@%", 0, 0, rows) == ["INSERT"]
 
 
-def test_no_grant_at_all_proves_nothing():
-    show, _ = _answers({"SHOW GRANTS": []})
+def test_a_login_holding_a_role_stays_unverified():
     with pytest.raises(ValueError):
-        mysql_write_privileges(show)
+        mysql_write_privileges("reader@%", 1, 0, _privileges("USAGE", "SELECT"))
+
+
+def test_a_login_that_sees_a_routine_stays_unverified():
+    with pytest.raises(ValueError):
+        mysql_write_privileges("reader@%", 0, 2, _privileges("USAGE", "SELECT"))
+
+
+def test_no_privilege_of_the_login_proves_nothing():
+    with pytest.raises(ValueError):
+        mysql_write_privileges("reader@%", 0, 0, _privileges("SELECT", grantee="'other'@'%'"))
+
+
+@pytest.mark.parametrize("sql", [MYSQL_LOGIN_SQL, MYSQL_PRIVILEGES_SQL])
+def test_the_mysql_check_is_plain_selects(sql):
+    tree = sqlglot.parse_one(sql, read="mysql")
+    assert isinstance(tree, (sqlglot.exp.Select, sqlglot.exp.Union))
+    assert "SHOW" not in sql.upper()
 
 
 # ── The verdict at attach ────────────────────────────────────────────────────
@@ -188,9 +149,9 @@ def test_no_grant_at_all_proves_nothing():
 class _CheckCon:
     """Answers the login checks; records what was sent."""
 
-    def __init__(self, pg_row=None, grants=None, fail=False):
+    def __init__(self, pg_row=None, privileges=None, roles=0, fail=False):
         self.sql: list[str] = []
-        self.pg_row, self.grants, self.fail = pg_row, grants or [], fail
+        self.pg_row, self.privileges, self.roles, self.fail = pg_row, privileges or [], roles, fail
         self._rows: list[tuple] = []
 
     def execute(self, sql, *_args):
@@ -199,8 +160,10 @@ class _CheckCon:
             raise duckdb.IOException("permission denied for table pg_authid")
         if "postgres_query" in sql:
             self._rows = self.pg_row
+        elif "APPLICABLE_ROLES" in sql:
+            self._rows = [("reader@%", self.roles, 0)]
         elif "mysql_query" in sql:
-            self._rows = [(g,) for g in self.grants]
+            self._rows = self.privileges
         return self
 
     def fetchall(self):
@@ -216,15 +179,15 @@ def test_a_login_that_can_write_still_attaches_and_is_remembered():
 
 
 def test_a_verdict_serves_the_next_attach_of_the_same_login():
-    db_connect._attach_external(_CheckCon(grants=["GRANT SELECT ON `omop`.* TO `reader`@`%`"]), "ext", MYSQL, "pw")
+    db_connect._attach_external(_CheckCon(privileges=_privileges("USAGE", "SELECT")), "ext", MYSQL, "pw")
     con = _CheckCon()
     db_connect._attach_external(con, "source", MYSQL, "pw")
     assert not any("mysql_query" in s for s in con.sql)
     assert read_only_logins._attached[con]["source"][1].read_only
     read_only_logins.forget(MYSQL)
-    con = _CheckCon(grants=["GRANT SELECT ON `omop`.* TO `reader`@`%`"])
+    con = _CheckCon(privileges=_privileges("USAGE", "SELECT"))
     db_connect._attach_external(con, "source", MYSQL, "pw")
-    assert any("SHOW GRANTS" in s for s in con.sql)
+    assert any("APPLICABLE_ROLES" in s for s in con.sql)
 
 
 def test_a_check_that_fails_leaves_the_login_unverified_and_is_tried_again(caplog):
@@ -238,7 +201,7 @@ def test_a_check_that_fails_leaves_the_login_unverified_and_is_tried_again(caplo
 
 def test_a_login_that_can_write_is_logged_once(caplog):
     for _ in range(3):
-        db_connect._attach_external(_CheckCon(grants=["GRANT INSERT ON `omop`.* TO `reader`@`%`"]), "ext",
+        db_connect._attach_external(_CheckCon(privileges=_privileges("USAGE", "INSERT")), "ext",
                                     MYSQL, "pw")
         read_only_logins.forget(MYSQL)
     assert caplog.text.count("can write (INSERT)") == 1

@@ -74,10 +74,10 @@ def test_doris_attaches_without_read_only_and_checks_the_login():
 
 
 def test_mysql_attaches_read_only_and_checks_the_login_without_refusing_it():
-    con = _FakeCon([{"Grants for reader@%": "GRANT INSERT ON `omop`.* TO `reader`@`%`"}])
+    con = _FakeCon()
     db_connect._attach_external(con, "source", {**DORIS, "engine": "mysql"}, None)
     assert con.sql[1].endswith('AS "source" (TYPE mysql, READ_ONLY, SECRET "linkr_source")')
-    assert any("SHOW GRANTS" in s for s in con.sql[2:])
+    assert any("information_schema.APPLICABLE_ROLES" in s for s in con.sql[2:])
 
 
 def test_doris_login_that_can_write_is_refused():
@@ -286,6 +286,8 @@ def test_native_sql_accepts_one_plain_select(sql):
     ("SELECT /*+ x */ 1 ; SET a = 1", "single statement"),
     ("SELECT 1 # comment\n", "'#'"),
     ("SELECT 1 -- a \\\n; SET a = 1", "backslash"),
+    ("SELECT a FROM t WHERE 1 --1 FOR UPDATE\n", "not followed by a space"),
+    ("SELECT 1 --", "not followed by a space"),
     ("SELECT 1 /* a /* b */ ; SET a = 1 */", "nested"),
     ("SELECT 'unterminated", "unterminated"),
     ("SELECT 'a\\'; SET a = 1", "unterminated"),

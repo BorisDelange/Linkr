@@ -11,7 +11,7 @@ vi.mock('./engine', () => ({
 const followServerPlan = vi.fn()
 vi.mock('@/lib/server-runs/query-plan', () => ({
   preparePlan: async (_ds: string, plan: unknown) => plan,
-  signedPlan: (plan: { items: { key: string; sql: string }[] }) => ({ ...plan, meta: { signature: plan.items.map((i) => i.key + i.sql).join('|') } }),
+  signedPlan: async (ds: string, plan: { items: { key: string; sql: string }[] }) => ({ ...plan, meta: { signature: ds + plan.items.map((i) => i.key + i.sql).join('|') } }),
   followServerPlan: (...args: unknown[]) => followServerPlan(...args),
 }))
 

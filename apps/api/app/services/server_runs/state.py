@@ -26,8 +26,8 @@ BOOT_ID = str(uuid.uuid4())
 # too: claimed within it, or no executor is coming for it.
 LEASE_SECONDS = 120
 
-# Kept per kind and scope besides the active one: the page shows the
-# last; the others are history for the panel.
+# Kept per kind, scope and principal besides the active one: the page shows
+# the last; the others are history for the panel.
 KEPT_ENDED = 5
 
 
@@ -39,30 +39,34 @@ def _lease() -> datetime:
     return datetime.now(UTC) + timedelta(seconds=LEASE_SECONDS)
 
 
-async def active(db: AsyncSession, kind: str, scope_id: str) -> ServerRun | None:
+async def active(db: AsyncSession, kind: str, scope_id: str, principals: tuple[str, ...] = ("",)) -> ServerRun | None:
+    """The run going on among those of these principals (`ServerRun.principal`)
+    — the last started, when a shared one and a user's own both are."""
     return (await db.execute(
         select(ServerRun).where(
-            ServerRun.kind == kind, ServerRun.scope_id == scope_id, ServerRun.status.in_(ACTIVE_STATUSES),
-        )
+            ServerRun.kind == kind, ServerRun.scope_id == scope_id, ServerRun.principal.in_(principals),
+            ServerRun.status.in_(ACTIVE_STATUSES),
+        ).order_by(ServerRun.created_at.desc(), ServerRun.id.desc()).limit(1)
     )).scalar_one_or_none()
 
 
-async def latest(db: AsyncSession, kind: str, scope_id: str) -> ServerRun | None:
+async def latest(db: AsyncSession, kind: str, scope_id: str, principals: tuple[str, ...] = ("",)) -> ServerRun | None:
     return (await db.execute(
-        select(ServerRun).where(ServerRun.kind == kind, ServerRun.scope_id == scope_id)
-        .order_by(ServerRun.created_at.desc(), ServerRun.id.desc()).limit(1)
+        select(ServerRun).where(
+            ServerRun.kind == kind, ServerRun.scope_id == scope_id, ServerRun.principal.in_(principals),
+        ).order_by(ServerRun.created_at.desc(), ServerRun.id.desc()).limit(1)
     )).scalar_one_or_none()
 
 
 async def create(
     db: AsyncSession, *, kind: str, scope_id: str, data_source_id: str | None, workspace_id: str | None,
-    user_id: int, spec: dict, initial: dict,
+    user_id: int, spec: dict, initial: dict, principal: str = "",
 ) -> tuple[ServerRun, bool]:
-    """A new queued run, or the one already going on for the same kind and scope
-    — the unique index decides, not a check here, so two starts at once give one
-    run. The second value says whether it is new. `initial`: its first state."""
+    """A new queued run, or the one already going on for the same kind, scope and
+    principal — the unique index decides, not a check here, so two starts at once
+    give one run. The second value says whether it is new. `initial`: its first state."""
     run = ServerRun(
-        data_source_id=data_source_id, kind=kind, scope_id=scope_id, workspace_id=workspace_id,
+        data_source_id=data_source_id, kind=kind, scope_id=scope_id, principal=principal, workspace_id=workspace_id,
         user_id=user_id, status="queued", spec=spec, attempt=0, boot_id=BOOT_ID, lease_until=_lease(),
         # To the microsecond: two runs of one second must still say which is the last.
         created_at=datetime.now(UTC),
@@ -73,7 +77,7 @@ async def create(
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        existing = await active(db, kind, scope_id)
+        existing = await active(db, kind, scope_id, (principal,))
         if existing is None:
             raise
         return existing, False
@@ -81,11 +85,12 @@ async def create(
     return run, True
 
 
-async def prune(db: AsyncSession, kind: str, scope_id: str) -> list[str]:
+async def prune(db: AsyncSession, kind: str, scope_id: str, principal: str = "") -> list[str]:
     """Drop the oldest ended runs; their ids, whose files must go too."""
     ended = (await db.execute(
         select(ServerRun.id).where(
-            ServerRun.kind == kind, ServerRun.scope_id == scope_id, ServerRun.status.not_in(ACTIVE_STATUSES),
+            ServerRun.kind == kind, ServerRun.scope_id == scope_id, ServerRun.principal == principal,
+            ServerRun.status.not_in(ACTIVE_STATUSES),
         ).order_by(ServerRun.created_at.desc(), ServerRun.id.desc()).offset(KEPT_ENDED)
     )).scalars().all()
     for run_id in ended:

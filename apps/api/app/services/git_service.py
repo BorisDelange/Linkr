@@ -1169,20 +1169,14 @@ async def status(repo_getter, uid: str, zip_bytes: bytes, branch: str, remote_ur
         return await asyncio.to_thread(work)
 
 
-_TRACKED_ADOPTED_MARKER = "linkr-tracked-adopted"
-
-
 async def tracked_paths(repo_getter, uid: str, branch: str, remote_url: str | None) -> set[str] | None:
     """The files committed on `branch` as the entity's clone last fetched it (no
-    network), or None when the clone of that remote has no such branch yet or its
-    one-off adoption of tracked files (`mark_tracked_adopted`) already ran."""
+    network), or None when the clone of that remote has no such branch yet."""
     _safe_ref(branch)
 
     def work() -> set[str] | None:
         repo = repo_getter(uid)
         if not remote_url or not (repo / ".git").is_dir():
-            return None
-        if (repo / ".git" / _TRACKED_ADOPTED_MARKER).exists():
             return None
         if _run(repo, "remote", "get-url", "origin", check=False).strip() != remote_url:
             return None
@@ -1194,20 +1188,6 @@ async def tracked_paths(repo_getter, uid: str, branch: str, remote_url: str | No
 
     async with _lock_for(repo_getter(uid)):
         return await asyncio.to_thread(work)
-
-
-async def mark_tracked_adopted(repo_getter, uid: str) -> None:
-    """Record that the files tracked in the entity's clone were adopted, so a file
-    the user unmarks afterwards is not adopted again (the marker lives in .git, so a
-    clone of a new remote starts over)."""
-
-    def work() -> None:
-        git_dir = repo_getter(uid) / ".git"
-        if git_dir.is_dir():
-            (git_dir / _TRACKED_ADOPTED_MARKER).touch()
-
-    async with _lock_for(repo_getter(uid)):
-        await asyncio.to_thread(work)
 
 
 async def sync_state(

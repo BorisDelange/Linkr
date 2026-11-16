@@ -23,11 +23,55 @@ describe('acceptanceSource', () => {
     expect(acceptanceSource(TEMPLATE, { ...base, expr: '__import__("os")' }, columns, schema)).not.toBe(accepted)
   })
 
-  it('keeps numbers, booleans, picked columns and declared options out', () => {
+  it('keeps numbers and booleans out', () => {
     const base = { expr: 'same', bins: 10, log: false, col: 'c1', kind: 'bar' }
     const accepted = acceptanceSource(TEMPLATE, base, columns, schema)
     expect(acceptanceSource(TEMPLATE, { ...base, bins: 99, log: true }, columns, schema)).toBe(accepted)
     expect(acceptanceSource(TEMPLATE, { ...base, expr: '' }, columns, schema)).not.toBe(accepted)
+  })
+
+  it('is the same for the same template, settings and columns', () => {
+    const base = { expr: 'x', bins: 10, log: false, col: 'c1', kind: 'bar', extra: { b: '1', a: '2' } }
+    const template = `${TEMPLATE}\n{{extra}}`
+    const accepted = acceptanceSource(template, base, columns, schema)
+    expect(acceptanceSource(template, structuredClone(base), [...columns], { ...schema })).toBe(accepted)
+    expect(acceptanceSource(template, { ...base, extra: { a: '2', b: '1' } }, columns, schema)).toBe(accepted)
+  })
+
+  it('covers the name a picked column puts in the code, not its id', () => {
+    const multi = { ...schema, cols: field('column-select', { multi: true }) }
+    const template = `${TEMPLATE}\nfit({{cols}})`
+    const config = { col: 'c1', cols: ['c1', 'c2'], kind: 'bar' }
+    const before = [{ id: 'c1', name: 'age' }, { id: 'c2', name: 'sex' }] as DatasetColumn[]
+    const accepted = acceptanceSource(template, config, before, multi)
+    const renamed = (i: number) => before.map((c, j) => (j === i ? { ...c, name: `${c.name}_2` } : c))
+    expect(acceptanceSource(template, config, renamed(0), multi)).not.toBe(accepted)
+    expect(acceptanceSource(template, config, renamed(1), multi)).not.toBe(accepted)
+    expect(acceptanceSource(template, config, before.map((c) => ({ ...c })), multi)).toBe(accepted)
+  })
+
+  it('covers the columns a multi pick takes by default, as the dataset names them', () => {
+    const all = { cols: field('column-select', { multi: true, defaultAll: true }) }
+    const before = [{ id: 'c1', name: 'age' }] as DatasetColumn[]
+    const accepted = acceptanceSource('fit({{cols}})', {}, before, all)
+    expect(acceptanceSource('fit({{cols}})', {}, [{ id: 'c1', name: 'weight' }] as DatasetColumn[], all)).not.toBe(accepted)
+    expect(acceptanceSource('fit({{cols}})', {}, [...before, { id: 'c2', name: 'sex' }] as DatasetColumn[], all)).not.toBe(accepted)
+  })
+
+  it('covers the value a select puts in the code, whatever options the manifest declares', () => {
+    const accepted = acceptanceSource(TEMPLATE, { col: 'c1', kind: 'bar' }, columns, schema)
+    const optionsEdited = { ...schema, kind: field('select', { options: [{ value: 'line', label: { en: '', fr: '' } }] }) }
+    expect(acceptanceSource(TEMPLATE, { col: 'c1', kind: 'line' }, columns, optionsEdited)).not.toBe(accepted)
+    const defaultEdited = { ...schema, kind: field('select', { default: 'line', options: [{ value: 'line', label: { en: '', fr: '' } }] }) }
+    const byDefault = { ...schema, kind: field('select', { default: 'bar', options: schema.kind.options }) }
+    expect(acceptanceSource(TEMPLATE, { col: 'c1' }, columns, defaultEdited))
+      .not.toBe(acceptanceSource(TEMPLATE, { col: 'c1' }, columns, byDefault))
+  })
+
+  it('covers every placeholder the template names, whatever its name', () => {
+    const plain = acceptanceSource('run({{constructor}}, {{__proto__}})', {}, columns, schema)
+    const config = JSON.parse('{"constructor": "a", "__proto__": "b"}') as Record<string, unknown>
+    expect(acceptanceSource('run({{constructor}}, {{__proto__}})', config, columns, schema)).not.toBe(plain)
   })
 
   it('counts text that no list bounds: an unknown column or an undeclared option', () => {

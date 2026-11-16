@@ -3,7 +3,7 @@ import i18n from '@/lib/i18n'
 import { isServerMode } from '@/lib/api-client'
 import * as engine from '@/lib/duckdb/engine'
 import { cohortFiguresQueries, computeCohortReportData, withReportFlow, type CohortReportData } from '@/lib/cohort-report/model'
-import { followServerPlan, preparePlan, signatureOf, type PlanResults, type QueryPlan } from '@/lib/server-runs/query-plan'
+import { followServerPlan, preparePlan, signedPlan, type PlanResults, type QueryPlan } from '@/lib/server-runs/query-plan'
 import type { Cohort, DataSource, SchemaMapping } from '@/types'
 import { reportDataKey, reportRunOf, startReportRun, stopReportRun, useReportRun, type ReportRunState } from './report-runs'
 import { cohortOrigin } from '@/lib/duckdb/query-log'
@@ -57,11 +57,11 @@ async function figuresOnServer(
   const { items, assemble } = cohortFiguresQueries({ cohort, mapping, withFlow, base })
   if (items.length === 0) return assemble(new Map(), new Date().toISOString())
   const name = localized(cohort.name, i18n.language)
-  const plan: QueryPlan = await preparePlan(sourceId, {
+  const plan: QueryPlan = await signedPlan(sourceId, await preparePlan(sourceId, {
     label: i18n.t(withFlow ? 'cohorts.report_job' : 'cohorts.figures_job', { name }),
     items,
-    meta: { signature: signatureOf([sourceId, ...items.map((i) => i.sql)]), dataSourceId: sourceId },
-  })
+    meta: { dataSourceId: sourceId },
+  }))
   const results: PlanResults = new Map()
   const onRows = (i: number, rows: Record<string, unknown>[] | null, error?: string) =>
     results.set(plan.items[i].key, error !== undefined || !rows ? new Error(error ?? 'no rows') : rows)

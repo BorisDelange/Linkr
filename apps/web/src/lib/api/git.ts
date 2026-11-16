@@ -35,6 +35,15 @@ export interface GitFileChange {
   oldPath?: string | null
 }
 
+/** A file the repository tracks that the export leaves out until the user marks it. */
+export interface GitTrackedUnmarkedFile {
+  /** In the repository's tree. */
+  path: string
+  projectUid: string
+  /** In the project's versionedDataFiles. */
+  key: string
+}
+
 export interface GitStatus {
   linked: boolean
   branch: string
@@ -42,8 +51,10 @@ export interface GitStatus {
   modified: number
   added: number
   deleted: number
-  /** Files the repository tracks were marked for versioning by this status. */
-  adopted?: boolean
+  /** Projects and workspaces only, for the projects the caller may write. */
+  trackedUnmarked?: GitTrackedUnmarkedFile[]
+  /** Tree paths of the files marked for versioning (projects and workspaces). */
+  markedForVersioning?: string[]
 }
 
 export interface GitDiff {

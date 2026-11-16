@@ -1,0 +1,24 @@
+{
+  "dataSourceId": "ds-fixture",
+  "plan": {
+    "label": "Fixture",
+    "items": [
+      {
+        "key": "results",
+        "sql": "SELECT person_id\nFROM person\nWHERE gender = 'é' -- 🩺"
+      },
+      {
+        "key": "step_0",
+        "sql": "SELECT COUNT(*) AS cnt FROM \"visit_occurrence\""
+      }
+    ],
+    "keepGoing": true,
+    "meta": {
+      "signatureBasis": [
+        "patient"
+      ],
+      "dataSourceId": "ds-fixture"
+    }
+  },
+  "signature": "509e1221b137580014e2402e1a55dcbbd5764b25b96af0b9c9ab4195e5dfee39"
+}

@@ -56,6 +56,13 @@ class Kind:
     # A run cancelled while no executor holds it (paused, interrupted, failed,
     # or replaced by a new one): `on_closed(run_id)` ends what it left open.
     on_closed: Callable[[str], Awaitable[None]] | None = None
+    # Its results are rows the page reads (`/results`), which an external
+    # database reads with its starter's own login: there, each user's run is
+    # their own (`ServerRun.principal`).
+    per_login: bool = False
+    # The page takes a run for its own by `state.signature`, computed at its start
+    # over what it reads (`query_list.signature`): never one the page sent.
+    signed: bool = False
 
 
 def _concepts_initial(spec: RunSpec) -> dict:
@@ -141,9 +148,12 @@ KINDS: dict[str, Kind] = {
         resume_on_startup=False, respec=_etl_respec, on_closed=close_history,
     ),
     # A pipeline's Quality check, its concept comparison: scope the pipeline.
-    "etl_quality": Kind(QueryListSpec, QueryListExecutor, entity=_scope_pipeline_entity, initial=_query_list_initial),
+    "etl_quality": Kind(
+        QueryListSpec, QueryListExecutor, entity=_scope_pipeline_entity, initial=_query_list_initial,
+        per_login=True, signed=True,
+    ),
     # A database's statistics or its tables' row counts: scope `<database>:stats|counts`.
-    "database_stats": Kind(QueryListSpec, QueryListExecutor, initial=_query_list_initial),
+    "database_stats": Kind(QueryListSpec, QueryListExecutor, initial=_query_list_initial, per_login=True, signed=True),
     # A data catalog's computation: scope the catalog, which reads its database.
     "catalog": Kind(CatalogRunSpec, CatalogExecutor, entity=_catalog_entity),
     # The size estimate of its crossings, the same executor's other mode: scope the catalog.
@@ -158,7 +168,11 @@ KINDS: dict[str, Kind] = {
     "dq_rule_set": Kind(DqRunSpec, DqExecutor, entity=_dq_rule_set_entity, initial=_query_list_initial),
     "dq_profile": Kind(DqRunSpec, DqExecutor, entity=_dq_profile_entity, initial=_query_list_initial),
     # A cohort's members, count and attrition: scope the cohort.
-    "cohort_run": Kind(QueryListSpec, QueryListExecutor, entity=_cohort_entity, initial=_query_list_initial),
+    "cohort_run": Kind(
+        QueryListSpec, QueryListExecutor, entity=_cohort_entity, initial=_query_list_initial, per_login=True, signed=True,
+    ),
     # Its report's and its Statistics tab's figures: scope the cohort.
-    "cohort_figures": Kind(QueryListSpec, QueryListExecutor, entity=_cohort_entity, initial=_query_list_initial),
+    "cohort_figures": Kind(
+        QueryListSpec, QueryListExecutor, entity=_cohort_entity, initial=_query_list_initial, per_login=True, signed=True,
+    ),
 }

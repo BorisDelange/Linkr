@@ -73,7 +73,7 @@ function statsRunner(dsId: string, phase: StatsPhase, { signal, label, resumeOnl
   return async (queries, onRows) => {
     // Signed: a run of other queries (the mapping changed, the tables listed in
     // another order — the row counts of countAllTables share the scope) is not joined.
-    const plan = signedPlan(await preparePlan(dsId, {
+    const plan = await signedPlan(dsId, await preparePlan(dsId, {
       label: label ?? i18n.t('databases.stats_job', { name: dsId }),
       items: queries.map(({ key, sql }) => ({ key, sql, what: key.replace(/_/g, ' ') })),
       keepGoing: true,

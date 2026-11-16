@@ -104,10 +104,14 @@ def is_external(source: DataSource) -> bool:
     return (source.connection_config or {}).get("engine") in EXTERNAL_ENGINES
 
 
+def user_principal(user_id: int) -> str:
+    return f"user:{user_id}"
+
+
 def principal_for(source: DataSource, user_id: int) -> str:
     """Whose view of the database a connection or cache holds: "" for a file
     database (the same for everyone), `user:<id>` for an external one."""
-    return f"user:{user_id}" if is_external(source) else ""
+    return user_principal(user_id) if is_external(source) else ""
 
 
 def target_of(config: dict | None) -> tuple:

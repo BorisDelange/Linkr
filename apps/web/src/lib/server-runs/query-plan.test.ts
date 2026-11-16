@@ -20,7 +20,8 @@ vi.mock('@/lib/api/server-runs', () => ({
 }))
 vi.mock('@/lib/duckdb/engine', () => ({}))
 
-const { followServerPlan, signedPlan } = await import('./query-plan')
+const { followServerPlan, planSignature, signedPlan } = await import('./query-plan')
+const FIXTURE = (await import('@/lib/__fixtures__/server-runs/plan-signature.json')).default
 
 const PLAN = { label: 'L', items: [{ key: 'a', sql: 'A' }, { key: 'b', sql: 'B' }, { key: 'c', sql: 'C' }], keepGoing: true }
 const run = (status: string, state: Record<string, unknown>) => ({ id: 'r', status, state })
@@ -67,11 +68,11 @@ describe('a plan followed on the server', () => {
 
   it('joins only a run of its own signature: another one is replaced, or not joined', async () => {
     const signed = { ...PLAN, meta: { signature: 'new' } }
-    const old = { id: 'old', status: 'running', state: { meta: { signature: 'old' } } }
+    const old = { id: 'old', status: 'running', state: {}, signature: 'old' }
     runs.latest.mockResolvedValue(old)
     expect(await followServerPlan('cohort_run', 'c1', signed, () => {}, { resumeOnly: true })).toBeNull()
 
-    runs.start.mockResolvedValueOnce(old).mockResolvedValueOnce({ id: 'new', status: 'done', state: { meta: { signature: 'new' } } })
+    runs.start.mockResolvedValueOnce(old).mockResolvedValueOnce({ id: 'new', status: 'done', state: {}, signature: 'new' })
     runs.latest.mockReset()
     runs.latest.mockResolvedValueOnce(old).mockResolvedValueOnce({ ...old, status: 'cancelled' })
     const followed = followServerPlan('cohort_run', 'c1', signed, () => {})
@@ -83,7 +84,7 @@ describe('a plan followed on the server', () => {
 
   it('a re-run while the run is being stopped waits for it to end, then starts anew', async () => {
     const signed = { ...PLAN, meta: { signature: 's' } }
-    const first = { id: 'first', status: 'running', requested: null, state: { meta: { signature: 's' } } }
+    const first = { id: 'first', status: 'running', requested: null, state: {}, signature: 's' }
     runs.start.mockResolvedValueOnce(first)
     runs.latest.mockResolvedValue(first)
     const controller = new AbortController()
@@ -97,7 +98,7 @@ describe('a plan followed on the server', () => {
 
     // Same signature, yet the run being stopped is not joined.
     const stoppingRun = { ...first, status: 'pausing', requested: 'cancel' }
-    runs.start.mockResolvedValueOnce(stoppingRun).mockResolvedValueOnce({ id: 'second', status: 'done', requested: null, state: { meta: { signature: 's' } } })
+    runs.start.mockResolvedValueOnce(stoppingRun).mockResolvedValueOnce({ id: 'second', status: 'done', requested: null, state: {}, signature: 's' })
     runs.latest.mockReset()
     runs.latest.mockResolvedValueOnce(stoppingRun).mockResolvedValueOnce({ ...first, status: 'cancelled' })
     const again = followServerPlan('cohort_run', 'c1', signed, () => {})
@@ -124,8 +125,8 @@ describe('a plan followed on the server', () => {
 
   it('a run replaced by one of another definition is reported ended, not as going on', async () => {
     const signed = { ...PLAN, meta: { signature: 's' } }
-    runs.start.mockResolvedValue({ id: 'mine', status: 'running', state: { meta: { signature: 's' } } })
-    runs.latest.mockResolvedValue({ id: 'theirs', status: 'running', state: { meta: { signature: 'other' } } })
+    runs.start.mockResolvedValue({ id: 'mine', status: 'running', state: {}, signature: 's' })
+    runs.latest.mockResolvedValue({ id: 'theirs', status: 'running', state: {}, signature: 'other' })
     const followed = followServerPlan('cohort_run', 'c1', signed, () => {})
     await vi.runAllTimersAsync()
     expect(await followed).toMatchObject({ id: 'mine', status: 'cancelled' })
@@ -144,9 +145,37 @@ describe('a plan followed on the server', () => {
     expect(runs.cancel).toHaveBeenCalledWith('late')
   })
 
-  it('signs a plan by its queries and their keys: the same tables in another order sign differently', () => {
-    const sign = (tables: string[]) => signedPlan({ label: 'L', items: tables.map((t, i) => ({ key: `t${i}`, sql: `SELECT COUNT(*) FROM ${t}` })) }).meta?.signature
-    expect(sign(['a', 'b'])).toBe(sign(['a', 'b']))
-    expect(sign(['a', 'b'])).not.toBe(sign(['b', 'a']))
+  it('joins only the run the server signed as its plan, whatever the run says of itself', async () => {
+    const signed = { ...PLAN, meta: { signature: 's' } }
+    runs.latest.mockResolvedValue({ id: 'claimed', status: 'running', state: { meta: { signature: 's' } }, signature: 'other' })
+    expect(await followServerPlan('cohort_run', 'c1', signed, () => {}, { resumeOnly: true })).toBeNull()
+  })
+
+  it('signs a plan by its database, its queries and their keys: the same tables in another order sign differently', async () => {
+    const sign = async (tables: string[], ds = 'ds') =>
+      (await signedPlan(ds, { label: 'L', items: tables.map((t, i) => ({ key: `t${i}`, sql: `SELECT COUNT(*) FROM ${t}` })) })).meta?.signature
+    expect(await sign(['a', 'b'])).toBe(await sign(['a', 'b']))
+    expect(await sign(['a', 'b'])).not.toBe(await sign(['b', 'a']))
+    expect(await sign(['a', 'b'])).not.toBe(await sign(['a', 'b'], 'other'))
+  })
+})
+
+describe('a plan signature', () => {
+  it('is the one the server computes for the same plan (shared fixture)', async () => {
+    expect(await planSignature(FIXTURE.dataSourceId, FIXTURE.plan)).toBe(FIXTURE.signature)
+  })
+
+  it('is the same outside a secure context, where Web Crypto is missing', async () => {
+    vi.stubGlobal('crypto', {})
+    try {
+      expect(await planSignature(FIXTURE.dataSourceId, FIXTURE.plan)).toBe(FIXTURE.signature)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('covers the signature basis', async () => {
+    const other = { ...FIXTURE.plan, meta: { ...FIXTURE.plan.meta, signatureBasis: ['visit'] } }
+    expect(await planSignature(FIXTURE.dataSourceId, other)).not.toBe(FIXTURE.signature)
   })
 })

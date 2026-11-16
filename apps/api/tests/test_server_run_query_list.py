@@ -3,7 +3,10 @@ in turn, its rows kept for the page to read, a resume going on at the first one
 not done. Here as a pipeline's Quality check (`etl_quality`)."""
 
 import asyncio
+import json
+from pathlib import Path
 
+from app.schemas.query_list import QueryListSpec
 from app.services.server_runs import query_list
 from tests.test_etl_jobs import _admin, _target
 from tests.test_server_run_etl import _pipeline
@@ -160,3 +163,14 @@ async def test_a_cohort_s_run_reads_its_database_and_goes_with_it(client, monkey
     assert query_list.read_result(run["id"], "results") is None
     assert query_list.read_result(figures["id"], "sections") is None
     assert (await client.get(f"{url}/{run['id']}/results/results", headers=headers)).status_code == 404
+
+
+def test_a_plan_is_signed_as_the_page_signs_it():
+    """The page tells its run by this signature (apps/web lib/server-runs/query-plan.ts
+    `planSignature`, tested against the same fixture)."""
+    fixture = json.loads((
+        Path(__file__).resolve().parents[2] / "web" / "src" / "lib" / "__fixtures__" / "server-runs" / "plan-signature.json"
+    ).read_text(encoding="utf-8"))
+    spec = QueryListSpec.model_validate(fixture["plan"])
+    assert query_list.signature(fixture["dataSourceId"], spec) == fixture["signature"]
+    assert query_list.signature("another-database", spec) != fixture["signature"]

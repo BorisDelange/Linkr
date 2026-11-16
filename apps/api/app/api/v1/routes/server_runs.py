@@ -4,7 +4,9 @@ run, reads it and asks for a pause or a resume; it never drives it.
 Who may do what is per kind (`_SCOPES`): reading a run needs what reading its
 scope needs (and its rows, what reading its database needs); starting, pausing
 or resuming one needs what writing its results needs. Only its starter resumes
-it: its queries read the databases as them."""
+it: its queries read the databases as them. A run whose rows an external
+database read with its starter's own login (`Kind.per_login`) is theirs alone:
+no other user finds it, follows it or reads its rows."""
 
 import asyncio
 from collections.abc import Awaitable, Callable
@@ -37,6 +39,7 @@ from app.services import (
     data_catalog_service,
     data_source_service,
     database_binding,
+    database_credential_service,
     dq_profile_service,
     dq_rule_set_service,
     mapping_project_service,
@@ -259,6 +262,23 @@ async def _granted(db: AsyncSession, user: User, kind: str, scope: Scope) -> dic
     return {"storesProfiles": True}
 
 
+def _principal(kind: str, scope: Scope, user: User) -> str:
+    """Whose run a start makes: the user's own where the rows are their login's."""
+    if scope.source is None or not registry.KINDS[kind].per_login:
+        return ""
+    return database_credential_service.principal_for(scope.source, user.id)
+
+
+def _visible(user: User) -> tuple[str, ...]:
+    """The runs a user may find: the shared ones and their own."""
+    return ("", database_credential_service.user_principal(user.id))
+
+
+def _require_visible(run: ServerRun, user: User) -> None:
+    if run.principal not in _visible(user):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+
+
 @router.get("/latest", response_model=ServerRunResponse | None)
 async def latest_run(
     kind: str,
@@ -268,7 +288,10 @@ async def latest_run(
 ):
     """The run going on for this kind and scope, else the last one; null when none ran."""
     await _scope(db, user, kind, scope_id, False)
-    return await runs.settled(db, await state.active(db, kind, scope_id) or await state.latest(db, kind, scope_id))
+    visible = _visible(user)
+    return await runs.settled(
+        db, await state.active(db, kind, scope_id, visible) or await state.latest(db, kind, scope_id, visible),
+    )
 
 
 @router.post("", response_model=ServerRunResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -289,7 +312,7 @@ async def start_run(
         return await runs.start(
             db, kind=body.kind, scope_id=body.scope_id, data_source_id=scope.source.id if scope.source else None,
             workspace_id=scope.workspace_id, user_id=user.id, spec=body.spec,
-            granted=await _granted(db, user, body.kind, scope),
+            granted=await _granted(db, user, body.kind, scope), principal=_principal(body.kind, scope, user),
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, refusal_detail(e)) from None
@@ -299,6 +322,7 @@ async def _load_run(db: AsyncSession, run_id: str, user: User) -> tuple[Scope, S
     run = await db.get(ServerRun, run_id)
     if run is None or run.kind not in registry.KINDS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    _require_visible(run, user)
     scope = await _scope(db, user, run.kind, run.scope_id, True)
     if run.kind == "etl":
         # Its scope is the target: stopping or resuming its pipeline is the pipeline's writers' too.
@@ -363,6 +387,7 @@ async def run_result(run_id: str, key: str, user: User = Depends(get_current_use
     run = await db.get(ServerRun, run_id)
     if run is None or run.kind not in registry.KINDS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    _require_visible(run, user)
     await _scope(db, user, run.kind, run.scope_id, False)
     if run.data_source_id:
         # Its rows are the database's: a reader of the scope alone (a cohort's) does not get them.

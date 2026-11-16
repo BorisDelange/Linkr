@@ -21,6 +21,12 @@ class GitFileChange(CamelModel):
     old_path: str | None = None
 
 
+class GitTrackedUnmarkedFile(CamelModel):
+    path: str  # in the repository's tree
+    project_uid: str
+    key: str  # in the project's versionedDataFiles
+
+
 class GitStatusResponse(CamelModel):
     linked: bool
     branch: str
@@ -28,9 +34,12 @@ class GitStatusResponse(CamelModel):
     modified: int
     added: int
     deleted: int
-    # Files the repository tracks were marked for versioning by this status: the
-    # client's copy of the project config is stale.
-    adopted: bool = False
+    # Files the repository tracks that the export leaves out until the user marks
+    # them; listed only for the projects the caller may write.
+    tracked_unmarked: list[GitTrackedUnmarkedFile] = []
+    # Tree paths of the files marked for versioning: the push confirmation counts
+    # them as data whatever their extension (a marked notebook keeps its outputs).
+    marked_for_versioning: list[str] = []
 
 
 class GitDiffResponse(CamelModel):

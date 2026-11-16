@@ -5,7 +5,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, PortableJSON, TimestampMixin, UUIDPKMixin
 
-# A run in one of these is going on: at most one per kind and scope.
+# A run in one of these is going on: at most one per kind, scope and principal.
 ACTIVE_STATUSES = ("queued", "running", "pausing")
 _ACTIVE_SQL = "status IN ('queued', 'running', 'pausing')"
 
@@ -23,7 +23,7 @@ class ServerRun(Base, UUIDPKMixin, TimestampMixin):
     __tablename__ = "server_runs"
     __table_args__ = (
         Index(
-            "uq_server_runs_active", "kind", "scope_id",
+            "uq_server_runs_active", "kind", "scope_id", "principal",
             unique=True,
             sqlite_where=text(_ACTIVE_SQL),
             postgresql_where=text(_ACTIVE_SQL),
@@ -37,8 +37,13 @@ class ServerRun(Base, UUIDPKMixin, TimestampMixin):
     # What it computes (registry.KINDS).
     kind: Mapped[str] = mapped_column(String(32))
     # What it is the run of — a database, a mapping project, a pipeline's target,
-    # a catalog: one active run per kind and scope.
+    # a catalog: one active run per kind, scope and principal.
     scope_id: Mapped[str] = mapped_column(String(64))
+    # Whose view of the database its results are (database_credential_service.
+    # principal_for): "" when every reader's is the same, `user:<id>` for a kind
+    # whose rows an external database reads with its starter's own login
+    # (registry.Kind.per_login) — that run reaches that user alone.
+    principal: Mapped[str] = mapped_column(String(64), default="", server_default="")
     workspace_id: Mapped[str | None] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=True
     )

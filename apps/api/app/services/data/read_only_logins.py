@@ -16,11 +16,9 @@ Doris (attached writable) refuses such a login at attach instead
 from __future__ import annotations
 
 import logging
-import re
 import threading
 import time
 import weakref
-from collections.abc import Callable
 from dataclasses import dataclass
 
 import duckdb
@@ -195,123 +193,52 @@ def postgres_steps(config: dict) -> str:
 
 
 # ── MySQL / MariaDB ──────────────────────────────────────────────────────────
+# mysql_query() prepares its text to learn the result's columns, and MySQL does not
+# prepare SHOW GRANTS: the check reads information_schema instead. It lists the
+# login's own privileges — every account's for one that may read the grant tables,
+# hence the GRANTEE filter — but neither what its roles allow nor its rights on a
+# routine, which may write as its definer.
 
 # Privileges that only read. Anything else — static (INSERT, FILE, PROCESS…),
-# dynamic (any *_ADMIN…), ALL — lets the login write or reach past its data.
+# dynamic (any *_ADMIN…) — lets the login write or reach past its data.
 _MYSQL_READ_PRIVILEGES = frozenset({
     "USAGE", "SELECT", "SHOW VIEW", "SHOW DATABASES", "SHOW_ROUTINE", "SHOW CREATE ROUTINE",
 })
-_MYSQL_TOKEN = re.compile(
-    r"`(?:[^`]|``)*`|'(?:[^'\\]|\\.|'')*'|\"(?:[^\"\\]|\\.|\"\")*\"|[(),@.*]|[^\s(),@.*`'\"]+"
+
+MYSQL_LOGIN_SQL = (
+    "SELECT CURRENT_USER(), (SELECT COUNT(*) FROM information_schema.APPLICABLE_ROLES), "
+    "(SELECT COUNT(*) FROM information_schema.ROUTINES "
+    "WHERE ROUTINE_SCHEMA NOT IN ('mysql', 'sys', 'information_schema', 'performance_schema'))"
 )
-_MYSQL_ROLE = re.compile(
-    r"(?:`(?:[^`]|``)*`|'(?:[^'\\]|'')*'|\w+)(?:@(?:`(?:[^`]|``)*`|'(?:[^'\\]|'')*'|[\w.%-]+))?"
+MYSQL_PRIVILEGES_SQL = " UNION ALL ".join(
+    f"SELECT GRANTEE, PRIVILEGE_TYPE, IS_GRANTABLE FROM information_schema.{view}"
+    for view in ("USER_PRIVILEGES", "SCHEMA_PRIVILEGES", "TABLE_PRIVILEGES", "COLUMN_PRIVILEGES")
 )
 
 
-@dataclass(frozen=True)
-class MySQLGrant:
-    privileges: tuple[str, ...] = ()
-    on: str | None = None
-    roles: tuple[str, ...] = ()
-    grant_option: bool = False
-    admin_option: bool = False
-
-    @property
-    def writes(self) -> list[str]:
-        held = [p for p in self.privileges if p not in _MYSQL_READ_PRIVILEGES]
-        if self.grant_option:
-            held.append("GRANT OPTION")
-        if self.admin_option:
-            held.append("ADMIN OPTION")
-        return held
+def mysql_grantee(current_user: str) -> str:
+    """`reader@%` (CURRENT_USER()) as information_schema spells its grantee."""
+    user, _, host = current_user.rpartition("@")
+    return f"'{user}'@'{host}'"
 
 
-def parse_mysql_grant(line: str) -> MySQLGrant | None:
-    """One line of MySQL's or MariaDB's SHOW GRANTS: a grant of privileges
-    (`GRANT SELECT (a), INSERT ON db.t TO u@h`) or of roles (`GRANT r@% TO u@h`).
-    None for a line that grants nothing (a partial REVOKE, MariaDB's SET DEFAULT
-    ROLE); ValueError for one it cannot read."""
-    tokens = _MYSQL_TOKEN.findall(line)
-    head = tokens[0].upper() if tokens else ""
-    if head in ("REVOKE", "SET"):
-        return None
-    if head != "GRANT":
-        raise ValueError("unexpected SHOW GRANTS line")
-    items: list[list[str]] = [[]]
-    depth, keyword, at = 0, None, len(tokens)
-    for i in range(1, len(tokens)):
-        token = tokens[i]
-        if token == "(":
-            depth += 1
-        elif token == ")":
-            depth -= 1
-        elif depth:
-            continue
-        elif token.upper() in ("ON", "TO") and items[-1]:
-            keyword, at = token.upper(), i
-            break
-        elif token == ",":
-            items.append([])
-        else:
-            items[-1].append(token)
-    if keyword is None or depth or not all(items):
-        raise ValueError("unexpected SHOW GRANTS line")
-    rest = tokens[at + 1:]
-    words = [t.upper() for t in rest]
-    if keyword == "TO":
-        roles = tuple("".join(item) for item in items)
-        if not all(_MYSQL_ROLE.fullmatch(r) for r in roles):
-            raise ValueError("unexpected SHOW GRANTS line")
-        return MySQLGrant(roles=roles, admin_option=_has_words(words, "WITH", "ADMIN", "OPTION"))
-    if any(not re.fullmatch(r"\w+", t) for item in items for t in item):
-        raise ValueError("unexpected SHOW GRANTS line")
-    privileges = tuple(dict.fromkeys(
-        "ALL PRIVILEGES" if p in ("ALL", "ALL PRIVILEGES") else p
-        for p in (" ".join(t.upper() for t in item) for item in items)
-    ))
-    to = words.index("TO") if "TO" in words else len(words)
-    on = rest[:to]
-    if on and words[0] in ("TABLE", "FUNCTION", "PROCEDURE"):
-        on = [words[0] + " ", *on[1:]]
-    return MySQLGrant(
-        privileges=privileges, on="".join(on) or None,
-        grant_option=_has_words(words[to:], "WITH", "GRANT", "OPTION"),
-    )
-
-
-def _has_words(words: list[str], *seq: str) -> bool:
-    return any(tuple(words[i:i + len(seq)]) == seq for i in range(len(words)))
-
-
-def _roles_of(grants: list[MySQLGrant]) -> set[str]:
-    return {r for g in grants for r in g.roles}
-
-
-def mysql_write_privileges(show_grants: Callable[[str], list[str]]) -> list[str]:
-    """What lets the login write, from its SHOW GRANTS and those of every role
-    granted to it — active or not, since SET ROLE makes one active.
-    `show_grants(statement)` answers a SHOW GRANTS statement's lines. MySQL 8
-    expands roles with `USING`; MariaDB, which has none, through SHOW GRANTS FOR
-    each role. Roles that neither expands leave the login unverified (raises)."""
-    grants = [g for line in show_grants("SHOW GRANTS") if (g := parse_mysql_grant(line))]
-    expanded: set[str] = set()
-    for _ in range(4):
-        new = _roles_of(grants) - expanded
-        if not new:
-            break
-        expanded |= new
-        try:
-            lines = show_grants("SHOW GRANTS FOR CURRENT_USER() USING " + ", ".join(sorted(expanded)))
-        except duckdb.Error:
-            lines = [line for role in sorted(new) for line in show_grants(f"SHOW GRANTS FOR {role}")]
-        grants += [g for line in lines if (g := parse_mysql_grant(line))]
-    else:
-        if _roles_of(grants) - expanded:
-            raise ValueError("roles nested too deep to verify")
-    if not grants:
-        raise ValueError("SHOW GRANTS answered no grant")
-    return list(dict.fromkeys(p for g in grants for p in g.writes))
+def mysql_write_privileges(current_user: str, roles: int, routines: int, rows: list[tuple]) -> list[str]:
+    """What lets the login write, from MYSQL_PRIVILEGES_SQL's rows (grantee,
+    privilege, grantable). A login holding a role, active or not, stays unverified:
+    SET ROLE makes one active, and nothing it can read says what a role allows. So
+    does one that sees a routine: it may hold EXECUTE on it."""
+    if roles:
+        raise ValueError("the login holds roles, whose privileges it cannot read")
+    if routines:
+        raise ValueError("the login sees routines, whose rights it cannot read")
+    grantees = {mysql_grantee(current_user), "PUBLIC"}
+    own = [(str(p).upper(), str(g).upper()) for who, p, g in rows if who in grantees]
+    if not own:
+        raise ValueError("information_schema lists no privilege of the login")
+    held = [p for p, _ in own if p not in _MYSQL_READ_PRIVILEGES]
+    if any(g == "YES" for _, g in own):
+        held.append("GRANT OPTION")
+    return list(dict.fromkeys(held))
 
 
 def _mysql_ident(name: str) -> str:
@@ -349,12 +276,11 @@ def _compute(con: duckdb.DuckDBPyConnection, alias: str, config: dict) -> Verdic
         rows = con.execute(f"SELECT * FROM postgres_query('{alias}', {_literal(POSTGRES_CHECK_SQL)})").fetchall()
         return Verdict(engine, tuple(postgres_write_privileges(rows)), steps=steps)
     steps = mysql_steps(config)
-
-    def show_grants(statement: str) -> list[str]:
-        rows = con.execute(f"SELECT * FROM mysql_query('{alias}', {_literal(statement)})").fetchall()
-        return [str(row[0]) for row in rows]
-
-    return Verdict("mysql", tuple(mysql_write_privileges(show_grants)), steps=steps)
+    ((current_user, roles, routines),) = con.execute(
+        f"SELECT * FROM mysql_query('{alias}', {_literal(MYSQL_LOGIN_SQL)})"
+    ).fetchall()
+    rows = con.execute(f"SELECT * FROM mysql_query('{alias}', {_literal(MYSQL_PRIVILEGES_SQL)})").fetchall()
+    return Verdict("mysql", tuple(mysql_write_privileges(current_user, roles, routines, rows)), steps=steps)
 
 
 def _unverified(engine: str, config: dict) -> Verdict:
