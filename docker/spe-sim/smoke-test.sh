@@ -90,6 +90,50 @@ assert len(u.urlopen(req, timeout=60).read()) > 1000"
 
 mirror_unreachable() { ! mirror_serves_pypi; }
 
+# The image ships renv in R's site library. Hidden behind an Rscript that drops it
+# (asserted, so a wrapper that hides nothing cannot pass), Linkr must fetch renv
+# itself: from the mirror, or, with none, fail saying how to install it.
+renv_check() {
+  in_api "
+import os, subprocess, sys, tempfile
+from app.config import settings
+from app.services.execution import renv_provisioner as r
+d = tempfile.mkdtemp()
+wrapper = os.path.join(d, 'Rscript')
+open(wrapper, 'w').write('#!/bin/sh\\nR_LIBS_SITE=/nonexistent exec Rscript \"\$@\"\\n')
+os.chmod(wrapper, 0o755)
+hidden = subprocess.run([wrapper, '--vanilla', '-e', 'cat(nzchar(system.file(package=\"renv\")))'], capture_output=True, text=True)
+assert hidden.stdout.strip() == 'FALSE', hidden.stdout + hidden.stderr
+settings.rscript_bin, settings.data_dir = wrapper, d
+settings.__dict__.pop('data_path', None)
+try:
+    r.ensure_renv()
+except r.ProvisionError as e:
+    sys.exit(0 if '$1' == 'refused' and 'install.packages' in str(e) else 1)
+sys.exit(0 if '$1' == 'installed' else 1)"
+}
+renv_from_mirror() { renv_check installed; }
+renv_refused_with_remedy() { renv_check refused; }
+
+# uv comes with the API's Python: found beside it even when PATH does not hold it.
+uv_beside_the_api() {
+  in_api "
+import os, sys
+os.environ['PATH'] = '/usr/bin:/bin'
+from app.services.execution.uv_provisioner import uv_bin
+assert uv_bin() == os.path.join(os.path.dirname(sys.executable), 'uv'), uv_bin()
+assert os.path.isfile(uv_bin())"
+}
+
+# library(linkr)'s dependencies ship built with the image: no instance installs them.
+client_r_deps_in_image() {
+  in_api "
+from app.services.execution.renv_provisioner import client_r_deps_ready
+from app.services import project_fs
+assert str(project_fs.client_r_lib()) == '/opt/linkr/client-r-lib', project_fs.client_r_lib()
+assert client_r_deps_ready()"
+}
+
 datamart_reachable() {
   in_api "import socket; socket.create_connection(('datamart-postgres', 5432), timeout=5)"
 }
@@ -107,10 +151,14 @@ fi
 check "SPE has no internet route" spe_offline
 if [ "${SPE_MIRROR:-on}" = "off" ]; then
   check "no package source at all (mirror stopped)" mirror_unreachable
+  check "renv missing from R: refused, saying how to install it" renv_refused_with_remedy
 else
   check "PyPI through the mirror, file links rewritten" mirror_serves_pypi
   check "CRAN through the mirror" mirror_serves_cran
+  check "renv missing from R: Linkr installs it from the mirror" renv_from_mirror
 fi
+check "uv found beside the API's Python, off PATH" uv_beside_the_api
+check "library(linkr)'s duckdb ships built with the image" client_r_deps_in_image
 if "${compose[@]}" ps --services --status running | grep -qx datamart-postgres; then
   check "datamart-postgres reachable from the SPE" datamart_reachable
 fi

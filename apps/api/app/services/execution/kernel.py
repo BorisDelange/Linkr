@@ -1149,6 +1149,75 @@ def _foreign(kernel: "Kernel | None", via: str | None) -> bool:
 _WEB_ORIGIN = frozenset({"web", "kernel"})
 
 
+
+def _prepare_r_shared_steps(on_log) -> None:
+    from app.services.execution import renv_provisioner
+
+    renv_provisioner.ensure_r_sandbox(on_log)
+    renv_provisioner.ensure_kernel_r_lib(on_log)
+    renv_provisioner.ensure_client_r_package(on_log)
+
+
+async def _prepare_r_shared_as_job(project_uid: str, user_id: int) -> None:
+    """The shared R preparation as a job of `project_uid`. It ends in error when
+    something is still missing afterwards, the run going on regardless: the kernel's
+    own error then says what it lacks."""
+    from app.core.database import async_session
+    from app.services.execution import jobs, renv_provisioner
+
+    async with async_session() as db:
+        job = await jobs.create(db, project_uid, user_id, kind="build", label="Prepare R for Linkr")
+
+    async def body(handle) -> None:
+        async with jobs.live_log(handle) as to_job:
+            try:
+                await asyncio.to_thread(_prepare_r_shared_steps, to_job)
+            except asyncio.CancelledError:
+                renv_provisioner.stop_installs()
+                raise
+            if not await asyncio.to_thread(renv_provisioner.shared_r_ready):
+                raise renv_provisioner.ProvisionError(
+                    "Some R packages that every R session of Linkr needs could not be installed: see the log above."
+                )
+
+    await jobs.run_now(job.id, body)
+
+
+# The background install of library(linkr)'s dependencies, while one runs.
+_client_deps_job: str | None = None
+
+
+async def _install_client_deps_in_background(project_uid: str, user_id: int) -> None:
+    """Start installing library(linkr)'s dependencies (DBI, duckdb, jsonlite) as a job
+    of `project_uid`, and return at once: only `linkr_connect()` and the API helpers use
+    them, and on an R that compiles duckdb, waiting would hold a run for half an hour.
+    One at a time; a failed one is tried again by the next session."""
+    global _client_deps_job
+    from app.core.database import async_session
+    from app.services.execution import jobs, renv_provisioner
+
+    if _client_deps_job is not None and jobs.is_running(_client_deps_job):
+        return
+    if await asyncio.to_thread(renv_provisioner.client_r_deps_ready):
+        return
+    async with async_session() as db:
+        job = await jobs.create(
+            db, project_uid, user_id, kind="build", label="Install the R packages of library(linkr)",
+        )
+    _client_deps_job = job.id
+
+    async def body(handle) -> None:
+        async with jobs.live_log(handle) as to_job:
+            try:
+                await asyncio.to_thread(renv_provisioner.ensure_client_r_deps, to_job)
+            except asyncio.CancelledError:
+                renv_provisioner.stop_installs()
+                raise
+
+    # No lane: a compile this long must not queue the project environment builds.
+    jobs.launch(job.id, body, lane=None)
+
+
 class KernelManager:
     """Holds live kernels keyed by (project_uid, language, session_id).
 
@@ -1257,7 +1326,7 @@ class KernelManager:
         # shells out to Rscript (~9s on a cold cache, ~0.3s warm). Doing it inside
         # _make — which runs under self._lock — froze the whole event loop and queued
         # every other user's kernel op behind it.
-        await self._prepare_r_shared(language)
+        await self._prepare_r_shared(language, (project_uid, user_id))
         key = (project_uid, user_id, language, session_id)
         foreign = False
         async with self._lock:
@@ -1281,7 +1350,9 @@ class KernelManager:
             raise KernelSessionForeign(session_id)
         return kernel
 
-    async def _prepare_r_shared(self, language: str) -> None:
+    async def _prepare_r_shared(
+        self, language: str, owner: tuple[str, int] | None = None
+    ) -> None:
         """Materialise the SHARED R directories a kernel needs: the base+recommended
         sandbox, the kernel-infra library (jsonlite/base64enc/svglite + their dependency
         closure), and the `linkr` client package with its own private dependency library.
@@ -1292,7 +1363,12 @@ class KernelManager:
 
         Runs for the app interpreter too, not just a project env: `library(linkr)` must
         work in every R session the IDE starts, and the sandbox is a prerequisite of the
-        client install (its dependency resolution runs under the same isolation)."""
+        client install (its dependency resolution runs under the same isolation).
+
+        `owner` (project uid, user id): when something is missing, the preparation
+        runs as that project's job, its install log live in the jobs panel, rather than
+        as a wait that reads as a run that never starts. The client's own dependencies
+        then install in the background (_install_client_deps_in_background)."""
         if language != "r":
             return
         from app.services import project_fs
@@ -1305,9 +1381,12 @@ class KernelManager:
                 return
             from app.services.execution import renv_provisioner
 
-            await asyncio.to_thread(renv_provisioner.ensure_r_sandbox)
-            await asyncio.to_thread(renv_provisioner.ensure_kernel_r_lib)
-            await asyncio.to_thread(renv_provisioner.ensure_client_r_lib)
+            if owner is None or await asyncio.to_thread(renv_provisioner.shared_r_ready):
+                await asyncio.to_thread(_prepare_r_shared_steps, None)
+            else:
+                await _prepare_r_shared_as_job(*owner)
+            if owner is not None:
+                await _install_client_deps_in_background(*owner)
             self._r_shared_ready_for = data_dir
 
     async def spawn_batch(

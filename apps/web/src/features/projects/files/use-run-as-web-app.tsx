@@ -21,6 +21,10 @@ interface Target {
   name: string
 }
 
+function languageOf(name: string): 'r' | 'python' {
+  return name.toLowerCase().endsWith('.r') ? 'r' : 'python'
+}
+
 function defaultCommand(name: string): string {
   const quoted = /^[\w.-]+$/.test(name) ? name : `'${name.replace(/'/g, `'\\''`)}'`
   return name.toLowerCase().endsWith('.r') ? `Rscript ${quoted}` : `python ${quoted}`
@@ -38,27 +42,58 @@ export function useRunAsWebApp(projectUid: string | null) {
   const [command, setCommand] = useState('')
   const [busy, setBusy] = useState(false)
 
+  const failure = useCallback(
+    (e: unknown) => t('web_apps.start_failed', { error: formatApiError(e).summary ?? String(e) }),
+    [t],
+  )
+
   const report = useCallback((name: string, e: unknown) => {
     const { addExecutionResult, setOutputVisible } = useFileStore.getState()
     addExecutionResult({
       id: `web-app-${Date.now()}`,
       fileName: name,
-      language: name.toLowerCase().endsWith('.r') ? 'r' : 'python',
+      language: languageOf(name),
       timestamp: Date.now(),
       duration: 0,
       success: false,
-      output: t('web_apps.start_failed', { error: formatApiError(e).summary ?? String(e) }),
+      output: failure(e),
     })
     setOutputVisible(true)
-  }, [t])
+  }, [failure])
+
+  /** A start can wait minutes on the project's environment build: say so at once,
+   *  in the output, and turn the line into the outcome when the server answers. */
+  const starting = useCallback(async <T,>(name: string, start: () => Promise<T>): Promise<T | undefined> => {
+    const { addExecutionResult, updateExecutionResult, setOutputVisible } = useFileStore.getState()
+    const id = `web-app-${Date.now()}`
+    const since = Date.now()
+    addExecutionResult({
+      id,
+      fileName: name,
+      language: languageOf(name),
+      timestamp: since,
+      duration: 0,
+      success: true,
+      running: true,
+      output: t('web_apps.preparing', { name }),
+    })
+    setOutputVisible(true)
+    try {
+      const result = await start()
+      updateExecutionResult(id, { running: false, duration: Date.now() - since, output: t('web_apps.started', { name }) })
+      return result
+    } catch (e) {
+      updateExecutionResult(id, { running: false, success: false, duration: Date.now() - since, output: failure(e) })
+      return undefined
+    }
+  }, [t, failure])
 
   const launch = useCallback(async (target: Target, opts: { framework?: string; command?: string }) => {
     const path = ideFilePath(target.fileId)
     if (!projectUid || path === undefined) return
-    const { openAppTab } = useFileStore.getState()
-    const app = await startWebApp({ projectUid, path, ...opts })
-    openAppTab(app.appId, target.name)
-  }, [projectUid])
+    const app = await starting(target.name, () => startWebApp({ projectUid, path, ...opts }))
+    if (app) useFileStore.getState().openAppTab(app.appId, target.name)
+  }, [projectUid, starting])
 
   const runAsWebApp = useCallback(async (target: Target) => {
     const store = useFileStore.getState()
@@ -71,7 +106,8 @@ export function useRunAsWebApp(projectUid: string | null) {
         (a) => a.path === path && (a.status === 'starting' || a.status === 'ready'),
       )
       if (running) {
-        const next = await restartWebApp(running)
+        const next = await starting(target.name, () => restartWebApp(running))
+        if (!next) return
         const tab = useFileStore.getState().terminalTabs.find((t) => t.appId === running.appId)
         if (tab) store.retargetAppTab(tab.id, next.appId)
         store.openAppTab(next.appId, target.name)
@@ -88,17 +124,14 @@ export function useRunAsWebApp(projectUid: string | null) {
     } catch (e) {
       report(target.name, e)
     }
-  }, [projectUid, launch, report])
+  }, [projectUid, launch, report, starting])
 
   const confirm = async () => {
     if (!asking) return
     setBusy(true)
+    setAsking(null)
     try {
       await launch(asking, { command: command.trim() })
-      setAsking(null)
-    } catch (e) {
-      report(asking.name, e)
-      setAsking(null)
     } finally {
       setBusy(false)
     }

@@ -56,7 +56,7 @@ def _shared_r_cache(monkeypatch):
     from app.services import project_fs
     from app.services.execution import renv_provisioner
 
-    for name in ("r_sandbox", "kernel_r_lib", "client_r_lib"):
+    for name in ("r_sandbox", "kernel_r_lib", "client_r_lib", "renv_r_lib"):
         sub = _R_TEST_CACHE / name.replace("_", "-")
 
         def _dir(d=sub):
@@ -65,8 +65,11 @@ def _shared_r_cache(monkeypatch):
 
         monkeypatch.setattr(project_fs, name, _dir)
 
-    for name in ("ensure_r_sandbox", "ensure_kernel_r_lib", "ensure_client_r_lib"):
+    for name in ("ensure_r_sandbox", "ensure_kernel_r_lib", "ensure_client_r_package", "ensure_client_r_deps", "ensure_renv"):
         monkeypatch.setattr(renv_provisioner, name, _under_cache_lock(getattr(renv_provisioner, name)))
+    # A test that runs renv takes it as present; test_environment_toolchain.py checks
+    # how it gets there.
+    monkeypatch.setattr(renv_provisioner, "_renv_ready", True)
 
 
 # What the lifespan, which the tests do not run, checks and arms. The default key is

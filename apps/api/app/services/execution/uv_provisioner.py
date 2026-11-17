@@ -14,7 +14,9 @@ declarative: add/remove rewrites ``pyproject.toml`` and re-locks; the venv is
 
 import asyncio
 import os
+import shutil
 import subprocess
+import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -281,6 +283,25 @@ def _hosts_outside(url: str, allowed: set[str]) -> set[str]:
     return {host or url}
 
 
+UV_MISSING_HINT = (
+    "uv is not installed on this server, and Linkr builds every project's Python environment "
+    "with it. Install the API with its execution extra (pip install -e \"apps/api[execution]\"), "
+    "which brings it, or point LINKR_UV_BIN at a uv binary."
+)
+
+
+def uv_bin() -> str:
+    """The uv to run: LINKR_UV_BIN when set, else the one on PATH, else the one
+    installed next to the API's own Python (the execution extra ships it)."""
+    if settings.uv_bin != "uv":
+        return settings.uv_bin
+    on_path = shutil.which("uv")
+    if on_path:
+        return on_path
+    beside = Path(sys.executable).with_name("uv.exe" if os.name == "nt" else "uv")
+    return str(beside) if beside.exists() else "uv"
+
+
 def _run(project_uid: str, args: list[str], on_log=None, options: dict | None = None) -> str:
     """Run a uv command in the env's spec dir with the shared cache configured.
     Returns combined output; raises ProvisionError with the output on failure.
@@ -289,18 +310,21 @@ def _run(project_uid: str, args: list[str], on_log=None, options: dict | None = 
     spec_dir = project_fs.env_spec_dir(project_uid, "python")
     _require_mirror_sources(project_uid, options, lock_too=False)
     env = _uv_env(project_uid, options)
-    cmdline = f"$ {settings.uv_bin} {' '.join(args)}"
+    uv = uv_bin()
+    cmdline = f"$ {uv} {' '.join(args)}"
     if on_log is not None:
         on_log(cmdline)
     try:
         proc = subprocess.run(
-            [settings.uv_bin, *args],
+            [uv, *args],
             cwd=str(spec_dir),
             env=env,
             capture_output=True,
             text=True,
             timeout=_UV_EDIT_TIMEOUT,
         )
+    except FileNotFoundError:
+        raise ProvisionError(f"{cmdline}\n{UV_MISSING_HINT}") from None
     except subprocess.TimeoutExpired:
         raise ProvisionError(f"{cmdline}\nuv {' '.join(args)} timed out")
     out = (proc.stdout or "") + (proc.stderr or "")
@@ -356,15 +380,21 @@ async def build(project_uid: str, on_log=None, options: dict | None = None) -> B
     except ProvisionError as e:
         return BuildResult(ok=False, log=str(e))
     env = _uv_env(project_uid, options)
+    uv = uv_bin()
     if on_log is not None:
-        on_log(f"$ {settings.uv_bin} sync --no-install-project")
-    proc = await asyncio.create_subprocess_exec(
-        settings.uv_bin, "sync", "--no-install-project",
-        cwd=str(spec_dir),
-        env=env,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
+        on_log(f"$ {uv} sync --no-install-project")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            uv, "sync", "--no-install-project",
+            cwd=str(spec_dir),
+            env=env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+    except FileNotFoundError:
+        if on_log is not None:
+            on_log(UV_MISSING_HINT)
+        return BuildResult(ok=False, log=UV_MISSING_HINT)
     lines: list[str] = []
 
     async def _stream() -> int:

@@ -75,4 +75,5 @@ execution = [
     "scipy>=1.11",  # statistical-tests, regression p-values, correlation
     "statsmodels>=0.14",  # regression (OLS/logit) server-side
     "lifelines>=0.27",  # kaplan-meier survival server-side
+    "uv==0.10.2",  # builds project Python environments; same pin as docker/Dockerfile.api
 ]

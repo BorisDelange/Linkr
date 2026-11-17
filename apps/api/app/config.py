@@ -147,6 +147,10 @@ class Settings(BaseSettings):
     # version installed for one project is reused by the next.
     rscript_bin: str = "Rscript"
     r_repos: str = "https://packagemanager.posit.co/cran/latest"
+    # The R library holding library(linkr)'s dependencies (DBI, duckdb, jsonlite).
+    # Empty: data_dir/.cache/client-r-lib, filled on first use. The Docker image
+    # names the one it ships built, so no instance compiles duckdb.
+    client_r_lib: str = ""
     # Bounded in-process executor for long jobs (env builds): how many run at once
     # before the rest queue. Keeps a burst from exhausting the single uvicorn
     # worker. A real queue (celery/RQ) is only needed if load outgrows this.

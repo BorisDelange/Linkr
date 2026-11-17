@@ -29,8 +29,9 @@ import { usePrettySql } from './use-pretty-sql'
 
 const ACTIVE = new Set(['queued', 'running'])
 // One height whatever the count — about 13 rows, then a scroll — so the
-// popover does not jump as jobs come and go.
-const JOB_LIST_CLASS = 'flex h-96 max-h-[60vh] flex-col gap-1 overflow-y-auto'
+// popover does not jump as jobs come and go. The right padding keeps an overlay
+// scrollbar (macOS) off each row's stop button.
+const JOB_LIST_CLASS = 'flex h-96 max-h-[60vh] flex-col gap-1 overflow-y-auto pr-2.5 [scrollbar-gutter:stable]'
 const EMPTY_CLASS = 'm-auto px-1.5 text-center text-xs text-muted-foreground'
 
 /** What a job's end changes elsewhere in the app, per kind. */

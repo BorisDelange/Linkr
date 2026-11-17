@@ -3,7 +3,6 @@ and list_packages reflects the full lockfile tree. R is not shelled out — `_ru
 is captured — so these run without renv installed."""
 
 import json
-import subprocess
 
 import pytest
 
@@ -120,15 +119,11 @@ def test_ensure_kernel_r_lib_installs_under_kernel_isolation(monkeypatch, tmp_pa
     monkeypatch.setattr(R.project_fs, "r_sandbox", lambda: sandbox)
     seen: dict = {}
 
-    class _Res:
-        returncode = 0
-        stderr = ""
-
-    def fake_run(argv, **kwargs):
+    def fake_install(argv, lib, on_log=None):
         seen["code"] = argv[-1]
-        return _Res()
+        return 0, ""
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(R, "_install_streamed", fake_install)
     R.ensure_kernel_r_lib()
 
     code = seen["code"]
@@ -144,14 +139,10 @@ def test_ensure_kernel_r_lib_reports_a_failed_install(monkeypatch, tmp_path):
     monkeypatch.setattr(R.project_fs, "kernel_r_lib", lambda: tmp_path / "lib")
     monkeypatch.setattr(R.project_fs, "r_sandbox", lambda: tmp_path / "sandbox")
 
-    class _Res:
-        returncode = 1
-        stderr = "cannot open URL"
-
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: _Res())
+    monkeypatch.setattr(R, "_install_streamed", lambda argv, lib, on_log=None: (1, "cannot open URL"))
     logs: list[str] = []
     R.ensure_kernel_r_lib(on_log=logs.append)
-    assert logs and "exit 1" in logs[0] and "cannot open URL" in logs[0]
+    assert any("exit 1" in line and "cannot open URL" in line for line in logs)
 
 
 _MIRROR = "https://cran.chu.local/latest"

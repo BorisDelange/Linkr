@@ -131,7 +131,7 @@ async def start_app(
         detail=f"web app {body.path}: {command or preset_key}",
     )
     environment = await environments.ensure_ready(db, body.project_uid, language, user.id)
-    await kernel.manager._prepare_r_shared(language)
+    await kernel.manager._prepare_r_shared(language, (body.project_uid, user.id))
     spec = kernel.runtime_spec(language, body.project_uid, environment, _kernel_token(user, body.project_uid))
     try:
         app = await web_apps.manager.start(

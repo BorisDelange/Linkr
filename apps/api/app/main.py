@@ -70,6 +70,7 @@ from app.core.migrations import run_migrations
 from app.core.permissions import seed_default_roles
 from app.core.security_headers import SecurityHeadersMiddleware
 from app.models.user import User
+from app.services.execution import toolchain
 
 logger = structlog.get_logger()
 
@@ -99,6 +100,8 @@ async def lifespan(app: FastAPI):
             advice=f"LINKR_SECRET_KEY is shorter than {_MIN_SECRET_LENGTH} characters: "
             "anyone who guesses it can sign in as anyone. Replacing it signs everyone out.",
         )
+    for program, advice in toolchain.missing().items():
+        logger.warning("environment_tool_missing", program=program, advice=advice)
     # A wildcard CORS origin combined with allow_credentials=True (below) would let
     # any site make credentialed requests to the API. Refuse it in production; a
     # dev run (debug) may still use it for convenience with a warning.

@@ -214,6 +214,16 @@ def kernel_r_lib() -> Path:
     return d
 
 
+def renv_r_lib() -> Path:
+    """A Linkr-wide R library holding renv, installed there on first use when the
+    server's R has none (the Docker image ships it in the site library). Never on a
+    kernel's .libPaths(): only the provisioner loads renv from it. Under
+    data_dir/.cache/renv-lib."""
+    d = settings.data_path / ".cache" / "renv-lib"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def client_r_lib() -> Path:
     """A Linkr-wide R library holding the ``linkr`` client package and ITS
     dependencies (DBI, duckdb, jsonlite).
@@ -226,7 +236,10 @@ def client_r_lib() -> Path:
     package appends it for its own namespace resolution only. So
     ``library(linkr)`` works in an empty project, while ``library(duckdb)``
     remains something the project must declare — which is what makes an exported
-    project reproducible."""
+    project reproducible. ``LINKR_CLIENT_R_LIB`` names one built ahead (the Docker
+    image's)."""
+    if settings.client_r_lib:
+        return Path(settings.client_r_lib)
     d = settings.data_path / ".cache" / "client-r-lib"
     d.mkdir(parents=True, exist_ok=True)
     return d

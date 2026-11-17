@@ -4135,6 +4135,8 @@
     "stop": "Arrêter l'appli",
     "no_output": "Aucune sortie pour l'instant.",
     "session_failed": "Impossible d’ouvrir l’application : {{error}}",
+    "preparing": "Démarrage de {{name}}… Ce qui manque est installé d'abord (l'environnement du projet et, avant le premier lancement R, les paquets R de Linkr), ce qui peut prendre plusieurs minutes : suivez-le dans le panneau des tâches, en bas à droite.",
+    "started": "{{name}} tourne comme web app, dans son onglet.",
     "start_failed": "Impossible de lancer l'appli web : {{error}}",
     "command_title": "Lancer comme appli web",
     "command_description": "Linkr ne reconnaît pas {{name}} comme une appli Shiny, Streamlit, Dash, Gradio, plumber, Panel, FastAPI ou Flask. Indiquez la commande qui la lance.",

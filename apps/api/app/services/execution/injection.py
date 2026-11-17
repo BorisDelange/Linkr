@@ -86,8 +86,13 @@ def python_preamble_from(
         f"_pd.read_parquet({json.dumps(path)})" if path else "_pd.DataFrame()"
     )
     filter_code = _python_filter_code(filters or [])
+    needs = "pandas and pyarrow" if path else "pandas"
     return f"""
-import pandas as _pd
+try:
+    import pandas as _pd
+    {"__import__('pyarrow')" if path else "pass"}
+except ImportError:
+    raise ImportError("Loading the dataset needs {needs}: add them to this project's Python environment.") from None
 dataset = {read}
 {filter_code}
 dataset = dataset.rename(columns={json.dumps(rename)})
@@ -198,8 +203,14 @@ def r_preamble_from(
         f"as.data.frame(arrow::read_parquet({_r_str(path)}))" if path else "data.frame()"
     )
     filter_code = _r_filter_code(filters or [])
+    guard = (
+        "if (!requireNamespace('arrow', quietly = TRUE)) "
+        "stop(\"Loading the dataset needs the R package arrow: add it to this project's R environment.\", call. = FALSE)\n"
+        "suppressWarnings(suppressMessages(library(arrow)))"
+        if path else ""
+    )
     return f"""
-suppressWarnings(suppressMessages(library(arrow)))
+{guard}
 dataset <- {read}
 {filter_code}
 .rename <- c({rename_pairs})

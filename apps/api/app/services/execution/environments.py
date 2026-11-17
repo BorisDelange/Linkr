@@ -18,10 +18,12 @@ The UI never shows this distinction — it shows packages + a build/ready state.
 import asyncio
 import json
 
+from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
+from app.core.redact import redact_secrets
 from app.models.environment import Environment
 
 
@@ -373,6 +375,18 @@ def needs_build(env: Environment) -> bool:
     return env.kind == "managed" and env.status in ("draft", "error")
 
 
+class EnvironmentBuildFailed(HTTPException):
+    """The build a run needs failed: the run does not start on a library that is not
+    there, and the caller reads the end of the build's log."""
+
+    _TAIL_LINES = 20
+
+    def __init__(self, language: str, log: str) -> None:
+        tail = "\n".join((log or "").strip().splitlines()[-self._TAIL_LINES:])
+        self.message = f"The {language_label(language)} environment could not be built.\n{tail}".rstrip()
+        super().__init__(status.HTTP_422_UNPROCESSABLE_CONTENT, self.message)
+
+
 async def ensure_ready(
     db: AsyncSession, project_uid: str, language: str, user_id: int, on_log=None
 ) -> Environment:
@@ -397,6 +411,8 @@ async def ensure_ready(
         label=f"Build {language_label(language)} environment",
         input=build_input(project_uid, language),
     )
+    # Its owner reads the whole failure (jobs keep it unscrubbed for them alone).
+    failure: dict[str, str] = {}
 
     async def body(handle) -> None:
         queue: asyncio.Queue[str] | None = asyncio.Queue() if on_log is not None else None
@@ -421,6 +437,9 @@ async def ensure_ready(
             try:
                 async with async_session() as job_db:
                     await build(job_db, project_uid, language, on_log=collect, accepted_spec=accepted)
+            except Exception as e:
+                failure["error"] = str(e)
+                raise
             finally:
                 if pump_task is not None:
                     # Let the queued lines drain before cancelling the pump.
@@ -431,6 +450,12 @@ async def ensure_ready(
     # Auto-build blocks this first run until the env is ready, but runs through the
     # job runner so it's visible/cancellable; then re-read the (now built) env.
     await jobs.run_now(job.id, body)
+    from app.models.job import Job
+
+    async with async_session() as read_db:
+        ran = await read_db.get(Job, job.id)
+    if ran is not None and ran.status == "error":
+        raise EnvironmentBuildFailed(language, redact_secrets(failure.get("error") or ran.log_tail or ""))
     return await resolve(db, project_uid, language)
 
 

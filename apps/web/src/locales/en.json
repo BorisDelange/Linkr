@@ -4135,6 +4135,8 @@
     "stop": "Stop the app",
     "no_output": "No output yet.",
     "session_failed": "Could not open the app: {{error}}",
+    "preparing": "Starting {{name}}… Anything missing is installed first (the project's environment and, before the first R run, Linkr's own R packages), which can take several minutes: follow it in the jobs panel, at the bottom right.",
+    "started": "{{name}} runs as a web app, in its tab.",
     "start_failed": "Could not start the web app: {{error}}",
     "command_title": "Run as web app",
     "command_description": "Linkr does not recognise {{name}} as a Shiny, Streamlit, Dash, Gradio, plumber, Panel, FastAPI or Flask app. Give the command that starts it.",

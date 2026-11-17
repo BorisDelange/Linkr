@@ -610,6 +610,8 @@ async def _terminal_kernel_loop(
                     db, project_uid, language, user.id, on_log=build_log
                 )
                 await websocket.send_json({"type": "stdout", "data": "Environment ready.\n"})
+            except environments.EnvironmentBuildFailed as e:
+                await websocket.send_json({"type": "stderr", "data": e.message + "\n"})
             except Exception as e:  # noqa: BLE001 — surface the build failure, keep the socket
                 await websocket.send_json({"type": "stderr", "data": f"Environment build failed: {e}\n"})
     try:

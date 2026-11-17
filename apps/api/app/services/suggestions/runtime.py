@@ -24,6 +24,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.services.execution.child_env import child_env
+from app.services.execution.uv_provisioner import uv_bin
 
 # torch 2.6 / transformers 4.50 are the first to load weights with torch.load's
 # weights_only, which refuses to run code from a pickle.
@@ -157,9 +158,9 @@ async def _build_and_swap(handle) -> dict:
         await handle.log(line)
 
     steps = [
-        [settings.uv_bin, "venv", "--python", f"{sys.version_info.major}.{sys.version_info.minor}",
+        [uv_bin(), "venv", "--python", f"{sys.version_info.major}.{sys.version_info.minor}",
          str(staging / ".venv")],
-        [settings.uv_bin, "pip", "install", "--python", str(venv_python(staging)),
+        [uv_bin(), "pip", "install", "--python", str(venv_python(staging)),
          *(["--torch-backend", settings.embeddings_torch_backend] if settings.embeddings_torch_backend else []),
          *PACKAGES],
     ]

@@ -16,6 +16,9 @@ import asyncio
 import hashlib
 import json
 import os
+import re
+import shutil
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -31,8 +34,62 @@ from app.services.execution.package_spec import package_name, validate_package_s
 _R_EDIT_TIMEOUT = 120
 
 
+_RENV_MISSING = re.compile(r"there is no package called .renv.")
+RENV_MISSING_HINT = (
+    "renv is not installed in this server's R and could not be installed from the configured "
+    "CRAN repository (LINKR_R_REPOS); Linkr builds every project's R environment with it. "
+    "Install it once for that R: Rscript -e 'install.packages(\"renv\")', or give Linkr a "
+    "reachable CRAN mirror."
+)
+R_MISSING_HINT = (
+    "R is not installed on this server (Rscript not found). Install R, or point "
+    "LINKR_RSCRIPT_BIN at its Rscript."
+)
+# Set once renv loads; reset only by a test.
+_renv_ready = False
+
+
 class ProvisionError(Exception):
     """An Rscript/renv command failed; carries the combined output."""
+
+
+def ensure_renv(on_log=None) -> None:
+    """Make renv loadable by the provisioner: the server's R's own if it has one,
+    else installed once into the Linkr-wide renv library (project_fs.renv_r_lib)
+    from the configured repository — a mirror in an SPE. Raises ProvisionError
+    saying what is missing when neither works."""
+    global _renv_ready
+    if _renv_ready:
+        return
+    import subprocess
+
+    lib = str(project_fs.renv_r_lib()).replace("\\", "/")
+    if (project_fs.renv_r_lib() / "renv" / "DESCRIPTION").exists():
+        _renv_ready = True
+        return
+    repo = settings.r_repos.replace("'", "")
+    code = (
+        f"if (!nzchar(system.file(package='renv'))) {{ "
+        f"message('Installing renv into {lib} from {repo}'); "
+        f"install.packages('renv', lib='{lib}', repos='{repo}') }}; "
+        f"quit(status = if (requireNamespace('renv', lib.loc=c('{lib}', .libPaths()), quietly=TRUE)) 0 else 3)"
+    )
+    try:
+        proc = subprocess.run(
+            [settings.rscript_bin, "--vanilla", "-e", code],
+            capture_output=True, text=True, timeout=settings.build_timeout_seconds,
+            env=child_env(provision=True),
+        )
+    except FileNotFoundError:
+        raise ProvisionError(R_MISSING_HINT) from None
+    except subprocess.TimeoutExpired:
+        raise ProvisionError(f"Installing renv timed out.\n{RENV_MISSING_HINT}") from None
+    out = ((proc.stdout or "") + (proc.stderr or "")).strip()
+    if on_log is not None and out:
+        on_log(out)
+    if proc.returncode != 0:
+        raise ProvisionError(f"{out}\n{RENV_MISSING_HINT}".strip())
+    _renv_ready = True
 
 
 @dataclass
@@ -91,6 +148,7 @@ def _method_prefix(options: dict | None) -> str:
 def _run_r(project_uid: str, r_code: str, on_log=None, options: dict | None = None) -> str:
     import subprocess
 
+    ensure_renv(on_log)
     r_code = _method_prefix(options) + r_code
     env = _renv_env(project_uid, options)
     cmdline = f"$ {settings.rscript_bin} --vanilla -e {r_code!r}"
@@ -111,6 +169,8 @@ def _run_r(project_uid: str, r_code: str, on_log=None, options: dict | None = No
     if on_log is not None and out.strip():
         on_log(out.rstrip())
     if proc.returncode != 0:
+        if _RENV_MISSING.search(out):
+            raise ProvisionError(f"{cmdline}\n{out.strip()}\n{RENV_MISSING_HINT}")
         raise ProvisionError(f"{cmdline}\n{out.strip()}" if out.strip() else f"{cmdline}\nRscript command failed")
     return out
 
@@ -124,12 +184,13 @@ def _isolation_prefix(project_uid: str) -> str:
     library. Requires the sandbox to be populated first (ensure_r_sandbox).
 
     renv itself is a contributed package (not in the base-only sandbox), so it is
-    loaded into memory FIRST, while the system library is still visible; its functions
-    then keep working after .Library is swapped."""
+    loaded into memory FIRST, from Linkr's renv library or the system one, while both
+    are still visible; its functions then keep working after .Library is swapped."""
     projlib = str(_library_dir(project_uid)).replace("\\", "/")
     sandbox = str(project_fs.r_sandbox()).replace("\\", "/")
+    renv_lib = str(project_fs.renv_r_lib()).replace("\\", "/")
     return (
-        "suppressMessages(requireNamespace('renv', quietly=TRUE)); "
+        f"suppressMessages(requireNamespace('renv', lib.loc=c('{renv_lib}', .libPaths()), quietly=TRUE)); "
         f"local({{ .sb <- '{sandbox}'; "
         f"if (dir.exists(.sb)) {{ .b <- .BaseNamespaceEnv; "
         f"if (bindingIsLocked('.Library', .b)) unlockBinding('.Library', .b); "
@@ -391,6 +452,78 @@ def _to_renv_ref(requirement: str) -> str:
 _KERNEL_DEPS = ("jsonlite", "base64enc", "svglite")
 
 
+def kernel_r_lib_ready() -> bool:
+    lib = project_fs.kernel_r_lib()
+    return all((lib / d / "DESCRIPTION").is_file() for d in _KERNEL_DEPS)
+
+
+def shared_r_ready() -> bool:
+    """Whether the shared R pieces an R session waits for (the sandbox, the kernel
+    library, the `linkr` client package) are all in place. File checks only: it tells
+    a first preparation, shown as a job, from the usual no-op. The client's own
+    dependencies are not among them (client_r_deps_ready)."""
+    source = client_r_source()
+    client_ready = source is None or (
+        _installed_client_fingerprint(project_fs.kernel_r_lib()) == _client_source_fingerprint(source)
+    )
+    return any(project_fs.r_sandbox().iterdir()) and kernel_r_lib_ready() and client_ready
+
+
+_installs: set = set()
+
+
+def _install_streamed(argv: list[str], lib: Path, on_log=None) -> tuple[int, str]:
+    """Run a shared-library install, its output reaching ``on_log`` as it comes: an R
+    that builds packages from source (Homebrew's, most Linux distributions') compiles
+    for minutes on the first run, and a silent wait reads as a hang. Bounded by the
+    build timeout, not the package-edit one. Returns (exit code, output)."""
+    import subprocess
+
+    # A server stopped mid-install leaves R's lock directory behind, and every later
+    # install into `lib` then refuses to start. One install at a time goes into each
+    # of these libraries, so a lock found here is stale.
+    for lock in lib.glob("00LOCK*"):
+        shutil.rmtree(lock, ignore_errors=True)
+    try:
+        proc = subprocess.Popen(
+            argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
+            env=child_env(provision=True),
+        )
+    except OSError as e:
+        return 127, str(e)
+    timed_out = threading.Event()
+
+    def stop() -> None:
+        timed_out.set()
+        proc.kill()
+
+    timer = threading.Timer(settings.build_timeout_seconds, stop)
+    timer.daemon = True
+    timer.start()
+    _installs.add(proc)
+    lines: list[str] = []
+    try:
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            line = raw.rstrip()
+            lines.append(line)
+            if on_log is not None:
+                on_log(line)
+        code = proc.wait()
+    finally:
+        timer.cancel()
+        _installs.discard(proc)
+    if timed_out.is_set():
+        lines.append(f"Timed out after {settings.build_timeout_seconds}s")
+    return code, "\n".join(lines)
+
+
+def stop_installs() -> None:
+    """Kill the shared-library installs under way: their job was stopped."""
+    for proc in list(_installs):
+        proc.kill()
+
+
 def list_kernel_packages() -> list[dict]:
     """The kernel infra packages (jsonlite/base64enc/svglite) with the version
     installed in the shared kernel library. Project-independent — they live in one
@@ -518,8 +651,8 @@ def ensure_kernel_r_lib(on_log=None) -> None:
     ``R_LIBS`` is NOT enough — ``.Library`` itself must be swapped. Verified: without
     this, ``requireNamespace('svglite')`` is FALSE inside the isolated kernel with
     "there is no package called 'rlang'". Requires ensure_r_sandbox() first."""
-    import subprocess
-
+    if kernel_r_lib_ready():
+        return
     lib = str(project_fs.kernel_r_lib()).replace("\\", "/")
     sandbox = str(project_fs.r_sandbox()).replace("\\", "/")
     deps = ", ".join(f"'{d}'" for d in _KERNEL_DEPS)
@@ -535,22 +668,14 @@ def ensure_kernel_r_lib(on_log=None) -> None:
         f"if (length(.need)) install.packages(.need, lib='{lib}', repos='{repo}', "
         f"dependencies=c('Depends','Imports','LinkingTo')) }})"
     )
-    try:
-        res = subprocess.run(
-            [settings.rscript_bin, "--vanilla", "-e", code],
-            capture_output=True, text=True, timeout=_R_EDIT_TIMEOUT,
-            env=child_env(provision=True),
-        )
-    except (subprocess.SubprocessError, OSError) as e:
-        # Best-effort: a failure here surfaces as the kernel's own import error, which
-        # is clearer than blocking the launch. Log for diagnostics.
-        if on_log is not None:
-            on_log(f"kernel R lib ensure failed: {e}")
-        return
-    # A silent non-zero exit used to leave the library half-populated, which reads to
-    # the user as "figures just don't work" with nothing in any log.
-    if res.returncode != 0 and on_log is not None:
-        on_log(f"kernel R lib ensure failed (exit {res.returncode}): {res.stderr.strip()[:2000]}")
+    if on_log is not None:
+        on_log(f"Installing the R packages every R session of Linkr runs on ({', '.join(_KERNEL_DEPS)}), once for this server.")
+    code_, out = _install_streamed([settings.rscript_bin, "--vanilla", "-e", code], project_fs.kernel_r_lib(), on_log)
+    # Best-effort: a failure surfaces as the kernel's own import error, clearer than
+    # blocking the launch. But never silently: a half-populated library reads to the
+    # user as "figures just don't work" with nothing in any log.
+    if code_ != 0 and on_log is not None:
+        on_log(f"kernel R lib ensure failed (exit {code_}): {out[-2000:]}")
 
 
 # The `linkr` client package's own dependencies. They go in a SEPARATE library that is
@@ -558,6 +683,11 @@ def ensure_kernel_r_lib(on_log=None) -> None:
 # path is loadable by user code, and a script that can library(duckdb) without declaring
 # it breaks wherever the project's own environment is all there is.
 _CLIENT_DEPS = ("DBI", "duckdb", "jsonlite")
+
+
+def client_r_deps_ready() -> bool:
+    lib = project_fs.client_r_lib()
+    return all((lib / d / "DESCRIPTION").is_file() for d in _CLIENT_DEPS)
 
 
 def _r_bin() -> str:
@@ -602,25 +732,59 @@ def _installed_client_fingerprint(lib: Path) -> str | None:
     return stamp.read_text(errors="ignore").strip() or None
 
 
-def ensure_client_r_lib(on_log=None) -> None:
-    """Install the `linkr` client package into the shared KERNEL library, and its
-    dependencies into the separate client library.
+def ensure_client_r_deps(on_log=None) -> None:
+    """Install the `linkr` client package's dependencies (DBI, duckdb, jsonlite) into
+    the client library, kept off ``.libPaths()``: there they would let a script
+    ``library(duckdb)`` without declaring it, and that script then breaks wherever the
+    project's environment is all there is. The package reaches them through
+    ``loadNamespace(lib.loc=)`` instead (the client's R/zzz.R), driven by
+    ``LINKR_CLIENT_R_LIB``.
 
-    Why the kernel library for the package itself: it is the one library on every
-    isolated kernel's ``.libPaths()``, so ``library(linkr)`` resolves even in a project
-    whose environment has never been built — which is the promise the IDE docs make.
+    Only `linkr_connect()` and the API helpers need them, so no session waits for this:
+    the kernel manager runs it as a background job. An R that builds from source
+    (Homebrew's) compiles duckdb for 10 to 30 minutes; the Docker image ships them
+    built (``LINKR_CLIENT_R_LIB``). Raises ProvisionError when the install fails."""
+    client_lib = str(project_fs.client_r_lib()).replace("\\", "/")
+    sandbox = str(project_fs.r_sandbox()).replace("\\", "/")
+    kernel_lib = str(project_fs.kernel_r_lib()).replace("\\", "/")
+    deps = ", ".join(f"'{d}'" for d in _CLIENT_DEPS)
+    repo = settings.r_repos.replace("'", "")
+    # Same isolation the kernel runs under, for the same reason as ensure_kernel_r_lib:
+    # the resolver must see what the kernel sees, or it skips deps that are only present
+    # in the site library and the install is silently incomplete.
+    code = (
+        f"local({{ .sb <- '{sandbox}'; "
+        f"if (dir.exists(.sb)) {{ .b <- .BaseNamespaceEnv; "
+        f"if (bindingIsLocked('.Library', .b)) unlockBinding('.Library', .b); "
+        f"assign('.Library', .sb, envir = .b); lockBinding('.Library', .b) }}; "
+        f".libPaths(c('{client_lib}', '{kernel_lib}')) }}); "
+        f"local({{ .need <- Filter(function(p) "
+        f"!nzchar(system.file(package=p, lib.loc='{client_lib}')), c({deps})); "
+        f"if (length(.need)) install.packages(.need, lib='{client_lib}', repos='{repo}', "
+        f"dependencies=c('Depends','Imports','LinkingTo')) }})"
+    )
+    if on_log is not None:
+        on_log(
+            f"Installing the R packages library(linkr) opens databases with ({', '.join(_CLIENT_DEPS)}), once "
+            "for this server. R sessions do not wait for it. An R that builds packages from source "
+            "compiles duckdb: allow 10 to 30 minutes."
+        )
+    code_, out = _install_streamed([settings.rscript_bin, "--vanilla", "-e", code], project_fs.client_r_lib(), on_log)
+    if code_ != 0 or not client_r_deps_ready():
+        raise ProvisionError(f"The R packages of library(linkr) could not be installed (exit {code_}).\n{out[-2000:]}")
 
-    Why a separate library for DBI/duckdb/jsonlite: everything on ``.libPaths()`` is
-    loadable by user code. There they would let a script ``library(duckdb)`` without
-    declaring it, and that script then breaks wherever the project's environment is all
-    there is. The package reaches them through ``loadNamespace(lib.loc=)`` instead (see
-    the client's R/zzz.R), driven by ``LINKR_CLIENT_R_LIB``.
+
+def ensure_client_r_package(on_log=None) -> None:
+    """Install the `linkr` client package into the shared KERNEL library: it is the one
+    library on every isolated kernel's ``.libPaths()``, so ``library(linkr)`` resolves
+    even in a project whose environment has never been built — which is the promise the
+    IDE docs make. Its dependencies come separately (ensure_client_r_deps).
 
     Reinstalled whenever the shipped SOURCES change, not just the declared version: the
     version is hand-edited and easy to forget, and a stale client is invisible until a
     script calls a function that moved. The fingerprint (mtime + size of every R file
     and DESCRIPTION) is stamped beside the install; a mismatch reinstalls. Idempotent
-    and cheap otherwise (a few stat calls). Requires ensure_r_sandbox() first.
+    and cheap otherwise (a few stat calls).
     """
     import subprocess
 
@@ -632,40 +796,9 @@ def ensure_client_r_lib(on_log=None) -> None:
 
     kernel_lib = project_fs.kernel_r_lib()
     want = _client_source_fingerprint(source)
-    have = _installed_client_fingerprint(kernel_lib)
-    deps_present = all(
-        (project_fs.client_r_lib() / d).is_dir() for d in _CLIENT_DEPS
-    )
-    if have == want and deps_present:
+    if _installed_client_fingerprint(kernel_lib) == want:
         return
-
-    lib = str(kernel_lib).replace("\\", "/")
-    client_lib = str(project_fs.client_r_lib()).replace("\\", "/")
-    sandbox = str(project_fs.r_sandbox()).replace("\\", "/")
-    deps = ", ".join(f"'{d}'" for d in _CLIENT_DEPS)
-    repo = settings.r_repos.replace("'", "")
-    # Same isolation the kernel runs under, for the same reason as ensure_kernel_r_lib:
-    # the resolver must see what the kernel sees, or it skips deps that are only present
-    # in the site library and the install is silently incomplete.
-    code = (
-        f"local({{ .sb <- '{sandbox}'; "
-        f"if (dir.exists(.sb)) {{ .b <- .BaseNamespaceEnv; "
-        f"if (bindingIsLocked('.Library', .b)) unlockBinding('.Library', .b); "
-        f"assign('.Library', .sb, envir = .b); lockBinding('.Library', .b) }}; "
-        f".libPaths(c('{client_lib}', '{lib}')) }}); "
-        f"local({{ .need <- Filter(function(p) "
-        f"!nzchar(system.file(package=p, lib.loc='{client_lib}')), c({deps})); "
-        f"if (length(.need)) install.packages(.need, lib='{client_lib}', repos='{repo}', "
-        f"dependencies=c('Depends','Imports','LinkingTo')) }})"
-    )
     try:
-        res = subprocess.run(
-            [settings.rscript_bin, "--vanilla", "-e", code],
-            capture_output=True, text=True, timeout=_R_EDIT_TIMEOUT,
-            env=child_env(provision=True),
-        )
-        if res.returncode != 0 and on_log is not None:
-            on_log(f"client R deps install failed (exit {res.returncode}): {res.stderr.strip()[:2000]}")
         # INSTALL, not install.packages(): the sources are a local directory, and this
         # skips the repo entirely. --no-test-load because the load test would resolve
         # the Suggests (DBI/duckdb) that deliberately are not on this library's path.
@@ -707,6 +840,12 @@ async def build(project_uid: str, on_log=None, options: dict | None = None) -> B
             on_log(str(e))
         return BuildResult(ok=False, log=str(e))
     ensure_r_sandbox(on_log=on_log)
+    try:
+        await asyncio.to_thread(ensure_renv, on_log)
+    except ProvisionError as e:
+        if on_log is not None:
+            on_log(str(e))
+        return BuildResult(ok=False, log=str(e))
     # Pass the target library explicitly: outside an activated renv project,
     # RENV_PATHS_LIBRARY isn't enough — renv restores into a default location.
     # Forward-slash the path so it's a valid R string literal on every OS.
