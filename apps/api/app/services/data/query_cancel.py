@@ -175,6 +175,34 @@ def raise_if_interrupted() -> None:
             raise duckdb.InterruptException("query cancelled")
 
 
+# An interrupt landing after the between-statements check and before the statement
+# starts finds nothing to stop, and the statement then runs to its end: it is sent
+# again while the query stays registered, every REINTERRUPT_EVERY_S, this many times.
+REINTERRUPT_EVERY_S = 0.25
+REINTERRUPTS = 20
+
+
+def _reinterrupt_later(query_id: str, con: duckdb.DuckDBPyConnection, remaining: int) -> None:
+    if remaining <= 0:
+        return
+
+    def again() -> None:
+        with _lock:
+            entry = _running.get(query_id)
+            # Under the lock and only while this query holds `con`, as in `cancel`.
+            if entry is None or entry[1] is not con:
+                return
+            try:
+                con.interrupt()
+            except Exception:  # noqa: BLE001 — a query finishing as we interrupt is fine
+                return
+        _reinterrupt_later(query_id, con, remaining - 1)
+
+    timer = threading.Timer(REINTERRUPT_EVERY_S, again)
+    timer.daemon = True
+    timer.start()
+
+
 def cancel(query_id: str, owner: str) -> bool:
     """Interrupt `owner`'s query `query_id`. True when a running query was hit."""
     now = time.monotonic()
@@ -199,6 +227,7 @@ def cancel(query_id: str, owner: str) -> bool:
         _interrupted.add(query_id)
         hook = entry[2]
         con = entry[1]
+    _reinterrupt_later(query_id, con, REINTERRUPTS)
     stuck = threading.Timer(STUCK_AFTER_S, _check_stuck, (query_id, con))
     stuck.daemon = True
     stuck.start()

@@ -38,6 +38,30 @@ def test_cancel_interrupts_a_running_query():
     assert "q1" not in query_cancel._running
 
 
+def test_a_cancel_landing_just_before_the_statement_starts_still_stops_it(monkeypatch):
+    con = duckdb.connect()
+    checked, cancelled = threading.Event(), threading.Event()
+    check = query_cancel.raise_if_interrupted
+
+    def check_then_let_the_cancel_land():
+        check()
+        checked.set()
+        cancelled.wait(5)
+
+    monkeypatch.setattr(db_connect.query_cancel, "raise_if_interrupted", check_then_let_the_cancel_land)
+    outcome: dict = {}
+    thread = _run_tagged(con, "SELECT sum(i * i) FROM range(20000000000) t(i)", "q-window", "7", outcome)
+    assert checked.wait(5)
+    assert query_cancel.cancel("q-window", "7") is True
+    cancelled.set()
+    thread.join(10)
+    if thread.is_alive():
+        con.interrupt()
+        thread.join(10)
+        pytest.fail("the statement ran on past its cancel")
+    assert isinstance(outcome.get("error"), duckdb.InterruptException)
+
+
 def test_another_user_cannot_cancel():
     con = duckdb.connect()
     outcome: dict = {}
